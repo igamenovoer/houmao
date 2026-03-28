@@ -22,12 +22,25 @@ The getting-started section SHALL include an architecture overview document that
 
 ### Requirement: Agent definition directory layout documented
 
-The getting-started section SHALL include a page documenting the agent definition directory structure (`skills/<skill>/`, `roles/<role>/system-prompt.md`, `roles/<role>/presets/<tool>/<setup>.yaml`, `tools/<tool>/adapter.yaml`, `tools/<tool>/setups/<setup>/`, `tools/<tool>/auth/<auth>/`, and optional `compatibility-profiles/`) with the purpose of each subdirectory.
+The getting-started section SHALL include a page documenting the repo-local Houmao project overlay rooted at `.houmao/`, including:
 
-#### Scenario: Reader can set up a new agent definition directory
+- `.houmao/houmao-config.toml`
+- `.houmao/.gitignore`
+- `.houmao/agents/skills/<skill>/`
+- `.houmao/agents/roles/<role>/system-prompt.md`
+- `.houmao/agents/roles/<role>/presets/<tool>/<setup>.yaml`
+- `.houmao/agents/tools/<tool>/adapter.yaml`
+- `.houmao/agents/tools/<tool>/setups/<setup>/`
+- `.houmao/agents/tools/<tool>/auth/<auth>/`
+- optional `.houmao/agents/compatibility-profiles/`
+
+That page SHALL explain the purpose of each subdirectory and SHALL make clear that the `.houmao/` overlay is local-only by default.
+
+#### Scenario: Reader can initialize a new local Houmao project overlay
 
 - **WHEN** a reader follows the agent definition directory page
-- **THEN** they understand what goes in each canonical subdirectory and which files are committed vs local-only (`tools/<tool>/auth/`)
+- **THEN** they understand that `houmao-mgr project init` creates the local `.houmao/` overlay and local `agents/` source tree
+- **AND THEN** they understand which files are local-only, including the whole `.houmao/` overlay and `tools/<tool>/auth/`
 
 ### Requirement: Quickstart guide covers build and launch
 
@@ -36,6 +49,8 @@ The getting-started section SHALL include a quickstart page showing how to build
 The quickstart SHALL:
 
 - present the `houmao-mgr agents join` adoption workflow as the simplest entry point before the build-and-launch workflow,
+- start the build-based workflow with `houmao-mgr project init`,
+- use project-local default agent-definition resolution rooted at `.houmao/houmao-config.toml` for the build-based workflow rather than instructing readers to manually copy `.agentsys/agents`,
 - use `houmao-mgr brains build` when teaching build-phase concepts,
 - use `houmao-mgr agents launch --agents <selector> --agent-name <name>` for the primary managed launch path,
 - show follow-up control targeted by `--agent-name` or `--agent-id`,
@@ -50,6 +65,11 @@ The quickstart section covering `agents join` SHALL include a Mermaid sequence d
 - **THEN** the first workflow shown is `houmao-mgr agents join` adopting an existing tmux-backed provider session
 - **AND THEN** the join workflow appears before the build-and-launch workflow
 - **AND THEN** the join section includes a Mermaid sequence diagram showing the adoption flow
+
+#### Scenario: Build-based quickstart starts with project init
+- **WHEN** a reader follows the build-based quickstart workflow
+- **THEN** the first setup command is `houmao-mgr project init`
+- **AND THEN** the workflow does not tell the reader to manually copy or assemble `.agentsys/agents` before build or launch
 
 #### Scenario: Quickstart uses current managed-agent selectors
 
@@ -85,6 +105,16 @@ The README SHALL include at minimum:
 - **WHEN** a reader reads the "How Agents Join Your Workflow" paragraph
 - **THEN** the paragraph describes both managed launch and `agents join` as working paths
 - **AND THEN** the paragraph does not contain language like "today, the management commands assume the session was launched by `houmao-mgr`"
+
+### Requirement: Getting-started docs use tool-oriented project auth commands
+Repo-owned getting-started guidance for the repo-local `.houmao/` project overlay SHALL describe project-local auth management through `houmao-mgr project agent-tools <tool> auth ...` rather than through `project credential ...`.
+
+At minimum, the agent-definition layout guide SHALL explain that the CLI mirrors `.houmao/agents/tools/<tool>/auth/<name>/`, and quickstart-style examples SHALL use the renamed command family when showing local auth-bundle creation or inspection.
+
+#### Scenario: Reader sees matching CLI and directory-tree nouns
+- **WHEN** a reader follows the project-overlay and agent-definition getting-started docs
+- **THEN** the docs use `houmao-mgr project agent-tools <tool> auth ...` when describing local auth bundles
+- **AND THEN** the surrounding explanation matches the documented directory tree under `.houmao/agents/tools/<tool>/auth/<name>/`
 
 ### Requirement: Getting-started docs point to the supported minimal demo
 

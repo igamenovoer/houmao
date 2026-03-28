@@ -11,6 +11,7 @@ At minimum, that native tree SHALL include:
 - `brains`
 - `admin`
 - `mailbox`
+- `project`
 
 Those command families SHALL be documented as Houmao-owned pair commands or Houmao-owned local operator commands, as appropriate.
 
@@ -20,13 +21,27 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 
 #### Scenario: Native help surface shows the new top-level command families
 - **WHEN** an operator runs `houmao-mgr --help`
-- **THEN** the help output includes `server`, `agents`, `brains`, `admin`, and `mailbox`
+- **THEN** the help output includes `server`, `agents`, `brains`, `admin`, `mailbox`, and `project`
 - **AND THEN** the help output does NOT include `cao` or top-level `launch`
 
 #### Scenario: Bare invocation prints help instead of raising an exception
 - **WHEN** an operator runs `houmao-mgr` without any arguments
 - **THEN** the CLI prints help text showing available command groups
 - **AND THEN** the CLI does NOT raise a Python exception or print a stack trace
+
+### Requirement: `houmao-mgr project` exposes `agent-tools` instead of `credential`
+When `houmao-mgr` exposes the repo-local `project` command family, that family SHALL include:
+
+- `init`
+- `status`
+- `agent-tools`
+
+The `project` help surface SHALL NOT advertise `credential` as the supported project-local auth-management subtree.
+
+#### Scenario: Project help shows the renamed tool-oriented subtree
+- **WHEN** an operator runs `houmao-mgr project --help`
+- **THEN** the help output lists `init`, `status`, and `agent-tools`
+- **AND THEN** the help output does not present `credential` as the supported project auth-management command family
 
 ### Requirement: `houmao-mgr server` accepts passive server pair authorities
 `houmao-mgr server` lifecycle commands SHALL accept a supported pair authority whose `GET /health` reports `houmao_service == "houmao-passive-server"` in addition to `houmao-server`.
