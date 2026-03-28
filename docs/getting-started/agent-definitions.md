@@ -88,3 +88,5 @@ Generated runtime homes and manifests are also disposable and gitignored.
 3. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings.
 4. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, and the effective auth bundle to materialize a runtime home.
 5. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
+
+If you want a small runnable example that uses this exact layout, see [scripts/demo/minimal-agent-launch/tut-agent-launch-minimal.md](../../scripts/demo/minimal-agent-launch/tut-agent-launch-minimal.md).

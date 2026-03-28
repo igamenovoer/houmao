@@ -129,3 +129,4 @@ pixi run houmao-mgr agents stop --agent-name research
 
 - [Architecture Overview](overview.md)
 - [Agent Definition Directory](agent-definitions.md)
+- [Minimal Runnable Demo](../../scripts/demo/minimal-agent-launch/tut-agent-launch-minimal.md)
