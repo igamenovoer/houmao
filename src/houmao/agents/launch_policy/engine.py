@@ -37,7 +37,7 @@ from houmao.agents.launch_policy.provider_hooks import (
 
 _VERSION_PATTERN = re.compile(r"(\d+\.\d+\.\d+)")
 _OVERRIDE_ENV_VAR = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
-_OPERATOR_PROMPT_MODES: tuple[OperatorPromptMode, ...] = ("interactive", "unattended")
+_OPERATOR_PROMPT_MODES: tuple[OperatorPromptMode, ...] = ("as_is", "unattended")
 _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "raw_launch",
     "codex_headless",
@@ -75,7 +75,7 @@ _ACTION_KINDS: tuple[
 def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
     """Resolve and apply launch policy for one launch request."""
 
-    if request.requested_operator_prompt_mode in {None, "interactive"}:
+    if request.requested_operator_prompt_mode in {None, "as_is"}:
         return LaunchPolicyResult(
             executable=request.executable,
             args=request.base_args,
@@ -254,7 +254,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     )
     if operator_prompt_mode_raw not in _OPERATOR_PROMPT_MODES:
         raise LaunchPolicyError(
-            f"{source}.operator_prompt_mode must be `interactive` or `unattended`."
+            f"{source}.operator_prompt_mode must be `as_is` or `unattended`."
         )
     operator_prompt_mode = cast(OperatorPromptMode, operator_prompt_mode_raw)
 

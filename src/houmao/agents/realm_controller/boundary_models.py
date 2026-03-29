@@ -17,7 +17,7 @@ from .agent_identity import normalize_managed_agent_id, normalize_managed_agent_
 from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 
-OperatorPromptModeV1: TypeAlias = Literal["interactive", "unattended"]
+OperatorPromptModeV1: TypeAlias = Literal["as_is", "unattended"]
 LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
 RegistryLaunchAuthorityV1: TypeAlias = Literal["runtime", "external"]
 SessionOriginV1: TypeAlias = Literal["joined_tmux"]

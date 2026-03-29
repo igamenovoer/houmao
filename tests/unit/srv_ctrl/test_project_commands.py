@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 import pytest
+import yaml
 
 from houmao.project.overlay import bootstrap_project_overlay
 from houmao.server.models import HoumaoManagedAgentIdentity, HoumaoManagedAgentListResponse
@@ -506,6 +507,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     assert get_payload["tool"] == "codex"
     assert get_payload["credential"] == "researcher-creds"
     assert get_payload["skills"] == ["notes"]
+    assert get_payload["launch"] == {"prompt_mode": "unattended"}
 
     remove_result = runner.invoke(
         cli, ["project", "easy", "specialist", "remove", "--name", "researcher"]
@@ -567,6 +569,54 @@ def test_project_easy_specialist_create_allows_promptless_specialist(
     prompt_path = repo_root / ".houmao" / "agents" / "roles" / "reviewer" / "system-prompt.md"
     assert prompt_path.is_file()
     assert prompt_path.read_text(encoding="utf-8") == ""
+
+
+def test_project_easy_specialist_create_can_persist_as_is_opt_out(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "reviewer",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--no-unattended",
+        ],
+    )
+
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    preset_path = Path(create_payload["generated"]["preset"])
+    preset_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "reviewer"],
+        ).output
+    )
+
+    assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
+        "prompt_mode": "as_is"
+    }
+    assert preset_payload["launch"] == {"prompt_mode": "as_is"}
 
 
 def test_project_easy_specialist_create_fails_when_default_bundle_is_missing(

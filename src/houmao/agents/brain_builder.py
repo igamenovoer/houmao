@@ -203,11 +203,17 @@ def _parse_operator_prompt_mode(
     if not isinstance(raw_value, str) or not raw_value.strip():
         raise BuildError(f"{source}: operator_prompt_mode must be a non-empty string when set")
     value = raw_value.strip()
-    if value not in {"interactive", "unattended"}:
+    if value not in {"as_is", "unattended"}:
         raise BuildError(
-            f"{source}: operator_prompt_mode must be `interactive` or `unattended`, got {value!r}"
+            f"{source}: operator_prompt_mode must be `as_is` or `unattended`, got {value!r}"
         )
     return cast(OperatorPromptMode, value)
+
+
+def _resolved_operator_prompt_mode(operator_prompt_mode: OperatorPromptMode | None) -> OperatorPromptMode:
+    """Resolve the effective operator prompt mode for one build request."""
+
+    return operator_prompt_mode or "unattended"
 
 
 def load_brain_recipe(path: Path) -> BrainRecipe:
@@ -599,13 +605,15 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     manifests_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = manifests_dir / f"{home_id}.yaml"
     launch_helper_path = home_path / "launch.sh"
+    resolved_operator_prompt_mode = _resolved_operator_prompt_mode(request.operator_prompt_mode)
+
     launch_preview = _build_launch_helper(
         home_path=home_path,
         helper_path=launch_helper_path,
         adapter=adapter,
         launch_args=launch_helper_args,
         env_exports={key: env_values[key] for key in selected_env_names},
-        operator_prompt_mode=request.operator_prompt_mode,
+        operator_prompt_mode=resolved_operator_prompt_mode,
     )
 
     construction_provenance: dict[str, object] = {
@@ -631,7 +639,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             else None,
         },
         "launch_policy": {
-            "operator_prompt_mode": request.operator_prompt_mode or "interactive",
+            "operator_prompt_mode": resolved_operator_prompt_mode,
         },
         "runtime": {
             "runtime_root": str(runtime_root),
@@ -746,7 +754,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--home-id", help="Optional fixed home id")
     parser.add_argument(
         "--operator-prompt-mode",
-        choices=["interactive", "unattended"],
+        choices=["as_is", "unattended"],
         help="Requested startup operator prompt policy for the built brain",
     )
     parser.add_argument(

@@ -45,6 +45,28 @@ def _load_toml(path: Path) -> dict[str, object]:
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
+def test_as_is_launch_policy_bypasses_strategy_resolution(tmp_path: Path) -> None:
+    home = tmp_path / "codex-home"
+    home.mkdir()
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="codex",
+            backend="codex_headless",
+            executable="codex",
+            base_args=("--foo",),
+            requested_operator_prompt_mode="as_is",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    assert result.args == ("--foo",)
+    assert result.provenance is None
+    assert result.strategy is None
+
+
 def test_codex_unattended_strategy_supports_auth_json_fresh_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

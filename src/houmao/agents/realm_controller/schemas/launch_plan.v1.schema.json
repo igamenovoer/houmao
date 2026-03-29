@@ -155,7 +155,7 @@
         },
         "requested_operator_prompt_mode": {
           "enum": [
-            "interactive",
+            "as_is",
             "unattended"
           ],
           "title": "Requested Operator Prompt Mode",

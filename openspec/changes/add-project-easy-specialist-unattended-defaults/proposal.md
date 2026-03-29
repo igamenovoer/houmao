@@ -1,16 +1,18 @@
 ## Why
 
-`houmao-mgr project easy` is supposed to be the higher-level, low-friction operator path, but easy-created Claude specialists currently launch with interactive startup prompts because the generated preset omits `launch.prompt_mode`. That is the wrong default now that Houmao already supports unattended TUI startup through the versioned launch-policy path.
+Houmao's current operator-prompt policy vocabulary is misleading for an automation-first system. `interactive` is treated as the pass-through mode, but the real intent is not "show an interactive UI"; it is "leave provider startup as-is and do not inject unattended policy." That naming leaks the opposite of what most Houmao users actually want, because the primary target workflows are managed automation runs where unattended startup is the default expectation.
 
-The startup posture belongs to the reusable specialist definition, not to one concrete instance launch. Storing that posture on the specialist keeps launch behavior honest across first launch, relaunch, and inspection, while still allowing an explicit opt-out when an operator wants normal interactive startup.
+This change started from `project easy` specialist defaulting, but that surface exposed a broader repository-wide policy mismatch. The system should default to unattended behavior across its build and launch seams, reserve one explicit opt-out for raw provider startup, and align presets, build requests, manifests, launch-policy provenance, runtime diagnostics, and high-level `project easy` authoring around the same intent model.
 
 ## What Changes
 
-- Make `houmao-mgr project easy specialist create` persist unattended startup posture by default for supported easy-launch tools instead of omitting launch prompt mode.
-- Add `--no-unattended` to `houmao-mgr project easy specialist create` as the explicit opt-out for operators who want interactive startup prompts.
-- Keep the default/opt-out as specialist configuration by writing canonical `launch.prompt_mode` into the generated preset and catalog-backed specialist metadata.
-- Keep `houmao-mgr project easy instance launch` as a thin runtime wrapper that honors the stored specialist launch posture instead of injecting its own prompt-mode policy.
-- Fail closed through existing launch-policy resolution when a stored unattended specialist posture is not supported for the resolved tool/backend/version pair.
+- Keep the existing policy key names, but change the allowed mode values repository-wide from `interactive|unattended` to `as_is|unattended`.
+- Redefine `as_is` to mean "do not inject unattended launch behavior; use the raw provider startup posture."
+- Change the default policy to `unattended` when declarative or direct build inputs omit an explicit prompt mode.
+- Make `houmao-mgr project easy specialist create` persist explicit unattended posture by default for supported tools, with `--no-unattended` persisting `as_is`.
+- Update low-level preset authoring and launch-facing CLI surfaces so `--prompt-mode` / operator-prompt inputs use `as_is|unattended` and no longer use `interactive`.
+- Update built brain manifests, launch-plan metadata, session provenance, runtime validation, diagnostics, and tests/docs to use the new semantics consistently.
+- Treat existing explicit `interactive` policy values as obsolete and require migration to `as_is` rather than carrying a long-term alias.
 
 ## Capabilities
 
@@ -20,17 +22,21 @@ None.
 
 ### Modified Capabilities
 
-- `houmao-mgr-project-easy-cli`: easy specialist creation persists unattended startup posture by default for supported tools, exposes `--no-unattended` as the opt-out, and easy instance launch honors the stored specialist launch payload without additional prompt-mode injection.
+- `houmao-mgr-project-easy-cli`: easy specialists default to unattended posture, `--no-unattended` persists `as_is`, and instance launch honors the stored specialist launch payload.
+- `houmao-mgr-project-agents-roles`: low-level preset authoring uses `launch.prompt_mode` values `unattended|as_is` and defaults authored presets to unattended posture.
+- `component-agent-construction`: declarative presets, direct build inputs, and resolved manifests use the new `as_is|unattended` operator-prompt policy semantics, with omitted policy resolving to unattended.
+- `houmao-mgr-agents-launch`: preset-backed local launches preserve the new policy vocabulary, including unattended-by-default behavior when a preset omits prompt mode.
+- `brain-launch-runtime`: runtime launch planning, strategy resolution, provenance, and failure behavior align with the new `as_is|unattended` policy semantics.
 
 ## Impact
 
 - Affected code:
-  `src/houmao/srv_ctrl/commands/project.py`, `src/houmao/project/catalog.py`, and any projection/rendering helpers that surface specialist launch payload.
-- Affected tests:
-  project easy CLI tests for specialist creation, specialist get/list projection, and instance launch/build request forwarding.
+  `src/houmao/agents/definition_parser.py`, `src/houmao/agents/brain_builder.py`, `src/houmao/agents/launch_policy/{cli,engine,models}.py`, `src/houmao/agents/realm_controller/{launch_plan,boundary_models}.py`, `src/houmao/srv_ctrl/commands/{agents/core.py,brains.py,project.py}`, and `src/houmao/project/catalog.py`.
+- Affected schemas and persisted/runtime-visible state:
+  resolved brain manifests, session-manifest boundary schemas, launch-plan schemas, typed launch-policy provenance, preset YAML payloads, and project catalog launch payloads.
 - Affected operator surfaces:
-  `houmao-mgr project easy specialist create`, generated `.houmao/agents/roles/<role>/presets/<tool>/default.yaml`, and `houmao-mgr project easy instance launch`.
-- Affected persisted/runtime-visible state:
-  specialist catalog `launch_payload`, rendered preset `launch.prompt_mode`, built brain manifest `launch_policy.operator_prompt_mode`, and session launch-policy provenance on unattended launches.
-- Dependencies and systems:
-  project-easy catalog/projection flow, launch-policy resolution, and existing unattended TUI support for maintained tool/backend pairs.
+  `houmao-mgr project easy specialist create`, `houmao-mgr project agents roles presets add`, related low-level role scaffold/init commands, `houmao-mgr brains build`, and preset-backed `houmao-mgr agents launch`.
+- Affected tests and fixtures:
+  parser, builder, launch-policy, runtime, CLI, and fixture preset coverage that currently assumes `interactive|unattended` or omitted-as-pass-through semantics.
+- Affected documentation and specs:
+  OpenSpec capability docs, launch/runtime docs, troubleshooting docs, and operator examples that currently describe `interactive` as the non-unattended mode.

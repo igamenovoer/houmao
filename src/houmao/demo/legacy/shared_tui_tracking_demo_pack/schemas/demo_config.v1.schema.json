@@ -666,7 +666,7 @@
           "anyOf": [
             {
               "enum": [
-                "interactive",
+                "as_is",
                 "unattended"
               ],
               "type": "string"
@@ -715,7 +715,7 @@
           "anyOf": [
             {
               "enum": [
-                "interactive",
+                "as_is",
                 "unattended"
               ],
               "type": "string"

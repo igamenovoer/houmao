@@ -175,13 +175,14 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / ".env").is_symlink()
     assert (home / "launch.sh").is_file()
     launch_script = (home / "launch.sh").read_text(encoding="utf-8")
-    assert 'exec codex "$@"' in launch_script
+    assert "houmao.agents.launch_policy.cli" in launch_script
+    assert "--requested-operator-prompt-mode unattended" in launch_script
 
     manifest_text = result.manifest_path.read_text(encoding="utf-8")
     manifest = yaml.safe_load(manifest_text)
 
     assert manifest["inputs"]["skills"] == ["skill-a"]
-    assert manifest["launch_policy"]["operator_prompt_mode"] == "interactive"
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "unattended"
     assert manifest["runtime"]["home_path"] == str(home)
     assert manifest["credentials"]["env_contract"]["selected_env_vars"] == [
         "OPENAI_API_KEY",
@@ -510,6 +511,7 @@ def test_build_brain_home_projects_claude_settings_and_template(tmp_path: Path) 
             config_profile="default",
             credential_profile="personal-a",
             home_id="claude-home-001",
+            operator_prompt_mode="as_is",
         )
     )
 
@@ -524,7 +526,7 @@ def test_build_brain_home_projects_claude_settings_and_template(tmp_path: Path) 
     assert "export ANTHROPIC_BASE_URL=https://api.example.test" in launch_script
     assert "ENV_FILE=" not in launch_script
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["launch_policy"]["operator_prompt_mode"] == "interactive"
+    assert manifest["launch_policy"]["operator_prompt_mode"] == "as_is"
 
 
 def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_cli(
@@ -573,6 +575,7 @@ def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:
             launch_overrides=LaunchOverrides(
                 args=LaunchArgsSection(mode="replace", values=()),
             ),
+            operator_prompt_mode="as_is",
         )
     )
 
@@ -629,12 +632,14 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
     assert manifest["runtime"]["launch_contract"]["construction_provenance"]["preset_path"] == str(
         (tmp_path / "recipe.yaml").resolve()
     )
-    assert 'exec claude --direct "$@"' in launch_script
+    assert "houmao.agents.launch_policy.cli" in launch_script
+    assert "--requested-operator-prompt-mode unattended" in launch_script
+    assert "--launch-arg --direct" in launch_script
 
 
 def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> None:
     agent_def_dir = Path(__file__).resolve().parents[2] / "fixtures" / "agents"
-    adapter = _load_tool_adapter(agent_def_dir / "brains" / "tool-adapters" / "claude.yaml")
+    adapter = _load_tool_adapter(agent_def_dir / "tools" / "claude" / "adapter.yaml")
 
     allowlist = set(adapter.credential_env_allowlist)
     assert {

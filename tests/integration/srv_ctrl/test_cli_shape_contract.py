@@ -123,7 +123,7 @@ def _seed_brain_manifest(tmp_path: Path) -> Path:
                 "  adapter_path: /tmp/adapter.yaml",
                 "  preset_path: /tmp/preset.yaml",
                 "launch_policy:",
-                "  operator_prompt_mode: interactive",
+                "  operator_prompt_mode: as_is",
                 "runtime:",
                 "  launch_executable: claude",
                 f"  runtime_root: {tmp_path}",

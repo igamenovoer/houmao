@@ -95,8 +95,9 @@ def _manifest(
             },
         },
     }
-    if launch_policy is not None:
-        manifest["launch_policy"] = launch_policy
+    manifest["launch_policy"] = (
+        launch_policy if launch_policy is not None else {"operator_prompt_mode": "as_is"}
+    )
     return manifest
 
 

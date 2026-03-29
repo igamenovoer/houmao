@@ -173,7 +173,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     if launch_policy_result.strategy is not None:
         metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
     metadata["launch_policy_request"] = {
-        "operator_prompt_mode": requested_operator_prompt_mode or "interactive",
+        "operator_prompt_mode": requested_operator_prompt_mode,
     }
     launch_overrides_metadata = metadata.get("launch_overrides")
     if isinstance(launch_overrides_metadata, dict):
@@ -321,15 +321,15 @@ def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptM
 
     launch_policy = manifest.get("launch_policy")
     if launch_policy is None:
-        return None
+        return "unattended"
     if not isinstance(launch_policy, dict):
         raise LaunchPlanError("Manifest `launch_policy` must be a mapping when set.")
     value = launch_policy.get("operator_prompt_mode")
     if value is None:
-        return None
-    if not isinstance(value, str) or value not in {"interactive", "unattended"}:
+        return "unattended"
+    if not isinstance(value, str) or value not in {"as_is", "unattended"}:
         raise LaunchPlanError(
-            "Manifest `launch_policy.operator_prompt_mode` must be `interactive` or `unattended`."
+            "Manifest `launch_policy.operator_prompt_mode` must be `as_is` or `unattended`."
         )
     return cast(OperatorPromptMode, value)
 

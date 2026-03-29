@@ -44,7 +44,8 @@ Useful `start-session` overrides:
 
 Useful `build-brain` or `houmao-mgr brains build` override:
 
-- `--operator-prompt-mode unattended` to request versioned unattended launch-policy resolution for the built brain instead of the default interactive posture
+- `--operator-prompt-mode unattended` to request versioned unattended launch-policy resolution for the built brain
+- `--operator-prompt-mode as_is` to keep the provider startup posture unchanged; omitted mode now defaults to `unattended`
 
 The preferred operator surface is `houmao-server + houmao-mgr`. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
 

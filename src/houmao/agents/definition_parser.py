@@ -460,9 +460,9 @@ def _parse_operator_prompt_mode(raw_value: object, *, source: str) -> OperatorPr
     if not isinstance(raw_value, str) or not raw_value.strip():
         raise ValueError(f"{source}: prompt_mode must be a non-empty string when set")
     value = raw_value.strip()
-    if value not in {"interactive", "unattended"}:
+    if value not in {"as_is", "unattended"}:
         raise ValueError(
-            f"{source}: prompt_mode must be `interactive` or `unattended`, got {value!r}"
+            f"{source}: prompt_mode must be `as_is` or `unattended`, got {value!r}"
         )
     return cast(OperatorPromptMode, value)
 

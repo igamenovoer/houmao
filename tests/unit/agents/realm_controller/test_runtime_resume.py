@@ -42,7 +42,7 @@ def _seed_manifest(
     *,
     tool: str = "claude",
     cao_parsing_mode: str | None = None,
-    operator_prompt_mode: str | None = None,
+    operator_prompt_mode: str | None = "as_is",
 ) -> Path:
     if tool == "claude":
         env_var = "ANTHROPIC_API_KEY"

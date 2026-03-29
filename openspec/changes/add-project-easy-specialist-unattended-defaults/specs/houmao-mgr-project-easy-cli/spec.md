@@ -36,7 +36,7 @@ The resulting project-local catalog and managed content store SHALL remain the a
 
 For tools whose maintained easy launch path supports unattended startup, `specialist create` SHALL persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset.
 
-When the operator passes `--no-unattended`, the command SHALL persist explicit interactive startup posture for that specialist instead of omitting launch prompt mode entirely.
+When the operator passes `--no-unattended`, the command SHALL persist `launch.prompt_mode: as_is` for that specialist rather than omitting launch prompt mode or storing a legacy `interactive` value.
 
 For tools whose maintained easy launch path does not support unattended startup, the command SHALL NOT inject unattended launch posture solely because the tool was selected.
 
@@ -55,8 +55,8 @@ For tools whose maintained easy launch path does not support unattended startup,
 #### Scenario: Operator can opt out of the easy unattended default
 - **WHEN** an operator runs `houmao-mgr project easy specialist create --name python-sde --tool claude --api-key sk-test --no-unattended`
 - **THEN** the command persists specialist `python-sde` successfully
-- **AND THEN** the stored specialist launch payload records interactive startup posture explicitly
-- **AND THEN** the generated preset stores `launch.prompt_mode: interactive`
+- **AND THEN** the stored specialist launch payload records `prompt_mode = as_is`
+- **AND THEN** the generated preset stores `launch.prompt_mode: as_is`
 
 #### Scenario: Promptless specialist still persists as a valid catalog-backed specialist
 - **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool gemini --gemini-oauth-creds /tmp/oauth.json`
@@ -128,8 +128,8 @@ If mailbox validation or mailbox bootstrap fails during a mailbox-enabled easy l
 - **THEN** the resulting brain build records unattended operator prompt mode
 - **AND THEN** the runtime launch uses that stored unattended posture for the selected maintained launch surface
 
-#### Scenario: Easy instance launch honors stored interactive specialist posture
-- **WHEN** specialist `python-sde` exists in the project-local catalog with stored `launch.prompt_mode: interactive`
+#### Scenario: Easy instance launch honors stored as-is specialist posture
+- **WHEN** specialist `python-sde` exists in the project-local catalog with stored `launch.prompt_mode: as_is`
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist python-sde --name python-sde`
-- **THEN** the resulting brain build records interactive operator prompt mode
+- **THEN** the resulting brain build records `as_is` operator prompt mode
 - **AND THEN** the command does not inject unattended startup behavior merely because the launch came through the easy instance surface

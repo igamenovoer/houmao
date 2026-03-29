@@ -133,6 +133,24 @@ extra:
     assert preset.gateway_defaults.port == 43123
 
 
+def test_parse_agent_preset_accepts_as_is_prompt_mode(tmp_path: Path) -> None:
+    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    _write(
+        preset_path,
+        """
+skills:
+  - skill-a
+launch:
+  prompt_mode: as_is
+""".strip()
+        + "\n",
+    )
+
+    preset = parse_agent_preset(preset_path)
+
+    assert preset.operator_prompt_mode == "as_is"
+
+
 def test_parse_agent_preset_rejects_invalid_gateway_defaults_under_extra(tmp_path: Path) -> None:
     preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
     _write(

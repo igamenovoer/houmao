@@ -767,7 +767,10 @@ def get_project_role_command(name: str) -> None:
     "--skill", "skill_names", multiple=True, help="Repeatable skill name for the initial preset."
 )
 @click.option(
-    "--prompt-mode", default=None, help="Optional launch.prompt_mode for the initial preset."
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Optional launch.prompt_mode for the initial preset; defaults to `unattended`.",
 )
 def init_project_role_command(
     name: str,
@@ -840,7 +843,10 @@ def init_project_role_command(
     "--skill", "skill_names", multiple=True, help="Repeatable skill name to scaffold or reference."
 )
 @click.option(
-    "--prompt-mode", default=None, help="Optional launch.prompt_mode for generated presets."
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Optional launch.prompt_mode for generated presets; defaults to `unattended`.",
 )
 def scaffold_project_role_command(
     name: str,
@@ -988,7 +994,12 @@ def get_project_role_preset_command(role: str, tool_name: str, setup: str) -> No
 @click.option("--setup", default="default", show_default=True, help="Preset setup name.")
 @click.option("--skill", "skill_names", multiple=True, help="Repeatable skill name.")
 @click.option("--auth", default=None, help="Optional auth bundle name.")
-@click.option("--prompt-mode", default=None, help="Optional launch.prompt_mode value.")
+@click.option(
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Optional launch.prompt_mode value; defaults to `unattended`.",
+)
 def add_project_role_preset_command(
     role: str,
     tool_name: str,
@@ -1117,6 +1128,11 @@ def easy_specialist_group() -> None:
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
     help="Repeatable skill directory to import into `.houmao/agents/skills/`.",
 )
+@click.option(
+    "--no-unattended",
+    is_flag=True,
+    help="Persist `launch.prompt_mode: as_is` instead of the easy unattended default.",
+)
 def create_easy_specialist_command(
     name: str,
     system_prompt: str | None,
@@ -1134,6 +1150,7 @@ def create_easy_specialist_command(
     use_vertex_ai: bool,
     gemini_oauth_creds: Path | None,
     skill_dirs: tuple[Path, ...],
+    no_unattended: bool,
 ) -> None:
     """Create one project-local specialist and compile it into the canonical tree."""
 
@@ -1173,6 +1190,7 @@ def create_easy_specialist_command(
         use_vertex_ai=use_vertex_ai,
         gemini_oauth_creds=gemini_oauth_creds,
     )
+    prompt_mode = "as_is" if no_unattended or tool_name not in {"claude", "codex"} else "unattended"
 
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
     system_prompt_path = _write_role_prompt(role_root=role_root, prompt_text=prompt_text)
@@ -1183,7 +1201,7 @@ def create_easy_specialist_command(
         setup="default",
         skills=[skill_path.name for skill_path in imported_skills],
         auth=credential_name,
-        prompt_mode=None,
+        prompt_mode=prompt_mode,
     )
     metadata = ProjectCatalog.from_overlay(overlay).store_specialist_from_sources(
         name=specialist_name,
@@ -1195,7 +1213,7 @@ def create_easy_specialist_command(
         prompt_path=system_prompt_path,
         auth_path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
         skill_paths=tuple(imported_skills),
-        launch_mapping=None,
+        launch_mapping={"prompt_mode": prompt_mode},
         mailbox_mapping=None,
         extra_mapping=None,
     )
@@ -1921,11 +1939,11 @@ def _write_role_preset(
     preset_file = _preset_path(overlay=overlay, role_name=role_name, tool=tool, setup=setup)
     if preset_file.exists():
         raise click.ClickException(f"Preset already exists: {preset_file}")
+    resolved_prompt_mode = prompt_mode or "unattended"
     payload: dict[str, Any] = {"skills": list(skills)}
     if auth is not None:
         payload["auth"] = auth
-    if prompt_mode is not None:
-        payload["launch"] = {"prompt_mode": prompt_mode}
+    payload["launch"] = {"prompt_mode": resolved_prompt_mode}
     preset_file.parent.mkdir(parents=True, exist_ok=True)
     preset_file.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return preset_file
@@ -2446,6 +2464,7 @@ def _specialist_payload(
         "credential": metadata.credential_name,
         "role_name": metadata.role_name,
         "skills": list(metadata.skills),
+        "launch": dict(metadata.launch_payload),
         "metadata_path": str(metadata.metadata_path)
         if metadata.metadata_path is not None
         else None,
