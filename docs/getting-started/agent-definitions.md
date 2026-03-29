@@ -21,7 +21,7 @@ Commands that need an agent-definition root resolve it with this precedence:
 1. explicit CLI `--agent-def-dir`
 2. `AGENTSYS_AGENT_DEF_DIR`
 3. nearest ancestor `.houmao/houmao-config.toml`
-4. legacy `<pwd>/.agentsys/agents`
+4. default `<pwd>/.houmao/agents`
 
 ## Directory Layout
 

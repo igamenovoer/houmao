@@ -9,7 +9,7 @@ from .models import ToolName
 
 
 _TRACKED_AGENT_INPUTS_RELATIVE = Path("scripts/demo/shared-tui-tracking-demo-pack/inputs/agents")
-_GENERATED_AGENT_DEF_RELATIVE = Path(".agentsys/agents")
+_GENERATED_AGENT_DEF_RELATIVE = Path(".houmao/agents")
 _FIXTURE_AUTH_SOURCE_BY_TOOL: dict[ToolName, Path] = {
     "claude": Path("tests/fixtures/agents/tools/claude/auth/kimi-coding"),
     "codex": Path("tests/fixtures/agents/tools/codex/auth/yunwu-openai"),

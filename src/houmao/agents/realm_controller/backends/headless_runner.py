@@ -102,7 +102,7 @@ class HeadlessCliRunner:
             tmux_session_name=tmux_session_name,
             turn_artifacts_root=turn_artifacts_root
             if turn_artifacts_root is not None
-            else cwd / ".agentsys-headless-turns",
+            else cwd / ".houmao" / "headless-turns",
             turn_artifact_dir_name=turn_artifact_dir_name,
             completion_timeout_seconds=completion_timeout_seconds,
             completion_poll_interval_seconds=completion_poll_interval_seconds,

@@ -18,11 +18,11 @@ PROJECT_CONFIG_FILENAME = "houmao-config.toml"
 PROJECT_GITIGNORE_FILENAME = ".gitignore"
 PROJECT_EASY_DIRNAME = "easy"
 PROJECT_MAILBOX_DIRNAME = "mailbox"
-LEGACY_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
+DEFAULT_AGENT_DEF_DIR = Path(".houmao") / "agents"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
 _STARTER_ASSET_ROOT = "starter_agents"
 
-AgentDefDirSource = Literal["cli", "env", "project_config", "legacy_default"]
+AgentDefDirSource = Literal["cli", "env", "project_config", "default"]
 
 
 @dataclass(frozen=True)
@@ -166,7 +166,7 @@ def resolve_project_aware_agent_def_dir(
     cli_value: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> AgentDefDirResolution:
-    """Resolve the effective project-aware agent-definition root."""
+    """Resolve the effective project-aware compatibility-projection root."""
 
     resolved_cwd = cwd.resolve()
     if cli_value is not None:
@@ -192,9 +192,27 @@ def resolve_project_aware_agent_def_dir(
         )
 
     return AgentDefDirResolution(
-        agent_def_dir=(resolved_cwd / LEGACY_DEFAULT_AGENT_DEF_DIR).resolve(),
-        source="legacy_default",
+        agent_def_dir=(resolved_cwd / DEFAULT_AGENT_DEF_DIR).resolve(),
+        source="default",
     )
+
+
+def resolve_materialized_project_aware_agent_def_dir(
+    *,
+    cwd: Path,
+    cli_value: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Path:
+    """Resolve one filesystem agent-definition root for file-tree consumers."""
+
+    resolution = resolve_project_aware_agent_def_dir(
+        cwd=cwd,
+        cli_value=cli_value,
+        env=env,
+    )
+    if resolution.project_overlay is not None:
+        return materialize_project_agent_catalog_projection(resolution.project_overlay)
+    return resolution.agent_def_dir
 
 
 def bootstrap_project_overlay(
@@ -207,7 +225,6 @@ def bootstrap_project_overlay(
     resolved_project_root = project_root.resolve()
     overlay_root = project_overlay_root(resolved_project_root)
     config_path = project_config_path(resolved_project_root)
-    agent_def_dir = (overlay_root / "agents").resolve()
     catalog_path = (overlay_root / PROJECT_CATALOG_FILENAME).resolve()
     content_root = (overlay_root / PROJECT_CONTENT_DIRNAME).resolve()
     created_directories: list[Path] = []
@@ -235,11 +252,7 @@ def bootstrap_project_overlay(
 
     if config_path.exists():
         existing_overlay = load_project_overlay(config_path)
-        if existing_overlay.agent_def_dir != agent_def_dir:
-            raise ValueError(
-                "Existing Houmao project config is not compatible with the default "
-                f"local starter layout at `{agent_def_dir}`."
-            )
+        _validate_agent_def_dir_root(existing_overlay.agent_def_dir)
         preserved_files.append(config_path)
     else:
         config_path.write_text(render_default_project_config(), encoding="utf-8")
@@ -418,6 +431,16 @@ def _ensure_directory(path: Path, *, created_directories: list[Path]) -> None:
         return
     path.mkdir(parents=True, exist_ok=True)
     created_directories.append(path)
+
+
+def _validate_agent_def_dir_root(path: Path) -> None:
+    """Validate one configured compatibility-projection root when present."""
+
+    if path.exists() and not path.is_dir():
+        raise ValueError(
+            "Configured Houmao compatibility-projection root must be a directory when it exists: "
+            f"`{path}`."
+        )
 
 
 def _load_toml_mapping(path: Path) -> dict[str, object]:

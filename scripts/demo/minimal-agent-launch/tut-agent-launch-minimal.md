@@ -56,7 +56,7 @@ else
   agent_name="minimal-launch-demo-${tool}"
 fi
 
-generated_agent_def_dir="${run_root}/workdir/.agentsys/agents"
+generated_agent_def_dir="${run_root}/workdir/.houmao/agents"
 
 rm -rf "${run_root}/workdir" "${run_root}/runtime"
 mkdir -p "${generated_agent_def_dir}"
@@ -140,7 +140,7 @@ Each run writes generated artifacts under a lane-specific root:
 
 Important generated outputs for every lane:
 
-- `workdir/.agentsys/agents/`: generated launch tree with the demo-local auth alias
+- `workdir/.houmao/agents/`: generated launch tree with the demo-local auth alias
 - `runtime/`: built homes, manifests, and session artifacts
 - `logs/preflight-stop.log`: best-effort cleanup of a stale agent with the same demo name
 - `logs/launch.log`

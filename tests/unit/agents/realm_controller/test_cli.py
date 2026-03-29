@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from houmao.agents.realm_controller import cli
 from houmao.agents.realm_controller.models import SessionControlResult
+from houmao.project.overlay import bootstrap_project_overlay
 
 
 def test_start_session_rejects_retired_raw_cao_backend(capsys) -> None:
@@ -383,7 +384,53 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
     )
 
     assert exit_code == 0
-    assert captured_kwargs["agent_def_dir"] == (tmp_path / ".agentsys" / "agents").resolve()
+    assert captured_kwargs["agent_def_dir"] == (tmp_path / ".houmao" / "agents").resolve()
+
+
+def test_start_session_uses_discovered_project_overlay_when_present(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = repo_root / "nested"
+    manifest_path = repo_root / "session.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}", encoding="utf-8")
+    bootstrap_project_overlay(repo_root)
+    monkeypatch.chdir(nested_dir)
+    monkeypatch.delenv("AGENTSYS_AGENT_DEF_DIR", raising=False)
+
+    def _fake_start_runtime_session(**kwargs: object) -> object:
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
+            manifest_path=manifest_path,
+            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex"),
+            agent_identity=None,
+            agent_identity_warnings=(),
+            startup_warnings=(),
+            parsing_mode=None,
+        )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.start_runtime_session",
+        _fake_start_runtime_session,
+    )
+
+    exit_code = cli.main(
+        [
+            "start-session",
+            "--brain-manifest",
+            "tmp/brain.yaml",
+            "--role",
+            "gpu-kernel-coder",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_kwargs["agent_def_dir"] == (repo_root / ".houmao" / "agents").resolve()
+    assert (repo_root / ".houmao" / "agents").is_dir()
 
 
 def test_cleanup_registry_outputs_summary(monkeypatch, capsys, tmp_path: Path) -> None:

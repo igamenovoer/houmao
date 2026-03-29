@@ -13,6 +13,7 @@ from houmao.project.overlay import (
     project_config_path,
     project_overlay_root,
     render_default_project_config,
+    resolve_materialized_project_aware_agent_def_dir,
     resolve_project_aware_agent_def_dir,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "project_config_path",
     "project_overlay_root",
     "render_default_project_config",
+    "resolve_materialized_project_aware_agent_def_dir",
     "resolve_project_aware_agent_def_dir",
 ]

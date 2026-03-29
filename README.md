@@ -183,41 +183,41 @@ The only difference: a joined agent has a *placeholder* brain manifest (no skill
 
 ### 2. Initialize A Local Houmao Project Overlay
 
-The supported local workflow is `houmao-mgr project init`. It creates one repo-local `.houmao/` overlay, writes `.houmao/houmao-config.toml`, writes `.houmao/.gitignore` with `*`, and seeds `.houmao/agents/tools/` with the packaged adapter and setup bundles for supported tools.
+The supported local workflow is `houmao-mgr project init`. It creates one repo-local `.houmao/` overlay, writes `.houmao/houmao-config.toml`, writes `.houmao/.gitignore` with `*`, creates `.houmao/catalog.sqlite`, and creates the managed `.houmao/content/{prompts,auth,skills,setups}/` roots. It does not materialize `.houmao/agents/` only because init ran.
 
 Commands that need agent definitions now resolve the directory with this precedence:
 
 1. CLI `--agent-def-dir`
 2. env `AGENTSYS_AGENT_DEF_DIR`
 3. nearest ancestor `.houmao/houmao-config.toml`
-4. default `<pwd>/.agentsys/agents`
+4. default `<pwd>/.houmao/agents`
 
 The project-local workflow looks like this:
 
 ```bash
 pixi run houmao-mgr project init
-pixi run houmao-mgr project agent-tools claude auth add --name default --api-key your-api-key-here
+pixi run houmao-mgr project agents tools claude auth add --name default --api-key your-api-key-here
 ```
 
 `project init` does not touch the repository root `.gitignore`. The whole `.houmao/` overlay stays local-only by default because `.houmao/.gitignore` ignores the subtree.
 
 ### 3. Prepare The Agent Definition Directory Contents
 
-Top-level purpose summary:
+When current builders or launchers need a file-backed agent definition tree, Houmao materializes `.houmao/agents/` as a compatibility projection from the catalog-backed overlay. That projected tree still uses the familiar `tools/`, `roles/`, and `skills/` layout:
 
 - `tools/`: per-tool build/launch contracts, secret-free setup bundles, and local-only auth bundles.
 - `roles/`: role prompt packages that define agent behavior/policy for a session, plus optional presets.
 - `skills/`: reusable capability modules; each agent selects a subset.
 
-`houmao-mgr project init` populates `tools/` for you. You author `roles/` and `skills/` locally inside `.houmao/agents/`.
+High-level project workflows persist canonical data in `.houmao/catalog.sqlite` plus `.houmao/content/`, and low-level `project agents ...` commands operate on the compatibility projection directly.
 
-Within `tools/<tool>/`:
+Within `.houmao/agents/tools/<tool>/`:
 
 - `adapter.yaml`: per-tool build/launch contract (executable, env injection, projection rules).
 - `setups/<setup>/`: secret-free config files projected into the runtime home.
 - `auth/<auth>/`: local-only auth bundles (gitignored).
 
-Within `roles/<role>/`:
+Within `.houmao/agents/roles/<role>/`:
 
 - `system-prompt.md`: the role prompt package.
 - `presets/<tool>/<setup>.yaml`: path-derived presets that bind a role to a tool + setup + skills.
@@ -225,8 +225,14 @@ Within `roles/<role>/`:
 ```text
 <repo>/
   .houmao/
-    houmao-config.toml                  # project-local source of truth
+    houmao-config.toml                  # discovery anchor + compatibility-projection config
     .gitignore                          # contains `*`
+    catalog.sqlite                      # canonical semantic store
+    content/
+      prompts/
+      auth/
+      skills/
+      setups/
     agents/
       tools/
         <tool>/

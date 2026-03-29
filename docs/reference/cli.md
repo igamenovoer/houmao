@@ -152,10 +152,10 @@ For the dedicated mailbox quickstart, contracts, and operational guidance, see [
 
 Runtime commands use two agent-definition-directory resolution models:
 
-1. Build/start and manifest-path control: `--agent-def-dir`, then `AGENTSYS_AGENT_DEF_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then `<pwd>/.agentsys/agents`.
+1. Build/start and manifest-path control: `--agent-def-dir`, then `AGENTSYS_AGENT_DEF_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then `<pwd>/.houmao/agents`.
 2. Name-based tmux-backed `send-prompt`, `send-keys`, `mail`, and `stop-session`: explicit `--agent-def-dir` override first, otherwise the addressed session's published `AGENTSYS_AGENT_DEF_DIR`.
 
-When project discovery wins, relative paths in `.houmao/houmao-config.toml` resolve from the `.houmao/` directory itself, so the default `agent_def_dir = "agents"` becomes `<project-root>/.houmao/agents`.
+When project discovery wins, `.houmao/houmao-config.toml` is the project-overlay discovery anchor, and relative paths in that config resolve from the `.houmao/` directory itself. For current pair-native build and launch flows, Houmao materializes `.houmao/agents/` as the compatibility projection from the catalog-backed overlay when a file-tree consumer needs that root, so the default `agent_def_dir = "agents"` becomes `<project-root>/.houmao/agents`.
 
 ## Pixi Tasks
 

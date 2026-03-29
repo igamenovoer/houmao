@@ -83,7 +83,7 @@ Tool-specific launch defaults. The supported keys today are:
 - `operator_prompt_mode`: optional launch policy request (`interactive` or `unattended`)
 
 The demo currently expects both `tools.claude` and `tools.codex`.
-The checked-in companion config points these recipe paths at the demo-owned `inputs/agents/roles/interactive-watch/presets/<tool>/default.yaml` files. Those tracked presets keep `auth: default`, and each run materializes the concrete `tools/<tool>/auth/default` alias into the generated `workdir/.agentsys/agents/` tree from the host-local fixture bundles under `tests/fixtures/agents/tools/<tool>/auth/`.
+The checked-in companion config points these recipe paths at the demo-owned `inputs/agents/roles/interactive-watch/presets/<tool>/default.yaml` files. Those tracked presets keep `auth: default`, and each run materializes the concrete `tools/<tool>/auth/default` alias into the generated `workdir/.houmao/agents/` tree from the host-local fixture bundles under `tests/fixtures/agents/tools/<tool>/auth/`.
 
 ### `[evidence]`
 

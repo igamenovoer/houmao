@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import asdict
 from datetime import timedelta
@@ -16,8 +15,9 @@ from houmao.agents.brain_builder import (
     load_launch_overrides_input,
 )
 from houmao.mailbox.protocol import mailbox_address_path_segment
+from houmao.project.overlay import resolve_materialized_project_aware_agent_def_dir
 
-from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
+from .agent_identity import is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
 from .loaders import load_blueprint, load_brain_recipe_from_path
 from .mail_commands import (
@@ -36,14 +36,15 @@ from .runtime import (
     start_runtime_session,
 )
 
-_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
 _AMBIENT_AGENT_DEF_DIR_HELP = (
     "Agent definition directory root (contains tools/, skills/, and roles/). "
-    "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
+    "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > nearest ancestor "
+    ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
 )
 _CONTROL_AGENT_DEF_DIR_HELP = (
     "Agent definition directory root (contains tools/, skills/, and roles/). "
-    "For manifest-path control: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents. "
+    "For manifest-path control: CLI > AGENTSYS_AGENT_DEF_DIR > nearest ancestor "
+    ".houmao/houmao-config.toml > <pwd>/.houmao/agents. "
     "For name-based tmux control: explicit CLI override or the addressed session's "
     "AGENTSYS_AGENT_DEF_DIR."
 )
@@ -104,10 +105,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Realm controller CLI (build/start/prompt/stop).")
+    parser = argparse.ArgumentParser(
+        description="Deprecated realm controller compatibility CLI (build/start/prompt/stop)."
+    )
     subparsers = parser.add_subparsers(dest="command")
 
-    build = subparsers.add_parser("build-brain", help="Build a brain home")
+    build = subparsers.add_parser(
+        "build-brain",
+        help="Build a brain home (deprecated compatibility entrypoint)",
+    )
     build.add_argument(
         "--agent-def-dir",
         default=None,
@@ -130,7 +136,10 @@ def _build_parser() -> argparse.ArgumentParser:
     build.add_argument("--home-id", help="Optional home id")
     build.add_argument("--reuse-home", action="store_true", help="Allow reusing home id")
 
-    start = subparsers.add_parser("start-session", help="Start a local/CAO session")
+    start = subparsers.add_parser(
+        "start-session",
+        help="Start a local/CAO session (deprecated compatibility entrypoint)",
+    )
     start.add_argument(
         "--agent-def-dir",
         default=None,
@@ -942,14 +951,7 @@ def _resolve_explicit_agent_def_dir_override(cli_value: str | None, *, cwd: Path
 
 
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
-    if cli_value is not None:
-        return _resolve_path(cli_value, base=cwd)
-
-    env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
-    if env_value:
-        return _resolve_path(env_value, base=cwd)
-
-    return (cwd / _DEFAULT_AGENT_DEF_DIR).resolve()
+    return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
 
 
 def _add_mail_common_args(parser: argparse.ArgumentParser) -> None:

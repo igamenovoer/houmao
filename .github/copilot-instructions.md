@@ -34,7 +34,9 @@ pixi run python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 ### Agent definition model
 
-The canonical inputs live in an agent definition directory (default `.agentsys/agents`, override with `AGENTSYS_AGENT_DEF_DIR`). The best in-repo template/reference is `tests/fixtures/agents/`.
+The active project-local model is a catalog-backed `.houmao/` overlay: `.houmao/houmao-config.toml` is the discovery anchor, `.houmao/catalog.sqlite` plus `.houmao/content/` are canonical, and `.houmao/agents/` is the compatibility projection materialized when file-tree consumers still need an agent definition directory.
+
+When code resolves a filesystem agent definition directory without an explicit override, the precedence is: `--agent-def-dir`, then `AGENTSYS_AGENT_DEF_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then default `.houmao/agents`. The best in-repo template/reference for raw file-tree inputs is `tests/fixtures/agents/`.
 
 Committed inputs are split by responsibility:
 

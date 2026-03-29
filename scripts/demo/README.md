@@ -30,7 +30,7 @@ Start here:
 
 ### `shared-tui-tracking-demo-pack/`
 
-Standalone shared tracked-TUI demo pack for live tmux observation, optional recorder-backed watch runs, scenario-driven recorded capture, strict replay validation, and cadence sweeps. The supported pack owns a tracked secret-free `inputs/agents/` tree and materializes a run-local `workdir/.agentsys/agents` tree with a demo-local `auth: default` alias for the selected tool.
+Standalone shared tracked-TUI demo pack for live tmux observation, optional recorder-backed watch runs, scenario-driven recorded capture, strict replay validation, and cadence sweeps. The supported pack owns a tracked secret-free `inputs/agents/` tree and materializes a run-local `workdir/.houmao/agents` tree with a demo-local `auth: default` alias for the selected tool.
 
 Start here:
 

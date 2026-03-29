@@ -53,7 +53,7 @@ def test_materialize_generated_agent_tree_projects_default_auth_alias(
         tool=tool,  # type: ignore[arg-type]
     )
 
-    assert generated_agent_def_dir == (workdir / ".agentsys/agents").resolve()
+    assert generated_agent_def_dir == (workdir / ".houmao/agents").resolve()
     assert default_recipe_path(repo_root=repo_root, tool=tool) == (
         repo_root
         / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/roles/interactive-watch/presets"

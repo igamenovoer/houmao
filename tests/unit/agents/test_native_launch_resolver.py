@@ -10,6 +10,7 @@ from houmao.agents.native_launch_resolver import (
     tool_for_provider,
 )
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.project.overlay import bootstrap_project_overlay
 
 
 def test_tool_for_provider_maps_supported_provider_ids() -> None:
@@ -28,7 +29,7 @@ def test_resolve_effective_agent_def_dir_uses_workdir_default_when_env_missing(
 
     resolved = resolve_effective_agent_def_dir(working_directory=workdir)
 
-    assert resolved == (workdir / ".agentsys" / "agents").resolve()
+    assert resolved == (workdir / ".houmao" / "agents").resolve()
 
 
 def test_resolve_effective_agent_def_dir_uses_discovered_project_overlay_when_present(
@@ -39,16 +40,12 @@ def test_resolve_effective_agent_def_dir_uses_discovered_project_overlay_when_pr
     project_root = (tmp_path / "repo").resolve()
     nested_dir = project_root / "nested"
     nested_dir.mkdir(parents=True, exist_ok=True)
-    (project_root / ".houmao").mkdir(parents=True, exist_ok=True)
-    (project_root / ".houmao" / "houmao-config.toml").write_text(
-        'schema_version = 1\n\n[paths]\nagent_def_dir = "agents"\n',
-        encoding="utf-8",
-    )
-    (project_root / ".houmao" / "agents").mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(project_root)
 
     resolved = resolve_effective_agent_def_dir(working_directory=nested_dir)
 
     assert resolved == (project_root / ".houmao" / "agents").resolve()
+    assert resolved.is_dir()
 
 
 def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role(

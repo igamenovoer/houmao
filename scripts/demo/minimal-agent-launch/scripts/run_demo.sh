@@ -112,7 +112,7 @@ fi
 mkdir -p "$(dirname "${output_dir}")"
 run_root="$(cd "$(dirname "${output_dir}")" && pwd)/$(basename "${output_dir}")"
 workdir="${run_root}/workdir"
-generated_agent_def_dir="${workdir}/.agentsys/agents"
+generated_agent_def_dir="${workdir}/.houmao/agents"
 runtime_root="${run_root}/runtime"
 logs_dir="${run_root}/logs"
 inputs_dir="${DEMO_ROOT}/inputs"

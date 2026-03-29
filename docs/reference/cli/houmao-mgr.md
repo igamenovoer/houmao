@@ -146,7 +146,9 @@ houmao-mgr brains build [OPTIONS]
 1. `--agent-def-dir`
 2. `AGENTSYS_AGENT_DEF_DIR`
 3. nearest ancestor `.houmao/houmao-config.toml`
-4. legacy `<pwd>/.agentsys/agents`
+4. default `<pwd>/.houmao/agents`
+
+When project discovery wins, `.houmao/houmao-config.toml` is the overlay discovery anchor and `.houmao/agents/` is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
 
 ### `project` — Repo-local Houmao project overlays
 

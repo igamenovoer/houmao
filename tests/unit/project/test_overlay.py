@@ -67,7 +67,7 @@ def test_resolve_project_aware_agent_def_dir_discovers_nearest_project_overlay(
     assert resolution.agent_def_dir == (project_root / ".houmao" / "agents").resolve()
 
 
-def test_resolve_project_aware_agent_def_dir_falls_back_to_legacy_default(
+def test_resolve_project_aware_agent_def_dir_falls_back_to_houmao_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -77,8 +77,8 @@ def test_resolve_project_aware_agent_def_dir_falls_back_to_legacy_default(
 
     resolution = resolve_project_aware_agent_def_dir(cwd=workdir)
 
-    assert resolution.source == "legacy_default"
-    assert resolution.agent_def_dir == (workdir / ".agentsys" / "agents").resolve()
+    assert resolution.source == "default"
+    assert resolution.agent_def_dir == (workdir / ".houmao" / "agents").resolve()
 
 
 def test_bootstrap_project_overlay_discovers_created_overlay(tmp_path: Path) -> None:
@@ -93,13 +93,24 @@ def test_bootstrap_project_overlay_discovers_created_overlay(tmp_path: Path) -> 
     assert discovered is not None
     assert discovered.project_root == project_root
     assert (project_root / ".houmao" / ".gitignore").read_text(encoding="utf-8") == "*\n"
+    assert not (project_root / ".houmao" / "agents").exists()
     assert not (project_root / ".houmao" / "agents" / "compatibility-profiles").exists()
 
 
-def test_bootstrap_project_overlay_can_include_compatibility_profiles(tmp_path: Path) -> None:
+def test_bootstrap_project_overlay_can_include_compatibility_profiles_for_custom_root(
+    tmp_path: Path,
+) -> None:
     project_root = (tmp_path / "repo").resolve()
     project_root.mkdir(parents=True, exist_ok=True)
+    overlay_root = project_root / ".houmao"
+    overlay_root.mkdir(parents=True, exist_ok=True)
+    (overlay_root / "houmao-config.toml").write_text(
+        'schema_version = 1\n\n[paths]\nagent_def_dir = "custom-agents"\n',
+        encoding="utf-8",
+    )
 
     bootstrap_project_overlay(project_root, include_compatibility_profiles=True)
 
-    assert (project_root / ".houmao" / "agents" / "compatibility-profiles").is_dir()
+    assert (project_root / ".houmao" / "custom-agents" / "compatibility-profiles").is_dir()
+    assert (project_root / ".houmao" / "custom-agents" / "tools").is_dir()
+    assert not (project_root / ".houmao" / "agents").exists()

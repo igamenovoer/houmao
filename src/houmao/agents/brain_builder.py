@@ -39,9 +39,7 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_id,
     normalize_managed_agent_name,
 )
-
-_AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
-_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
+from houmao.project.overlay import resolve_materialized_project_aware_agent_def_dir
 
 
 class BuildError(RuntimeError):
@@ -720,7 +718,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help=(
             "Agent definition directory root (contains tools/, skills/, and roles/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
+            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > nearest ancestor "
+            ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
         ),
     )
     parser.add_argument(
@@ -871,14 +870,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
-    if cli_value is not None:
-        return _normalize_path(cli_value, base=cwd)
-
-    env_value = os.environ.get(_AGENT_DEF_DIR_ENV_VAR)
-    if env_value:
-        return _normalize_path(env_value, base=cwd)
-
-    return (cwd / _DEFAULT_AGENT_DEF_DIR).resolve()
+    return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
 
 
 if __name__ == "__main__":

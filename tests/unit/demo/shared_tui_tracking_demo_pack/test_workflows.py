@@ -152,7 +152,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
     assert result.run_root == run_root.resolve()
     assert len(build_requests) == 1
     build_request = build_requests[0]
-    generated_agent_def_dir = (run_root / "workdir/.agentsys/agents").resolve()
+    generated_agent_def_dir = (run_root / "workdir/.houmao/agents").resolve()
     assert build_request.agent_def_dir == generated_agent_def_dir
     assert (
         build_request.recipe_path
@@ -236,7 +236,7 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
     assert result.run_root == run_root.resolve()
     assert len(build_requests) == 1
     build_request = build_requests[0]
-    generated_agent_def_dir = (run_root / "workdir/.agentsys/agents").resolve()
+    generated_agent_def_dir = (run_root / "workdir/.houmao/agents").resolve()
     assert build_request.agent_def_dir == generated_agent_def_dir
     assert (
         build_request.recipe_path
