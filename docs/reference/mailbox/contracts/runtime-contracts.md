@@ -144,6 +144,8 @@ CLI argument rules:
 
 The runtime converts CLI input into an `args` payload before prompting the session.
 
+These low-level runtime `mail` subcommands are TUI-mediated surfaces. They return non-authoritative request lifecycle results rather than claiming mailbox success or failure for the requested operation.
+
 ```json
 {
   "version": 1,
@@ -175,31 +177,50 @@ sequenceDiagram
     CLI->>RT: parse CLI args<br/>and resume target
     RT->>Ses: mailbox skill prompt<br/>plus JSON request
     Ses->>FS: inspect rules and<br/>run helpers as needed
-    Ses-->>RT: AGENTSYS_MAIL_RESULT_BEGIN<br/>JSON<br/>AGENTSYS_MAIL_RESULT_END
-    RT-->>CLI: parsed JSON result
+    Ses-->>RT: optional sentinel preview<br/>or ordinary turn output
+    RT-->>CLI: authoritative=false<br/>submitted/rejected/busy/...
 ```
 
 ## Result Contract
 
-The runtime parser requires exactly one sentinel-delimited JSON object. It rejects:
+For TUI-mediated runtime mail commands, the runtime returns a submission-only envelope with:
 
-- multiple begin or end sentinels,
-- empty sentinel payloads,
-- non-JSON or non-object payloads,
-- mismatched `request_id`,
-- mismatched `operation`,
-- mismatched `transport` or `principal_id` when those fields are present in the result.
+- `authoritative: false`
+- `execution_path: "tui_submission"`
+- `status` of `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`
+- manager or transport verification guidance instead of mailbox truth inferred from transcript parsing
 
-Representative result:
+Exact sentinel-delimited JSON recovery is now optional preview. When the runtime does recover a preview payload, it still validates that preview against the active `request_id`, `operation`, and mailbox binding before surfacing it under `preview_result`, but the command does not require that preview to return.
+
+Representative submission result:
 
 ```json
 {
-  "ok": true,
-  "request_id": "mailreq-20260313T091530Z-3c9f1e6ab2",
+  "address": "AGENTSYS-research@agents.localhost",
+  "authoritative": false,
+  "execution_path": "tui_submission",
   "operation": "send",
-  "transport": "filesystem",
+  "request_id": "mailreq-20260313T091530Z-3c9f1e6ab2",
   "principal_id": "AGENTSYS-research",
-  "message_ref": "filesystem:msg-20260313T091531Z-a1b2c3d4e5f64798aabbccddeeff0011"
+  "schema_version": 1,
+  "status": "submitted",
+  "transport": "filesystem",
+  "verification_required": true
+}
+```
+
+Representative optional preview:
+
+```json
+{
+  "preview_result": {
+    "message_ref": "filesystem:msg-20260313T091531Z-a1b2c3d4e5f64798aabbccddeeff0011",
+    "ok": true,
+    "operation": "send",
+    "principal_id": "AGENTSYS-research",
+    "request_id": "mailreq-20260313T091530Z-3c9f1e6ab2",
+    "transport": "filesystem"
+  }
 }
 ```
 

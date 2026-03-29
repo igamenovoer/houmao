@@ -18,7 +18,11 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
+    GatewayMailActionResponseV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailStatusV1,
+    GatewayMailboxMessageV1,
+    GatewayMailboxParticipantV1,
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
@@ -60,6 +64,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_tui_state,
     interrupt_managed_agent,
     list_managed_agents,
+    mail_send,
     mail_status,
     mailbox_status,
     managed_agent_detail_payload,
@@ -469,14 +474,8 @@ def test_register_mailbox_binding_converts_runtime_errors_to_click() -> None:
 
 
 def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
-    mailbox = SimpleNamespace(
-        transport="filesystem",
-        principal_id="AGENTSYS-alpha",
-        address="AGENTSYS-alpha@agents.localhost",
-        bindings_version="2026-03-27T00:00:00Z",
-    )
     controller = SimpleNamespace(
-        launch_plan=SimpleNamespace(mailbox=mailbox),
+        launch_plan=SimpleNamespace(mailbox=object()),
         tmux_session_name="test-agent-join",
     )
     target = ManagedAgentTarget(
@@ -486,22 +485,114 @@ def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
         controller=controller,
     )
 
-    original = managed_agents_module.ensure_mailbox_command_ready
-    managed_agents_module.ensure_mailbox_command_ready = (
-        lambda launch_plan, tmux_session_name=None: mailbox
+    original = managed_agents_module._local_manager_mail_status
+    managed_agents_module._local_manager_mail_status = lambda _controller: GatewayMailStatusV1(
+        transport="filesystem",
+        principal_id="AGENTSYS-alpha",
+        address="AGENTSYS-alpha@agents.localhost",
+        bindings_version="2026-03-27T00:00:00Z",
     )
     try:
         payload = mail_status(target)
     finally:
-        managed_agents_module.ensure_mailbox_command_ready = original
+        managed_agents_module._local_manager_mail_status = original
 
     assert payload == {
         "schema_version": 1,
+        "operation": "status",
+        "authoritative": True,
+        "status": "verified",
+        "execution_path": "manager_direct",
         "transport": "filesystem",
         "principal_id": "AGENTSYS-alpha",
         "address": "AGENTSYS-alpha@agents.localhost",
         "bindings_version": "2026-03-27T00:00:00Z",
     }
+
+
+def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    expected = {
+        "schema_version": 1,
+        "operation": "send",
+        "authoritative": False,
+        "status": "submitted",
+        "execution_path": "tui_submission",
+        "request_id": "mailreq-1",
+    }
+
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_live_gateway_client_for_controller",
+        lambda _controller: None,
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_run_local_mail_prompt",
+        lambda **kwargs: expected,
+    )
+
+    payload = mail_send(
+        target,
+        to_recipients=["alpha@agents.localhost"],
+        cc_recipients=[],
+        subject="hello",
+        body_content="world",
+        attachments=[],
+    )
+
+    assert payload == expected
+
+
+def test_mail_send_local_headless_uses_verified_manager_direct_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    response = GatewayMailActionResponseV1(
+        operation="send",
+        transport="filesystem",
+        principal_id="AGENTSYS-alpha",
+        address="AGENTSYS-alpha@agents.localhost",
+        message=GatewayMailboxMessageV1(
+            message_ref="filesystem:msg-1",
+            thread_ref="filesystem:msg-1",
+            created_at_utc="2026-03-29T15:00:00Z",
+            subject="hello",
+            sender=GatewayMailboxParticipantV1(address="AGENTSYS-alpha@agents.localhost"),
+            to=[GatewayMailboxParticipantV1(address="beta@agents.localhost")],
+        ),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_send",
+        lambda controller, **kwargs: response,
+    )
+
+    payload = mail_send(
+        target,
+        to_recipients=["beta@agents.localhost"],
+        cc_recipients=[],
+        subject="hello",
+        body_content="world",
+        attachments=[],
+    )
+
+    assert payload["authoritative"] is True
+    assert payload["status"] == "verified"
+    assert payload["execution_path"] == "manager_direct"
+    assert payload["message"]["message_ref"] == "filesystem:msg-1"
 
 
 def test_enrich_local_mail_prompt_args_resolves_filesystem_mailbox_principals(

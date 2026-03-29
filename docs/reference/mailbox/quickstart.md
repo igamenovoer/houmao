@@ -1,6 +1,6 @@
 # Mailbox Quickstart
 
-This page shows the shortest safe path to a working mailbox-enabled local managed agent and the three runtime-owned mailbox commands you will use first: `agents mail check`, `agents mail send`, and `agents mail reply`.
+This page shows the shortest safe path to a working mailbox-enabled local managed agent and the three manager-owned mailbox commands you will use first: `agents mail check`, `agents mail send`, and `agents mail reply`.
 
 ## Choose Your Transport
 
@@ -19,7 +19,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 
 1. `houmao-mgr mailbox ...` manages the shared filesystem mailbox root and address lifecycle.
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
-3. `houmao-mgr agents mail ...` reuses that persisted binding for runtime-owned mailbox work after the agent is launched or joined.
+3. `houmao-mgr agents mail ...` reuses that persisted binding for manager-owned mailbox follow-up after the agent is launched or joined, and only falls back to TUI-mediated request submission when direct authority is unavailable.
 
 After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface. When attached shared-mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc.
 
@@ -54,7 +54,7 @@ pixi run houmao-mgr agents mailbox register \
   --mailbox-root tmp/shared-mail
 ```
 
-4. Inspect the late-registration posture before using runtime-owned mail commands.
+4. Inspect the late-registration posture before using manager-owned mail commands.
 
 ```bash
 pixi run houmao-mgr agents mailbox status --agent-name research
@@ -111,13 +111,17 @@ Important details:
 - `--unread-only` and `--limit` are optional filters.
 - `--since` accepts an RFC3339 lower bound when you want incremental review.
 
-Typical stdout is structured JSON returned by the session through the runtime-owned mailbox contract.
+Typical stdout is a verified manager result when Houmao owns the mailbox execution path directly.
 
 ```json
 {
-  "ok": true,
+  "address": "AGENTSYS-research@agents.localhost",
+  "authoritative": true,
+  "execution_path": "manager_direct",
   "operation": "check",
   "principal_id": "AGENTSYS-research",
+  "schema_version": 1,
+  "status": "verified",
   "transport": "filesystem",
   "unread_count": 2
 }
@@ -141,6 +145,9 @@ Important details:
 - Recipients must be full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
 - Exactly one of `--body-file` or `--body-content` must be supplied.
 - `--attach` paths are validated by the CLI before they are surfaced to the session.
+- When Houmao can execute through pair-owned, gateway-backed, or manager-owned direct authority, the result is authoritative.
+- When a local live TUI fallback is used, the result is submission-only and returns `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error` without claiming mailbox success from transcript parsing.
+- Use `houmao-mgr agents mail status`, `houmao-mgr agents mail check`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative fallback results.
 
 ## Reply To Mail
 
@@ -159,28 +166,35 @@ Important details:
 - Attachments are allowed on replies too.
 - Replies target the shared opaque `message_ref` contract; do not derive behavior from transport-prefixed values embedded inside the ref.
 
-## What The Runtime Expects From The Session
+## Direct Execution And TUI Fallback
 
-Every `mail` command uses the runtime-owned projected mailbox skill for the selected transport and expects exactly one sentinel-delimited JSON result payload back from the session.
+`houmao-mgr agents mail ...` prefers manager-owned direct execution and gateway-backed execution. Only the local live-TUI fallback submits a mailbox prompt into the session.
 
 - Filesystem sessions use `skills/mailbox/email-via-filesystem/SKILL.md` as the mailbox skill document.
 - Stalwart sessions use `skills/mailbox/email-via-stalwart/SKILL.md` as the mailbox skill document.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade now includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
+- In TUI fallback mode, exact sentinel-delimited result recovery is optional preview data, not the correctness boundary for the command result.
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
     participant CLI as mail send<br/>or reply
     participant RT as Runtime
-    participant Ses as Session
     participant MB as Gateway facade<br/>or transport
+    participant Ses as Live TUI
     Op->>CLI: run mail command
-    CLI->>RT: resume session<br/>and build request
-    RT->>Ses: prompt with mailbox skill<br/>plus JSON contract
-    Ses->>MB: use live gateway facade<br/>or direct transport path
-    Ses-->>RT: one sentinel-delimited<br/>JSON result
-    RT-->>CLI: parsed JSON stdout
+    CLI->>RT: resume session<br/>and resolve authority
+    alt Direct or gateway-backed authority available
+        RT->>MB: execute mailbox operation directly
+        MB-->>RT: verified mailbox result
+        RT-->>CLI: authoritative=true<br/>status=verified
+    else Live TUI fallback only
+        RT->>Ses: submit mailbox skill prompt
+        Ses->>MB: use live gateway facade<br/>or direct transport path
+        Ses-->>RT: optional sentinel preview<br/>or ordinary turn output
+        RT-->>CLI: authoritative=false<br/>status=submitted
+    end
 ```
 
 ## When To Leave Quickstart

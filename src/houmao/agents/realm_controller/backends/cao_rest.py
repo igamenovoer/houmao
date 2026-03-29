@@ -637,7 +637,7 @@ class CaoRestSession:
 
         if prompt_request is None or self._parsing_mode != "shadow_only":
             return None
-        mailbox = self._launch_plan.mailbox
+        mailbox = self._plan.mailbox
         if mailbox is None:
             return None
 

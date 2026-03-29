@@ -1,8 +1,8 @@
 """Runtime-owned mailbox prompt and result helpers.
 
-Mailbox result parsing is machine-critical. Shadow-mode parsing therefore
-prefers explicit schema/sentinel extraction over available text surfaces rather
-than assuming best-effort dialog projection fidelity.
+Sentinel parsing remains available for preview and diagnostics, but TUI-mediated
+mail commands now complete on request lifecycle rather than exact mailbox-result
+schema recovery.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, cast
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
@@ -29,6 +29,9 @@ from .errors import BackendExecutionError, MailboxCommandError, MailboxResultPar
 from .models import LaunchPlan, SessionEvent
 
 MailOperation = Literal["check", "send", "reply"]
+MailCommandOperation = Literal["status", "check", "send", "reply"]
+MailExecutionPath = Literal["manager_direct", "gateway_backed", "tui_submission"]
+MailSubmissionStatus = Literal["submitted", "rejected", "busy", "interrupted", "tui_error"]
 
 MAIL_REQUEST_VERSION = 1
 MAIL_RESULT_BEGIN_SENTINEL = "AGENTSYS_MAIL_RESULT_BEGIN"
@@ -60,6 +63,97 @@ class _MailResultTextSurface:
 
     surface_id: str
     text: str
+
+
+_TUI_SUBMISSION_ERROR_DETAIL_MAX_CHARS = 400
+
+
+def build_verified_mail_command_result(
+    *,
+    operation: MailCommandOperation,
+    execution_path: Literal["manager_direct", "gateway_backed"],
+    payload: object,
+) -> dict[str, Any]:
+    """Build one authoritative manager mail result envelope."""
+
+    normalized = _normalize_mail_payload(payload)
+    result: dict[str, Any] = {
+        "schema_version": int(normalized.get("schema_version", 1)),
+        "operation": operation,
+        "authoritative": True,
+        "status": "verified",
+        "execution_path": execution_path,
+    }
+    result.update(normalized)
+    result["operation"] = operation
+    result["authoritative"] = True
+    result["status"] = "verified"
+    result["execution_path"] = execution_path
+    return result
+
+
+def build_tui_submission_result(
+    *,
+    prompt_request: MailPromptRequest,
+    mailbox: MailboxResolvedConfig,
+    events: list[SessionEvent] | None = None,
+    status: MailSubmissionStatus | None = None,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """Build one non-authoritative TUI submission result envelope."""
+
+    effective_status = status or _tui_submission_status_from_events(events)
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "operation": prompt_request.operation,
+        "authoritative": False,
+        "status": effective_status,
+        "execution_path": "tui_submission",
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+        "bindings_version": mailbox.bindings_version,
+        "request_id": prompt_request.request_id,
+        "verification_required": True,
+        "verification_paths": _verification_paths_for_mailbox(mailbox),
+    }
+    if detail is not None and detail.strip():
+        result["detail"] = detail.strip()
+    if events:
+        submitted_event = next((event for event in events if event.kind == "submitted"), None)
+        if submitted_event is not None:
+            result["submitted_at_utc"] = submitted_event.timestamp_utc
+
+        diagnostics = _tui_submission_diagnostics_from_events(events)
+        if diagnostics:
+            result["tui_diagnostics"] = diagnostics
+
+        preview_payload = _preview_mail_result_from_events(
+            events,
+            request_id=prompt_request.request_id,
+            operation=prompt_request.operation,
+            mailbox=mailbox,
+        )
+        if preview_payload is not None:
+            result["preview_result"] = preview_payload
+    return result
+
+
+def build_tui_submission_result_from_backend_error(
+    *,
+    prompt_request: MailPromptRequest,
+    mailbox: MailboxResolvedConfig,
+    exc: BackendExecutionError,
+) -> dict[str, Any]:
+    """Normalize one backend execution failure into a submission-only result."""
+
+    status, detail = _classify_tui_submission_backend_error(exc)
+    return build_tui_submission_result(
+        prompt_request=prompt_request,
+        mailbox=mailbox,
+        status=status,
+        detail=detail,
+    )
 
 
 def prepare_mail_prompt(
@@ -462,13 +556,16 @@ def run_mail_prompt(
         else:
             raise RuntimeError("Mailbox prompt execution requires a prompt sender.")
     except BackendExecutionError as exc:
-        raise _mailbox_command_error_from_backend(exc) from exc
+        return build_tui_submission_result_from_backend_error(
+            prompt_request=prompt_request,
+            mailbox=mailbox,
+            exc=exc,
+        )
 
-    return parse_mail_result(
-        events,
-        request_id=prompt_request.request_id,
-        operation=prompt_request.operation,
+    return build_tui_submission_result(
+        prompt_request=prompt_request,
         mailbox=mailbox,
+        events=events,
     )
 
 
@@ -725,3 +822,148 @@ def _mailbox_command_error_from_backend(exc: BackendExecutionError) -> MailboxCo
             "Mailbox command could not start because the target session is busy or cannot accept a new turn."
         )
     return MailboxCommandError(f"Mailbox command failed: {detail}")
+
+
+def _normalize_mail_payload(payload: object) -> dict[str, Any]:
+    """Normalize one model-like payload into a JSON-compatible dict."""
+
+    if isinstance(payload, dict):
+        return dict(payload)
+    model_dump = getattr(payload, "model_dump", None)
+    if callable(model_dump):
+        normalized = model_dump(mode="json")
+        if isinstance(normalized, dict):
+            return normalized
+    raise TypeError(f"Unsupported mail payload type: {type(payload)!r}")
+
+
+def _tui_submission_status_from_events(
+    events: list[SessionEvent] | None,
+) -> MailSubmissionStatus:
+    """Infer submission-only status from one TUI event stream."""
+
+    if not events:
+        return "submitted"
+    explicit_status = _event_payload_submission_status(events)
+    if explicit_status is not None:
+        return explicit_status
+    last_payload = _last_event_payload(events)
+    canonical_status = last_payload.get("canonical_runtime_status")
+    if canonical_status == "waiting_user_answer":
+        return "rejected"
+    if canonical_status == "interrupted":
+        return "interrupted"
+    if canonical_status == "error":
+        return "tui_error"
+    if any(event.kind == "interrupted" for event in events):
+        return "interrupted"
+    return "submitted"
+
+
+def _event_payload_submission_status(
+    events: list[SessionEvent],
+) -> MailSubmissionStatus | None:
+    """Return one explicit submission status surfaced by a backend event payload."""
+
+    for event in reversed(events):
+        payload = event.payload
+        if not isinstance(payload, dict):
+            continue
+        status = payload.get("mail_submission_status")
+        if status in {"submitted", "rejected", "busy", "interrupted", "tui_error"}:
+            return cast(MailSubmissionStatus, status)
+    return None
+
+
+def _last_event_payload(events: list[SessionEvent]) -> dict[str, Any]:
+    """Return the last dict payload present in one event list."""
+
+    for event in reversed(events):
+        if isinstance(event.payload, dict):
+            return event.payload
+    return {}
+
+
+def _tui_submission_diagnostics_from_events(events: list[SessionEvent]) -> dict[str, Any]:
+    """Extract compact TUI diagnostics from one event stream."""
+
+    payload = _last_event_payload(events)
+    if not payload:
+        return {}
+    diagnostics: dict[str, Any] = {}
+    for key in (
+        "canonical_runtime_status",
+        "raw_backend_status",
+        "parsing_mode",
+        "parser_family",
+        "output_source_mode",
+        "surface_assessment",
+        "mode_diagnostics",
+    ):
+        if key in payload:
+            diagnostics[key] = payload[key]
+    return diagnostics
+
+
+def _preview_mail_result_from_events(
+    events: list[SessionEvent],
+    *,
+    request_id: str,
+    operation: MailOperation,
+    mailbox: MailboxResolvedConfig,
+) -> dict[str, Any] | None:
+    """Return one optional non-authoritative parsed preview payload."""
+
+    try:
+        return parse_mail_result(
+            events,
+            request_id=request_id,
+            operation=operation,
+            mailbox=mailbox,
+        )
+    except MailboxCommandError:
+        return None
+
+
+def _verification_paths_for_mailbox(mailbox: MailboxResolvedConfig) -> list[str]:
+    """Return generic follow-up verification guidance for one submission-only result."""
+
+    paths = [
+        "Use manager-owned follow-up such as `houmao-mgr agents mail status` or `houmao-mgr agents mail check` when that authority is available.",
+    ]
+    if mailbox.transport == "filesystem":
+        paths.append(
+            "Inspect the shared filesystem mailbox state or canonical message documents if transport-owned confirmation is required."
+        )
+    else:
+        paths.append(
+            "Verify through the transport-native mailbox state for the active email service."
+        )
+    return paths
+
+
+def _classify_tui_submission_backend_error(
+    exc: BackendExecutionError,
+) -> tuple[MailSubmissionStatus, str]:
+    """Map one backend execution failure to a non-authoritative submission status."""
+
+    detail = str(exc).strip() or "unknown backend failure"
+    lowered = detail.lower()
+    if any(token in lowered for token in ("busy", "in-flight", "already running", "active turn")):
+        return "busy", detail
+    if any(
+        token in lowered
+        for token in (
+            "operator interaction",
+            "interactive user selection",
+            "awaiting_operator",
+            "waiting_user_answer",
+        )
+    ):
+        return "rejected", detail
+    if "interrupt" in lowered:
+        return "interrupted", detail
+    trimmed = detail
+    if len(trimmed) > _TUI_SUBMISSION_ERROR_DETAIL_MAX_CHARS:
+        trimmed = f"{trimmed[:_TUI_SUBMISSION_ERROR_DETAIL_MAX_CHARS].rstrip()}..."
+    return "tui_error", trimmed

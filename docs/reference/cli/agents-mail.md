@@ -1,6 +1,6 @@
 # houmao-mgr agents mail
 
-Managed-agent mailbox follow-up commands. These commands operate through a live attached gateway on the targeted managed agent.
+Managed-agent mailbox follow-up commands. `houmao-mgr` routes these commands through pair-owned gateway-backed execution, local manager-owned direct execution when available, or local live-TUI submission fallback when direct authority is unavailable.
 
 ```
 houmao-mgr agents mail [OPTIONS] COMMAND [ARGS]...
@@ -72,6 +72,12 @@ houmao-mgr agents mail reply [OPTIONS]
 | `--port INTEGER` | Houmao pair authority port to use. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+## Result Semantics
+
+- Verified pair-owned and manager-owned execution returns `authoritative: true`, `status: "verified"`, and `execution_path: "gateway_backed"` or `"manager_direct"`.
+- Local live-TUI fallback returns `authoritative: false` with submission-only status such as `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`.
+- Non-authoritative fallback results may include `preview_result`, but mailbox verification should use manager-owned follow-up such as `agents mail status` or `agents mail check`, filesystem mailbox inspection, or transport-native mailbox state.
 
 ## See Also
 

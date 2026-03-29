@@ -490,6 +490,91 @@ def test_local_interactive_send_mail_prompt_checks_one_final_capture_after_timeo
     assert parsed["message_ref"] == "filesystem:msg-1"
 
 
+def test_local_interactive_send_mail_prompt_returns_submitted_without_sentinel(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session.backend = "local_interactive"
+    session._plan = _sample_local_interactive_mailbox_plan(tmp_path)
+    session._state = HeadlessSessionState(
+        turn_index=0,
+        role_bootstrap_applied=False,
+        working_directory=str(tmp_path),
+        tmux_session_name="AGENTSYS-local",
+    )
+    session._process_inspector = SimpleNamespace(
+        inspect=lambda *, tool, pane_pid: SimpleNamespace(process_state="tui_up")
+    )
+
+    baseline_output = "Claude Code v1.0.0\n❯ \n"
+    current_output = "Claude Code v1.0.0\nassistant> sending message\n❯ \n"
+    captures = iter([baseline_output, current_output])
+    submitted_prompts: list[str] = []
+
+    class _FakeShadowParserStack:
+        def __init__(self, *, tool: str) -> None:
+            assert tool == "claude"
+
+        def capture_baseline_pos(self, scrollback: str) -> int:
+            return len(scrollback)
+
+        def parse_snapshot(self, scrollback: str, *, baseline_pos: int) -> SimpleNamespace:
+            del baseline_pos
+            return SimpleNamespace(
+                surface_assessment=SimpleNamespace(
+                    availability="supported",
+                    business_state="idle",
+                    input_mode="freeform",
+                ),
+                dialog_projection=SimpleNamespace(
+                    raw_text=scrollback,
+                    normalized_text=scrollback,
+                    dialog_text=scrollback,
+                    head="",
+                    tail=scrollback,
+                ),
+            )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.ShadowParserStack",
+        _FakeShadowParserStack,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.capture_tmux_pane_shared",
+        lambda *, target: next(captures),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.list_tmux_panes_shared",
+        lambda *, session_name: [
+            SimpleNamespace(window_index="0", pane_index="0", pane_pid=123, pane_dead=False)
+        ],
+    )
+    monkeypatch.setattr(
+        LocalInteractiveSession,
+        "_submit_semantic_prompt",
+        lambda self, text: submitted_prompts.append(text),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.time.sleep",
+        lambda _seconds: None,
+    )
+
+    events = session.send_mail_prompt(
+        MailPromptRequest(
+            request_id="mailreq-2",
+            operation="send",
+            prompt="send a mailbox message",
+        )
+    )
+
+    assert submitted_prompts == ["send a mailbox message"]
+    assert events[-1].kind == "done"
+    assert events[-1].payload is not None
+    assert events[-1].payload["mail_submission_status"] == "submitted"
+    assert "dialog_projection" in events[-1].payload
+
+
 def test_local_interactive_send_input_ex_keeps_raw_sequence_unmodified(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

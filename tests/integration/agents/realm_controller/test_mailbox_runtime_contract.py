@@ -488,7 +488,10 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
         mailbox=mailbox,
     )
 
-    assert result["message_ref"] == "filesystem:msg-20260318T130000Z-integration"
+    assert result["authoritative"] is False
+    assert result["status"] == "submitted"
+    assert result["execution_path"] == "tui_submission"
+    assert result["preview_result"]["message_ref"] == "filesystem:msg-20260318T130000Z-integration"
     assert session._client.output_calls == 3  # noqa: SLF001
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 

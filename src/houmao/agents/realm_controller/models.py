@@ -240,7 +240,7 @@ class SessionControlResult:
     """Outcome for runtime control operations."""
 
     status: Literal["ok", "error"]
-    action: Literal["interrupt", "terminate", "control_input"]
+    action: Literal["interrupt", "terminate", "control_input", "relaunch"]
     detail: str
 
 

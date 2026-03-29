@@ -30,14 +30,24 @@ from houmao.agents.realm_controller.errors import (
     MailboxCommandError,
     SessionManifestError,
 )
+from houmao.agents.realm_controller.gateway_mailbox import (
+    GatewayMailboxError,
+    GatewayMailboxAdapter,
+    build_gateway_mailbox_adapter,
+)
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayMailActionResponseV1,
     GatewayMailAttachmentUploadV1,
+    GatewayMailCheckResponseV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStatusV1,
     GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
@@ -52,6 +62,7 @@ from houmao.agents.realm_controller.gateway_storage import (
 )
 from houmao.agents.realm_controller.mail_commands import (
     MailPromptRequest,
+    build_verified_mail_command_result,
     ensure_mailbox_command_ready,
     prepare_mail_prompt,
     run_mail_prompt,
@@ -1001,32 +1012,173 @@ def unregister_mailbox_binding(
     }
 
 
+def _local_manager_mail_status(controller: RuntimeSessionController) -> GatewayMailStatusV1:
+    """Return authoritative local mailbox status through manager-owned execution."""
+
+    return _local_mailbox_adapter_for_controller(controller).status()
+
+
+def _local_manager_mail_check(
+    controller: RuntimeSessionController,
+    *,
+    unread_only: bool,
+    limit: int | None,
+    since: str | None,
+) -> GatewayMailCheckResponseV1:
+    """Check mailbox contents through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    messages = adapter.check(unread_only=unread_only, limit=limit, since=since)
+    status = adapter.status()
+    unread_count = sum(1 for message in messages if message.unread is True)
+    return GatewayMailCheckResponseV1(
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        unread_only=unread_only,
+        message_count=len(messages),
+        unread_count=unread_count,
+        messages=messages,
+    )
+
+
+def _local_manager_mail_send(
+    controller: RuntimeSessionController,
+    *,
+    to_recipients: Sequence[str],
+    cc_recipients: Sequence[str],
+    subject: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Send mail through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    message = adapter.send(
+        to_addresses=to_recipients,
+        cc_addresses=cc_recipients,
+        subject=subject,
+        body_content=body_content,
+        attachments=attachments,
+    )
+    status = adapter.status()
+    return GatewayMailActionResponseV1(
+        operation="send",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message=message,
+    )
+
+
+def _local_manager_mail_reply(
+    controller: RuntimeSessionController,
+    *,
+    message_ref: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Reply through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    message = adapter.reply(
+        message_ref=message_ref,
+        body_content=body_content,
+        attachments=attachments,
+    )
+    status = adapter.status()
+    return GatewayMailActionResponseV1(
+        operation="reply",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message=message,
+    )
+
+
+def _local_mailbox_adapter_for_controller(
+    controller: RuntimeSessionController,
+) -> GatewayMailboxAdapter:
+    """Return one live local mailbox adapter or fail with CLI-friendly detail."""
+
+    try:
+        mailbox = ensure_mailbox_command_ready(
+            controller.launch_plan,
+            tmux_session_name=controller.tmux_session_name,
+        )
+    except MailboxCommandError as exc:
+        if controller.launch_plan.mailbox is None:
+            raise click.ClickException("Target session is not mailbox-enabled.") from exc
+        raise click.ClickException(str(exc)) from exc
+    try:
+        return build_gateway_mailbox_adapter(mailbox)
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _gateway_mail_send(
+    client: GatewayClient,
+    *,
+    to_recipients: Sequence[str],
+    cc_recipients: Sequence[str],
+    subject: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Send mail through one live loopback gateway client."""
+
+    try:
+        return client.send_mail(
+            GatewayMailSendRequestV1(
+                to=list(to_recipients),
+                cc=list(cc_recipients),
+                subject=subject,
+                body_content=body_content,
+                attachments=list(attachments),
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def _gateway_mail_reply(
+    client: GatewayClient,
+    *,
+    message_ref: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Reply through one live loopback gateway client."""
+
+    try:
+        return client.reply_mail(
+            GatewayMailReplyRequestV1(
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=list(attachments),
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
 def mail_status(target: ManagedAgentTarget) -> object:
     """Return mailbox status for one managed agent."""
 
     if target.mode == "server":
         assert target.client is not None
-        return pair_request(target.client.get_managed_agent_mail_status, target.agent_ref)
+        return build_verified_mail_command_result(
+            operation="status",
+            execution_path="gateway_backed",
+            payload=pair_request(target.client.get_managed_agent_mail_status, target.agent_ref),
+        )
 
     assert target.controller is not None
-    try:
-        mailbox = ensure_mailbox_command_ready(
-            target.controller.launch_plan,
-            tmux_session_name=target.controller.tmux_session_name,
-        )
-    except MailboxCommandError as exc:
-        if target.controller.launch_plan.mailbox is None:
-            raise click.ClickException("Target session is not mailbox-enabled.") from exc
-        raise click.ClickException(str(exc)) from exc
-    if mailbox is None:
-        raise click.ClickException("Target session is not mailbox-enabled.")
-    return {
-        "schema_version": 1,
-        "transport": mailbox.transport,
-        "principal_id": mailbox.principal_id,
-        "address": mailbox.address,
-        "bindings_version": mailbox.bindings_version,
-    }
+    return build_verified_mail_command_result(
+        operation="status",
+        execution_path="manager_direct",
+        payload=_local_manager_mail_status(target.controller),
+    )
 
 
 def mail_check(
@@ -1042,25 +1194,30 @@ def mail_check(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailCheckRequest
 
-        return pair_request(
-            target.client.check_managed_agent_mail,
-            target.agent_ref,
-            HoumaoManagedAgentMailCheckRequest(
-                unread_only=unread_only,
-                limit=limit,
-                since=since,
+        return build_verified_mail_command_result(
+            operation="check",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.check_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailCheckRequest(
+                    unread_only=unread_only,
+                    limit=limit,
+                    since=since,
+                ),
             ),
         )
 
     assert target.controller is not None
-    return _run_local_mail_prompt(
-        controller=target.controller,
+    return build_verified_mail_command_result(
         operation="check",
-        args={
-            "unread_only": unread_only,
-            "limit": limit,
-            "since": since,
-        },
+        execution_path="manager_direct",
+        payload=_local_manager_mail_check(
+            target.controller,
+            unread_only=unread_only,
+            limit=limit,
+            since=since,
+        ),
     )
 
 
@@ -1079,29 +1236,61 @@ def mail_send(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailSendRequest
 
-        return pair_request(
-            target.client.send_managed_agent_mail,
-            target.agent_ref,
-            HoumaoManagedAgentMailSendRequest(
-                to=to_recipients,
-                cc=cc_recipients,
-                subject=subject,
-                body_content=body_content,
-                attachments=list(attachments),
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.send_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailSendRequest(
+                    to=to_recipients,
+                    cc=cc_recipients,
+                    subject=subject,
+                    body_content=body_content,
+                    attachments=list(attachments),
+                ),
             ),
         )
 
     assert target.controller is not None
-    return _run_local_mail_prompt(
-        controller=target.controller,
+    if target.identity.transport == "tui":
+        gateway_client = _live_gateway_client_for_controller(target.controller)
+        if gateway_client is not None:
+            return build_verified_mail_command_result(
+                operation="send",
+                execution_path="gateway_backed",
+                payload=_gateway_mail_send(
+                    gateway_client,
+                    to_recipients=to_recipients,
+                    cc_recipients=cc_recipients,
+                    subject=subject,
+                    body_content=body_content,
+                    attachments=attachments,
+                ),
+            )
+        return _run_local_mail_prompt(
+            controller=target.controller,
+            operation="send",
+            args={
+                "to": to_recipients,
+                "cc": cc_recipients,
+                "subject": subject,
+                "body_content": body_content,
+                "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
+            },
+        )
+
+    return build_verified_mail_command_result(
         operation="send",
-        args={
-            "to": to_recipients,
-            "cc": cc_recipients,
-            "subject": subject,
-            "body_content": body_content,
-            "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
-        },
+        execution_path="manager_direct",
+        payload=_local_manager_mail_send(
+            target.controller,
+            to_recipients=to_recipients,
+            cc_recipients=cc_recipients,
+            subject=subject,
+            body_content=body_content,
+            attachments=attachments,
+        ),
     )
 
 
@@ -1118,25 +1307,53 @@ def mail_reply(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailReplyRequest
 
-        return pair_request(
-            target.client.reply_managed_agent_mail,
-            target.agent_ref,
-            HoumaoManagedAgentMailReplyRequest(
-                message_ref=message_ref,
-                body_content=body_content,
-                attachments=list(attachments),
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.reply_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailReplyRequest(
+                    message_ref=message_ref,
+                    body_content=body_content,
+                    attachments=list(attachments),
+                ),
             ),
         )
 
     assert target.controller is not None
-    return _run_local_mail_prompt(
-        controller=target.controller,
+    if target.identity.transport == "tui":
+        gateway_client = _live_gateway_client_for_controller(target.controller)
+        if gateway_client is not None:
+            return build_verified_mail_command_result(
+                operation="reply",
+                execution_path="gateway_backed",
+                payload=_gateway_mail_reply(
+                    gateway_client,
+                    message_ref=message_ref,
+                    body_content=body_content,
+                    attachments=attachments,
+                ),
+            )
+        return _run_local_mail_prompt(
+            controller=target.controller,
+            operation="reply",
+            args={
+                "message_ref": message_ref,
+                "body_content": body_content,
+                "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
+            },
+        )
+
+    return build_verified_mail_command_result(
         operation="reply",
-        args={
-            "message_ref": message_ref,
-            "body_content": body_content,
-            "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
-        },
+        execution_path="manager_direct",
+        payload=_local_manager_mail_reply(
+            target.controller,
+            message_ref=message_ref,
+            body_content=body_content,
+            attachments=attachments,
+        ),
     )
 
 

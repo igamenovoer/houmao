@@ -15,9 +15,11 @@ from houmao.agents.realm_controller.mail_commands import (
     MAIL_RESULT_BEGIN_SENTINEL,
     MAIL_RESULT_END_SENTINEL,
     MAIL_RESULT_SURFACES_PAYLOAD_KEY,
+    MailPromptRequest,
     extract_sentinel_blocks,
     parse_mail_result,
     prepare_mail_prompt,
+    run_mail_prompt,
     shadow_mail_result_contract_reached,
     shadow_mail_result_for_request_reached,
 )
@@ -255,6 +257,70 @@ def test_parse_mail_result_prefers_scoped_mail_result_surfaces(tmp_path: Path) -
     assert payload["unread_count"] == 9
 
 
+def test_run_mail_prompt_returns_submission_only_result_without_exact_parse(
+    tmp_path: Path,
+) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    result = run_mail_prompt(
+        send_prompt=None,
+        send_mail_prompt=lambda _request: [
+            SessionEvent(
+                kind="submitted",
+                message="Prompt submitted to CAO terminal",
+                turn_index=1,
+            ),
+            SessionEvent(
+                kind="done",
+                message="prompt completed",
+                turn_index=1,
+                payload={
+                    "canonical_runtime_status": "completed",
+                    "parser_family": "shadow",
+                },
+            ),
+        ],
+        prompt_request=MailPromptRequest(
+            request_id="mailreq-1",
+            operation="send",
+            prompt="send mail",
+        ),
+        mailbox=mailbox,
+    )
+
+    assert result["authoritative"] is False
+    assert result["status"] == "submitted"
+    assert result["execution_path"] == "tui_submission"
+    assert result["request_id"] == "mailreq-1"
+    assert "preview_result" not in result
+
+
+def test_run_mail_prompt_maps_busy_backend_error_to_submission_status(tmp_path: Path) -> None:
+    launch_plan = _build_launch_plan(tmp_path)
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
+
+    def _raise_busy(_request: MailPromptRequest) -> list[SessionEvent]:
+        raise BackendExecutionError("Mailbox command could not start because the target session is busy.")
+
+    result = run_mail_prompt(
+        send_prompt=None,
+        send_mail_prompt=_raise_busy,
+        prompt_request=MailPromptRequest(
+            request_id="mailreq-2",
+            operation="check",
+            prompt="check mail",
+        ),
+        mailbox=mailbox,
+    )
+
+    assert result["authoritative"] is False
+    assert result["status"] == "busy"
+    assert result["execution_path"] == "tui_submission"
+
+
 def test_mail_check_cli_prints_structured_result(
     monkeypatch,
     capsys,
@@ -320,8 +386,10 @@ def test_mail_check_cli_prints_structured_result(
     assert '"operation": "check"' in captured_prompt["prompt"]
     assert '"unread_only": true' in captured_prompt["prompt"]
     payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is True
-    assert payload["unread_count"] == 2
+    assert payload["authoritative"] is False
+    assert payload["status"] == "submitted"
+    assert payload["preview_result"]["ok"] is True
+    assert payload["preview_result"]["unread_count"] == 2
 
 
 def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
@@ -526,8 +594,11 @@ def test_mail_command_errors_for_busy_session(
         ]
     )
 
-    assert exit_code == 2
-    assert "session is busy" in capsys.readouterr().err
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["authoritative"] is False
+    assert payload["status"] == "busy"
+    assert "session busy" in payload["detail"]
 
 
 def test_mail_command_errors_on_malformed_sentinel_payload(
@@ -567,8 +638,11 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
         ]
     )
 
-    assert exit_code == 2
-    assert "parsing failed" in capsys.readouterr().err
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["authoritative"] is False
+    assert payload["status"] == "submitted"
+    assert "preview_result" not in payload
 
 
 # ---------------------------------------------------------------------------
