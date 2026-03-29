@@ -111,11 +111,11 @@ The runtime CLI still has a local `--gateway-auto-attach` convenience for runtim
 ```mermaid
 sequenceDiagram
     participant Op as Operator
-    participant CLI as Runtime CLI
+    participant CLI as houmao-mgr
     participant RT as Runtime
     participant FS as Session root
     participant GW as Gateway
-    Op->>CLI: start-session<br/>--gateway-auto-attach
+    Op->>CLI: agents launch +<br/>agents gateway attach
     CLI->>RT: start backend session
     RT->>FS: write manifest +<br/>seed gateway capability
     RT->>GW: start sidecar process
@@ -205,7 +205,7 @@ Effects:
 - `state.json` returns to the offline `not_attached` shape,
 - persisted manifest-backed attach authority stays in place for later re-attach.
 
-`stop-session` reuses this behavior for tmux-backed sessions when possible before terminating the backend session.
+`houmao-mgr agents stop` reuses this behavior for tmux-backed sessions when possible before terminating the backend session.
 
 ## Same-Session Gateway Windows
 

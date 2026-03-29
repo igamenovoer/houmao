@@ -131,9 +131,9 @@ houmao-mgr brains build [OPTIONS]
 | `--agent-def-dir PATH` | Path to the agent definition directory. |
 | `--tool TEXT` | Tool identifier for the brain (e.g. `codex`, `claude`, `gemini`). |
 | `--skill TEXT` | Skill name to include. May be specified multiple times. |
-| `--config-profile TEXT` | Secret-free configuration profile name. |
-| `--cred-profile TEXT` | Local auth bundle name. |
-| `--recipe TEXT` | Brain recipe name (resolves tool, skills, and profiles from a declarative preset). |
+| `--setup TEXT` | Setup bundle to materialize. |
+| `--auth TEXT` | Auth bundle to project. |
+| `--preset TEXT` | Preset path resolved from the agent root. |
 | `--runtime-root PATH` | Root directory for runtime homes. |
 | `--home-id TEXT` | Explicit home identifier for the runtime home directory. |
 | `--reuse-home` | Reuse an existing runtime home if one matches, instead of creating a new one. |

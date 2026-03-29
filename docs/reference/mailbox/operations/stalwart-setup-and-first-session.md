@@ -60,6 +60,8 @@ If you supply only `base_url`, Houmao derives JMAP as `<base_url>/jmap` and the 
 
 ## Start A Stalwart-Backed Session
 
+> **Note:** `--mailbox-transport stalwart` is not currently exposed via `houmao-mgr agents launch`. The raw `python -m houmao.agents.realm_controller start-session` module CLI shown below remains the supported access path for the stalwart mailbox workflow. Only the `filesystem` transport is available through `houmao-mgr` today.
+
 Use `start-session` with `--mailbox-transport stalwart` and either a base URL or explicit endpoint URLs.
 
 ```bash

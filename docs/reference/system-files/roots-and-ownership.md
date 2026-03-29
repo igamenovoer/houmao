@@ -49,7 +49,7 @@ The shared `~/.houmao` anchor is derived from a platformdirs-aware home lookup r
 
 The runtime root is where Houmao stores generated homes, generated manifests, runtime session roots, and launcher-managed CAO server trees. Different entrypoints expose the explicit override differently:
 
-- `build-brain` exposes `--runtime-root`,
+- `houmao-mgr brains build` exposes `--runtime-root`,
 - launcher config exposes `runtime_root`,
 - programmatic calls expose `runtime_root=...`,
 - otherwise the runtime falls back to `AGENTSYS_GLOBAL_RUNTIME_DIR` and then `~/.houmao/runtime`.

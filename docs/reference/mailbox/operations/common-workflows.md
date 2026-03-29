@@ -16,7 +16,7 @@ That order matters because the mailbox root may have mailbox-local rules, a priv
 
 ## Bootstrap And First Inspection
 
-When you enable mailbox support on `start-session`, the runtime bootstraps the filesystem root, registers the current address, projects the mailbox skill, and persists the resolved mailbox binding.
+When you enable mailbox support on `houmao-mgr agents launch` (or `start-session` at the raw module level), the runtime bootstraps the filesystem root, registers the current address, projects the mailbox skill, and persists the resolved mailbox binding.
 
 After bootstrap, inspect these first:
 

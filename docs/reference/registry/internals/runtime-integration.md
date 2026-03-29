@@ -102,7 +102,7 @@ Current warning-style cases include:
 
 - manifest persistence after a successful prompt or control action,
 - mailbox binding refresh after the mailbox work already succeeded,
-- registry cleanup after a successful `stop-session` teardown,
+- registry cleanup after a successful `agents stop` teardown,
 - pre-stop gateway-detach paths when registry-side refresh work fails during cleanup handling.
 
 Representative flow:
@@ -113,7 +113,7 @@ sequenceDiagram
     participant RT as Runtime
     participant MF as manifest.json
     participant RG as shared registry
-    Op->>RT: send-prompt
+    Op->>RT: agents prompt
     RT-->>Op: prompt work succeeds
     RT->>MF: persist updated manifest
     alt registry refresh succeeds

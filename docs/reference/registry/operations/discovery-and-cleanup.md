@@ -12,7 +12,7 @@ For live gateway recovery, the registry remains only a locator layer: it helps t
 
 ## Name-Based Discovery Order
 
-For name-addressed tmux-backed control such as `send-prompt`, `send-keys`, `mail`, and `stop-session`, the current order is:
+For name-addressed tmux-backed control such as `houmao-mgr agents prompt`, `houmao-mgr agents gateway send-keys`, `houmao-mgr agents mail`, and `houmao-mgr agents stop`, the current order is:
 
 1. normalize the input to canonical `AGENTSYS-...` form,
 2. try tmux-local discovery first,
@@ -48,7 +48,7 @@ sequenceDiagram
     participant TM as tmux<br/>discovery
     participant RG as Shared<br/>registry
     participant MF as manifest.json
-    Op->>CLI: send-prompt<br/>--agent-identity gpu
+    Op->>CLI: houmao-mgr agents<br/>prompt --agent-name gpu
     CLI->>TM: resolve manifest +<br/>agent_def_dir
     alt tmux pointers valid
         TM-->>CLI: resolved pointers
@@ -71,21 +71,34 @@ The key idea is that registry fallback still ends with manifest validation. The 
 Use canonical or unprefixed names interchangeably:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller send-prompt \
-  --agent-identity gpu \
+pixi run houmao-mgr agents prompt \
+  --agent-name gpu \
   --prompt "Summarize the current plan"
 
-pixi run python -m houmao.agents.realm_controller stop-session \
-  --agent-identity AGENTSYS-gpu
+pixi run houmao-mgr agents stop \
+  --agent-name gpu
 ```
 
 Use an explicit registry root for isolated environments:
 
 ```bash
 AGENTSYS_GLOBAL_REGISTRY_DIR=/abs/path/tmp/registry \
+pixi run houmao-mgr agents prompt \
+  --agent-name gpu \
+  --prompt "hello"
+```
+
+### Low-level access
+
+The underlying runtime module CLI still works for advanced targeting or scripting. Use `houmao-mgr agents` for standard operator work and the raw module only when you need manifest-path control or features not yet surfaced by the managed-agent commands.
+
+```bash
 pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-identity gpu \
-  --prompt "hello"
+  --prompt "Summarize the current plan"
+
+pixi run python -m houmao.agents.realm_controller stop-session \
+  --agent-identity AGENTSYS-gpu
 ```
 
 ## Cleanup Semantics

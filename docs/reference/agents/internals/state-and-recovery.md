@@ -64,7 +64,7 @@ Runtime-owned responsibilities:
 - validate and load persisted manifests,
 - resolve tmux-backed names into manifest paths,
 - persist updated session state after runtime-managed actions,
-- detach a live gateway during `stop-session` for tmux-backed sessions when possible,
+- detach a live gateway during `agents stop` for tmux-backed sessions when possible,
 - clear stale live gateway bindings and restore offline gateway state when a live gateway can no longer be validated.
 
 Outside runtime-owned scope:
