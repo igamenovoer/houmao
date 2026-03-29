@@ -23,7 +23,9 @@ Representative usage:
 houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
 houmao-mgr project init
-houmao-mgr project agent-tools codex auth add --name default --api-key your-api-key-here
+houmao-mgr project agents tools codex auth add --name default --api-key your-api-key-here
+houmao-mgr project easy specialist create --name gpu --system-prompt "You are a GPU specialist." --tool codex --credential default --api-key your-api-key-here
+houmao-mgr project mailbox init
 houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889
 houmao-mgr agents launch --agents your-role --agent-name gpu --provider codex --headless
@@ -94,12 +96,22 @@ Retired standalone surfaces (legacy):
 - `mailbox`
 - `admin`
 
+Repo-local authoring under `project` is intentionally split into three views:
+
+```text
+houmao-mgr project
+├── init | status
+├── agents  # low-level `.houmao/agents/` management
+├── easy    # specialist / instance authoring
+└── mailbox # project-scoped mailbox-root operations
+```
+
 Authority is split intentionally:
 
 - `server ...` manages the houmao-server process and server-owned sessions
 - `agents launch` builds and launches locally without `houmao-server`
 - `agents join` adopts an existing tmux-backed TUI or headless logical session into the same managed-agent control plane without pretending Houmao launched the current process itself
-- `project ...` bootstraps the repo-local `.houmao/` overlay, reports discovery state, and manages local auth bundles under `.houmao/agents/tools/<tool>/auth/`
+- `project ...` bootstraps the repo-local `.houmao/` overlay, reports discovery state, and exposes `agents`, `easy`, and `mailbox` views over the project-local sources
 - `mailbox ...` manages the shared filesystem mailbox root, address lifecycle, and inactive-registration cleanup without `houmao-server`
 - `agents mailbox ...` attaches or removes one late filesystem mailbox binding on an existing local managed agent
 - `agents cleanup ...` handles one manifest-scoped local cleanup target for session envelopes, session-local logs, or session-local mailbox secrets

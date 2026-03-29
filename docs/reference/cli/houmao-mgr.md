@@ -156,6 +156,23 @@ houmao-mgr project [OPTIONS] COMMAND [ARGS]...
 
 Local operator workflow for bootstrapping and inspecting one repo-local `.houmao/` overlay.
 
+Command shape:
+
+```text
+houmao-mgr project
+├── init | status
+├── agents
+│   ├── roles ...
+│   └── tools <tool> ...
+├── easy
+│   ├── specialist ...
+│   └── instance ...
+└── mailbox
+    ├── init | status | register | unregister | repair | cleanup
+    ├── accounts list|get
+    └── messages list|get
+```
+
 #### Subcommands
 
 | Subcommand | Description |

@@ -1,45 +1,67 @@
 # houmao-mgr-project-agent-tools Specification
 
 ## Purpose
-Define the project-local `houmao-mgr project agent-tools` workflow for managing tool-scoped auth bundles inside the repo-local `.houmao/agents/tools/` tree.
+Define the project-local `houmao-mgr project agents tools` workflow for managing tool-scoped setup and auth content inside the repo-local `.houmao/agents/tools/` tree.
 
 ## Requirements
 
-### Requirement: `houmao-mgr project agent-tools` mirrors the project-local tool auth tree
+### Requirement: `houmao-mgr project agents tools` mirrors the project-local tool tree
 `houmao-mgr` SHALL expose a project-local tool administration subtree shaped as:
 
 ```text
-houmao-mgr project agent-tools <tool> auth <verb>
+houmao-mgr project agents tools <tool> get
+houmao-mgr project agents tools <tool> setups <verb>
+houmao-mgr project agents tools <tool> auth <verb>
 ```
 
-At minimum, `project agent-tools` SHALL expose Houmao-owned tool families for:
+At minimum, `project agents tools` SHALL expose Houmao-owned tool families for:
 
 - `claude`
 - `codex`
 - `gemini`
 
-At minimum, each supported tool family SHALL expose an `auth` subtree containing:
+At minimum, each supported tool family SHALL expose:
+
+- `get`
+- `setups`
+- `auth`
+
+The help text for this subtree SHALL present it as management for project-local tool content under `.houmao/agents/tools/<tool>/`.
+
+#### Scenario: Operator sees the project agents tools tree
+- **WHEN** an operator runs `houmao-mgr project agents tools --help`
+- **THEN** the help output lists the supported tool families
+- **AND THEN** the help output presents `project agents tools` as management for `.houmao/agents/tools/`
+
+#### Scenario: Operator sees the setup and auth verbs for one tool
+- **WHEN** an operator runs `houmao-mgr project agents tools claude --help`
+- **THEN** the help output presents `get`, `setups`, and `auth`
+- **AND THEN** those commands are described as operations on `.houmao/agents/tools/claude/`
+
+### Requirement: `project agents tools <tool> get` and `setups` inspect and manage setup bundles
+`houmao-mgr project agents tools <tool> get` SHALL report the discovered project root, tool root, adapter path, setup names, and auth bundle names for the selected tool family.
+
+`houmao-mgr project agents tools <tool> setups` SHALL expose:
 
 - `list`
-- `add`
 - `get`
-- `set`
+- `add`
 - `remove`
 
-The help text for this subtree SHALL present it as management for project-local auth bundles stored under `.houmao/agents/tools/<tool>/auth/`.
+`setups add --name <setup>` SHALL clone an existing setup within the same tool family, defaulting to `default` when `--from` is omitted.
 
-#### Scenario: Operator sees the tool-oriented project auth tree
-- **WHEN** an operator runs `houmao-mgr project agent-tools --help`
-- **THEN** the help output lists the supported tool families
-- **AND THEN** the help output presents `agent-tools` as management for project-local tool content rather than as a separate credential registry
+#### Scenario: Tool get reports summary metadata for one tool family
+- **WHEN** an operator runs `houmao-mgr project agents tools codex get`
+- **THEN** the command reports the Codex tool root, adapter path, setup names, and auth bundle names
+- **AND THEN** the operator does not need to inspect the tool subtree manually to discover those paths
 
-#### Scenario: Operator sees auth verbs for one supported tool
-- **WHEN** an operator runs `houmao-mgr project agent-tools claude auth --help`
-- **THEN** the help output lists `list`, `add`, `get`, `set`, and `remove`
-- **AND THEN** the help output presents those commands as operations on `.houmao/agents/tools/claude/auth/<name>/`
+#### Scenario: Setups add clones a new setup from default
+- **WHEN** an operator runs `houmao-mgr project agents tools claude setups add --name research`
+- **THEN** the command clones `.houmao/agents/tools/claude/setups/default/` into `.houmao/agents/tools/claude/setups/research/`
+- **AND THEN** the new setup becomes available for later role presets
 
-### Requirement: `project agent-tools <tool> auth` manages the existing on-disk auth-bundle layout
-`houmao-mgr project agent-tools <tool> auth` SHALL create, inspect, update, list, and remove auth bundles directly under:
+### Requirement: `project agents tools <tool> auth` manages the existing on-disk auth-bundle layout
+`houmao-mgr project agents tools <tool> auth` SHALL create, inspect, update, list, and remove auth bundles directly under:
 
 ```text
 <project-root>/.houmao/agents/tools/<tool>/auth/<name>/
@@ -56,24 +78,18 @@ The help text for this subtree SHALL present it as management for project-local 
 Tool-specific flags SHALL continue mapping onto the adapter-defined env/file contract for the selected tool, including `env/vars.env` and any supported `files/*` content.
 
 #### Scenario: Add creates a new Claude auth bundle in the existing storage model
-- **WHEN** an operator runs `houmao-mgr project agent-tools claude auth add --name work --base-url https://api.example.test --api-key sk-test`
+- **WHEN** an operator runs `houmao-mgr project agents tools claude auth add --name work --base-url https://api.example.test --api-key sk-test`
 - **THEN** the command creates `.houmao/agents/tools/claude/auth/work/env/vars.env` under the discovered project root
 - **AND THEN** it stores the selected Claude-compatible auth inputs using the current Claude adapter contract
 
-#### Scenario: Set updates an existing auth bundle without changing its location
-- **WHEN** `.houmao/agents/tools/codex/auth/personal/` already exists
-- **AND WHEN** an operator runs `houmao-mgr project agent-tools codex auth set --name personal --base-url https://proxy.example.test/v1`
-- **THEN** the command updates that existing auth bundle in place
-- **AND THEN** it does not create a separate credential registry or move the bundle outside `.houmao/agents/tools/codex/auth/personal/`
-
 #### Scenario: Add rejects duplicate auth bundle names
 - **WHEN** `.houmao/agents/tools/gemini/auth/work/` already exists
-- **AND WHEN** an operator runs `houmao-mgr project agent-tools gemini auth add --name work --oauth-creds /tmp/oauth.json`
+- **AND WHEN** an operator runs `houmao-mgr project agents tools gemini auth add --name work --oauth-creds /tmp/oauth.json`
 - **THEN** the command fails explicitly
 - **AND THEN** it does not silently reinterpret `add` as an update
 
-### Requirement: `auth get` reports one bundle safely and `auth set` uses patch semantics
-`houmao-mgr project agent-tools <tool> auth get --name <name>` SHALL report one existing auth bundle as structured data.
+### Requirement: `project agents tools <tool> auth get` reports one bundle safely and `auth set` uses patch semantics
+`houmao-mgr project agents tools <tool> auth get --name <name>` SHALL report one existing auth bundle as structured data.
 
 By default, `auth get` SHALL redact secret-like values such as API keys or auth tokens instead of printing them verbatim.
 
@@ -83,12 +99,12 @@ File-backed auth material SHALL be reported through presence and path metadata r
 
 #### Scenario: Get redacts secret values by default
 - **WHEN** `.houmao/agents/tools/claude/auth/work/env/vars.env` contains both `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`
-- **AND WHEN** an operator runs `houmao-mgr project agent-tools claude auth get --name work`
+- **AND WHEN** an operator runs `houmao-mgr project agents tools claude auth get --name work`
 - **THEN** the command reports that the API key is present without printing its raw value
 - **AND THEN** the command may still report non-secret metadata such as the bundle path or configured base URL
 
 #### Scenario: Set preserves unspecified fields
 - **WHEN** `.houmao/agents/tools/claude/auth/work/env/vars.env` already contains both `ANTHROPIC_API_KEY=sk-test` and `ANTHROPIC_BASE_URL=https://api.example.test`
-- **AND WHEN** an operator runs `houmao-mgr project agent-tools claude auth set --name work --base-url https://proxy.example.test`
+- **AND WHEN** an operator runs `houmao-mgr project agents tools claude auth set --name work --base-url https://proxy.example.test`
 - **THEN** the command updates the stored base URL
 - **AND THEN** it does not delete the existing API key only because `--api-key` was omitted

@@ -29,19 +29,21 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 - **THEN** the CLI prints help text showing available command groups
 - **AND THEN** the CLI does NOT raise a Python exception or print a stack trace
 
-### Requirement: `houmao-mgr project` exposes `agent-tools` instead of `credential`
+### Requirement: `houmao-mgr project` exposes repo-local project views
 When `houmao-mgr` exposes the repo-local `project` command family, that family SHALL include:
 
 - `init`
 - `status`
-- `agent-tools`
+- `agents`
+- `easy`
+- `mailbox`
 
-The `project` help surface SHALL NOT advertise `credential` as the supported project-local auth-management subtree.
+The `project` help surface SHALL present those subtrees as repo-local views over project source management, high-level project authoring, and project-scoped mailbox operations.
 
-#### Scenario: Project help shows the renamed tool-oriented subtree
+#### Scenario: Project help shows the project views
 - **WHEN** an operator runs `houmao-mgr project --help`
-- **THEN** the help output lists `init`, `status`, and `agent-tools`
-- **AND THEN** the help output does not present `credential` as the supported project auth-management command family
+- **THEN** the help output lists `init`, `status`, `agents`, `easy`, and `mailbox`
+- **AND THEN** the help output does not present `agent-tools` or `credential` as the supported public project command family
 
 ### Requirement: `houmao-mgr server` accepts passive server pair authorities
 `houmao-mgr server` lifecycle commands SHALL accept a supported pair authority whose `GET /health` reports `houmao_service == "houmao-passive-server"` in addition to `houmao-server`.

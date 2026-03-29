@@ -12,13 +12,15 @@ At minimum, that family SHALL include:
 
 - `init`
 - `status`
-- `agent-tools`
+- `agents`
+- `easy`
+- `mailbox`
 
 The `project` family SHALL be presented as a local operator workflow for repo-local Houmao state rather than as a pair-authority or server-backed control surface.
 
 #### Scenario: Operator sees the project command family
 - **WHEN** an operator runs `houmao-mgr project --help`
-- **THEN** the help output lists `init`, `status`, and `agent-tools`
+- **THEN** the help output lists `init`, `status`, `agents`, `easy`, and `mailbox`
 - **AND THEN** the help output presents `project` as a local project-overlay workflow
 
 ### Requirement: `houmao-mgr project init` bootstraps one repo-local `.houmao` overlay
@@ -57,6 +59,22 @@ When the target project overlay already exists and remains compatible, `project 
 - **AND WHEN** they run `houmao-mgr project init` again inside `/repo/app`
 - **THEN** the command validates the existing project overlay
 - **AND THEN** it does not delete or overwrite that existing local auth bundle only because init was re-run
+
+### Requirement: `houmao-mgr project init` bootstraps project source roots but does not create optional project workflow state by default
+`houmao-mgr project init` SHALL bootstrap the base project overlay and canonical `.houmao/agents/` tree without creating optional mailbox or `easy` metadata state by default.
+
+At minimum, `project init` SHALL NOT create:
+
+- `.houmao/mailbox/`
+- `.houmao/easy/`
+
+only because init was run.
+
+#### Scenario: Project init leaves mailbox and easy state opt-in
+- **WHEN** an operator runs `houmao-mgr project init` inside `/repo/app`
+- **THEN** the command creates the base `.houmao/` overlay and `.houmao/agents/` tree
+- **AND THEN** it does not create `/repo/app/.houmao/mailbox/` only because init was run
+- **AND THEN** it does not create `/repo/app/.houmao/easy/` only because init was run
 
 ### Requirement: Project-aware agent-definition defaults discover the nearest project config
 Project-aware command paths that need an effective agent-definition root and are invoked without explicit `--agent-def-dir` SHALL resolve that root in this order:

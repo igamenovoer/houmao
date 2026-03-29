@@ -89,3 +89,26 @@ flowchart TD
 | `src/houmao/agents/realm_controller/launch_plan.py` | Manifest + role -> backend launch plan |
 | `src/houmao/agents/realm_controller/backends/` | Backend implementations |
 | `src/houmao/srv_ctrl/commands/agents/core.py` | `houmao-mgr agents launch` preset-backed flow |
+
+## Project CLI Views
+
+The repo-local operator surface is intentionally split into one low-level view and two user-facing convenience views:
+
+```text
+houmao-mgr project
+├── init | status
+├── agents
+│   ├── roles ...
+│   └── tools <tool> ...
+├── easy
+│   ├── specialist ...
+│   └── instance ...
+└── mailbox
+    ├── init | status | register | unregister | repair | cleanup
+    ├── accounts list|get
+    └── messages list|get
+```
+
+- `project agents ...` maps directly to the canonical `.houmao/agents/` source tree.
+- `project easy ...` lets users author reusable specialists and view running instances without hand-editing the tree.
+- `project mailbox ...` mirrors the generic `houmao-mgr mailbox ...` operations, but automatically targets `<project-root>/.houmao/mailbox`.
