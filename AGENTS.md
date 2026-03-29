@@ -55,6 +55,7 @@ Framework: `pytest` (with some `unittest` compatibility). Follow file naming fro
 
 Keep unit tests deterministic and isolated; prefer fixtures over network access. Run `pixi run test` before opening a PR, and add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
 When testing agent flows against local fixture credentials, prefer `tests/fixtures/agents/tools/claude/auth/kimi-coding/` for Claude Code and `tests/fixtures/agents/tools/codex/auth/yunwu-openai/` for Codex by default unless the task explicitly requires a different auth bundle.
+When testing TUI agents automatically, default to unattended mode unless the task explicitly requests interactive or `as_is` behavior.
 
 ## Commit & Pull Request Guidelines
 Recent history follows Conventional Commit-style prefixes (`feat:`, `fix:`, `docs:`, `chore:`). Keep commits focused and imperative, e.g. `feat: add runtime health-check retry backoff`.

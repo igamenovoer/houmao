@@ -70,6 +70,7 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.cao.rest_client import CaoApiError
+from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -2029,10 +2030,15 @@ def _run_local_mail_prompt(
     except MailboxCommandError as exc:
         raise click.ClickException(str(exc)) from exc
     prefer_live_gateway = _live_gateway_client_for_controller(controller) is not None
+    prompt_args = _enrich_local_mail_prompt_args(
+        mailbox=mailbox,
+        operation=operation,
+        args=args,
+    )
     prompt_request = prepare_mail_prompt(
         launch_plan=controller.launch_plan,
         operation=cast(Any, operation),
-        args=args,
+        args=prompt_args,
         prefer_live_gateway=prefer_live_gateway,
         tmux_session_name=controller.tmux_session_name,
     )
@@ -2050,6 +2056,79 @@ def _run_local_mail_prompt(
         ),
         mailbox=mailbox,
     )
+
+
+def _enrich_local_mail_prompt_args(
+    *,
+    mailbox: object,
+    operation: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach runtime-resolved mailbox principal records when available."""
+
+    enriched = dict(args)
+    if operation != "send" or not isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        return enriched
+
+    enriched["resolved_sender"] = {
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+    }
+    enriched["resolved_to"] = _resolve_registered_mail_principals(
+        mailbox_root=mailbox.filesystem_root,
+        addresses=_string_sequence(args.get("to")),
+        field_name="to",
+    )
+    enriched["resolved_cc"] = _resolve_registered_mail_principals(
+        mailbox_root=mailbox.filesystem_root,
+        addresses=_string_sequence(args.get("cc")),
+        field_name="cc",
+    )
+    return enriched
+
+
+def _resolve_registered_mail_principals(
+    *,
+    mailbox_root: Path,
+    addresses: tuple[str, ...],
+    field_name: str,
+) -> list[dict[str, str]]:
+    """Resolve active mailbox registrations into managed-principal payloads."""
+
+    principals: list[dict[str, str]] = []
+    seen_addresses: set[str] = set()
+    for address in addresses:
+        normalized = address.strip()
+        if not normalized or normalized in seen_addresses:
+            continue
+        seen_addresses.add(normalized)
+        try:
+            registration = load_active_mailbox_registration(mailbox_root, address=normalized)
+        except (FileNotFoundError, MailboxBootstrapError) as exc:
+            raise click.ClickException(
+                f"Filesystem mailbox send requires an active registration for `{field_name}` "
+                f"recipient `{normalized}`: {exc}"
+            ) from exc
+        principal_payload = {
+            "principal_id": registration.owner_principal_id,
+            "address": registration.address,
+        }
+        if registration.display_name:
+            principal_payload["display_name"] = registration.display_name
+        if registration.manifest_path_hint:
+            principal_payload["manifest_path_hint"] = registration.manifest_path_hint
+        if registration.role:
+            principal_payload["role"] = registration.role
+        principals.append(principal_payload)
+    return principals
+
+
+def _string_sequence(value: object) -> tuple[str, ...]:
+    """Normalize one optional string sequence payload."""
+
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, str) and item.strip())
 
 
 def _managed_agent_turn_status(status: str) -> ManagedAgentTurnStatus:

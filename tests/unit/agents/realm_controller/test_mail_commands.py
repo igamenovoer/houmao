@@ -19,6 +19,7 @@ from houmao.agents.realm_controller.mail_commands import (
     parse_mail_result,
     prepare_mail_prompt,
     shadow_mail_result_contract_reached,
+    shadow_mail_result_for_request_reached,
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
@@ -80,7 +81,8 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
 
     assert prompt_request.operation == "check"
     assert "`email-via-filesystem`" in prompt_request.prompt
-    assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt_request.prompt
+    assert "skills/mailbox/email-via-filesystem/SKILL.md" not in prompt_request.prompt
+    assert "Do not search the repository for a `skills/.../SKILL.md` path" in prompt_request.prompt
     assert "resolve-live" in prompt_request.prompt
     assert "gateway.base_url" in prompt_request.prompt
     assert "attached gateway env vars" not in prompt_request.prompt
@@ -695,6 +697,28 @@ def test_shadow_contract_reached_when_real_block_follows_echo() -> None:
     )
     surface_payloads = ({"surface_id": "shadow_post_submit.normalized_text", "text": text},)
     assert shadow_mail_result_contract_reached(surface_payloads) is True
+
+
+def test_shadow_contract_for_request_requires_active_request_match(tmp_path: Path) -> None:
+    """Shadow completion must ignore sentinel blocks that belong to an earlier mail request."""
+    mailbox = _build_launch_plan(tmp_path).mailbox
+    assert mailbox is not None
+    text = (
+        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        + '{"ok": true, "request_id": "old", "operation": "send", "transport": "filesystem", "principal_id": "AGENTSYS-research", "message_id": "msg-old"}\n'
+        + "AGENTSYS_MAIL_RESULT_END\n"
+    )
+    surface_payloads = ({"surface_id": "shadow_post_submit.raw_text", "text": text},)
+
+    assert (
+        shadow_mail_result_for_request_reached(
+            surface_payloads,
+            request_id="new",
+            operation="send",
+            mailbox=mailbox,
+        )
+        is False
+    )
 
 
 # ---------------------------------------------------------------------------

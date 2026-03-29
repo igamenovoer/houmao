@@ -10,8 +10,16 @@ from pathlib import Path
 from houmao.server.tui.process import PaneProcessInspector
 
 from ..errors import BackendExecutionError
+from ..mail_commands import (
+    MAIL_RESULT_SURFACES_PAYLOAD_KEY,
+    MailPromptRequest,
+    build_shadow_mail_result_surface_payloads,
+    shadow_mail_result_for_request_reached,
+)
 from ..models import LaunchPlan, SessionControlResult, SessionEvent
+from .claude_bootstrap import ensure_claude_home_bootstrap
 from .headless_base import HeadlessInteractiveSession, HeadlessSessionState
+from .shadow_parser_stack import ShadowParserStack, as_shadow_parser_error
 from .tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
@@ -35,6 +43,8 @@ _SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "gemini": ("gemini",),
 }
 _POST_PASTE_SUBMIT_DELAY_SECONDS = 0.3
+_LOCAL_INTERACTIVE_MAIL_PROMPT_TIMEOUT_SECONDS = 300.0
+_LOCAL_INTERACTIVE_MAIL_PROMPT_POLL_INTERVAL_SECONDS = 0.5
 
 
 class LocalInteractiveSession(HeadlessInteractiveSession):
@@ -121,6 +131,48 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             detail="Sent interrupt to the local interactive session.",
         )
 
+    def send_mail_prompt(self, prompt_request: MailPromptRequest) -> list[SessionEvent]:
+        """Send one mailbox prompt and observe the live TUI for the result sentinel."""
+
+        if not prompt_request.prompt.strip():
+            raise BackendExecutionError("Prompt must not be empty")
+
+        parser_stack = self._shadow_parser_stack()
+        baseline_output = self._capture_live_pane_output()
+        try:
+            baseline_snapshot = parser_stack.parse_snapshot(baseline_output, baseline_pos=0)
+        except Exception as exc:
+            normalized = as_shadow_parser_error(exc)
+            raise BackendExecutionError(
+                f"Failed to parse local interactive baseline for mailbox prompt: {normalized}"
+            ) from exc
+        baseline_pos = parser_stack.capture_baseline_pos(baseline_output)
+
+        self._submit_runtime_prompt(prompt_request.prompt)
+        turn_index = self._state.turn_index
+        submitted_event = SessionEvent(
+            kind="submitted",
+            message="prompt submitted",
+            turn_index=turn_index,
+            payload={"tmux_session_name": self._require_tmux_session_name()},
+        )
+        completion_payload = self._wait_for_mail_result_surfaces(
+            parser_stack=parser_stack,
+            baseline_output=baseline_output,
+            baseline_projection=baseline_snapshot.dialog_projection,
+            baseline_pos=baseline_pos,
+            prompt_request=prompt_request,
+        )
+        return [
+            submitted_event,
+            SessionEvent(
+                kind="done",
+                message="prompt completed",
+                turn_index=turn_index,
+                payload=completion_payload,
+            ),
+        ]
+
     def send_input_ex(
         self, sequence: str, *, escape_special_keys: bool = False
     ) -> SessionControlResult:
@@ -205,6 +257,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         )
 
     def _launch_provider_surface(self) -> None:
+        self._prepare_tool_home()
         session_name = self._require_tmux_session_name()
         pane_target = headless_agent_pane_target_shared(session_name=session_name)
         command_text = shlex.join(self._build_launch_command())
@@ -244,6 +297,12 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
 
         self._wait_for_provider_tui(timeout_seconds=10.0, poll_interval_seconds=0.2)
 
+    def _prepare_tool_home(self) -> None:
+        """Apply tool-specific runtime-home bootstrap before launch."""
+
+        if self._plan.tool == "claude":
+            ensure_claude_home_bootstrap(home_path=self._plan.home_path, env=self._plan.env)
+
     def _build_launch_command(self) -> list[str]:
         command = [self._plan.executable, *self._plan.args]
         if (
@@ -265,6 +324,19 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         time.sleep(0.2)
         self._submit_semantic_prompt(bootstrap)
         self._state.role_bootstrap_applied = True
+
+    def _submit_runtime_prompt(self, prompt: str) -> None:
+        """Submit one runtime-owned prompt after any launch-time bootstrap."""
+
+        if (
+            not self._state.role_bootstrap_applied
+            and self._plan.role_injection.method == "bootstrap_message"
+            and self._plan.role_injection.bootstrap_message
+        ):
+            self._submit_semantic_prompt(self._plan.role_injection.bootstrap_message)
+            self._state.role_bootstrap_applied = True
+        self._submit_semantic_prompt(prompt)
+        self._state.turn_index += 1
 
     def _submit_semantic_prompt(self, text: str) -> None:
         """Paste literal prompt text and submit it as a separate tmux phase."""
@@ -288,6 +360,180 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             raise BackendExecutionError(
                 f"Failed to submit prompt to local interactive session: {exc}"
             ) from exc
+
+    def _shadow_parser_stack(self) -> ShadowParserStack:
+        """Return the shadow parser stack required for mailbox observation."""
+
+        try:
+            return ShadowParserStack(tool=self._plan.tool)
+        except ValueError as exc:
+            raise BackendExecutionError(
+                f"Mailbox prompts are unsupported for local_interactive tool {self._plan.tool!r}: "
+                "no shadow parser is available."
+            ) from exc
+
+    def _capture_live_pane_output(self) -> str:
+        """Return the current tmux pane capture for the stable interactive surface."""
+
+        try:
+            return capture_tmux_pane_shared(
+                target=headless_agent_pane_target_shared(
+                    session_name=self._require_tmux_session_name()
+                )
+            )
+        except TmuxCommandError as exc:
+            raise BackendExecutionError(
+                f"Failed to capture local interactive pane output: {exc}"
+            ) from exc
+
+    def _wait_for_mail_result_surfaces(
+        self,
+        *,
+        parser_stack: ShadowParserStack,
+        baseline_output: str,
+        baseline_projection: object,
+        baseline_pos: int,
+        prompt_request: MailPromptRequest,
+    ) -> dict[str, object]:
+        """Poll the live TUI until the mailbox sentinel block is observable."""
+
+        deadline = time.monotonic() + _LOCAL_INTERACTIVE_MAIL_PROMPT_TIMEOUT_SECONDS
+        last_output = baseline_output
+        last_error: str | None = None
+        mailbox = self._plan.mailbox
+        if mailbox is None:
+            raise BackendExecutionError("Local interactive mailbox prompt requires a resolved mailbox.")
+        while time.monotonic() < deadline:
+            self._ensure_provider_tui_alive()
+            current_output = self._capture_live_pane_output()
+            last_output = current_output
+            try:
+                current_snapshot = parser_stack.parse_snapshot(current_output, baseline_pos=baseline_pos)
+            except Exception as exc:
+                normalized = as_shadow_parser_error(exc)
+                last_error = str(normalized)
+                time.sleep(_LOCAL_INTERACTIVE_MAIL_PROMPT_POLL_INTERVAL_SECONDS)
+                continue
+
+            surface_payloads = build_shadow_mail_result_surface_payloads(
+                raw_output_text=current_output,
+                current_projection=current_snapshot.dialog_projection,
+                baseline_output_text=baseline_output,
+                baseline_projection=baseline_projection,
+            )
+            if shadow_mail_result_for_request_reached(
+                surface_payloads,
+                request_id=prompt_request.request_id,
+                operation=prompt_request.operation,
+                mailbox=mailbox,
+            ):
+                return {
+                    "tmux_session_name": self._require_tmux_session_name(),
+                    MAIL_RESULT_SURFACES_PAYLOAD_KEY: list(surface_payloads),
+                    "dialog_projection": {
+                        "raw_text": current_snapshot.dialog_projection.raw_text,
+                        "normalized_text": current_snapshot.dialog_projection.normalized_text,
+                        "dialog_text": current_snapshot.dialog_projection.dialog_text,
+                        "head": current_snapshot.dialog_projection.head,
+                        "tail": current_snapshot.dialog_projection.tail,
+                    },
+                }
+            time.sleep(_LOCAL_INTERACTIVE_MAIL_PROMPT_POLL_INTERVAL_SECONDS)
+
+        final_payload = self._try_collect_mail_result_payload(
+            parser_stack=parser_stack,
+            baseline_output=baseline_output,
+            baseline_projection=baseline_projection,
+            baseline_pos=baseline_pos,
+            prompt_request=prompt_request,
+        )
+        if final_payload is not None:
+            return final_payload
+
+        detail = (
+            "Timed out waiting for the local interactive mailbox result sentinel."
+        )
+        if last_error:
+            detail = f"{detail} Last parser error: {last_error}."
+        excerpt = last_output.strip()
+        if excerpt:
+            detail = f"{detail}\n\nPane output:\n{excerpt[-1200:]}"
+        raise BackendExecutionError(detail)
+
+    def _try_collect_mail_result_payload(
+        self,
+        *,
+        parser_stack: ShadowParserStack,
+        baseline_output: str,
+        baseline_projection: object,
+        baseline_pos: int,
+        prompt_request: MailPromptRequest,
+    ) -> dict[str, object] | None:
+        """Capture and parse the current pane once, returning the mailbox payload when present."""
+
+        current_output = self._capture_live_pane_output()
+        try:
+            current_snapshot = parser_stack.parse_snapshot(current_output, baseline_pos=baseline_pos)
+        except Exception:
+            return None
+
+        surface_payloads = build_shadow_mail_result_surface_payloads(
+            raw_output_text=current_output,
+            current_projection=current_snapshot.dialog_projection,
+            baseline_output_text=baseline_output,
+            baseline_projection=baseline_projection,
+        )
+        mailbox = self._plan.mailbox
+        if mailbox is None:
+            return None
+        if not shadow_mail_result_for_request_reached(
+            surface_payloads,
+            request_id=prompt_request.request_id,
+            operation=prompt_request.operation,
+            mailbox=mailbox,
+        ):
+            return None
+        return {
+            "tmux_session_name": self._require_tmux_session_name(),
+            MAIL_RESULT_SURFACES_PAYLOAD_KEY: list(surface_payloads),
+            "dialog_projection": {
+                "raw_text": current_snapshot.dialog_projection.raw_text,
+                "normalized_text": current_snapshot.dialog_projection.normalized_text,
+                "dialog_text": current_snapshot.dialog_projection.dialog_text,
+                "head": current_snapshot.dialog_projection.head,
+                "tail": current_snapshot.dialog_projection.tail,
+            },
+        }
+
+    def _ensure_provider_tui_alive(self) -> None:
+        """Raise when the tracked provider process is no longer live."""
+
+        session_name = self._require_tmux_session_name()
+        try:
+            panes = list_tmux_panes_shared(session_name=session_name)
+        except TmuxCommandError as exc:
+            raise BackendExecutionError(
+                f"Failed to inspect tmux panes for `{session_name}`: {exc}"
+            ) from exc
+        pane = next(
+            (
+                candidate
+                for candidate in panes
+                if candidate.window_index == "0" and candidate.pane_index == "0"
+            ),
+            None,
+        )
+        if pane is None:
+            raise BackendExecutionError(
+                f"tmux session `{session_name}` is missing the stable agent pane."
+            )
+        inspection = self._process_inspector.inspect(tool=self._plan.tool, pane_pid=pane.pane_pid)
+        if inspection.process_state == "tui_up":
+            return
+        raise BackendExecutionError(
+            f"Local interactive mailbox prompt failed because the {self._plan.tool} TUI is no "
+            f"longer live (state={inspection.process_state})."
+        )
 
     def _prompt_buffer_name(self, session_name: str) -> str:
         """Return the stable tmux buffer name used for semantic prompt submission."""

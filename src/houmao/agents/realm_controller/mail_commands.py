@@ -16,7 +16,6 @@ from typing import Any, Callable, Literal
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
-    mailbox_skill_document_path,
     mailbox_skill_name,
     resolve_live_mailbox_binding,
 )
@@ -93,10 +92,26 @@ def prepare_mail_prompt(
     }
     prompt_lines = _mail_prompt_instruction_lines(
         mailbox=mailbox,
+        operation=operation,
+        args=args,
         prefer_live_gateway=prefer_live_gateway,
     )
     prompt_lines.extend(
         [
+            "The sentinel JSON is machine-owned. Do not paste raw helper output directly when it omits required contract keys.",
+            "Return only the contracted fields and omit long paths or verbose nested helper payloads from the sentinel block.",
+            "Use this exact result shape:",
+            "```json",
+            json.dumps(
+                _mail_result_contract_template(
+                    request_id=request_id,
+                    operation=operation,
+                    mailbox=mailbox,
+                ),
+                indent=2,
+                sort_keys=True,
+            ),
+            "```",
             (
                 "Return exactly one JSON result between "
                 f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`."
@@ -170,13 +185,18 @@ def ensure_mailbox_command_ready(
 def _mail_prompt_instruction_lines(
     *,
     mailbox: MailboxResolvedConfig,
+    operation: MailOperation,
+    args: dict[str, Any],
     prefer_live_gateway: bool,
 ) -> list[str]:
     skill_name = mailbox_skill_name(mailbox)
-    skill_document_path = mailbox_skill_document_path(mailbox)
     lines = [
         (f"Use the runtime-owned mailbox skill `{skill_name}` for this mailbox operation."),
-        f"Open the primary mailbox skill document at `{skill_document_path}`.",
+        (
+            "Use the installed runtime-owned mailbox skill directly. Do not search the "
+            "repository for a `skills/.../SKILL.md` path and do not infer any skill install "
+            "location from the current working directory."
+        ),
         (
             "Before any direct mailbox access, resolve current mailbox bindings through the "
             "runtime-owned helper "
@@ -205,6 +225,39 @@ def _mail_prompt_instruction_lines(
                 ),
             ]
         )
+        if operation == "send":
+            lines.extend(
+                [
+                    (
+                        "For direct filesystem `send` without a live gateway facade, stage the "
+                        "Markdown body under the mailbox root `staging/` directory, then invoke "
+                        "`rules/scripts/deliver_message.py --mailbox-root \"$AGENTSYS_MAILBOX_FS_ROOT\" --payload-file <payload.json>`."
+                    ),
+                    (
+                        "Use `message_id` format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}` and "
+                        "set `thread_id = message_id` for a new message thread."
+                    ),
+                ]
+            )
+            if any(key in args for key in ("resolved_sender", "resolved_to", "resolved_cc")):
+                lines.append(
+                    "When direct filesystem delivery is required, treat `args.resolved_sender`, "
+                    "`args.resolved_to`, and `args.resolved_cc` as authoritative principal "
+                    "records and use them exactly instead of rediscovering mailbox ownership."
+                )
+            payload_template = _filesystem_send_payload_template(args)
+            if payload_template is not None:
+                lines.extend(
+                    [
+                        (
+                            "For direct filesystem `send`, use this `DeliveryRequest` JSON shape "
+                            "directly instead of reading more repository code to infer the payload:"
+                        ),
+                        "```json",
+                        json.dumps(payload_template, indent=2, sort_keys=True),
+                        "```",
+                    ]
+                )
     elif not prefer_live_gateway:
         lines.extend(
             [
@@ -213,6 +266,62 @@ def _mail_prompt_instruction_lines(
             ]
         )
     return lines
+
+
+def _filesystem_send_payload_template(args: dict[str, Any]) -> dict[str, Any] | None:
+    """Return one concrete `deliver_message.py` payload template when possible."""
+
+    sender = args.get("resolved_sender")
+    to = args.get("resolved_to")
+    cc = args.get("resolved_cc")
+    subject = args.get("subject")
+    body_content = args.get("body_content")
+    attachments = args.get("attachments")
+    if not isinstance(sender, dict) or not isinstance(to, list) or not isinstance(cc, list):
+        return None
+    if not isinstance(subject, str) or not isinstance(body_content, str):
+        return None
+    if not isinstance(attachments, list):
+        attachments = []
+    return {
+        "staged_message_path": "$AGENTSYS_MAILBOX_FS_ROOT/staging/<message-id>.md",
+        "message_id": "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>",
+        "thread_id": "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>",
+        "created_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
+        "sender": sender,
+        "to": to,
+        "cc": cc,
+        "reply_to": [],
+        "subject": subject,
+        "attachments": attachments,
+        "headers": {},
+    }
+
+
+def _mail_result_contract_template(
+    *,
+    request_id: str,
+    operation: MailOperation,
+    mailbox: MailboxResolvedConfig,
+) -> dict[str, Any]:
+    """Return the exact machine result contract template for one operation."""
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "request_id": request_id,
+        "operation": operation,
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+    }
+    if operation == "send":
+        payload["message_id"] = "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>"
+        payload["recipient_count"] = 1
+    elif operation == "reply":
+        payload["message_id"] = "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>"
+    elif operation == "check":
+        payload["message_count"] = 0
+        payload["messages"] = []
+    return payload
 
 
 def parse_mail_result(
@@ -302,8 +411,37 @@ def shadow_mail_result_contract_reached(surface_payloads: tuple[dict[str, str], 
 
     for surface in surface_payloads:
         text = surface.get("text")
-        if isinstance(text, str) and extract_sentinel_blocks(text):
-            return True
+        if not isinstance(text, str):
+            continue
+        if not extract_sentinel_blocks(text):
+            continue
+        return True
+    return False
+
+
+def shadow_mail_result_for_request_reached(
+    surface_payloads: tuple[dict[str, str], ...],
+    *,
+    request_id: str,
+    operation: MailOperation,
+    mailbox: MailboxResolvedConfig,
+) -> bool:
+    """Return whether one shadow surface contains a parseable result for the active request."""
+
+    for surface in surface_payloads:
+        text = surface.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            _parse_mail_result_text(
+                text,
+                request_id=request_id,
+                operation=operation,
+                mailbox=mailbox,
+            )
+        except MailboxResultParseError:
+            continue
+        return True
     return False
 
 

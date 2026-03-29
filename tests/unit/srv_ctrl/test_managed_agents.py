@@ -25,6 +25,7 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
     SessionControlResult,
 )
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
@@ -501,6 +502,108 @@ def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
         "address": "AGENTSYS-alpha@agents.localhost",
         "bindings_version": "2026-03-27T00:00:00Z",
     }
+
+
+def test_enrich_local_mail_prompt_args_resolves_filesystem_mailbox_principals(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="sender-principal",
+        address="sender@agents.localhost",
+        filesystem_root=tmp_path / "mailbox",
+        bindings_version="2026-03-29T15:00:00Z",
+    )
+
+    def _fake_load_active_mailbox_registration(mailbox_root: Path, *, address: str) -> SimpleNamespace:
+        assert mailbox_root == mailbox.filesystem_root
+        if address == "alpha@agents.localhost":
+            return SimpleNamespace(
+                owner_principal_id="alpha-principal",
+                address=address,
+                display_name="Alpha",
+                manifest_path_hint="/tmp/alpha.json",
+                role="alpha-role",
+            )
+        if address == "cc@agents.localhost":
+            return SimpleNamespace(
+                owner_principal_id="cc-principal",
+                address=address,
+                display_name=None,
+                manifest_path_hint=None,
+                role=None,
+            )
+        raise FileNotFoundError(address)
+
+    monkeypatch.setattr(
+        managed_agents_module,
+        "load_active_mailbox_registration",
+        _fake_load_active_mailbox_registration,
+    )
+
+    enriched = managed_agents_module._enrich_local_mail_prompt_args(
+        mailbox=mailbox,
+        operation="send",
+        args={
+            "to": ["alpha@agents.localhost", "alpha@agents.localhost"],
+            "cc": ["cc@agents.localhost"],
+            "subject": "hello",
+            "body_content": "world",
+            "attachments": [],
+        },
+    )
+
+    assert enriched["resolved_sender"] == {
+        "principal_id": "sender-principal",
+        "address": "sender@agents.localhost",
+    }
+    assert enriched["resolved_to"] == [
+        {
+            "principal_id": "alpha-principal",
+            "address": "alpha@agents.localhost",
+            "display_name": "Alpha",
+            "manifest_path_hint": "/tmp/alpha.json",
+            "role": "alpha-role",
+        }
+    ]
+    assert enriched["resolved_cc"] == [
+        {
+            "principal_id": "cc-principal",
+            "address": "cc@agents.localhost",
+        }
+    ]
+
+
+def test_enrich_local_mail_prompt_args_fails_when_recipient_is_unregistered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="sender-principal",
+        address="sender@agents.localhost",
+        filesystem_root=tmp_path / "mailbox",
+        bindings_version="2026-03-29T15:00:00Z",
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "load_active_mailbox_registration",
+        lambda mailbox_root, *, address: (_ for _ in ()).throw(FileNotFoundError(address)),
+    )
+
+    with pytest.raises(click.ClickException, match="missing@agents.localhost"):
+        managed_agents_module._enrich_local_mail_prompt_args(
+            mailbox=mailbox,
+            operation="send",
+            args={
+                "to": ["missing@agents.localhost"],
+                "cc": [],
+                "subject": "hello",
+                "body_content": "world",
+                "attachments": [],
+            },
+        )
 
 
 def _managed_identity(*, transport: str = "headless") -> HoumaoManagedAgentIdentity:
