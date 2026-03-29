@@ -19,6 +19,7 @@ At minimum, `specialist create` SHALL support:
 - common credential inputs `--api-key` and `--base-url`
 - a tool-specific auth-file flag appropriate to the selected tool
 - repeated `--with-skill <skill-dir>`
+- `--no-unattended` as the explicit opt-out from the easy unattended default
 
 When `--credential` is omitted, the command SHALL derive the credential bundle name as `<specialist-name>-creds`.
 
@@ -36,11 +37,29 @@ The command SHALL persist one specialist into the project-local catalog as expli
 
 The resulting project-local catalog and managed content store SHALL remain the authoritative build and launch input for project-aware flows.
 
+For tools whose maintained easy launch path supports unattended startup, `specialist create` SHALL persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset.
+
+When the operator passes `--no-unattended`, the command SHALL persist `launch.prompt_mode: as_is` for that specialist rather than omitting launch prompt mode or storing a legacy `interactive` value.
+
+For tools whose maintained easy launch path does not support unattended startup, the command SHALL NOT inject unattended launch posture solely because the tool was selected.
+
 #### Scenario: Create uses the derived credential name by default
 - **WHEN** an operator runs `houmao-mgr project easy specialist create --name researcher --system-prompt "You are a precise repo researcher." --tool codex --api-key sk-test --with-skill /tmp/notes-skill`
 - **THEN** the command persists specialist `researcher` into the project-local catalog
 - **AND THEN** it records the derived credential selection `researcher-creds`
 - **AND THEN** it records the selected prompt, tool, auth, and skill relationships without relying on directory nesting alone as the semantic graph
+
+#### Scenario: Claude easy specialist defaults to unattended startup posture
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name python-sde --tool claude --api-key sk-test`
+- **THEN** the command persists specialist `python-sde` successfully
+- **AND THEN** the stored specialist launch payload records `prompt_mode = unattended`
+- **AND THEN** the generated preset stores `launch.prompt_mode: unattended`
+
+#### Scenario: Operator can opt out of the easy unattended default
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name python-sde --tool claude --api-key sk-test --no-unattended`
+- **THEN** the command persists specialist `python-sde` successfully
+- **AND THEN** the stored specialist launch payload records `prompt_mode = as_is`
+- **AND THEN** the generated preset stores `launch.prompt_mode: as_is`
 
 #### Scenario: Promptless specialist still persists as a valid catalog-backed specialist
 - **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool gemini --gemini-oauth-creds /tmp/oauth.json`
@@ -64,10 +83,12 @@ The resulting project-local catalog and managed content store SHALL remain the a
 
 `specialist remove` SHALL NOT delete shared skills, shared auth content, or other shared managed content only because one specialist referenced them.
 
+When a specialist has stored launch posture, `specialist get` SHALL report that launch payload as part of the specialist's semantic metadata.
+
 #### Scenario: Get reports semantic specialist metadata and content references
 - **WHEN** specialist `researcher` exists in the project-local catalog
 - **AND WHEN** an operator runs `houmao-mgr project easy specialist get --name researcher`
-- **THEN** the command reports the specialist's tool, credential, and skill selections
+- **THEN** the command reports the specialist's tool, credential, skill, and launch selections
 - **AND THEN** it reports the relevant managed content or derived artifact references for that specialist without requiring `.houmao/easy/specialists/researcher.toml` to be the source of truth
 
 #### Scenario: Remove preserves shared content references
@@ -88,6 +109,8 @@ The launch provider SHALL be derived from the specialist's selected tool:
 
 The operator SHALL NOT need to provide the provider identifier separately when launching an instance from a specialist.
 
+When the selected specialist stores launch posture in its specialist configuration, `project easy instance launch` SHALL honor that stored posture for brain construction and runtime launch instead of injecting an additional prompt-mode policy of its own.
+
 When launch-time mailbox association is requested, the command SHALL accept these high-level mailbox inputs:
 
 - `--mail-transport <filesystem|email>`
@@ -101,6 +124,18 @@ If mailbox validation or mailbox bootstrap fails during a mailbox-enabled easy l
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
 - **THEN** the command launches the managed agent using the stored `researcher` specialist semantics and the derived `codex` provider
 - **AND THEN** the operator does not need to pass `--provider codex` explicitly
+
+#### Scenario: Easy instance launch honors stored unattended specialist posture
+- **WHEN** specialist `python-sde` exists in the project-local catalog with stored `launch.prompt_mode: unattended`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist python-sde --name python-sde`
+- **THEN** the resulting brain build records unattended operator prompt mode
+- **AND THEN** the runtime launch uses that stored unattended posture for the selected maintained launch surface
+
+#### Scenario: Easy instance launch honors stored as-is specialist posture
+- **WHEN** specialist `python-sde` exists in the project-local catalog with stored `launch.prompt_mode: as_is`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist python-sde --name python-sde`
+- **THEN** the resulting brain build records `as_is` operator prompt mode
+- **AND THEN** the command does not inject unattended startup behavior merely because the launch came through the easy instance surface
 
 ### Requirement: `project easy instance list/get/stop` presents runtime state by specialist and wraps existing runtime stop control
 
@@ -152,4 +187,3 @@ The `instance` group SHALL own launch, stop, and runtime inspection, while the `
 - **AND WHEN** an operator runs `houmao-mgr project easy instance stop --name repo-research-1`
 - **THEN** the command fails clearly
 - **AND THEN** it does not delegate stop control for a managed agent outside the current project overlay
-

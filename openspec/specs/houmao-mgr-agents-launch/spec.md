@@ -173,7 +173,7 @@ When local `houmao-mgr agents launch` requests launch settings that must be reso
 #### Scenario: Interactive Claude launch reports unattended version gap before provider startup
 
 - **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code` without `--headless`
-- **AND WHEN** the selected preset requests `launch.prompt_mode: unattended`
+- **AND WHEN** the selected preset resolves to unattended launch policy, whether explicitly through `launch.prompt_mode: unattended` or implicitly through the unattended default
 - **AND WHEN** no compatible Claude strategy exists for the detected version on the local interactive launch surface
 - **THEN** the command fails before Claude Code starts
 - **AND THEN** the error identifies the requested unattended policy, detected Claude version, and local interactive launch surface
@@ -182,7 +182,7 @@ When local `houmao-mgr agents launch` requests launch settings that must be reso
 #### Scenario: Headless Claude launch reports unattended version gap before provider startup
 
 - **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code --headless`
-- **AND WHEN** the selected preset requests `launch.prompt_mode: unattended`
+- **AND WHEN** the selected preset resolves to unattended launch policy, whether explicitly through `launch.prompt_mode: unattended` or implicitly through the unattended default
 - **AND WHEN** no compatible Claude strategy exists for the detected version on the `claude_headless` backend
 - **THEN** the command fails before Claude Code starts
 - **AND THEN** the error identifies the requested unattended policy, detected Claude version, and `claude_headless` backend
@@ -194,12 +194,21 @@ When `houmao-mgr agents launch` resolves a native preset-backed target from the 
 
 At minimum, preset `launch.prompt_mode` and preset `launch.overrides` SHALL be forwarded into brain construction so the built manifest and subsequent runtime launch use the same requested launch posture and overrides.
 
-#### Scenario: Preset unattended policy survives local `agents launch`
+For `launch.prompt_mode`, the effective preserved values SHALL use the `unattended|as_is` policy vocabulary, and preset omission SHALL resolve to unattended before manifest write.
+
+#### Scenario: Omitted prompt mode defaults to unattended during local `agents launch`
 
 - **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code`
-- **AND WHEN** the selected preset requests `launch.prompt_mode: unattended`
-- **THEN** the local brain build records the equivalent unattended operator-prompt intent in the built brain manifest
-- **AND THEN** the local runtime launch uses that preserved unattended intent for the selected launch surface
+- **AND WHEN** the selected preset omits `launch.prompt_mode`
+- **THEN** the local brain build records unattended operator-prompt intent in the built brain manifest
+- **AND THEN** the local runtime launch uses that unattended intent for the selected launch surface
+
+#### Scenario: Explicit as-is policy survives local `agents launch`
+
+- **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code`
+- **AND WHEN** the selected preset requests `launch.prompt_mode: as_is`
+- **THEN** the local brain build records `as_is` operator-prompt intent in the built brain manifest
+- **AND THEN** the local runtime launch leaves provider startup behavior untouched for the selected launch surface
 
 #### Scenario: Preset launch overrides survive local `agents launch`
 

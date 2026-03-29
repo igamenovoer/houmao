@@ -2129,6 +2129,8 @@ Tool-version detection SHALL probe the actual launch executable with a subproces
 
 Compatible strategy resolution SHALL match the detected executable version against launch-policy strategy declarations of supported version ranges rather than relying on nearest-lower or latest-known fallback.
 
+When the resolved manifest requests `operator_prompt_mode = as_is`, the runtime SHALL NOT perform unattended strategy resolution, version-gated no-prompt mutation, or unattended-owned startup arg injection for that launch.
+
 #### Scenario: Runtime detects tool version and selects a compatible unattended strategy
 - **WHEN** a session starts from a brain manifest that requests `operator_prompt_mode = unattended`
 - **AND WHEN** the detected tool version and backend match exactly one launch policy strategy's declared supported-version range
@@ -2140,6 +2142,11 @@ Compatible strategy resolution SHALL match the detected executable version again
 - **AND WHEN** the selected launch executable is missing or its version output cannot be parsed for the requested tool family
 - **THEN** the runtime fails the launch before provider start
 - **AND THEN** the error reports the executable probe failure as the reason unattended resolution could not proceed
+
+#### Scenario: As-is launch bypasses unattended strategy resolution
+- **WHEN** a session starts from a brain manifest that requests `operator_prompt_mode = as_is`
+- **THEN** the runtime does not require unattended strategy lookup before provider start
+- **AND THEN** the runtime does not block launch solely because no unattended strategy exists for the detected tool version and backend
 
 ### Requirement: Runtime unattended launch can synthesize provider startup state from minimal credentials
 When unattended launch is requested, the runtime SHALL allow the selected strategy to synthesize or patch runtime-owned provider config/state from minimal credential inputs and minimal caller launch args.
@@ -2163,10 +2170,17 @@ That typed provenance SHALL include at minimum:
 - selection source
 - override env var name when an override is active
 
+When the runtime starts a session with `operator_prompt_mode = as_is`, it SHALL record the requested mode in launch-request metadata but SHALL NOT fabricate strategy provenance for a strategy that was never resolved.
+
 #### Scenario: Session metadata records resolved unattended strategy
 - **WHEN** the runtime starts a session using a resolved unattended launch strategy
 - **THEN** persisted launch metadata includes a typed `launch_policy_provenance` structure with the requested policy mode, detected tool version, selected strategy identifier, and selection source
 - **AND THEN** redacted session-facing metadata omits secret values while preserving strategy provenance for debugging
+
+#### Scenario: As-is launch does not fabricate unattended provenance
+- **WHEN** the runtime starts a session with `operator_prompt_mode = as_is`
+- **THEN** session-facing launch metadata records that requested mode as part of launch-request diagnostics
+- **AND THEN** the runtime does not persist a typed unattended strategy provenance block for that launch
 
 ### Requirement: Runtime supports a transient strategy override for controlled experiments
 The runtime SHALL support `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY=<strategy-id>` as a transient strategy-selection override for controlled unattended-launch experiments.

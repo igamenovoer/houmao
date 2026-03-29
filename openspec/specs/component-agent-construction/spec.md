@@ -238,6 +238,8 @@ The system SHALL NOT require build-time `default_agent_name` or other duplicated
 
 If present, preset `launch` SHALL be an object containing optional `prompt_mode` and optional `overrides`. `launch.overrides`, when present, SHALL use the existing launch-overrides shape of optional `args` and optional `tool_params`.
 
+Allowed `launch.prompt_mode` values SHALL be `unattended` and `as_is`.
+
 Unknown top-level preset fields SHALL be rejected. Non-core extension data SHALL live under `extra` rather than through pre-allocated unused top-level schema fields.
 
 #### Scenario: Minimal preset omits build-time identity fields
@@ -250,6 +252,7 @@ Unknown top-level preset fields SHALL be rejected. Non-core extension data SHALL
 
 - **WHEN** a developer authors preset-owned launch behavior
 - **THEN** `prompt_mode` SHALL appear under `launch.prompt_mode`
+- **AND THEN** `launch.prompt_mode` SHALL use only `unattended` or `as_is`
 - **AND THEN** any preset-owned launch overrides SHALL appear under `launch.overrides`
 - **AND THEN** `launch.overrides` SHALL use only the supported `args` and `tool_params` sections
 
@@ -370,14 +373,16 @@ Auth-bundle env injection SHALL respect the selected tool adapter's allowlist ra
 
 ### Requirement: Brain construction accepts operator prompt policy intent
 
-The system SHALL let callers declare an operator prompt policy when constructing a brain, including a mode that requests unattended launch behavior where startup operator prompts are forbidden.
+The system SHALL let callers declare an operator prompt policy when constructing a brain, including a mode that requests unattended launch behavior where startup operator prompts are forbidden and a mode that leaves provider startup behavior untouched.
 
 The selected policy SHALL be available through:
 
 - declarative preset YAML at `launch.prompt_mode`
 - direct build inputs at `BuildRequest.operator_prompt_mode`
 
-Allowed values SHALL be `interactive` and `unattended`. Omitting the field SHALL preserve the normal interactive and default launch posture.
+Allowed values SHALL be `unattended` and `as_is`.
+
+When callers omit prompt policy entirely, current brain construction flows SHALL resolve that omission to the unattended default rather than to pass-through startup behavior.
 
 #### Scenario: Developer constructs a brain with unattended prompt policy
 
@@ -385,17 +390,37 @@ Allowed values SHALL be `interactive` and `unattended`. Omitting the field SHALL
 - **THEN** the construction input includes that requested launch policy alongside tool, skills, setup, and auth
 - **AND THEN** the requested policy remains secret-free metadata that does not embed API keys, tokens, inline credential material, or credential file contents
 
+#### Scenario: Developer constructs a brain with as-is prompt policy
+
+- **WHEN** a developer constructs a brain using direct inputs or a declarative preset that requests `launch.prompt_mode = as_is`
+- **THEN** the construction input includes that requested pass-through policy alongside tool, skills, setup, and auth
+- **AND THEN** the requested policy remains secret-free metadata that does not embed API keys, tokens, inline credential material, or credential file contents
+
+#### Scenario: Omitted prompt policy resolves to unattended during construction
+
+- **WHEN** a developer constructs a brain without setting declarative or direct prompt policy
+- **THEN** the construction flow resolves the effective prompt policy as unattended
+- **AND THEN** downstream manifest and runtime launch consumers do not treat omission as pass-through behavior
+
 ### Requirement: Brain manifest persists unresolved launch policy intent
 
 The system SHALL persist requested operator prompt policy in the resolved brain manifest as abstract launch intent rather than as pre-resolved provider-version-specific CLI flags or runtime state patches.
 
 The resolved manifest SHALL store that request at `launch_policy.operator_prompt_mode`.
 
+Allowed stored values SHALL be `unattended` and `as_is`.
+
 #### Scenario: Manifest records unattended intent without provider-specific patch details
 
 - **WHEN** a brain is constructed with `operator_prompt_mode = unattended`
 - **THEN** the resolved brain manifest records that requested policy at `launch_policy.operator_prompt_mode`
 - **AND THEN** the manifest does not treat version-resolved strategy ids, provider trust entries, or concrete injected CLI args as construction-time inputs
+
+#### Scenario: Manifest records as-is intent without provider-specific patch details
+
+- **WHEN** a brain is constructed with `operator_prompt_mode = as_is`
+- **THEN** the resolved brain manifest records that requested policy at `launch_policy.operator_prompt_mode`
+- **AND THEN** the manifest does not imply unattended launch-policy mutation for that session
 
 ### Requirement: Brain construction does not require tool-specific no-prompt config as input
 
@@ -471,4 +496,3 @@ New builder output for this contract SHALL NOT continue writing legacy schema-ve
 - **WHEN** a developer constructs a brain using a builder that supports presets and `launch.overrides`
 - **THEN** the resolved brain manifest is written with `schema_version = 3`
 - **AND THEN** the manifest carries the structured preset-backed contract rather than relying on the old recipe-era layouts
-
