@@ -27,26 +27,33 @@ Commands that need an agent-definition root resolve it with this precedence:
 <repo>/
 └── .houmao/
     ├── houmao-config.toml
-    └── agents/
-        ├── skills/
-        │   └── <skill>/SKILL.md
-        ├── roles/
-        │   └── <role>/
-        │       ├── system-prompt.md
-        │       └── presets/
-        │           └── <tool>/
-        │               └── <setup>.yaml
-        ├── tools/
-        │   └── <tool>/
-        │       ├── adapter.yaml
-        │       ├── setups/
-        │       │   └── <setup>/...
-        │       └── auth/
-        │           └── <auth>/...
-        └── compatibility-profiles/
+    ├── agents/
+    │   ├── skills/
+    │   │   └── <skill>/SKILL.md
+    │   ├── roles/
+    │   │   └── <role>/
+    │   │       ├── system-prompt.md
+    │   │       └── presets/
+    │   │           └── <tool>/
+    │   │               └── <setup>.yaml
+    │   ├── tools/
+    │   │   └── <tool>/
+    │   │       ├── adapter.yaml
+    │   │       ├── setups/
+    │   │       │   └── <setup>/...
+    │   │       └── auth/
+    │   │           └── <auth>/...
+    │   └── compatibility-profiles/
+    └── mailbox/                      # optional, created only when mailbox workflows are enabled
 ```
 
 `houmao-mgr project init` seeds `tools/` for supported tools. You author `skills/` and `roles/` locally inside the overlay.
+
+The repo-local project surface is intentionally split into three views:
+
+- `houmao-mgr project agents ...` for low-level filesystem-oriented source management
+- `houmao-mgr project easy ...` for higher-level specialist and instance authoring
+- `houmao-mgr project mailbox ...` for project-scoped mailbox-root operations against `.houmao/mailbox`
 
 ## Directory Reference
 
@@ -84,11 +91,15 @@ Secret-free checked-in setup bundles for one tool. `houmao-mgr project init` see
 
 ### `tools/<tool>/auth/<auth>/`
 
-Local-only auth bundles for one tool. `houmao-mgr project agent-tools <tool> auth add ...` writes these bundles for you under `.houmao/agents/tools/<tool>/auth/<name>/`.
+Local-only auth bundles for one tool. `houmao-mgr project agents tools <tool> auth add ...` writes these bundles for you under `.houmao/agents/tools/<tool>/auth/<name>/`.
 
 ### `compatibility-profiles/`
 
 Optional compatibility metadata for specialized CAO or server-facing flows.
+
+### `.houmao/mailbox/`
+
+Optional project-local mailbox root. `houmao-mgr project init` does not create it by default. Enable it only when you want repo-scoped mailbox registrations and direct mailbox reads through `houmao-mgr project mailbox ...`.
 
 ## Committed vs. Local-Only
 
@@ -100,6 +111,7 @@ Optional compatibility metadata for specialized CAO or server-facing flows.
 | `.houmao/agents/tools/<tool>/setups/` | ❌ No | Local copy of secret-free setup bundles |
 | `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles |
 | `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata |
+| `.houmao/mailbox/` | ❌ No | Optional project-local mailbox root |
 
 Generated runtime homes and manifests are also disposable. If the runtime later creates `.houmao/jobs/` under the repo root, that scratch subtree is still runtime-local scratch, not tracked project source.
 
@@ -110,3 +122,10 @@ Generated runtime homes and manifests are also disposable. If the runtime later 
 3. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings.
 4. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, and the effective auth bundle to materialize a runtime home.
 5. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
+
+## Authoring Paths
+
+The same canonical `.houmao/agents/` tree can be authored through two different UX layers:
+
+- `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist compiled into the canonical tree.
+- `project agents ...` is the low-level maintenance surface when you want to inspect or mutate roles, presets, setups, or auth bundles directly.

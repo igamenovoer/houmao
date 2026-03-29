@@ -8,22 +8,37 @@ from click.testing import CliRunner
 import pytest
 
 from houmao.project.overlay import bootstrap_project_overlay
+from houmao.server.models import HoumaoManagedAgentIdentity, HoumaoManagedAgentListResponse
 from houmao.srv_ctrl.commands.main import cli
 
 
-def test_project_help_mentions_init_status_and_agent_tools() -> None:
+def _make_skill_dir(root: Path, name: str) -> Path:
+    """Create one reusable skill directory fixture."""
+
+    skill_root = (root / name).resolve()
+    skill_root.mkdir(parents=True, exist_ok=True)
+    (skill_root / "SKILL.md").write_text(
+        f"# {name}\n\nReusable instructions for `{name}`.\n",
+        encoding="utf-8",
+    )
+    return skill_root
+
+
+def test_project_help_mentions_agents_easy_and_mailbox() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
     assert result.exit_code == 0
     assert "init" in result.output
     assert "status" in result.output
-    assert "agent-tools" in result.output
-    assert "credential" not in result.output
+    assert "agents" in result.output
+    assert "easy" in result.output
+    assert "mailbox" in result.output
+    assert "agent-tools" not in result.output
     assert "project-overlay" in result.output.lower()
 
 
-def test_project_agent_tools_help_mentions_supported_tools() -> None:
-    result = CliRunner().invoke(cli, ["project", "agent-tools", "--help"])
+def test_project_agents_tools_help_mentions_supported_tools() -> None:
+    result = CliRunner().invoke(cli, ["project", "agents", "tools", "--help"])
 
     assert result.exit_code == 0
     assert "claude" in result.output
@@ -31,18 +46,19 @@ def test_project_agent_tools_help_mentions_supported_tools() -> None:
     assert "gemini" in result.output
 
 
-def test_project_claude_auth_help_mentions_crud_verbs() -> None:
-    result = CliRunner().invoke(cli, ["project", "agent-tools", "claude", "auth", "--help"])
+def test_project_agents_roles_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["project", "agents", "roles", "--help"])
 
     assert result.exit_code == 0
     assert "list" in result.output
-    assert "add" in result.output
     assert "get" in result.output
-    assert "set" in result.output
+    assert "init" in result.output
+    assert "scaffold" in result.output
     assert "remove" in result.output
+    assert "presets" in result.output
 
 
-def test_project_init_bootstraps_local_overlay_without_touching_repo_root_gitignore(
+def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -66,47 +82,10 @@ def test_project_init_bootstraps_local_overlay_without_touching_repo_root_gitign
     assert (repo_root / ".houmao" / "agents" / "compatibility-profiles").is_dir()
     assert (repo_root / ".houmao" / "agents" / "tools" / "claude" / "adapter.yaml").is_file()
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "setups"
-        / "default"
-        / "config.toml"
+        repo_root / ".houmao" / "agents" / "tools" / "codex" / "setups" / "default" / "config.toml"
     ).is_file()
-
-
-def test_project_init_is_idempotent_and_preserves_existing_auth_bundle(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(repo_root)
-
-    first_result = runner.invoke(cli, ["project", "init"])
-    assert first_result.exit_code == 0
-
-    auth_env_path = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "personal"
-        / "env"
-        / "vars.env"
-    )
-    auth_env_path.parent.mkdir(parents=True, exist_ok=True)
-    auth_env_path.write_text("ANTHROPIC_API_KEY=keep-me\n", encoding="utf-8")
-
-    second_result = runner.invoke(cli, ["project", "init"])
-
-    assert second_result.exit_code == 0
-    assert auth_env_path.read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=keep-me\n"
+    assert not (repo_root / ".houmao" / "mailbox").exists()
+    assert not (repo_root / ".houmao" / "easy").exists()
 
 
 def test_project_status_reports_discovered_overlay_from_nested_directory(
@@ -129,29 +108,10 @@ def test_project_status_reports_discovered_overlay_from_nested_directory(
     assert payload["config_path"] == str((repo_root / ".houmao" / "houmao-config.toml").resolve())
     assert payload["effective_agent_def_dir"] == str((repo_root / ".houmao" / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_config"
+    assert payload["project_mailbox_root"] == str((repo_root / ".houmao" / "mailbox").resolve())
 
 
-def test_project_status_reports_missing_overlay_clearly(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    workdir = (tmp_path / "workspace").resolve()
-    workdir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(workdir)
-
-    result = runner.invoke(cli, ["project", "status"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["discovered"] is False
-    assert payload["project_root"] is None
-    assert payload["config_path"] is None
-    assert payload["effective_agent_def_dir"] == str((workdir / ".agentsys" / "agents").resolve())
-    assert payload["effective_agent_def_dir_source"] == "legacy_default"
-
-
-def test_project_agent_tools_add_and_list_flow_for_supported_tools(
+def test_project_agents_tools_auth_get_and_setups_flow(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -166,244 +126,33 @@ def test_project_agent_tools_add_and_list_flow_for_supported_tools(
 
     assert runner.invoke(cli, ["project", "init"]).exit_code == 0
 
-    claude_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "claude",
-            "auth",
-            "add",
-            "--name",
-            "work",
-            "--api-key",
-            "sk-claude",
-            "--base-url",
-            "https://claude.example.test",
-        ],
-    )
-    codex_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "codex",
-            "auth",
-            "add",
-            "--name",
-            "personal",
-            "--api-key",
-            "sk-openai",
-            "--auth-json",
-            str(codex_auth_json),
-        ],
-    )
-    gemini_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "gemini",
-            "auth",
-            "add",
-            "--name",
-            "vertex",
-            "--api-key",
-            "sk-gemini",
-            "--oauth-creds",
-            str(gemini_oauth_creds),
-            "--use-vertex-ai",
-        ],
-    )
-
-    assert claude_result.exit_code == 0
-    assert codex_result.exit_code == 0
-    assert gemini_result.exit_code == 0
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "work"
-        / "env"
-        / "vars.env"
-    ).read_text(encoding="utf-8") == (
-        "ANTHROPIC_API_KEY=sk-claude\n"
-        "ANTHROPIC_BASE_URL=https://claude.example.test\n"
-    )
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "personal"
-        / "files"
-        / "auth.json"
-    ).read_text(encoding="utf-8") == '{"logged_in": true}\n'
-
-    claude_list_result = runner.invoke(cli, ["project", "agent-tools", "claude", "auth", "list"])
-    codex_list_result = runner.invoke(cli, ["project", "agent-tools", "codex", "auth", "list"])
-    gemini_list_result = runner.invoke(cli, ["project", "agent-tools", "gemini", "auth", "list"])
-
-    assert claude_list_result.exit_code == 0
-    assert codex_list_result.exit_code == 0
-    assert gemini_list_result.exit_code == 0
-    assert json.loads(claude_list_result.output)["credentials"] == ["work"]
-    assert json.loads(codex_list_result.output)["credentials"] == ["personal"]
-    assert json.loads(gemini_list_result.output)["credentials"] == ["vertex"]
-
-
-def test_project_agent_tools_claude_auth_get_set_and_remove_flow(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    state_template_file = tmp_path / "claude-state.template.json"
-    state_template_file.write_text('{"state": "template"}\n', encoding="utf-8")
-    monkeypatch.chdir(repo_root)
-
-    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
-
-    add_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "claude",
-            "auth",
-            "add",
-            "--name",
-            "work",
-            "--api-key",
-            "sk-claude",
-            "--base-url",
-            "https://claude.example.test",
-            "--state-template-file",
-            str(state_template_file),
-        ],
-    )
-
-    assert add_result.exit_code == 0
-
-    get_result = runner.invoke(
-        cli,
-        ["project", "agent-tools", "claude", "auth", "get", "--name", "work"],
-    )
-
-    assert get_result.exit_code == 0
-    get_payload = json.loads(get_result.output)
-    assert get_payload["env"]["ANTHROPIC_API_KEY"] == {"present": True, "redacted": True}
-    assert get_payload["env"]["ANTHROPIC_BASE_URL"] == {
-        "present": True,
-        "value": "https://claude.example.test",
-    }
-    assert get_payload["files"]["claude_state.template.json"]["present"] is True
-
-    set_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "claude",
-            "auth",
-            "set",
-            "--name",
-            "work",
-            "--base-url",
-            "https://proxy.example.test",
-            "--clear-state-template-file",
-        ],
-    )
-
-    assert set_result.exit_code == 0
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "work"
-        / "env"
-        / "vars.env"
-    ).read_text(encoding="utf-8") == (
-        "ANTHROPIC_API_KEY=sk-claude\n"
-        "ANTHROPIC_BASE_URL=https://proxy.example.test\n"
-    )
-    assert not (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "work"
-        / "files"
-        / "claude_state.template.json"
-    ).exists()
-
-    clear_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "claude",
-            "auth",
-            "set",
-            "--name",
-            "work",
-            "--clear-base-url",
-        ],
-    )
-
-    assert clear_result.exit_code == 0
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "work"
-        / "env"
-        / "vars.env"
-    ).read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=sk-claude\n"
-
-    remove_result = runner.invoke(
-        cli,
-        ["project", "agent-tools", "claude", "auth", "remove", "--name", "work"],
-    )
-
-    assert remove_result.exit_code == 0
-    assert not (
-        repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "work"
-    ).exists()
-
-
-def test_project_agent_tools_codex_set_allows_clear_only_updates(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    auth_json_path = tmp_path / "auth.json"
-    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
-    monkeypatch.chdir(repo_root)
-
-    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
     assert (
         runner.invoke(
             cli,
             [
                 "project",
-                "agent-tools",
+                "agents",
+                "tools",
+                "claude",
+                "auth",
+                "add",
+                "--name",
+                "work",
+                "--api-key",
+                "sk-claude",
+                "--base-url",
+                "https://claude.example.test",
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "tools",
                 "codex",
                 "auth",
                 "add",
@@ -412,28 +161,247 @@ def test_project_agent_tools_codex_set_allows_clear_only_updates(
                 "--api-key",
                 "sk-openai",
                 "--auth-json",
-                str(auth_json_path),
+                str(codex_auth_json),
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "tools",
+                "gemini",
+                "auth",
+                "add",
+                "--name",
+                "vertex",
+                "--api-key",
+                "sk-gemini",
+                "--oauth-creds",
+                str(gemini_oauth_creds),
+                "--use-vertex-ai",
             ],
         ).exit_code
         == 0
     )
 
-    clear_result = runner.invoke(
+    claude_get_result = runner.invoke(cli, ["project", "agents", "tools", "claude", "get"])
+    assert claude_get_result.exit_code == 0
+    claude_get_payload = json.loads(claude_get_result.output)
+    assert claude_get_payload["tool"] == "claude"
+    assert "default" in claude_get_payload["setups"]
+    assert claude_get_payload["auth_bundles"] == ["work"]
+
+    add_setup_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "setups", "add", "--name", "research"],
+    )
+    assert add_setup_result.exit_code == 0
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "claude"
+        / "setups"
+        / "research"
+        / "settings.json"
+    ).is_file()
+
+    get_setup_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "setups", "get", "--name", "research"],
+    )
+    assert get_setup_result.exit_code == 0
+    assert "settings.json" in json.loads(get_setup_result.output)["files"]
+
+    get_auth_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "auth", "get", "--name", "work"],
+    )
+    assert get_auth_result.exit_code == 0
+    get_auth_payload = json.loads(get_auth_result.output)
+    assert get_auth_payload["env"]["ANTHROPIC_API_KEY"] == {"present": True, "redacted": True}
+    assert get_auth_payload["env"]["ANTHROPIC_BASE_URL"] == {
+        "present": True,
+        "value": "https://claude.example.test",
+    }
+
+    remove_setup_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "setups", "remove", "--name", "research"],
+    )
+    assert remove_setup_result.exit_code == 0
+    assert not (
+        repo_root / ".houmao" / "agents" / "tools" / "claude" / "setups" / "research"
+    ).exists()
+
+
+def test_project_agents_roles_init_list_get_and_presets_flow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    init_result = runner.invoke(cli, ["project", "agents", "roles", "init", "--name", "researcher"])
+    assert init_result.exit_code == 0
+    assert (
+        repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    ).is_file()
+
+    list_result = runner.invoke(cli, ["project", "agents", "roles", "list"])
+    assert list_result.exit_code == 0
+    listed_roles = {item["name"] for item in json.loads(list_result.output)["roles"]}
+    assert "researcher" in listed_roles
+
+    preset_add_result = runner.invoke(
         cli,
         [
             "project",
-            "agent-tools",
-            "codex",
-            "auth",
-            "set",
+            "agents",
+            "roles",
+            "presets",
+            "add",
+            "--role",
+            "researcher",
+            "--tool",
+            "claude",
+            "--auth",
+            "default",
+            "--skill",
+            "notes",
+            "--prompt-mode",
+            "unattended",
+        ],
+    )
+    assert preset_add_result.exit_code == 0
+
+    preset_get_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "roles",
+            "presets",
+            "get",
+            "--role",
+            "researcher",
+            "--tool",
+            "claude",
+        ],
+    )
+    assert preset_get_result.exit_code == 0
+    preset_payload = json.loads(preset_get_result.output)
+    assert preset_payload["skills"] == ["notes"]
+    assert preset_payload["auth"] == "default"
+    assert preset_payload["launch"] == {"prompt_mode": "unattended"}
+
+    role_get_result = runner.invoke(
+        cli, ["project", "agents", "roles", "get", "--name", "researcher"]
+    )
+    assert role_get_result.exit_code == 0
+    role_payload = json.loads(role_get_result.output)
+    assert role_payload["system_prompt_exists"] is True
+    assert len(role_payload["presets"]) == 1
+
+    preset_remove_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "roles",
+            "presets",
+            "remove",
+            "--role",
+            "researcher",
+            "--tool",
+            "claude",
+        ],
+    )
+    assert preset_remove_result.exit_code == 0
+
+    role_remove_result = runner.invoke(
+        cli, ["project", "agents", "roles", "remove", "--name", "researcher"]
+    )
+    assert role_remove_result.exit_code == 0
+    assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
+
+
+def test_project_agents_roles_scaffold_creates_complete_starter_slice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "roles",
+            "scaffold",
             "--name",
-            "personal",
-            "--clear-api-key",
-            "--clear-auth-json",
+            "researcher",
+            "--tool",
+            "claude",
+            "--tool",
+            "codex",
+            "--auth",
+            "default",
+            "--skill",
+            "notes",
         ],
     )
 
-    assert clear_result.exit_code == 0
+    assert result.exit_code == 0, result.output
+    assert (
+        repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    ).is_file()
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "roles"
+        / "researcher"
+        / "presets"
+        / "claude"
+        / "default.yaml"
+    ).is_file()
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "roles"
+        / "researcher"
+        / "presets"
+        / "codex"
+        / "default.yaml"
+    ).is_file()
+    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "claude"
+        / "auth"
+        / "default"
+        / "env"
+        / "vars.env"
+    ).is_file()
     assert (
         repo_root
         / ".houmao"
@@ -441,139 +409,274 @@ def test_project_agent_tools_codex_set_allows_clear_only_updates(
         / "tools"
         / "codex"
         / "auth"
-        / "personal"
+        / "default"
         / "env"
         / "vars.env"
-    ).read_text(encoding="utf-8") == "\n"
-    assert not (
+    ).is_file()
+
+
+def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--system-prompt",
+            "You are a precise repo researcher.",
+            "--tool",
+            "codex",
+            "--credential",
+            "work",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--with-skill",
+            str(skill_dir),
+        ],
+    )
+
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    metadata_path = Path(create_payload["metadata_path"])
+    assert metadata_path.is_file()
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "roles"
+        / "researcher"
+        / "presets"
+        / "codex"
+        / "default.yaml"
+    ).is_file()
+    assert (
         repo_root
         / ".houmao"
         / "agents"
         / "tools"
         / "codex"
         / "auth"
-        / "personal"
+        / "work"
         / "files"
         / "auth.json"
-    ).exists()
+    ).is_file()
+    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+
+    list_result = runner.invoke(cli, ["project", "easy", "specialist", "list"])
+    assert list_result.exit_code == 0
+    assert [item["name"] for item in json.loads(list_result.output)["specialists"]] == [
+        "researcher"
+    ]
+
+    get_result = runner.invoke(
+        cli, ["project", "easy", "specialist", "get", "--name", "researcher"]
+    )
+    assert get_result.exit_code == 0
+    get_payload = json.loads(get_result.output)
+    assert get_payload["tool"] == "codex"
+    assert get_payload["credential"] == "work"
+    assert get_payload["skills"] == ["notes"]
+
+    remove_result = runner.invoke(
+        cli, ["project", "easy", "specialist", "remove", "--name", "researcher"]
+    )
+    assert remove_result.exit_code == 0
+    assert not metadata_path.exists()
+    assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
+    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "codex"
+        / "auth"
+        / "work"
+        / "files"
+        / "auth.json"
+    ).is_file()
 
 
-def test_project_agent_tools_gemini_add_rejects_duplicate_names(
+def test_project_easy_specialist_launch_derives_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     runner = CliRunner()
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
-    gemini_oauth_creds = tmp_path / "gemini-oauth.json"
-    gemini_oauth_creds.write_text('{"refresh_token": "token"}\n', encoding="utf-8")
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    skill_dir = _make_skill_dir(tmp_path, "notes")
     monkeypatch.chdir(repo_root)
 
     assert runner.invoke(cli, ["project", "init"]).exit_code == 0
-    first_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "gemini",
-            "auth",
-            "add",
-            "--name",
-            "vertex",
-            "--oauth-creds",
-            str(gemini_oauth_creds),
-        ],
-    )
-    duplicate_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "gemini",
-            "auth",
-            "add",
-            "--name",
-            "vertex",
-            "--oauth-creds",
-            str(gemini_oauth_creds),
-        ],
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+                "--with-skill",
+                str(skill_dir),
+            ],
+        ).exit_code
+        == 0
     )
 
-    assert first_result.exit_code == 0
-    assert duplicate_result.exit_code != 0
-    assert "already exists" in duplicate_result.output
+    captured: dict[str, object] = {}
 
-
-def test_project_agent_tools_set_requires_existing_bundle(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(repo_root)
-
-    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
-    result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agent-tools",
-            "codex",
-            "auth",
-            "set",
-            "--name",
-            "missing",
-            "--base-url",
-            "https://proxy.example.test/v1",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Auth bundle not found" in result.output
-
-
-def test_brains_build_uses_discovered_project_overlay_when_flag_missing(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = (tmp_path / "repo").resolve()
-    nested_dir = repo_root / "subdir"
-    nested_dir.mkdir(parents=True, exist_ok=True)
-    bootstrap_project_overlay(repo_root)
-    captured_request: dict[str, object] = {}
-    monkeypatch.chdir(nested_dir)
-
-    def _fake_build_brain_home(request: object) -> object:
-        captured_request["agent_def_dir"] = getattr(request, "agent_def_dir")
-        return SimpleNamespace(
-            home_id="brain-123",
-            home_path=(repo_root / "runtime-home").resolve(),
-            launch_helper_path=(repo_root / "launch.sh").resolve(),
-            manifest_path=(repo_root / "manifest.yaml").resolve(),
-        )
+    def _fake_launch(**kwargs: object) -> None:
+        captured.update(kwargs)
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.brains.build_brain_home",
-        _fake_build_brain_home,
+        "houmao.srv_ctrl.commands.project.launch_agents_command",
+        SimpleNamespace(callback=_fake_launch),
     )
 
     result = runner.invoke(
         cli,
         [
-            "brains",
-            "build",
-            "--tool",
-            "claude",
-            "--setup",
-            "default",
-            "--auth",
-            "default",
-            "--skill",
-            "openspec-apply-change",
+            "project",
+            "easy",
+            "specialist",
+            "launch",
+            "--name",
+            "researcher",
+            "--instance",
+            "repo-research-1",
+            "--headless",
+            "--yolo",
         ],
     )
 
-    assert result.exit_code == 0
-    assert captured_request["agent_def_dir"] == (repo_root / ".houmao" / "agents").resolve()
+    assert result.exit_code == 0, result.output
+    assert captured["agents"] == "researcher"
+    assert captured["agent_name"] == "repo-research-1"
+    assert captured["provider"] == "codex"
+    assert captured["headless"] is True
+
+
+def test_project_easy_instance_list_and_get_use_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+                "--with-skill",
+                str(skill_dir),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-researcher",
+        transport="headless",
+        tool="codex",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="runtime-session-1",
+        tmux_session_name=None,
+        tmux_window_name=None,
+        manifest_path=str(manifest_path),
+        session_root=str((tmp_path / "runtime").resolve()),
+        agent_name="repo-research-1",
+        agent_id="agent-123",
+    )
+    manifest_payload = {
+        "role_name": "researcher",
+        "tool": "codex",
+        "runtime": {
+            "agent_def_dir": str((repo_root / ".houmao" / "agents").resolve()),
+        },
+    }
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.list_managed_agents",
+        lambda *, port=None: HoumaoManagedAgentListResponse(agents=[identity]),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.resolve_managed_agent_target",
+        lambda **kwargs: SimpleNamespace(identity=identity),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project._load_manifest_payload",
+        lambda path: manifest_payload,
+    )
+
+    list_result = runner.invoke(cli, ["project", "easy", "instance", "list"])
+    assert list_result.exit_code == 0
+    list_payload = json.loads(list_result.output)
+    assert len(list_payload["instances"]) == 1
+    assert list_payload["instances"][0]["specialist"] == "researcher"
+    assert list_payload["instances"][0]["tool"] == "codex"
+
+    get_result = runner.invoke(
+        cli, ["project", "easy", "instance", "get", "--name", "repo-research-1"]
+    )
+    assert get_result.exit_code == 0
+    get_payload = json.loads(get_result.output)
+    assert get_payload["specialist"] == "researcher"
+    assert get_payload["agent_id"] == "agent-123"
+    assert get_payload["manifest_path"] == str(manifest_path)

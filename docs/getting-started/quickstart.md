@@ -66,28 +66,43 @@ pixi run houmao-mgr project init
 - `.houmao/agents/tools/<tool>/adapter.yaml`
 - `.houmao/agents/tools/<tool>/setups/<setup>/`
 - empty local authoring roots under `.houmao/agents/skills/` and `.houmao/agents/roles/`
+- no `.houmao/mailbox/` or `.houmao/easy/` state until you opt into those workflows explicitly
 
-### Step 2: Add A Local Auth Bundle
+### Step 2: Create One Specialist Through `project easy`
 
 ```bash
-pixi run houmao-mgr project agent-tools claude auth add \
-  --name default \
-  --api-key your-api-key-here
+mkdir -p /tmp/notes-skill
+printf '# Notes\n\nKeep responses concise and practical.\n' > /tmp/notes-skill/SKILL.md
+
+pixi run houmao-mgr project easy specialist create \
+  --name researcher \
+  --system-prompt "You are a local repo assistant." \
+  --tool claude \
+  --credential default \
+  --api-key your-api-key-here \
+  --with-skill /tmp/notes-skill
 ```
 
-For Codex or Gemini, use the matching tool-specific subcommand under `houmao-mgr project agent-tools <tool> auth add ...`.
+This higher-level flow compiles into the canonical project tree:
 
-### Step 3: Add One Minimal Skill, Role, And Preset
+```text
+.houmao/agents/roles/researcher/system-prompt.md
+.houmao/agents/roles/researcher/presets/claude/default.yaml
+.houmao/agents/tools/claude/auth/default/
+.houmao/agents/skills/notes/
+.houmao/easy/specialists/researcher.toml
+```
 
-`project init` seeds the tool contracts, but your repo-local overlay still needs local `skills/` and `roles/` content before build or launch can succeed.
+Low-level maintenance still lives under `project agents ...`. For example, add or inspect auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, or scaffold roles and presets with `houmao-mgr project agents roles ...`.
+
+### Step 3: Inspect The Generated Role And Preset
+
+If you want to inspect the compiled project-local source directly:
 
 ```bash
-mkdir -p .houmao/agents/skills/notes
-printf '# Notes\n\nKeep responses concise and practical.\n' > .houmao/agents/skills/notes/SKILL.md
-
-mkdir -p .houmao/agents/roles/researcher/presets/claude
-printf 'You are a local repo assistant.\n' > .houmao/agents/roles/researcher/system-prompt.md
-printf 'skills:\n  - notes\nauth: default\n' > .houmao/agents/roles/researcher/presets/claude/default.yaml
+pixi run houmao-mgr project easy specialist get --name researcher
+pixi run houmao-mgr project agents roles get --name researcher
+pixi run houmao-mgr project agents tools claude get
 ```
 
 ### Step 4: Build A Brain Home
@@ -116,7 +131,7 @@ Because the local project overlay was initialized first, `brains build` resolves
 
 ### Step 5: Launch A Managed Agent
 
-Launch from a bare role selector:
+Launch from the compiled bare role selector:
 
 ```bash
 pixi run houmao-mgr agents launch \
@@ -132,6 +147,15 @@ The bare selector plus provider resolves:
 
 You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`.
 
+If you want the higher-level launch path, use:
+
+```bash
+pixi run houmao-mgr project easy specialist launch \
+  --name researcher \
+  --instance research \
+  --yolo
+```
+
 ### Step 6: Prompt And Stop
 
 ```bash
@@ -140,6 +164,18 @@ pixi run houmao-mgr agents prompt \
   --prompt "Explain the architecture of this project."
 
 pixi run houmao-mgr agents stop --agent-name research
+```
+
+### Optional: Enable A Project-Local Mailbox Root
+
+Mailbox state is opt-in for project overlays. Initialize it only when you need repo-scoped mailbox work:
+
+```bash
+pixi run houmao-mgr project mailbox init
+pixi run houmao-mgr project mailbox register \
+  --address AGENTSYS-research@agents.localhost \
+  --principal-id AGENTSYS-research
+pixi run houmao-mgr project mailbox accounts list
 ```
 
 ## Next

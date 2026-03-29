@@ -103,6 +103,8 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 | `status` | Inspect mailbox-root health plus active, inactive, and stashed registration counts. |
 | `register` | Create or reuse one filesystem mailbox registration for a full mailbox address. |
 | `unregister` | Deactivate or purge one filesystem mailbox registration. |
+| `accounts list|get` | Inspect mailbox registrations as operator-facing mailbox accounts. |
+| `messages list|get` | Inspect mailbox-visible messages for one registered mailbox address. |
 | `repair` | Rebuild one filesystem mailbox root's shared index state locally. |
 | `cleanup` | Remove inactive or stashed mailbox registrations while preserving active registrations and canonical `messages/` history. |
 
@@ -160,17 +162,49 @@ Local operator workflow for bootstrapping and inspecting one repo-local `.houmao
 |---|---|
 | `init` | Create or validate `.houmao/`, write `.houmao/houmao-config.toml`, write `.houmao/.gitignore`, and seed `.houmao/agents/tools/` starter content. |
 | `status` | Report whether a project overlay was discovered from the current directory and which agent-definition root is effective. |
-| `agent-tools <tool> auth list` | Enumerate existing project-local auth bundle names for one tool. |
-| `agent-tools <tool> auth add --name <name>` | Create one new tool-local auth bundle under `.houmao/agents/tools/<tool>/auth/<name>/`. |
-| `agent-tools <tool> auth get --name <name>` | Inspect one existing tool-local auth bundle with secret values redacted by default. |
-| `agent-tools <tool> auth set --name <name>` | Update one existing tool-local auth bundle in place. |
-| `agent-tools <tool> auth remove --name <name>` | Remove one named project-local auth bundle. |
+| `agents` | Low-level filesystem-oriented management for `.houmao/agents/roles/` and `.houmao/agents/tools/`. |
+| `easy` | Higher-level specialist and instance workflow compiled into the canonical `.houmao/agents/` tree. |
+| `mailbox` | Project-scoped wrapper over the generic mailbox-root CLI targeting `.houmao/mailbox`. |
 
 Project overlay notes:
 
 - `project init` targets the current working directory in v1.
 - `.houmao/.gitignore` contains `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
 - `project status` uses nearest-ancestor discovery for `.houmao/houmao-config.toml`.
+- `project init` does not create `.houmao/mailbox/` or `.houmao/easy/` by default.
+
+#### `project agents`
+
+`project agents` is the low-level maintenance surface for the canonical project-local source tree.
+
+| Subcommand | Description |
+|---|---|
+| `roles list|get|init|scaffold|remove` | Inspect, create, scaffold, or delete role roots under `.houmao/agents/roles/`. |
+| `roles presets list|get|add|remove` | Manage canonical preset files under `roles/<role>/presets/<tool>/<setup>.yaml`. |
+| `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
+| `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `.houmao/agents/tools/<tool>/setups/`. |
+| `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `.houmao/agents/tools/<tool>/auth/<name>/`. |
+
+#### `project easy`
+
+`project easy` is the higher-level project authoring path.
+
+| Subcommand | Description |
+|---|---|
+| `specialist create` | Compile one specialist into `.houmao/agents/roles/`, `.houmao/agents/tools/`, `.houmao/agents/skills/`, and `.houmao/easy/specialists/`. |
+| `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection. |
+| `specialist launch` | Launch a managed agent by deriving the provider from the compiled specialist tool lane. |
+| `instance list|get` | View existing managed-agent runtime state as project-local specialist instances. |
+
+#### `project mailbox`
+
+`project mailbox` mirrors the generic mailbox-root CLI, but automatically targets the discovered project's `.houmao/mailbox` root.
+
+| Subcommand | Description |
+|---|---|
+| `init`, `status`, `register`, `unregister`, `repair`, `cleanup` | Perform mailbox-root lifecycle operations against `.houmao/mailbox`. |
+| `accounts list|get` | Inspect mailbox registrations under the project mailbox root. |
+| `messages list|get` | Inspect mailbox-visible messages under the project mailbox root. |
 
 ### `server` — Server lifecycle management
 

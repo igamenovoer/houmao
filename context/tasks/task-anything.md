@@ -1,5 +1,8 @@
 # Redesign Prep: Current `houmao-mgr project` And Agent Definition Structure
 
+> Superseded note: the implementation target is now `openspec/changes/reframe-project-cli-views/`.
+> The old `project agent-tools` direction documented below is retained only as historical baseline context.
+
 We want to redesign the `houmao-mgr project` subcommand and the agent definition directory so it is more intuitive and takes less effort for users to create their own agents.
 
 This note documents the current design only. It is a baseline for later redesign work.

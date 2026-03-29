@@ -4,20 +4,51 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 import click
+import yaml
 
-from houmao.agents.definition_parser import AuthFileMapping, ToolAdapter, parse_tool_adapter
+from houmao.agents.definition_parser import (
+    AuthFileMapping,
+    ToolAdapter,
+    parse_agent_preset,
+    parse_tool_adapter,
+)
+from houmao.agents.realm_controller.manifest import load_session_manifest
+from houmao.project.easy import (
+    SpecialistMetadata,
+    TOOL_PROVIDER_MAP,
+    list_specialists,
+    load_specialist,
+    remove_specialist_metadata,
+    save_specialist,
+)
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
     bootstrap_project_overlay,
-    discover_project_overlay,
+    require_project_overlay,
     resolve_project_aware_agent_def_dir,
 )
 
+from .agents.core import launch_agents_command
 from .common import emit_json
+from .mailbox_support import (
+    cleanup_mailbox_root,
+    get_mailbox_account,
+    get_mailbox_message,
+    init_mailbox_root,
+    list_mailbox_accounts,
+    list_mailbox_messages,
+    mailbox_root_status_payload,
+    register_mailbox_at_root,
+    repair_mailbox_root,
+    unregister_mailbox_at_root,
+)
+from .managed_agents import list_managed_agents, resolve_managed_agent_target
 
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+_SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
 
 
 @click.group(name="project")
@@ -40,7 +71,9 @@ def init_project_command() -> None:
             "project_root": str(result.project_overlay.project_root),
             "overlay_root": str(result.project_overlay.overlay_root),
             "config_path": str(result.project_overlay.config_path),
-            "agent_def_dir": str(result.project_overlay.agent_def_dir),
+            "agent_def_dir": str(result.project_overlay.agents_root),
+            "mailbox_root": str(result.project_overlay.mailbox_root),
+            "easy_root": str(result.project_overlay.easy_root),
             "created_directories": [str(path) for path in result.created_directories],
             "written_files": [str(path) for path in result.written_files],
             "preserved_files": [str(path) for path in result.preserved_files],
@@ -63,18 +96,71 @@ def project_status_command() -> None:
             "config_path": str(overlay.config_path) if overlay is not None else None,
             "effective_agent_def_dir": str(resolution.agent_def_dir),
             "effective_agent_def_dir_source": resolution.source,
+            "project_mailbox_root": str(overlay.mailbox_root) if overlay is not None else None,
+            "project_easy_root": str(overlay.easy_root) if overlay is not None else None,
         }
     )
 
 
-@project_group.group(name="agent-tools")
-def agent_tools_group() -> None:
+@project_group.group(name="agents")
+def agents_project_group() -> None:
+    """Manage canonical project-local agent source content under `.houmao/agents/`."""
+
+
+@agents_project_group.group(name="tools")
+def project_tools_group() -> None:
     """Manage project-local tool content under `.houmao/agents/tools/`."""
 
 
-@agent_tools_group.group(name="claude")
+@project_tools_group.group(name="claude")
 def claude_tool_group() -> None:
     """Manage the project-local Claude tool subtree."""
+
+
+@claude_tool_group.command(name="get")
+def get_claude_project_tool_command() -> None:
+    """Inspect the project-local Claude tool subtree."""
+
+    _emit_tool_get(tool="claude")
+
+
+@claude_tool_group.group(name="setups")
+def claude_tool_setups_group() -> None:
+    """Manage Claude setup bundles under `.houmao/agents/tools/claude/setups/`."""
+
+
+@claude_tool_setups_group.command(name="list")
+def list_claude_project_setups_command() -> None:
+    """List project-local Claude setup bundles."""
+
+    _emit_tool_setup_list(tool="claude")
+
+
+@claude_tool_setups_group.command(name="get")
+@click.option("--name", required=True, help="Setup bundle name.")
+def get_claude_project_setup_command(name: str) -> None:
+    """Inspect one project-local Claude setup bundle."""
+
+    _emit_tool_setup_get(tool="claude", name=name)
+
+
+@claude_tool_setups_group.command(name="add")
+@click.option("--name", required=True, help="New setup bundle name.")
+@click.option(
+    "--from", "source_name", default="default", show_default=True, help="Source setup name."
+)
+def add_claude_project_setup_command(name: str, source_name: str) -> None:
+    """Clone one project-local Claude setup bundle."""
+
+    _emit_tool_setup_add(tool="claude", name=name, source_name=source_name)
+
+
+@claude_tool_setups_group.command(name="remove")
+@click.option("--name", required=True, help="Setup bundle name to remove.")
+def remove_claude_project_setup_command(name: str) -> None:
+    """Remove one project-local Claude setup bundle."""
+
+    _emit_tool_setup_remove(tool="claude", name=name)
 
 
 @claude_tool_group.group(name="auth")
@@ -113,7 +199,9 @@ def remove_claude_project_auth_command(name: str) -> None:
 @click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
 @click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
 @click.option("--subagent-model", default=None, help="Value for `CLAUDE_CODE_SUBAGENT_MODEL`.")
-@click.option("--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`.")
+@click.option(
+    "--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`."
+)
 @click.option(
     "--default-sonnet-model",
     default=None,
@@ -172,7 +260,9 @@ def add_claude_project_auth_command(
 @click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
 @click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
 @click.option("--subagent-model", default=None, help="Value for `CLAUDE_CODE_SUBAGENT_MODEL`.")
-@click.option("--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`.")
+@click.option(
+    "--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`."
+)
 @click.option(
     "--default-sonnet-model",
     default=None,
@@ -190,13 +280,15 @@ def add_claude_project_auth_command(
     default=None,
     help="Optional Claude runtime state template JSON to store in the auth bundle.",
 )
-@click.option("--clear-api-key", is_flag=True, help="Remove `ANTHROPIC_API_KEY` from the auth bundle.")
 @click.option(
-    "--clear-auth-token",
-    is_flag=True,
-    help="Remove `ANTHROPIC_AUTH_TOKEN` from the auth bundle.",
+    "--clear-api-key", is_flag=True, help="Remove `ANTHROPIC_API_KEY` from the auth bundle."
 )
-@click.option("--clear-base-url", is_flag=True, help="Remove `ANTHROPIC_BASE_URL` from the auth bundle.")
+@click.option(
+    "--clear-auth-token", is_flag=True, help="Remove `ANTHROPIC_AUTH_TOKEN` from the auth bundle."
+)
+@click.option(
+    "--clear-base-url", is_flag=True, help="Remove `ANTHROPIC_BASE_URL` from the auth bundle."
+)
 @click.option("--clear-model", is_flag=True, help="Remove `ANTHROPIC_MODEL` from the auth bundle.")
 @click.option(
     "--clear-small-fast-model",
@@ -285,9 +377,55 @@ def set_claude_project_auth_command(
     )
 
 
-@agent_tools_group.group(name="codex")
+@project_tools_group.group(name="codex")
 def codex_tool_group() -> None:
     """Manage the project-local Codex tool subtree."""
+
+
+@codex_tool_group.command(name="get")
+def get_codex_project_tool_command() -> None:
+    """Inspect the project-local Codex tool subtree."""
+
+    _emit_tool_get(tool="codex")
+
+
+@codex_tool_group.group(name="setups")
+def codex_tool_setups_group() -> None:
+    """Manage Codex setup bundles under `.houmao/agents/tools/codex/setups/`."""
+
+
+@codex_tool_setups_group.command(name="list")
+def list_codex_project_setups_command() -> None:
+    """List project-local Codex setup bundles."""
+
+    _emit_tool_setup_list(tool="codex")
+
+
+@codex_tool_setups_group.command(name="get")
+@click.option("--name", required=True, help="Setup bundle name.")
+def get_codex_project_setup_command(name: str) -> None:
+    """Inspect one project-local Codex setup bundle."""
+
+    _emit_tool_setup_get(tool="codex", name=name)
+
+
+@codex_tool_setups_group.command(name="add")
+@click.option("--name", required=True, help="New setup bundle name.")
+@click.option(
+    "--from", "source_name", default="default", show_default=True, help="Source setup name."
+)
+def add_codex_project_setup_command(name: str, source_name: str) -> None:
+    """Clone one project-local Codex setup bundle."""
+
+    _emit_tool_setup_add(tool="codex", name=name, source_name=source_name)
+
+
+@codex_tool_setups_group.command(name="remove")
+@click.option("--name", required=True, help="Setup bundle name to remove.")
+def remove_codex_project_setup_command(name: str) -> None:
+    """Remove one project-local Codex setup bundle."""
+
+    _emit_tool_setup_remove(tool="codex", name=name)
 
 
 @codex_tool_group.group(name="auth")
@@ -362,12 +500,12 @@ def add_codex_project_auth_command(
     help="Optional Codex `auth.json` login-state file to store in the auth bundle.",
 )
 @click.option("--clear-api-key", is_flag=True, help="Remove `OPENAI_API_KEY` from the auth bundle.")
-@click.option("--clear-base-url", is_flag=True, help="Remove `OPENAI_BASE_URL` from the auth bundle.")
+@click.option(
+    "--clear-base-url", is_flag=True, help="Remove `OPENAI_BASE_URL` from the auth bundle."
+)
 @click.option("--clear-org-id", is_flag=True, help="Remove `OPENAI_ORG_ID` from the auth bundle.")
 @click.option(
-    "--clear-auth-json",
-    is_flag=True,
-    help="Remove `files/auth.json` from the auth bundle.",
+    "--clear-auth-json", is_flag=True, help="Remove `files/auth.json` from the auth bundle."
 )
 def set_codex_project_auth_command(
     name: str,
@@ -400,9 +538,55 @@ def set_codex_project_auth_command(
     )
 
 
-@agent_tools_group.group(name="gemini")
+@project_tools_group.group(name="gemini")
 def gemini_tool_group() -> None:
     """Manage the project-local Gemini tool subtree."""
+
+
+@gemini_tool_group.command(name="get")
+def get_gemini_project_tool_command() -> None:
+    """Inspect the project-local Gemini tool subtree."""
+
+    _emit_tool_get(tool="gemini")
+
+
+@gemini_tool_group.group(name="setups")
+def gemini_tool_setups_group() -> None:
+    """Manage Gemini setup bundles under `.houmao/agents/tools/gemini/setups/`."""
+
+
+@gemini_tool_setups_group.command(name="list")
+def list_gemini_project_setups_command() -> None:
+    """List project-local Gemini setup bundles."""
+
+    _emit_tool_setup_list(tool="gemini")
+
+
+@gemini_tool_setups_group.command(name="get")
+@click.option("--name", required=True, help="Setup bundle name.")
+def get_gemini_project_setup_command(name: str) -> None:
+    """Inspect one project-local Gemini setup bundle."""
+
+    _emit_tool_setup_get(tool="gemini", name=name)
+
+
+@gemini_tool_setups_group.command(name="add")
+@click.option("--name", required=True, help="New setup bundle name.")
+@click.option(
+    "--from", "source_name", default="default", show_default=True, help="Source setup name."
+)
+def add_gemini_project_setup_command(name: str, source_name: str) -> None:
+    """Clone one project-local Gemini setup bundle."""
+
+    _emit_tool_setup_add(tool="gemini", name=name, source_name=source_name)
+
+
+@gemini_tool_setups_group.command(name="remove")
+@click.option("--name", required=True, help="Setup bundle name to remove.")
+def remove_gemini_project_setup_command(name: str) -> None:
+    """Remove one project-local Gemini setup bundle."""
+
+    _emit_tool_setup_remove(tool="gemini", name=name)
 
 
 @gemini_tool_group.group(name="auth")
@@ -485,9 +669,7 @@ def add_gemini_project_auth_command(
 )
 @click.option("--clear-api-key", is_flag=True, help="Remove `GEMINI_API_KEY` from the auth bundle.")
 @click.option(
-    "--clear-google-api-key",
-    is_flag=True,
-    help="Remove `GOOGLE_API_KEY` from the auth bundle.",
+    "--clear-google-api-key", is_flag=True, help="Remove `GOOGLE_API_KEY` from the auth bundle."
 )
 @click.option(
     "--clear-use-vertex-ai",
@@ -523,20 +705,944 @@ def set_gemini_project_auth_command(
     )
 
 
+@agents_project_group.group(name="roles")
+def project_roles_group() -> None:
+    """Manage project-local roles stored under `.houmao/agents/roles/`."""
+
+
+@project_roles_group.command(name="list")
+def list_project_roles_command() -> None:
+    """List project-local role roots."""
+
+    overlay = _require_project_overlay()
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "roles": [
+                _role_summary(overlay=overlay, role_name=role_name)
+                for role_name in _list_role_names(overlay=overlay)
+            ],
+        }
+    )
+
+
+@project_roles_group.command(name="get")
+@click.option("--name", required=True, help="Role name.")
+def get_project_role_command(name: str) -> None:
+    """Inspect one project-local role."""
+
+    overlay = _require_project_overlay()
+    role_name = _require_non_empty_name(name, field_name="--name")
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    if not role_root.is_dir():
+        raise click.ClickException(f"Role not found: {role_root}")
+    emit_json(_role_summary(overlay=overlay, role_name=role_name))
+
+
+@project_roles_group.command(name="init")
+@click.option("--name", required=True, help="Role name.")
+@click.option(
+    "--tool",
+    "tool_name",
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    default=None,
+    help="Optional tool lane for an initial preset.",
+)
+@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
+@click.option("--auth", default=None, help="Optional preset auth bundle name.")
+@click.option(
+    "--skill", "skill_names", multiple=True, help="Repeatable skill name for the initial preset."
+)
+@click.option(
+    "--prompt-mode", default=None, help="Optional launch.prompt_mode for the initial preset."
+)
+def init_project_role_command(
+    name: str,
+    tool_name: str | None,
+    setup: str,
+    auth: str | None,
+    skill_names: tuple[str, ...],
+    prompt_mode: str | None,
+) -> None:
+    """Create one new project-local role root and optional initial preset."""
+
+    overlay = _require_project_overlay()
+    role_name = _require_non_empty_name(name, field_name="--name")
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    if role_root.exists():
+        raise click.ClickException(f"Role already exists: {role_root}")
+
+    prompt_path = _write_role_prompt(
+        role_root=role_root, prompt_text=_default_role_prompt(role_name)
+    )
+    created_paths: list[str] = [str(role_root), str(prompt_path)]
+    preset_path: str | None = None
+    if tool_name is not None:
+        written_preset_path = _write_role_preset(
+            overlay=overlay,
+            role_name=role_name,
+            tool=tool_name,
+            setup=setup,
+            skills=[_require_non_empty_name(value, field_name="--skill") for value in skill_names],
+            auth=_optional_non_empty_value(auth),
+            prompt_mode=_optional_non_empty_value(prompt_mode),
+        )
+        created_paths.append(str(written_preset_path))
+        preset_path = str(written_preset_path)
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "role": role_name,
+            "role_path": str(role_root),
+            "system_prompt_path": str(prompt_path),
+            "preset_path": preset_path,
+            "created_paths": created_paths,
+        }
+    )
+
+
+@project_roles_group.command(name="scaffold")
+@click.option("--name", required=True, help="Role name.")
+@click.option(
+    "--tool",
+    "tool_names",
+    multiple=True,
+    required=True,
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    help="Repeatable tool lane to scaffold.",
+)
+@click.option(
+    "--auth",
+    default="default",
+    show_default=True,
+    help="Auth bundle name to reference in generated presets.",
+)
+@click.option(
+    "--setup",
+    default="default",
+    show_default=True,
+    help="Setup name to reference in generated presets.",
+)
+@click.option(
+    "--skill", "skill_names", multiple=True, help="Repeatable skill name to scaffold or reference."
+)
+@click.option(
+    "--prompt-mode", default=None, help="Optional launch.prompt_mode for generated presets."
+)
+def scaffold_project_role_command(
+    name: str,
+    tool_names: tuple[str, ...],
+    auth: str,
+    setup: str,
+    skill_names: tuple[str, ...],
+    prompt_mode: str | None,
+) -> None:
+    """Create one structurally complete starter slice for a project-local role."""
+
+    overlay = _require_project_overlay()
+    role_name = _require_non_empty_name(name, field_name="--name")
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    if role_root.exists():
+        raise click.ClickException(f"Role already exists: {role_root}")
+
+    normalized_skills = [
+        _require_non_empty_name(value, field_name="--skill") for value in skill_names
+    ]
+    normalized_setup = _require_non_empty_name(setup, field_name="--setup")
+    normalized_auth = _require_non_empty_name(auth, field_name="--auth")
+
+    prompt_path = _write_role_prompt(
+        role_root=role_root, prompt_text=_default_role_prompt(role_name)
+    )
+    created_paths: list[str] = [str(role_root), str(prompt_path)]
+    for skill_name in normalized_skills:
+        created_skill_path = _ensure_skill_placeholder(overlay=overlay, skill_name=skill_name)
+        if created_skill_path is not None:
+            created_paths.append(str(created_skill_path))
+
+    for tool_name in tool_names:
+        if normalized_setup != "default":
+            created_setup_path = _clone_tool_setup_if_missing(
+                overlay=overlay,
+                tool=tool_name,
+                target_name=normalized_setup,
+                source_name="default",
+            )
+            if created_setup_path is not None:
+                created_paths.append(str(created_setup_path))
+        created_auth_paths = _ensure_placeholder_auth_bundle(
+            overlay=overlay,
+            tool=tool_name,
+            name=normalized_auth,
+        )
+        created_paths.extend(str(path) for path in created_auth_paths)
+        preset_path = _write_role_preset(
+            overlay=overlay,
+            role_name=role_name,
+            tool=tool_name,
+            setup=normalized_setup,
+            skills=normalized_skills,
+            auth=normalized_auth,
+            prompt_mode=_optional_non_empty_value(prompt_mode),
+        )
+        created_paths.append(str(preset_path))
+
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "role": role_name,
+            "role_path": str(role_root),
+            "created_paths": created_paths,
+        }
+    )
+
+
+@project_roles_group.command(name="remove")
+@click.option("--name", required=True, help="Role name to remove.")
+def remove_project_role_command(name: str) -> None:
+    """Remove one project-local role subtree."""
+
+    overlay = _require_project_overlay()
+    role_name = _require_non_empty_name(name, field_name="--name")
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    if not role_root.is_dir():
+        raise click.ClickException(f"Role not found: {role_root}")
+    shutil.rmtree(role_root)
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "role": role_name,
+            "removed": True,
+            "path": str(role_root),
+        }
+    )
+
+
+@project_roles_group.group(name="presets")
+def project_role_presets_group() -> None:
+    """Manage role presets under `.houmao/agents/roles/<role>/presets/<tool>/<setup>.yaml`."""
+
+
+@project_role_presets_group.command(name="list")
+@click.option("--role", required=True, help="Role name.")
+def list_project_role_presets_command(role: str) -> None:
+    """List preset files for one project-local role."""
+
+    overlay = _require_project_overlay()
+    role_name = _require_non_empty_name(role, field_name="--role")
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "role": role_name,
+            "presets": _list_role_presets(overlay=overlay, role_name=role_name),
+        }
+    )
+
+
+@project_role_presets_group.command(name="get")
+@click.option("--role", required=True, help="Role name.")
+@click.option(
+    "--tool",
+    "tool_name",
+    required=True,
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    help="Tool lane.",
+)
+@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
+def get_project_role_preset_command(role: str, tool_name: str, setup: str) -> None:
+    """Inspect one project-local role preset."""
+
+    overlay = _require_project_overlay()
+    emit_json(
+        _preset_summary(
+            overlay=overlay,
+            role_name=_require_non_empty_name(role, field_name="--role"),
+            tool=tool_name,
+            setup=_require_non_empty_name(setup, field_name="--setup"),
+        )
+    )
+
+
+@project_role_presets_group.command(name="add")
+@click.option("--role", required=True, help="Role name.")
+@click.option(
+    "--tool",
+    "tool_name",
+    required=True,
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    help="Tool lane.",
+)
+@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
+@click.option("--skill", "skill_names", multiple=True, help="Repeatable skill name.")
+@click.option("--auth", default=None, help="Optional auth bundle name.")
+@click.option("--prompt-mode", default=None, help="Optional launch.prompt_mode value.")
+def add_project_role_preset_command(
+    role: str,
+    tool_name: str,
+    setup: str,
+    skill_names: tuple[str, ...],
+    auth: str | None,
+    prompt_mode: str | None,
+) -> None:
+    """Create one minimal project-local role preset."""
+
+    overlay = _require_project_overlay()
+    role_name = _require_non_empty_name(role, field_name="--role")
+    preset_path = _write_role_preset(
+        overlay=overlay,
+        role_name=role_name,
+        tool=tool_name,
+        setup=_require_non_empty_name(setup, field_name="--setup"),
+        skills=[_require_non_empty_name(value, field_name="--skill") for value in skill_names],
+        auth=_optional_non_empty_value(auth),
+        prompt_mode=_optional_non_empty_value(prompt_mode),
+    )
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "role": role_name,
+            "tool": tool_name,
+            "setup": _require_non_empty_name(setup, field_name="--setup"),
+            "path": str(preset_path),
+            "created": True,
+        }
+    )
+
+
+@project_role_presets_group.command(name="remove")
+@click.option("--role", required=True, help="Role name.")
+@click.option(
+    "--tool",
+    "tool_name",
+    required=True,
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    help="Tool lane.",
+)
+@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
+def remove_project_role_preset_command(role: str, tool_name: str, setup: str) -> None:
+    """Remove one project-local role preset."""
+
+    overlay = _require_project_overlay()
+    role_name = _require_non_empty_name(role, field_name="--role")
+    resolved_setup = _require_non_empty_name(setup, field_name="--setup")
+    preset_path = _preset_path(
+        overlay=overlay, role_name=role_name, tool=tool_name, setup=resolved_setup
+    )
+    if not preset_path.is_file():
+        raise click.ClickException(f"Preset not found: {preset_path}")
+    preset_path.unlink()
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "role": role_name,
+            "tool": tool_name,
+            "setup": resolved_setup,
+            "removed": True,
+            "path": str(preset_path),
+        }
+    )
+
+
+@project_group.group(name="easy")
+def easy_project_group() -> None:
+    """Use a higher-level specialist and instance view over the project overlay."""
+
+
+@easy_project_group.group(name="specialist")
+def easy_specialist_group() -> None:
+    """Manage high-level specialist definitions compiled into `.houmao/agents/`."""
+
+
+@easy_specialist_group.command(name="create")
+@click.option("--name", required=True, help="Specialist name.")
+@click.option("--system-prompt", default=None, help="Inline system prompt content.")
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a Markdown system prompt file.",
+)
+@click.option(
+    "--tool",
+    "tool_name",
+    required=True,
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    help="Tool lane for the specialist.",
+)
+@click.option("--credential", required=True, help="Credential bundle name.")
+@click.option("--api-key", default=None, help="Common API key input for the selected tool.")
+@click.option(
+    "--base-url", default=None, help="Common base URL input for the selected tool when supported."
+)
+@click.option("--claude-auth-token", default=None, help="Optional Claude auth token input.")
+@click.option("--claude-model", default=None, help="Optional Claude model input.")
+@click.option(
+    "--claude-state-template-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Optional Claude state template JSON file.",
+)
+@click.option("--codex-org-id", default=None, help="Optional Codex org id input.")
+@click.option(
+    "--codex-auth-json",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Optional Codex `auth.json` file.",
+)
+@click.option("--google-api-key", default=None, help="Optional Gemini Google API key input.")
+@click.option("--use-vertex-ai", is_flag=True, help="Enable Gemini Vertex AI mode.")
+@click.option(
+    "--gemini-oauth-creds",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Optional Gemini `oauth_creds.json` file.",
+)
+@click.option(
+    "--with-skill",
+    "skill_dirs",
+    multiple=True,
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    help="Repeatable skill directory to import into `.houmao/agents/skills/`.",
+)
+def create_easy_specialist_command(
+    name: str,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+    tool_name: str,
+    credential: str,
+    api_key: str | None,
+    base_url: str | None,
+    claude_auth_token: str | None,
+    claude_model: str | None,
+    claude_state_template_file: Path | None,
+    codex_org_id: str | None,
+    codex_auth_json: Path | None,
+    google_api_key: str | None,
+    use_vertex_ai: bool,
+    gemini_oauth_creds: Path | None,
+    skill_dirs: tuple[Path, ...],
+) -> None:
+    """Create one project-local specialist and compile it into the canonical tree."""
+
+    overlay = _require_project_overlay()
+    specialist_name = _require_non_empty_name(name, field_name="--name")
+    credential_name = _require_non_empty_name(credential, field_name="--credential")
+    _validate_specialist_create_inputs(
+        overlay=overlay,
+        specialist_name=specialist_name,
+        system_prompt=system_prompt,
+        system_prompt_file=system_prompt_file,
+    )
+    prompt_text = _resolve_system_prompt_text(
+        system_prompt=system_prompt,
+        system_prompt_file=system_prompt_file,
+    )
+    imported_skills = _import_skill_directories(
+        overlay=overlay,
+        skill_dirs=skill_dirs,
+    )
+    auth_result = _ensure_specialist_auth_bundle(
+        overlay=overlay,
+        tool=tool_name,
+        credential_name=credential_name,
+        api_key=api_key,
+        base_url=base_url,
+        claude_auth_token=claude_auth_token,
+        claude_model=claude_model,
+        claude_state_template_file=claude_state_template_file,
+        codex_org_id=codex_org_id,
+        codex_auth_json=codex_auth_json,
+        google_api_key=google_api_key,
+        use_vertex_ai=use_vertex_ai,
+        gemini_oauth_creds=gemini_oauth_creds,
+    )
+
+    role_root = _role_root(overlay=overlay, role_name=specialist_name)
+    system_prompt_path = _write_role_prompt(role_root=role_root, prompt_text=prompt_text)
+    preset_path = _write_role_preset(
+        overlay=overlay,
+        role_name=specialist_name,
+        tool=tool_name,
+        setup="default",
+        skills=[skill_path.name for skill_path in imported_skills],
+        auth=credential_name,
+        prompt_mode=None,
+    )
+    metadata = SpecialistMetadata(
+        name=specialist_name,
+        tool=tool_name,
+        provider=TOOL_PROVIDER_MAP[tool_name],
+        credential_name=credential_name,
+        role_name=specialist_name,
+        system_prompt_path=_overlay_relative_path(overlay=overlay, path=system_prompt_path),
+        preset_path=_overlay_relative_path(overlay=overlay, path=preset_path),
+        auth_path=_overlay_relative_path(
+            overlay=overlay,
+            path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
+        ),
+        skills=tuple(skill_path.name for skill_path in imported_skills),
+    )
+    metadata_path = save_specialist(overlay=overlay, metadata=metadata)
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "specialist": specialist_name,
+            "tool": tool_name,
+            "provider": metadata.provider,
+            "credential": credential_name,
+            "metadata_path": str(metadata_path),
+            "generated": {
+                "role_prompt": str(system_prompt_path),
+                "preset": str(preset_path),
+                "auth": str(
+                    _auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name)
+                ),
+                "skills": [str(path) for path in imported_skills],
+            },
+            "auth_result": auth_result,
+        }
+    )
+
+
+@easy_specialist_group.command(name="list")
+def list_easy_specialists_command() -> None:
+    """List persisted project-local specialist definitions."""
+
+    overlay = _require_project_overlay()
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "specialists": [
+                _specialist_payload(overlay=overlay, metadata=metadata)
+                for metadata in list_specialists(overlay=overlay)
+            ],
+        }
+    )
+
+
+@easy_specialist_group.command(name="get")
+@click.option("--name", required=True, help="Specialist name.")
+def get_easy_specialist_command(name: str) -> None:
+    """Inspect one persisted specialist definition."""
+
+    overlay = _require_project_overlay()
+    specialist = _load_specialist_or_click(overlay=overlay, name=name)
+    emit_json(_specialist_payload(overlay=overlay, metadata=specialist))
+
+
+@easy_specialist_group.command(name="remove")
+@click.option("--name", required=True, help="Specialist name.")
+def remove_easy_specialist_command(name: str) -> None:
+    """Remove one persisted specialist definition and its generated role subtree."""
+
+    overlay = _require_project_overlay()
+    specialist = _load_specialist_or_click(overlay=overlay, name=name)
+    role_root = _role_root(overlay=overlay, role_name=specialist.role_name)
+    if role_root.is_dir():
+        shutil.rmtree(role_root)
+    metadata_path = _remove_specialist_metadata_or_click(overlay=overlay, name=specialist.name)
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "specialist": specialist.name,
+            "removed": True,
+            "metadata_path": str(metadata_path),
+            "role_path": str(role_root),
+            "preserved_auth_path": str(specialist.resolved_auth_path(overlay)),
+            "preserved_skill_paths": [
+                str(path) for path in specialist.resolved_skill_paths(overlay)
+            ],
+        }
+    )
+
+
+@easy_specialist_group.command(name="launch")
+@click.option("--name", required=True, help="Specialist name.")
+@click.option(
+    "--instance", default=None, help="Optional managed-agent name for the launched instance."
+)
+@click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
+@click.option("--session-name", default=None, help="Optional tmux session name.")
+@click.option("--headless", is_flag=True, help="Launch in detached mode.")
+@click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
+def launch_easy_specialist_command(
+    name: str,
+    instance: str | None,
+    auth: str | None,
+    session_name: str | None,
+    headless: bool,
+    yolo: bool,
+) -> None:
+    """Launch one managed agent from a compiled specialist definition."""
+
+    overlay = _require_project_overlay()
+    specialist = _load_specialist_or_click(overlay=overlay, name=name)
+    if specialist.tool == "gemini" and not headless:
+        raise click.ClickException(
+            "Gemini specialists are currently headless-only. Use `--headless`."
+        )
+    launch_callback = getattr(launch_agents_command, "callback", None)
+    if launch_callback is None:
+        raise click.ClickException("Internal error: managed-agent launch callback is unavailable.")
+    launch_callback(
+        agents=specialist.role_name,
+        agent_name=_optional_non_empty_value(instance),
+        agent_id=None,
+        auth=_optional_non_empty_value(auth),
+        session_name=_optional_non_empty_value(session_name),
+        headless=headless,
+        provider=specialist.provider,
+        yolo=yolo,
+    )
+
+
+@easy_project_group.group(name="instance")
+def easy_instance_group() -> None:
+    """View managed-agent runtime state through project-local specialist names."""
+
+
+@easy_instance_group.command(name="list")
+def list_easy_instances_command() -> None:
+    """List project-local managed agents as specialist instances when resolvable."""
+
+    overlay = _require_project_overlay()
+    specialists_by_name = {
+        metadata.name: metadata for metadata in list_specialists(overlay=overlay)
+    }
+    instances = _list_project_instances(overlay=overlay, specialists_by_name=specialists_by_name)
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "instances": instances,
+        }
+    )
+
+
+@easy_instance_group.command(name="get")
+@click.option("--name", required=True, help="Managed-agent instance name.")
+def get_easy_instance_command(name: str) -> None:
+    """Inspect one managed-agent instance through the current project overlay."""
+
+    overlay = _require_project_overlay()
+    specialists_by_name = {
+        metadata.name: metadata for metadata in list_specialists(overlay=overlay)
+    }
+    target = resolve_managed_agent_target(
+        agent_id=None,
+        agent_name=_require_non_empty_name(name, field_name="--name"),
+        port=None,
+    )
+    identity = target.identity
+    manifest_path = _require_manifest_path_for_identity(
+        identity_payload=identity.model_dump(mode="json")
+    )
+    manifest_payload = _load_manifest_payload(manifest_path)
+    if not _manifest_belongs_to_overlay(overlay=overlay, manifest_payload=manifest_payload):
+        raise click.ClickException(
+            f"Managed agent `{name}` does not belong to the discovered project overlay."
+        )
+    emit_json(
+        _instance_payload(
+            overlay=overlay,
+            identity_payload=identity.model_dump(mode="json"),
+            manifest_payload=manifest_payload,
+            specialists_by_name=specialists_by_name,
+        )
+    )
+
+
+@project_group.group(name="mailbox")
+def project_mailbox_group() -> None:
+    """Operate on the current project's `.houmao/mailbox` root."""
+
+
+@project_mailbox_group.command(name="init")
+def init_project_mailbox_command() -> None:
+    """Bootstrap or validate the current project's mailbox root."""
+
+    emit_json(init_mailbox_root(_project_mailbox_root()))
+
+
+@project_mailbox_group.command(name="status")
+def status_project_mailbox_command() -> None:
+    """Inspect the current project's mailbox root."""
+
+    emit_json(mailbox_root_status_payload(_project_mailbox_root()))
+
+
+@project_mailbox_group.command(name="register")
+@click.option("--address", required=True, help="Full mailbox address.")
+@click.option("--principal-id", required=True, help="Mailbox owner principal id.")
+@click.option(
+    "--mode",
+    type=click.Choice(("safe", "force", "stash")),
+    default="safe",
+    show_default=True,
+    help="Filesystem mailbox registration mode.",
+)
+def register_project_mailbox_command(address: str, principal_id: str, mode: str) -> None:
+    """Register one mailbox address under the current project's mailbox root."""
+
+    emit_json(
+        register_mailbox_at_root(
+            mailbox_root=_project_mailbox_root(),
+            address=address,
+            principal_id=principal_id,
+            mode=mode,
+        )
+    )
+
+
+@project_mailbox_group.command(name="unregister")
+@click.option("--address", required=True, help="Full mailbox address.")
+@click.option(
+    "--mode",
+    type=click.Choice(("deactivate", "purge")),
+    default="deactivate",
+    show_default=True,
+    help="Filesystem mailbox deregistration mode.",
+)
+def unregister_project_mailbox_command(address: str, mode: str) -> None:
+    """Deactivate or purge one mailbox address under the current project's mailbox root."""
+
+    emit_json(
+        unregister_mailbox_at_root(
+            mailbox_root=_project_mailbox_root(),
+            address=address,
+            mode=mode,
+        )
+    )
+
+
+@project_mailbox_group.command(name="repair")
+@click.option(
+    "--cleanup-staging/--no-cleanup-staging",
+    default=True,
+    show_default=True,
+    help="Clean staging artifacts during repair.",
+)
+@click.option(
+    "--quarantine-staging/--remove-staging",
+    default=True,
+    show_default=True,
+    help="Quarantine staging artifacts instead of deleting them.",
+)
+def repair_project_mailbox_command(cleanup_staging: bool, quarantine_staging: bool) -> None:
+    """Repair the current project's mailbox root."""
+
+    emit_json(
+        repair_mailbox_root(
+            mailbox_root=_project_mailbox_root(),
+            cleanup_staging=cleanup_staging,
+            quarantine_staging=quarantine_staging,
+        )
+    )
+
+
+@project_mailbox_group.command(name="cleanup")
+@click.option(
+    "--inactive-older-than-seconds",
+    default=0,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Only clean inactive registrations older than this threshold.",
+)
+@click.option(
+    "--stashed-older-than-seconds",
+    default=0,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Only clean stashed registrations older than this threshold.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview inactive or stashed mailbox cleanup candidates without deleting them.",
+)
+def cleanup_project_mailbox_command(
+    inactive_older_than_seconds: int,
+    stashed_older_than_seconds: int,
+    dry_run: bool,
+) -> None:
+    """Clean inactive or stashed registrations under the current project's mailbox root."""
+
+    emit_json(
+        cleanup_mailbox_root(
+            mailbox_root=_project_mailbox_root(),
+            inactive_older_than_seconds=inactive_older_than_seconds,
+            stashed_older_than_seconds=stashed_older_than_seconds,
+            dry_run=dry_run,
+        )
+    )
+
+
+@project_mailbox_group.group(name="accounts")
+def project_mailbox_accounts_group() -> None:
+    """Inspect mailbox registrations under the current project's mailbox root."""
+
+
+@project_mailbox_accounts_group.command(name="list")
+def list_project_mailbox_accounts_command() -> None:
+    """List mailbox accounts under the current project's mailbox root."""
+
+    emit_json(list_mailbox_accounts(mailbox_root=_project_mailbox_root()))
+
+
+@project_mailbox_accounts_group.command(name="get")
+@click.option("--address", required=True, help="Full mailbox address.")
+def get_project_mailbox_account_command(address: str) -> None:
+    """Inspect one mailbox account under the current project's mailbox root."""
+
+    try:
+        payload = get_mailbox_account(mailbox_root=_project_mailbox_root(), address=address)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    emit_json(payload)
+
+
+@project_mailbox_group.group(name="messages")
+def project_mailbox_messages_group() -> None:
+    """Inspect mailbox-visible messages under the current project's mailbox root."""
+
+
+@project_mailbox_messages_group.command(name="list")
+@click.option("--address", required=True, help="Full mailbox address.")
+def list_project_mailbox_messages_command(address: str) -> None:
+    """List mailbox-visible messages for one project-local mailbox address."""
+
+    try:
+        payload = list_mailbox_messages(mailbox_root=_project_mailbox_root(), address=address)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    emit_json(payload)
+
+
+@project_mailbox_messages_group.command(name="get")
+@click.option("--address", required=True, help="Full mailbox address.")
+@click.option("--message-id", required=True, help="Canonical mailbox message id.")
+def get_project_mailbox_message_command(address: str, message_id: str) -> None:
+    """Get one mailbox-visible message for a project-local mailbox address."""
+
+    try:
+        payload = get_mailbox_message(
+            mailbox_root=_project_mailbox_root(),
+            address=address,
+            message_id=message_id,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    emit_json(payload)
+
+
 def _require_project_overlay() -> HoumaoProjectOverlay:
     """Return the discovered project overlay or raise one operator-facing error."""
 
-    cwd = Path.cwd().resolve()
     try:
-        project_overlay = discover_project_overlay(cwd)
+        return require_project_overlay(Path.cwd().resolve())
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    if project_overlay is None:
-        raise click.ClickException(
-            "No local Houmao project overlay was discovered from the current directory. "
-            "Run `houmao-mgr project init` first."
-        )
-    return project_overlay
+
+
+def _project_mailbox_root() -> Path:
+    """Return the current project's mailbox root."""
+
+    return _require_project_overlay().mailbox_root
+
+
+def _emit_tool_get(*, tool: str) -> None:
+    """Emit one project-local tool summary."""
+
+    overlay = _require_project_overlay()
+    tool_root = _tool_root(overlay=overlay, tool=tool)
+    adapter_path = (tool_root / "adapter.yaml").resolve()
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "tool": tool,
+            "tool_root": str(tool_root),
+            "adapter_path": str(adapter_path),
+            "adapter_present": adapter_path.is_file(),
+            "setups": _list_tool_setup_names(overlay=overlay, tool=tool),
+            "auth_bundles": _list_tool_bundle_names(overlay=overlay, tool=tool),
+        }
+    )
+
+
+def _emit_tool_setup_list(*, tool: str) -> None:
+    """Emit the setup names for one supported tool."""
+
+    overlay = _require_project_overlay()
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "tool": tool,
+            "setups": _list_tool_setup_names(overlay=overlay, tool=tool),
+        }
+    )
+
+
+def _emit_tool_setup_get(*, tool: str, name: str) -> None:
+    """Emit one project-local setup summary."""
+
+    overlay = _require_project_overlay()
+    setup_name = _require_non_empty_name(name, field_name="--name")
+    setup_path = _tool_setup_path(overlay=overlay, tool=tool, name=setup_name)
+    if not setup_path.is_dir():
+        raise click.ClickException(f"Setup bundle not found: {setup_path}")
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "tool": tool,
+            "name": setup_name,
+            "path": str(setup_path),
+            "files": _relative_file_listing(setup_path),
+        }
+    )
+
+
+def _emit_tool_setup_add(*, tool: str, name: str, source_name: str) -> None:
+    """Clone one project-local tool setup bundle."""
+
+    overlay = _require_project_overlay()
+    target_name = _require_non_empty_name(name, field_name="--name")
+    resolved_source_name = _require_non_empty_name(source_name, field_name="--from")
+    source_path = _tool_setup_path(overlay=overlay, tool=tool, name=resolved_source_name)
+    target_path = _tool_setup_path(overlay=overlay, tool=tool, name=target_name)
+    if not source_path.is_dir():
+        raise click.ClickException(f"Source setup bundle not found: {source_path}")
+    if target_path.exists():
+        raise click.ClickException(f"Setup bundle already exists: {target_path}")
+    shutil.copytree(source_path, target_path)
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "tool": tool,
+            "name": target_name,
+            "source_name": resolved_source_name,
+            "path": str(target_path),
+            "created": True,
+        }
+    )
+
+
+def _emit_tool_setup_remove(*, tool: str, name: str) -> None:
+    """Remove one project-local tool setup bundle."""
+
+    overlay = _require_project_overlay()
+    setup_name = _require_non_empty_name(name, field_name="--name")
+    setup_path = _tool_setup_path(overlay=overlay, tool=tool, name=setup_name)
+    if not setup_path.is_dir():
+        raise click.ClickException(f"Setup bundle not found: {setup_path}")
+    shutil.rmtree(setup_path)
+    emit_json(
+        {
+            "project_root": str(overlay.project_root),
+            "tool": tool,
+            "name": setup_name,
+            "removed": True,
+            "path": str(setup_path),
+        }
+    )
 
 
 def _emit_tool_auth_list(*, tool: str) -> None:
@@ -579,13 +1685,230 @@ def _emit_tool_auth_remove(*, tool: str, name: str) -> None:
     )
 
 
+def _list_tool_setup_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[str]:
+    """Return the existing setup names for one tool."""
+
+    setups_root = (_tool_root(overlay=overlay, tool=tool) / "setups").resolve()
+    if not setups_root.is_dir():
+        return []
+    return sorted(path.name for path in setups_root.iterdir() if path.is_dir())
+
+
 def _list_tool_bundle_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[str]:
     """Return the existing auth bundle names for one tool."""
 
-    auth_root = (overlay.agent_def_dir / "tools" / tool / "auth").resolve()
+    auth_root = (_tool_root(overlay=overlay, tool=tool) / "auth").resolve()
     if not auth_root.is_dir():
         return []
     return sorted(path.name for path in auth_root.iterdir() if path.is_dir())
+
+
+def _tool_root(*, overlay: HoumaoProjectOverlay, tool: str) -> Path:
+    """Return one project-local tool root."""
+
+    return (overlay.agents_root / "tools" / tool).resolve()
+
+
+def _tool_setup_path(*, overlay: HoumaoProjectOverlay, tool: str, name: str) -> Path:
+    """Return one project-local tool setup root."""
+
+    return (_tool_root(overlay=overlay, tool=tool) / "setups" / name).resolve()
+
+
+def _role_root(*, overlay: HoumaoProjectOverlay, role_name: str) -> Path:
+    """Return one project-local role root."""
+
+    return (overlay.agents_root / "roles" / role_name).resolve()
+
+
+def _preset_path(*, overlay: HoumaoProjectOverlay, role_name: str, tool: str, setup: str) -> Path:
+    """Return one canonical project-local preset path."""
+
+    return (
+        _role_root(overlay=overlay, role_name=role_name) / "presets" / tool / f"{setup}.yaml"
+    ).resolve()
+
+
+def _list_role_names(*, overlay: HoumaoProjectOverlay) -> list[str]:
+    """Return the current project-local role names."""
+
+    roles_root = (overlay.agents_root / "roles").resolve()
+    if not roles_root.is_dir():
+        return []
+    return sorted(path.name for path in roles_root.iterdir() if path.is_dir())
+
+
+def _role_summary(*, overlay: HoumaoProjectOverlay, role_name: str) -> dict[str, object]:
+    """Return one structured project-local role summary."""
+
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    prompt_path = (role_root / "system-prompt.md").resolve()
+    return {
+        "name": role_name,
+        "role_path": str(role_root),
+        "system_prompt_path": str(prompt_path),
+        "system_prompt_exists": prompt_path.is_file(),
+        "presets": _list_role_presets(overlay=overlay, role_name=role_name),
+    }
+
+
+def _list_role_presets(*, overlay: HoumaoProjectOverlay, role_name: str) -> list[dict[str, object]]:
+    """Return preset summaries for one role without requiring raw YAML inspection."""
+
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    if not role_root.is_dir():
+        return []
+    results: list[dict[str, object]] = []
+    presets_root = (role_root / "presets").resolve()
+    if not presets_root.is_dir():
+        return results
+    for tool_dir in sorted(path for path in presets_root.iterdir() if path.is_dir()):
+        for preset_file in sorted(path for path in tool_dir.iterdir() if path.is_file()):
+            if preset_file.suffix not in {".yaml", ".yml"}:
+                continue
+            results.append(
+                _preset_summary(
+                    overlay=overlay,
+                    role_name=role_name,
+                    tool=tool_dir.name,
+                    setup=preset_file.stem,
+                )
+            )
+    return results
+
+
+def _preset_summary(
+    *,
+    overlay: HoumaoProjectOverlay,
+    role_name: str,
+    tool: str,
+    setup: str,
+) -> dict[str, object]:
+    """Return one structured project-local preset summary."""
+
+    preset_file = _preset_path(overlay=overlay, role_name=role_name, tool=tool, setup=setup)
+    if not preset_file.is_file():
+        raise click.ClickException(f"Preset not found: {preset_file}")
+    parsed_preset = parse_agent_preset(preset_file)
+    raw_payload = _load_yaml_mapping(preset_file)
+    launch_payload = raw_payload.get("launch")
+    return {
+        "role": role_name,
+        "tool": tool,
+        "setup": setup,
+        "path": str(preset_file),
+        "skills": list(parsed_preset.skills),
+        "auth": parsed_preset.auth,
+        "launch": launch_payload if isinstance(launch_payload, dict) else {},
+        "mailbox": raw_payload.get("mailbox"),
+        "extra": raw_payload.get("extra", {}),
+    }
+
+
+def _write_role_prompt(*, role_root: Path, prompt_text: str) -> Path:
+    """Write one canonical role prompt file."""
+
+    role_root.mkdir(parents=True, exist_ok=False)
+    prompt_path = (role_root / "system-prompt.md").resolve()
+    prompt_path.write_text(prompt_text.rstrip() + "\n", encoding="utf-8")
+    return prompt_path
+
+
+def _write_role_preset(
+    *,
+    overlay: HoumaoProjectOverlay,
+    role_name: str,
+    tool: str,
+    setup: str,
+    skills: list[str],
+    auth: str | None,
+    prompt_mode: str | None,
+) -> Path:
+    """Write one canonical project-local role preset."""
+
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    if not role_root.is_dir():
+        raise click.ClickException(f"Role not found: {role_root}")
+    preset_file = _preset_path(overlay=overlay, role_name=role_name, tool=tool, setup=setup)
+    if preset_file.exists():
+        raise click.ClickException(f"Preset already exists: {preset_file}")
+    payload: dict[str, Any] = {"skills": list(skills)}
+    if auth is not None:
+        payload["auth"] = auth
+    if prompt_mode is not None:
+        payload["launch"] = {"prompt_mode": prompt_mode}
+    preset_file.parent.mkdir(parents=True, exist_ok=True)
+    preset_file.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    return preset_file
+
+
+def _ensure_skill_placeholder(*, overlay: HoumaoProjectOverlay, skill_name: str) -> Path | None:
+    """Create one placeholder skill directory when it is currently missing."""
+
+    skill_root = (overlay.agents_root / "skills" / skill_name).resolve()
+    skill_doc = (skill_root / "SKILL.md").resolve()
+    if skill_doc.is_file():
+        return None
+    skill_root.mkdir(parents=True, exist_ok=True)
+    skill_doc.write_text(
+        f"# {skill_name}\n\nReplace this placeholder skill with real project-local instructions.\n",
+        encoding="utf-8",
+    )
+    return skill_root
+
+
+def _clone_tool_setup_if_missing(
+    *,
+    overlay: HoumaoProjectOverlay,
+    tool: str,
+    target_name: str,
+    source_name: str,
+) -> Path | None:
+    """Clone one tool setup into a missing target path."""
+
+    target_path = _tool_setup_path(overlay=overlay, tool=tool, name=target_name)
+    if target_path.exists():
+        return None
+    source_path = _tool_setup_path(overlay=overlay, tool=tool, name=source_name)
+    if not source_path.is_dir():
+        raise click.ClickException(f"Source setup bundle not found: {source_path}")
+    shutil.copytree(source_path, target_path)
+    return target_path
+
+
+def _ensure_placeholder_auth_bundle(
+    *,
+    overlay: HoumaoProjectOverlay,
+    tool: str,
+    name: str,
+) -> list[Path]:
+    """Create one placeholder auth bundle when it is missing."""
+
+    auth_root = _auth_bundle_root(overlay=overlay, tool=tool, name=name)
+    if auth_root.is_dir():
+        return []
+    adapter = _load_overlay_tool_adapter(overlay=overlay, tool=tool)
+    env_file_path = _auth_bundle_env_file(overlay=overlay, tool=tool, name=name)
+    files_root = (auth_root / adapter.auth_files_dir).resolve()
+    env_file_path.parent.mkdir(parents=True, exist_ok=True)
+    files_root.mkdir(parents=True, exist_ok=True)
+    env_file_path.write_text(
+        "\n".join(
+            ["# Fill in the required auth values for this bundle."]
+            + [f"# {env_name}=" for env_name in adapter.auth_env_allowlist]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    created_paths: list[Path] = [auth_root, env_file_path]
+    for mapping in adapter.auth_file_mappings:
+        if not mapping.required:
+            continue
+        target_path = (files_root / mapping.source).resolve()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text("{}\n", encoding="utf-8")
+        created_paths.append(target_path)
+    return created_paths
 
 
 def _run_claude_auth_write(
@@ -728,11 +2051,23 @@ def _write_project_auth_bundle(
     if operation not in {"add", "set"}:
         raise click.ClickException(f"Unsupported auth-bundle operation: {operation}")
 
-    if require_any_input and not env_values and not file_sources and not clear_env_names and not clear_file_sources:
+    if (
+        require_any_input
+        and not env_values
+        and not file_sources
+        and not clear_env_names
+        and not clear_file_sources
+    ):
         raise click.ClickException(
             f"Provide at least one auth input for `{tool}` (env value or compatible auth file)."
         )
-    if operation == "set" and not env_values and not file_sources and not clear_env_names and not clear_file_sources:
+    if (
+        operation == "set"
+        and not env_values
+        and not file_sources
+        and not clear_env_names
+        and not clear_file_sources
+    ):
         raise click.ClickException(
             f"Provide at least one change for `{tool}` (new value, compatible auth file, or clear flag)."
         )
@@ -758,8 +2093,7 @@ def _write_project_auth_bundle(
     )
     if unsupported_file_sources:
         raise click.ClickException(
-            f"Unsupported auth file(s) for `{tool}` auth bundles: "
-            f"{', '.join(unsupported_file_sources)}"
+            f"Unsupported auth file(s) for `{tool}` auth bundles: {', '.join(unsupported_file_sources)}"
         )
 
     existing_env_values = _load_existing_env_values(
@@ -803,7 +2137,9 @@ def _write_project_auth_bundle(
         "name": resolved_name,
         "path": str(auth_bundle_root),
         "env_file": str(env_file_path),
-        "written_env_vars": [name for name in adapter.auth_env_allowlist if name in merged_env_values],
+        "written_env_vars": [
+            env_name for env_name in adapter.auth_env_allowlist if env_name in merged_env_values
+        ],
         "cleared_env_vars": sorted(clear_env_names),
         "written_files": [
             str((files_root / source_name).resolve()) for source_name in sorted(file_sources)
@@ -847,10 +2183,310 @@ def _describe_project_auth_bundle(
     }
 
 
+def _ensure_specialist_auth_bundle(
+    *,
+    overlay: HoumaoProjectOverlay,
+    tool: str,
+    credential_name: str,
+    api_key: str | None,
+    base_url: str | None,
+    claude_auth_token: str | None,
+    claude_model: str | None,
+    claude_state_template_file: Path | None,
+    codex_org_id: str | None,
+    codex_auth_json: Path | None,
+    google_api_key: str | None,
+    use_vertex_ai: bool,
+    gemini_oauth_creds: Path | None,
+) -> dict[str, object]:
+    """Create, update, or reuse one auth bundle for specialist compilation."""
+
+    auth_root = _auth_bundle_root(overlay=overlay, tool=tool, name=credential_name)
+    if tool == "claude":
+        env_values = _compact_env_values(
+            {
+                "ANTHROPIC_API_KEY": api_key,
+                "ANTHROPIC_AUTH_TOKEN": claude_auth_token,
+                "ANTHROPIC_BASE_URL": base_url,
+                "ANTHROPIC_MODEL": claude_model,
+            }
+        )
+        file_sources = (
+            {"claude_state.template.json": claude_state_template_file}
+            if claude_state_template_file is not None
+            else {}
+        )
+    elif tool == "codex":
+        env_values = _compact_env_values(
+            {
+                "OPENAI_API_KEY": api_key,
+                "OPENAI_BASE_URL": base_url,
+                "OPENAI_ORG_ID": codex_org_id,
+            }
+        )
+        file_sources = {"auth.json": codex_auth_json} if codex_auth_json is not None else {}
+    elif tool == "gemini":
+        if base_url is not None and base_url.strip():
+            raise click.ClickException("Gemini auth bundles do not currently support `--base-url`.")
+        env_values = _compact_env_values(
+            {
+                "GEMINI_API_KEY": api_key,
+                "GOOGLE_API_KEY": google_api_key,
+                "GOOGLE_GENAI_USE_VERTEXAI": "true" if use_vertex_ai else None,
+            }
+        )
+        file_sources = (
+            {"oauth_creds.json": gemini_oauth_creds} if gemini_oauth_creds is not None else {}
+        )
+    else:
+        raise click.ClickException(f"Unsupported specialist tool `{tool}`.")
+
+    if auth_root.is_dir():
+        if not env_values and not file_sources:
+            return {
+                "operation": "reuse",
+                "tool": tool,
+                "name": credential_name,
+                "path": str(auth_root),
+            }
+        return _write_project_auth_bundle(
+            overlay=overlay,
+            tool=tool,
+            name=credential_name,
+            env_values=env_values,
+            file_sources=file_sources,
+            require_any_input=False,
+            operation="set",
+            clear_env_names=set(),
+            clear_file_sources=set(),
+        )
+
+    if not env_values and not file_sources:
+        raise click.ClickException(
+            f"Credential bundle `{credential_name}` does not exist under `{tool}` and no auth inputs were provided."
+        )
+    return _write_project_auth_bundle(
+        overlay=overlay,
+        tool=tool,
+        name=credential_name,
+        env_values=env_values,
+        file_sources=file_sources,
+        require_any_input=False,
+        operation="add",
+        clear_env_names=set(),
+        clear_file_sources=set(),
+    )
+
+
+def _validate_specialist_create_inputs(
+    *,
+    overlay: HoumaoProjectOverlay,
+    specialist_name: str,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+) -> None:
+    """Validate project easy specialist creation inputs."""
+
+    if (system_prompt is None) == (system_prompt_file is None):
+        raise click.ClickException(
+            "Provide exactly one of `--system-prompt` or `--system-prompt-file`."
+        )
+    metadata_path = overlay.specialists_root / f"{specialist_name}.toml"
+    if metadata_path.exists():
+        raise click.ClickException(f"Specialist already exists: {metadata_path}")
+    role_root = _role_root(overlay=overlay, role_name=specialist_name)
+    if role_root.exists():
+        raise click.ClickException(
+            f"Role `{specialist_name}` already exists under the project overlay: {role_root}"
+        )
+
+
+def _resolve_system_prompt_text(
+    *,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+) -> str:
+    """Resolve specialist system prompt content from inline or file input."""
+
+    if system_prompt is not None:
+        value = system_prompt.strip()
+        if not value:
+            raise click.ClickException("`--system-prompt` must not be empty.")
+        return value
+    assert system_prompt_file is not None
+    return system_prompt_file.read_text(encoding="utf-8").rstrip()
+
+
+def _import_skill_directories(
+    *,
+    overlay: HoumaoProjectOverlay,
+    skill_dirs: tuple[Path, ...],
+) -> list[Path]:
+    """Copy or reuse skill directories under `.houmao/agents/skills/`."""
+
+    imported: list[Path] = []
+    for skill_dir in skill_dirs:
+        source_dir = skill_dir.resolve()
+        skill_doc = (source_dir / "SKILL.md").resolve()
+        if not skill_doc.is_file():
+            raise click.ClickException(f"Skill directory must contain `SKILL.md`: {source_dir}")
+        destination_dir = (overlay.agents_root / "skills" / source_dir.name).resolve()
+        if not destination_dir.exists():
+            shutil.copytree(source_dir, destination_dir)
+        elif not destination_dir.is_dir():
+            raise click.ClickException(f"Skill destination is not a directory: {destination_dir}")
+        imported.append(destination_dir)
+    return imported
+
+
+def _specialist_payload(
+    *,
+    overlay: HoumaoProjectOverlay,
+    metadata: SpecialistMetadata,
+) -> dict[str, object]:
+    """Return one structured specialist payload with generated canonical paths."""
+
+    return {
+        "name": metadata.name,
+        "tool": metadata.tool,
+        "provider": metadata.provider,
+        "credential": metadata.credential_name,
+        "role_name": metadata.role_name,
+        "skills": list(metadata.skills),
+        "metadata_path": str(metadata.metadata_path)
+        if metadata.metadata_path is not None
+        else None,
+        "generated": {
+            "role_prompt": str(metadata.resolved_system_prompt_path(overlay)),
+            "preset": str(metadata.resolved_preset_path(overlay)),
+            "auth": str(metadata.resolved_auth_path(overlay)),
+            "skills": [str(path) for path in metadata.resolved_skill_paths(overlay)],
+        },
+    }
+
+
+def _load_specialist_or_click(*, overlay: HoumaoProjectOverlay, name: str) -> SpecialistMetadata:
+    """Load one specialist definition or raise one operator-facing error."""
+
+    specialist_name = _require_non_empty_name(name, field_name="--name")
+    try:
+        return load_specialist(overlay=overlay, name=specialist_name)
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _remove_specialist_metadata_or_click(*, overlay: HoumaoProjectOverlay, name: str) -> Path:
+    """Delete one specialist metadata document or raise one operator-facing error."""
+
+    try:
+        return remove_specialist_metadata(overlay=overlay, name=name)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _list_project_instances(
+    *,
+    overlay: HoumaoProjectOverlay,
+    specialists_by_name: dict[str, SpecialistMetadata],
+) -> list[dict[str, object]]:
+    """Return project-local managed agents as specialist-annotated instances."""
+
+    instances: list[dict[str, object]] = []
+    for identity in list_managed_agents(port=None).agents:
+        identity_payload = identity.model_dump(mode="json")
+        manifest_path_value = identity_payload.get("manifest_path")
+        if not isinstance(manifest_path_value, str) or not manifest_path_value.strip():
+            continue
+        manifest_path = Path(manifest_path_value).resolve()
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest_payload = _load_manifest_payload(manifest_path)
+        except Exception:
+            continue
+        if not _manifest_belongs_to_overlay(overlay=overlay, manifest_payload=manifest_payload):
+            continue
+        instances.append(
+            _instance_payload(
+                overlay=overlay,
+                identity_payload=identity_payload,
+                manifest_payload=manifest_payload,
+                specialists_by_name=specialists_by_name,
+            )
+        )
+    return instances
+
+
+def _instance_payload(
+    *,
+    overlay: HoumaoProjectOverlay,
+    identity_payload: dict[str, object],
+    manifest_payload: dict[str, object],
+    specialists_by_name: dict[str, SpecialistMetadata],
+) -> dict[str, object]:
+    """Build one project-local instance payload from managed runtime state."""
+
+    role_name = str(manifest_payload.get("role_name", "")).strip() or None
+    tool_name = str(manifest_payload.get("tool", "")).strip() or None
+    specialist = specialists_by_name.get(role_name) if role_name is not None else None
+    return {
+        "instance_name": identity_payload.get("agent_name"),
+        "agent_id": identity_payload.get("agent_id"),
+        "transport": identity_payload.get("transport"),
+        "tool": tool_name or identity_payload.get("tool"),
+        "role_name": role_name,
+        "manifest_path": identity_payload.get("manifest_path"),
+        "session_root": identity_payload.get("session_root"),
+        "tmux_session_name": identity_payload.get("tmux_session_name"),
+        "specialist": specialist.name if specialist is not None else None,
+        "project_root": str(overlay.project_root),
+        "project_agent_def_dir": manifest_payload.get("runtime", {}).get("agent_def_dir")
+        if isinstance(manifest_payload.get("runtime"), dict)
+        else None,
+    }
+
+
+def _require_manifest_path_for_identity(*, identity_payload: dict[str, object]) -> Path:
+    """Return one resolved manifest path from an identity payload."""
+
+    manifest_path_value = identity_payload.get("manifest_path")
+    if not isinstance(manifest_path_value, str) or not manifest_path_value.strip():
+        raise click.ClickException("Managed agent does not expose a manifest path.")
+    manifest_path = Path(manifest_path_value).resolve()
+    if not manifest_path.is_file():
+        raise click.ClickException(f"Managed agent manifest path is missing: {manifest_path}")
+    return manifest_path
+
+
+def _load_manifest_payload(manifest_path: Path) -> dict[str, object]:
+    """Load one manifest payload as a JSON-compatible mapping."""
+
+    payload = load_session_manifest(manifest_path).payload
+    if not isinstance(payload, dict):
+        raise ValueError(f"{manifest_path}: expected manifest payload to be a mapping.")
+    return payload
+
+
+def _manifest_belongs_to_overlay(
+    *,
+    overlay: HoumaoProjectOverlay,
+    manifest_payload: dict[str, object],
+) -> bool:
+    """Return whether one manifest payload belongs to the selected project overlay."""
+
+    runtime_payload = manifest_payload.get("runtime")
+    if not isinstance(runtime_payload, dict):
+        return False
+    raw_agent_def_dir = runtime_payload.get("agent_def_dir")
+    if not isinstance(raw_agent_def_dir, str) or not raw_agent_def_dir.strip():
+        return False
+    return Path(raw_agent_def_dir).resolve() == overlay.agents_root
+
+
 def _load_overlay_tool_adapter(*, overlay: HoumaoProjectOverlay, tool: str) -> ToolAdapter:
     """Load one tool adapter from the project-local agent-definition tree."""
 
-    adapter_path = (overlay.agent_def_dir / "tools" / tool / "adapter.yaml").resolve()
+    adapter_path = (_tool_root(overlay=overlay, tool=tool) / "adapter.yaml").resolve()
     if not adapter_path.is_file():
         raise click.ClickException(
             f"Tool `{tool}` is not initialized under the discovered project overlay: {adapter_path}"
@@ -864,7 +2500,7 @@ def _load_overlay_tool_adapter(*, overlay: HoumaoProjectOverlay, tool: str) -> T
 def _auth_bundle_root(*, overlay: HoumaoProjectOverlay, tool: str, name: str) -> Path:
     """Return the root directory for one tool-local auth bundle."""
 
-    return (overlay.agent_def_dir / "tools" / tool / "auth" / name).resolve()
+    return (_tool_root(overlay=overlay, tool=tool) / "auth" / name).resolve()
 
 
 def _auth_bundle_env_file(*, overlay: HoumaoProjectOverlay, tool: str, name: str) -> Path:
@@ -919,7 +2555,9 @@ def _load_existing_env_values(path: Path) -> dict[str, str]:
 def _render_env_file(*, env_values: dict[str, str], allowlist: list[str]) -> str:
     """Render one stable `env/vars.env` file for a tool-local auth bundle."""
 
-    lines = [f"{name}={env_values[name]}" for name in allowlist if name in env_values]
+    lines = [
+        f"{env_name}={env_values[env_name]}" for env_name in allowlist if env_name in env_values
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -927,8 +2565,8 @@ def _compact_env_values(raw_values: dict[str, str | None]) -> dict[str, str]:
     """Drop empty env values before auth-bundle materialization."""
 
     return {
-        name: value.strip()
-        for name, value in raw_values.items()
+        env_name: value.strip()
+        for env_name, value in raw_values.items()
         if value is not None and value.strip()
     }
 
@@ -946,8 +2584,46 @@ def _is_secret_env_name(env_name: str) -> bool:
     return any(token in normalized for token in _SECRET_ENV_TOKENS)
 
 
+def _overlay_relative_path(*, overlay: HoumaoProjectOverlay, path: Path) -> str:
+    """Return one path relative to the overlay root using POSIX separators."""
+
+    return path.resolve().relative_to(overlay.overlay_root).as_posix()
+
+
+def _relative_file_listing(root: Path) -> list[str]:
+    """Return stable relative file paths rooted at one directory."""
+
+    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
+
+
+def _default_role_prompt(role_name: str) -> str:
+    """Return the default scaffolded role prompt content."""
+
+    return f"# {role_name}\n\nDescribe the specialist system prompt here.\n"
+
+
+def _load_yaml_mapping(path: Path) -> dict[str, object]:
+    """Load one YAML mapping payload from disk."""
+
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        raise click.ClickException(f"{path}: expected a top-level YAML mapping.")
+    return loaded
+
+
+def _optional_non_empty_value(value: str | None) -> str | None:
+    """Return one optional non-empty CLI value."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped if stripped else None
+
+
 def _require_non_empty_name(value: str, *, field_name: str) -> str:
-    """Validate one tool or auth-bundle name."""
+    """Validate one tool, role, setup, skill, or auth-bundle name."""
 
     candidate = value.strip()
     if not candidate:

@@ -15,6 +15,8 @@ from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 PROJECT_DIRNAME = ".houmao"
 PROJECT_CONFIG_FILENAME = "houmao-config.toml"
 PROJECT_GITIGNORE_FILENAME = ".gitignore"
+PROJECT_EASY_DIRNAME = "easy"
+PROJECT_MAILBOX_DIRNAME = "mailbox"
 LEGACY_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
 _STARTER_ASSET_ROOT = "starter_agents"
@@ -31,6 +33,30 @@ class HoumaoProjectOverlay:
     config_path: Path
     schema_version: int
     agent_def_dir: Path
+
+    @property
+    def agents_root(self) -> Path:
+        """Return the effective project-local agent-definition root."""
+
+        return self.agent_def_dir.resolve()
+
+    @property
+    def easy_root(self) -> Path:
+        """Return the project-local easy metadata root."""
+
+        return (self.overlay_root / PROJECT_EASY_DIRNAME).resolve()
+
+    @property
+    def specialists_root(self) -> Path:
+        """Return the project-local specialist metadata root."""
+
+        return (self.easy_root / "specialists").resolve()
+
+    @property
+    def mailbox_root(self) -> Path:
+        """Return the project-local mailbox root."""
+
+        return (self.overlay_root / PROJECT_MAILBOX_DIRNAME).resolve()
 
 
 @dataclass(frozen=True)
@@ -81,12 +107,22 @@ def discover_project_overlay(start_directory: Path) -> HoumaoProjectOverlay | No
 
     resolved_start = start_directory.resolve()
     for candidate_root in (resolved_start, *resolved_start.parents):
-        candidate_config = (
-            candidate_root / PROJECT_DIRNAME / PROJECT_CONFIG_FILENAME
-        ).resolve()
+        candidate_config = (candidate_root / PROJECT_DIRNAME / PROJECT_CONFIG_FILENAME).resolve()
         if candidate_config.is_file():
             return load_project_overlay(candidate_config)
     return None
+
+
+def require_project_overlay(start_directory: Path) -> HoumaoProjectOverlay:
+    """Return the nearest discovered project overlay or raise one actionable error."""
+
+    project_overlay = discover_project_overlay(start_directory.resolve())
+    if project_overlay is None:
+        raise ValueError(
+            "No local Houmao project overlay was discovered from the current directory. "
+            "Run `houmao-mgr project init` first."
+        )
+    return project_overlay
 
 
 def load_project_overlay(config_path: Path) -> HoumaoProjectOverlay:
@@ -326,7 +362,9 @@ def _load_toml_mapping(path: Path) -> dict[str, object]:
     return cast(dict[str, object], raw)
 
 
-def _require_mapping(payload: Mapping[str, object], key: str, *, where: str) -> Mapping[str, object]:
+def _require_mapping(
+    payload: Mapping[str, object], key: str, *, where: str
+) -> Mapping[str, object]:
     """Require one mapping value from a parsed config payload."""
 
     value = payload.get(key)

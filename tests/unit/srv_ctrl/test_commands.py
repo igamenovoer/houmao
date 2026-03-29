@@ -224,6 +224,8 @@ def test_top_level_mailbox_help_mentions_local_admin_surface() -> None:
 
     assert result.exit_code == 0
     assert "local filesystem mailbox administration" in result.output.lower()
+    assert "accounts" in result.output
+    assert "messages" in result.output
     assert "init" in result.output
     assert "status" in result.output
     assert "register" in result.output
@@ -236,9 +238,12 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
 
     assert result.exit_code == 0
     assert "local repo-local houmao project-overlay administration" in result.output.lower()
+    assert "agents" in result.output
+    assert "easy" in result.output
+    assert "mailbox" in result.output
     assert "init" in result.output
     assert "status" in result.output
-    assert "agent-tools" in result.output
+    assert "agent-tools" not in result.output
     assert "credential" not in result.output
 
 
