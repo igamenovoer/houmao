@@ -51,7 +51,12 @@ def _sample_gemini_launch_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
-def _sample_claude_launch_plan(tmp_path: Path) -> LaunchPlan:
+def _sample_claude_launch_plan(
+    tmp_path: Path,
+    *,
+    prompt: str = "role prompt",
+    bootstrap_message: str = "bootstrap",
+) -> LaunchPlan:
     return LaunchPlan(
         backend="claude_headless",
         tool="claude",
@@ -65,8 +70,8 @@ def _sample_claude_launch_plan(tmp_path: Path) -> LaunchPlan:
         role_injection=RoleInjectionPlan(
             method="native_append_system_prompt",
             role_name="gpu-kernel-coder",
-            prompt="role prompt",
-            bootstrap_message="bootstrap",
+            prompt=prompt,
+            bootstrap_message=bootstrap_message,
         ),
         metadata={},
     )
@@ -249,6 +254,54 @@ def test_claude_headless_skips_verbose_for_json_output(tmp_path: Path) -> None:
         "hello",
         "--output-format",
         "json",
+    ]
+
+
+def test_claude_headless_omits_empty_appended_system_prompt(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    session = ClaudeHeadlessSession(
+        launch_plan=_sample_claude_launch_plan(tmp_path, prompt="", bootstrap_message=""),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="AGENTSYS-claude",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="sess-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt("hello")
+
+    assert captured["command"] == [
+        "claude",
+        "-p",
+        "--verbose",
+        "hello",
+        "--output-format",
+        "stream-json",
     ]
 
 

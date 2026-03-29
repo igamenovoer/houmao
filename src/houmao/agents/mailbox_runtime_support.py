@@ -14,12 +14,14 @@ import re
 import sys
 from typing import Any, Callable, Literal, Mapping, cast
 
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import (
     resolve_active_mailbox_dir,
     resolve_active_mailbox_inbox_dir,
     resolve_active_mailbox_local_sqlite_path,
+    resolve_filesystem_mailbox_paths,
 )
+from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
 from houmao.mailbox.stalwart import (
     STALWART_BASE_URL_ENV_VAR,
     StalwartError,
@@ -295,12 +297,22 @@ def resolved_mailbox_config_from_payload(
         )
         if filesystem_root is None:
             raise ValueError("persisted filesystem mailbox payload is missing filesystem_root")
+        mailbox_kind = _require_optional_non_blank_str(
+            payload.get("mailbox_kind"),
+            field="launch_plan.mailbox.mailbox_kind",
+        )
+        mailbox_path = _require_optional_non_blank_str(
+            payload.get("mailbox_path"),
+            field="launch_plan.mailbox.mailbox_path",
+        )
         return FilesystemMailboxResolvedConfig(
             transport="filesystem",
             principal_id=principal_id,
             address=address,
             filesystem_root=Path(filesystem_root).resolve(),
             bindings_version=bindings_version,
+            mailbox_kind=cast(Literal["in_root", "symlink"], mailbox_kind or "in_root"),
+            mailbox_path=None if mailbox_path is None else Path(mailbox_path).resolve(),
         )
 
     if transport == MAILBOX_TRANSPORT_STALWART:
@@ -350,6 +362,7 @@ def resolve_effective_mailbox_config(
     agent_identity: str | None = None,
     transport_override: str | None = None,
     filesystem_root_override: Path | None = None,
+    filesystem_account_dir_override: Path | None = None,
     principal_id_override: str | None = None,
     address_override: str | None = None,
     stalwart_base_url_override: str | None = None,
@@ -391,12 +404,24 @@ def resolve_effective_mailbox_config(
         filesystem_root = resolve_mailbox_root(
             explicit_root=filesystem_root_override or declared_root,
         )
+        mailbox_paths = resolve_filesystem_mailbox_paths(filesystem_root)
+        mailbox_account_dir = (
+            filesystem_account_dir_override.resolve()
+            if filesystem_account_dir_override is not None
+            else None
+        )
         return FilesystemMailboxResolvedConfig(
             transport="filesystem",
             principal_id=principal_id,
             address=address,
             filesystem_root=filesystem_root.resolve(),
             bindings_version=mailbox_bindings_version_now(),
+            mailbox_kind="symlink" if mailbox_account_dir is not None else "in_root",
+            mailbox_path=(
+                mailbox_account_dir
+                if mailbox_account_dir is not None
+                else mailbox_paths.mailbox_entry_path(address)
+            ),
         )
 
     if transport == MAILBOX_TRANSPORT_STALWART:
@@ -434,12 +459,20 @@ def refresh_filesystem_mailbox_config(
 ) -> FilesystemMailboxResolvedConfig:
     """Return an updated filesystem mailbox binding with a fresh version stamp."""
 
+    next_root = (filesystem_root or config.filesystem_root).resolve()
+    next_mailbox_path = (
+        config.mailbox_path
+        if config.mailbox_kind == "symlink"
+        else resolve_filesystem_mailbox_paths(next_root).mailbox_entry_path(config.address)
+    )
     return FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=config.principal_id,
         address=config.address,
-        filesystem_root=(filesystem_root or config.filesystem_root).resolve(),
+        filesystem_root=next_root,
         bindings_version=mailbox_bindings_version_now(),
+        mailbox_kind=config.mailbox_kind,
+        mailbox_path=next_mailbox_path,
     )
 
 
@@ -484,6 +517,11 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
     if isinstance(config, FilesystemMailboxResolvedConfig):
         mailbox_root = config.filesystem_root.resolve()
         mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=config.address)
+        if mailbox_dir.resolve() != config.mailbox_path:
+            raise ValueError(
+                "filesystem mailbox binding does not match the active mailbox registration "
+                f"for `{config.address}`: expected `{config.mailbox_path}`, found `{mailbox_dir}`"
+            )
         inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=config.address)
         local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
             mailbox_root, address=config.address
@@ -582,9 +620,7 @@ def resolve_live_mailbox_binding_from_manifest_path(
         manifest_path=handle.path,
         tmux_session_name=tmux_session_name,
         source=(
-            gateway_source
-            if gateway_source is not None
-            else cast(ResolveLiveGatewaySource, source)
+            gateway_source if gateway_source is not None else cast(ResolveLiveGatewaySource, source)
         ),
         process_env_reader=process_env_reader,
         tmux_env_reader=tmux_env_reader,
@@ -713,13 +749,27 @@ def bootstrap_resolved_mailbox(
     """Bootstrap or materialize one resolved mailbox binding for a session."""
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
-        bootstrap_filesystem_mailbox(
-            config.filesystem_root,
-            principal=MailboxPrincipal(
-                principal_id=config.principal_id,
+        resolved_root = config.filesystem_root.resolve()
+        if config.mailbox_kind == "symlink":
+            try:
+                config.mailbox_path.relative_to(resolved_root)
+            except ValueError:
+                pass
+            else:
+                raise ValueError(
+                    "filesystem private mailbox directory must live outside the shared mailbox root"
+                )
+        bootstrap_filesystem_mailbox(resolved_root)
+        register_mailbox(
+            resolved_root,
+            RegisterMailboxRequest(
+                mode="safe",
                 address=config.address,
+                owner_principal_id=config.principal_id,
+                mailbox_kind=config.mailbox_kind,
+                mailbox_path=config.mailbox_path,
                 manifest_path_hint=(
-                    str(manifest_path_hint.resolve()) if manifest_path_hint else None
+                    str(manifest_path_hint.resolve()) if manifest_path_hint is not None else None
                 ),
                 role=role_name,
             ),
@@ -1112,9 +1162,7 @@ def _validate_live_gateway_binding(
             f"{current_instance.protocol_version!r}"
         )
     if current_instance.host != host or current_instance.port != port:
-        raise ValueError(
-            "gateway binding does not match the authoritative current-instance record"
-        )
+        raise ValueError("gateway binding does not match the authoritative current-instance record")
     if not state_path.is_absolute() or state_path.resolve() != expected_state_path.resolve():
         raise ValueError("gateway state_path does not match the runtime-owned gateway state path")
 
@@ -1237,12 +1285,18 @@ def _mailbox_config_from_live_env_bindings(
 
     if isinstance(durable_mailbox, FilesystemMailboxResolvedConfig):
         filesystem_root = Path(env_bindings["AGENTSYS_MAILBOX_FS_ROOT"]).resolve()
+        mailbox_dir = Path(env_bindings["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"]).resolve()
+        expected_in_root_path = resolve_filesystem_mailbox_paths(
+            filesystem_root
+        ).mailbox_entry_path(address)
         mailbox = FilesystemMailboxResolvedConfig(
             transport="filesystem",
             principal_id=principal_id,
             address=address,
             filesystem_root=filesystem_root,
             bindings_version=bindings_version,
+            mailbox_kind="in_root" if mailbox_dir == expected_in_root_path else "symlink",
+            mailbox_path=mailbox_dir,
         )
         expected_bindings = mailbox_env_bindings(mailbox)
         _validate_live_env_bindings_match_expected(

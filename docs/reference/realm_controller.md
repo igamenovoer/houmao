@@ -135,10 +135,10 @@ Role injection is backend-specific and handled during launch plan construction i
 
 | Backend | Injection Strategy |
 |---|---|
-| `codex_headless` / `codex_app_server` | Native developer instructions (written to the Codex config) |
-| `claude_headless` | Native appended system prompt plus a bootstrap message sent as the first interaction |
-| `gemini_headless` | Bootstrap message sent as the first interaction |
-| `local_interactive` | Bootstrap message sent as the first interaction |
+| `codex_headless` / `codex_app_server` | Native developer instructions when the role prompt is non-empty |
+| `claude_headless` | Native appended system prompt plus a bootstrap message when the role prompt is non-empty |
+| `gemini_headless` | Bootstrap message when the role prompt is non-empty |
+| `local_interactive` | Tool-dependent native injection or bootstrap, skipped when the role prompt is empty |
 
 The role content comes from the role package (`roles/<role>/system-prompt.md`) in the agent definition directory.
 

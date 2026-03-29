@@ -66,7 +66,13 @@ pixi run houmao-mgr project init
 - `.houmao/agents/tools/<tool>/adapter.yaml`
 - `.houmao/agents/tools/<tool>/setups/<setup>/`
 - empty local authoring roots under `.houmao/agents/skills/` and `.houmao/agents/roles/`
-- no `.houmao/mailbox/` or `.houmao/easy/` state until you opt into those workflows explicitly
+- no `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` state until you opt into those workflows explicitly
+
+If you need the optional compatibility metadata root pre-created, use:
+
+```bash
+pixi run houmao-mgr project init --with-compatibility-profiles
+```
 
 ### Step 2: Create One Specialist Through `project easy`
 
@@ -78,17 +84,20 @@ pixi run houmao-mgr project easy specialist create \
   --name researcher \
   --system-prompt "You are a local repo assistant." \
   --tool claude \
-  --credential default \
   --api-key your-api-key-here \
   --with-skill /tmp/notes-skill
 ```
+
+When `--credential` is omitted, `project easy specialist create` derives the auth bundle name as `<specialist>-creds`. In this example the generated Claude auth bundle is `researcher-creds`.
+
+`--system-prompt` is optional for this higher-level workflow. If you omit both `--system-prompt` and `--system-prompt-file`, Houmao still writes the canonical role prompt file and treats that role as promptless.
 
 This higher-level flow compiles into the canonical project tree:
 
 ```text
 .houmao/agents/roles/researcher/system-prompt.md
 .houmao/agents/roles/researcher/presets/claude/default.yaml
-.houmao/agents/tools/claude/auth/default/
+.houmao/agents/tools/claude/auth/researcher-creds/
 .houmao/agents/skills/notes/
 .houmao/easy/specialists/researcher.toml
 ```
@@ -150,11 +159,13 @@ You can still override discovery with `--agent-def-dir`, or override auth at lau
 If you want the higher-level launch path, use:
 
 ```bash
-pixi run houmao-mgr project easy specialist launch \
-  --name researcher \
-  --instance research \
+pixi run houmao-mgr project easy instance launch \
+  --specialist researcher \
+  --name research \
   --yolo
 ```
+
+That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
 
 ### Step 6: Prompt And Stop
 
@@ -163,7 +174,7 @@ pixi run houmao-mgr agents prompt \
   --agent-name research \
   --prompt "Explain the architecture of this project."
 
-pixi run houmao-mgr agents stop --agent-name research
+pixi run houmao-mgr project easy instance stop --name research
 ```
 
 ### Optional: Enable A Project-Local Mailbox Root
@@ -177,6 +188,20 @@ pixi run houmao-mgr project mailbox register \
   --principal-id AGENTSYS-research
 pixi run houmao-mgr project mailbox accounts list
 ```
+
+If you want easy launch to bind a filesystem mailbox account at startup instead of registering it separately, use:
+
+```bash
+pixi run houmao-mgr project easy instance launch \
+  --specialist researcher \
+  --name research \
+  --yolo \
+  --mail-transport filesystem \
+  --mail-root ./.houmao/mailbox \
+  --mail-account-dir /tmp/houmao-mailboxes/research
+```
+
+Omit `--mail-account-dir` to use the standard in-root mailbox under `mailboxes/<address>/`. The `email` transport branch is reserved but currently exits with a not-implemented error.
 
 ## Next
 

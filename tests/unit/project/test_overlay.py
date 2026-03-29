@@ -93,3 +93,13 @@ def test_bootstrap_project_overlay_discovers_created_overlay(tmp_path: Path) -> 
     assert discovered is not None
     assert discovered.project_root == project_root
     assert (project_root / ".houmao" / ".gitignore").read_text(encoding="utf-8") == "*\n"
+    assert not (project_root / ".houmao" / "agents" / "compatibility-profiles").exists()
+
+
+def test_bootstrap_project_overlay_can_include_compatibility_profiles(tmp_path: Path) -> None:
+    project_root = (tmp_path / "repo").resolve()
+    project_root.mkdir(parents=True, exist_ok=True)
+
+    bootstrap_project_overlay(project_root, include_compatibility_profiles=True)
+
+    assert (project_root / ".houmao" / "agents" / "compatibility-profiles").is_dir()

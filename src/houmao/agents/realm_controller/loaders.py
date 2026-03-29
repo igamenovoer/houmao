@@ -198,8 +198,6 @@ def load_role_package(agent_def_dir: Path, role_name: str) -> RolePackage:
     if not role_path.is_file():
         raise LaunchPlanError(f"Role prompt not found: {role_path}")
     prompt = role_path.read_text(encoding="utf-8").strip()
-    if not prompt:
-        raise LaunchPlanError(f"Role prompt is empty: {role_path}")
     return RolePackage(role_name=role_name, system_prompt=prompt, path=role_path)
 
 

@@ -42,6 +42,7 @@ from houmao.agents.realm_controller.registry_models import (
     RegistryTerminalV1,
 )
 from houmao.agents.realm_controller.registry_storage import publish_live_agent_record
+from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 
 
@@ -59,6 +60,32 @@ def _build_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig
         principal=MailboxPrincipal(
             principal_id=durable_mailbox.principal_id,
             address=durable_mailbox.address,
+        ),
+    )
+    return durable_mailbox
+
+
+def _build_symlink_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig:
+    mailbox_root = tmp_path / "mailbox"
+    private_mailbox = (tmp_path / "private-mailboxes" / "AGENTSYS-research").resolve()
+    durable_mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="AGENTSYS-research",
+        address="AGENTSYS-research@agents.localhost",
+        filesystem_root=mailbox_root.resolve(),
+        bindings_version="2026-03-26T18:10:00.000001Z",
+        mailbox_kind="symlink",
+        mailbox_path=private_mailbox,
+    )
+    bootstrap_filesystem_mailbox(mailbox_root)
+    register_mailbox(
+        mailbox_root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=durable_mailbox.address,
+            owner_principal_id=durable_mailbox.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=private_mailbox,
         ),
     )
     return durable_mailbox
@@ -148,6 +175,24 @@ def test_resolve_live_mailbox_binding_uses_targeted_filesystem_projection(
     assert resolution.mailbox == durable_mailbox
     assert resolution.env_bindings["AGENTSYS_MAILBOX_FS_ROOT"] == str(
         durable_mailbox.filesystem_root
+    )
+
+
+def test_resolve_live_mailbox_binding_preserves_symlink_filesystem_projection(
+    tmp_path: Path,
+) -> None:
+    durable_mailbox = _build_symlink_filesystem_mailbox(tmp_path)
+    env_bindings = mailbox_env_bindings(durable_mailbox)
+
+    resolution = resolve_live_mailbox_binding(
+        durable_mailbox=durable_mailbox,
+        env_reader=env_bindings.get,
+    )
+
+    assert resolution.source == "tmux_session_env"
+    assert resolution.mailbox == durable_mailbox
+    assert resolution.env_bindings["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
+        durable_mailbox.mailbox_path
     )
 
 
@@ -299,9 +344,7 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
             agent_id=derive_agent_id_from_name("gpu"),
             generation_id="gen-1",
             published_at=published_at.isoformat().replace("+00:00", "Z"),
-            lease_expires_at=(published_at + timedelta(hours=1)).isoformat().replace(
-                "+00:00", "Z"
-            ),
+            lease_expires_at=(published_at + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
             identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path),

@@ -20,7 +20,7 @@ from houmao.agents.realm_controller.models import (
 )
 
 
-def _sample_codex_launch_plan(tmp_path: Path) -> LaunchPlan:
+def _sample_codex_launch_plan(tmp_path: Path, *, prompt: str = "role prompt") -> LaunchPlan:
     return LaunchPlan(
         backend="codex_headless",
         tool="codex",
@@ -34,7 +34,7 @@ def _sample_codex_launch_plan(tmp_path: Path) -> LaunchPlan:
         role_injection=RoleInjectionPlan(
             method="native_developer_instructions",
             role_name="gpu-kernel-coder",
-            prompt="role prompt",
+            prompt=prompt,
         ),
         metadata={"codex_headless_cli_mode": "exec_json_resume"},
     )
@@ -173,3 +173,41 @@ def test_codex_headless_builds_resume_turn_command(tmp_path: Path) -> None:
         "thread-1",
         "next turn",
     ]
+
+
+def test_codex_headless_skips_empty_developer_instructions(tmp_path: Path) -> None:
+    session = CodexHeadlessSession(
+        launch_plan=_sample_codex_launch_plan(tmp_path, prompt=""),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="AGENTSYS-codex",
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+        ) -> HeadlessRunResult:
+            captured["command"] = command
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="thread-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+    session.send_prompt("hello world")
+
+    assert captured["command"] == ["codex", "--x", "exec", "--json", "hello world"]

@@ -9,6 +9,7 @@ import pytest
 
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.boundary_models import SessionManifestAgentLaunchAuthorityV1
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
@@ -188,6 +189,119 @@ def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path:
     assert controller.launch_plan.mailbox.filesystem_root == override_root.resolve()
     assert (override_root / "protocol-version.txt").is_file()
     assert not (runtime_root / "shared-mail" / "protocol-version.txt").exists()
+
+
+def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    _seed_role(agent_def_dir)
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(
+        tmp_path,
+        mailbox_block="\n".join(
+            [
+                "  transport: filesystem",
+                "  principal_id: AGENTSYS-research",
+                "  address: AGENTSYS-research@agents.localhost",
+                "  filesystem_root: shared-mail",
+            ]
+        ),
+    )
+    private_mailbox_dir = (tmp_path / "private-mailboxes" / "repo-research-1").resolve()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: object(),
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="codex_app_server",
+        working_directory=tmp_path,
+        mailbox_account_dir=private_mailbox_dir,
+    )
+
+    mailbox = controller.launch_plan.mailbox
+    assert isinstance(mailbox, FilesystemMailboxResolvedConfig)
+    assert mailbox.filesystem_root == (runtime_root / "shared-mail").resolve()
+    assert mailbox.mailbox_kind == "symlink"
+    assert mailbox.mailbox_path == private_mailbox_dir
+    assert (mailbox.filesystem_root / "mailboxes" / mailbox.address).is_symlink()
+    assert (
+        mailbox.filesystem_root / "mailboxes" / mailbox.address
+    ).resolve() == private_mailbox_dir
+    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(private_mailbox_dir)
+
+    persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
+    assert persisted["launch_plan"]["mailbox"]["mailbox_kind"] == "symlink"
+    assert persisted["launch_plan"]["mailbox"]["mailbox_path"] == str(private_mailbox_dir)
+
+    captured: dict[str, Any] = {}
+
+    def _fake_resume_backend_session(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        _fake_resume_backend_session,
+    )
+    resumed = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=controller.manifest_path,
+    )
+
+    assert isinstance(resumed.launch_plan.mailbox, FilesystemMailboxResolvedConfig)
+    assert resumed.launch_plan.mailbox.mailbox_kind == "symlink"
+    assert resumed.launch_plan.mailbox.mailbox_path == private_mailbox_dir
+    assert resumed.launch_plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(private_mailbox_dir)
+    assert isinstance(captured["launch_plan"].mailbox, FilesystemMailboxResolvedConfig)
+    assert captured["launch_plan"].mailbox.mailbox_kind == "symlink"
+    assert captured["launch_plan"].mailbox.mailbox_path == private_mailbox_dir
+
+
+def test_start_runtime_session_rejects_private_mailbox_inside_shared_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    _seed_role(agent_def_dir)
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(
+        tmp_path,
+        mailbox_block="\n".join(
+            [
+                "  transport: filesystem",
+                "  principal_id: AGENTSYS-research",
+                "  address: AGENTSYS-research@agents.localhost",
+                "  filesystem_root: shared-mail",
+            ]
+        ),
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: object(),
+    )
+
+    with pytest.raises(
+        SessionManifestError,
+        match="outside the shared mailbox root",
+    ):
+        start_runtime_session(
+            agent_def_dir=agent_def_dir,
+            brain_manifest_path=brain_manifest_path,
+            role_name="r",
+            runtime_root=runtime_root,
+            backend="codex_app_server",
+            working_directory=tmp_path,
+            mailbox_account_dir=(runtime_root / "shared-mail" / "private" / "repo-research-1"),
+        )
 
 
 def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_root(

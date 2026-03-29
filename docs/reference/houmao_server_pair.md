@@ -24,7 +24,7 @@ houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
 houmao-mgr project init
 houmao-mgr project agents tools codex auth add --name default --api-key your-api-key-here
-houmao-mgr project easy specialist create --name gpu --system-prompt "You are a GPU specialist." --tool codex --credential default --api-key your-api-key-here
+houmao-mgr project easy specialist create --name gpu --system-prompt "You are a GPU specialist." --tool codex --api-key your-api-key-here
 houmao-mgr project mailbox init
 houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889

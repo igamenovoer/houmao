@@ -13,7 +13,7 @@ from houmao.agents.realm_controller.models import (
 )
 
 
-def _sample_launch_plan(tmp_path: Path) -> LaunchPlan:
+def _sample_launch_plan(tmp_path: Path, *, prompt: str = "role prompt") -> LaunchPlan:
     return LaunchPlan(
         backend="codex_app_server",
         tool="codex",
@@ -27,7 +27,7 @@ def _sample_launch_plan(tmp_path: Path) -> LaunchPlan:
         role_injection=RoleInjectionPlan(
             method="native_developer_instructions",
             role_name="gpu-kernel-coder",
-            prompt="role prompt",
+            prompt=prompt,
         ),
         metadata={},
     )
@@ -118,3 +118,30 @@ def test_codex_app_server_preserve_mode_leaves_no_proxy_untouched(
     assert captured_process["env"]["HTTP_PROXY"] == "http://proxy.internal:8080"
     assert captured_process["env"]["NO_PROXY"] == "corp.internal"
     assert "no_proxy" not in captured_process["env"]
+
+
+def test_codex_app_server_omits_empty_developer_instructions_on_thread_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = CodexAppServerSession(launch_plan=_sample_launch_plan(tmp_path, prompt=""))
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    monkeypatch.setattr(session, "_ensure_started", lambda: None)
+
+    def _fake_rpc_request(
+        *,
+        method: str,
+        params: dict[str, object],
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        del timeout_seconds
+        calls.append((method, params))
+        return {"thread_id": "thread-1"}
+
+    monkeypatch.setattr(session, "_rpc_request", _fake_rpc_request)
+
+    session._ensure_thread_started()  # noqa: SLF001
+
+    assert calls == [("thread/start", {})]
+    assert session.state.thread_id == "thread-1"

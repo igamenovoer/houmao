@@ -188,7 +188,8 @@ Project overlay notes:
 - `project init` targets the current working directory in v1.
 - `.houmao/.gitignore` contains `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
 - `project status` uses nearest-ancestor discovery for `.houmao/houmao-config.toml`.
-- `project init` does not create `.houmao/mailbox/` or `.houmao/easy/` by default.
+- `project init` does not create `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` by default.
+- `project init --with-compatibility-profiles` opts into pre-creating `.houmao/agents/compatibility-profiles/`.
 
 #### `project agents`
 
@@ -204,14 +205,30 @@ Project overlay notes:
 
 #### `project easy`
 
-`project easy` is the higher-level project authoring path.
+`project easy` is the higher-level project authoring and runtime-instance path.
 
 | Subcommand | Description |
 |---|---|
 | `specialist create` | Compile one specialist into `.houmao/agents/roles/`, `.houmao/agents/tools/`, `.houmao/agents/skills/`, and `.houmao/easy/specialists/`. |
 | `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection. |
-| `specialist launch` | Launch a managed agent by deriving the provider from the compiled specialist tool lane. |
+| `instance launch` | Launch one managed agent from a compiled specialist with required `--specialist` and `--name` inputs. |
+| `instance stop` | Stop one managed agent through the project-aware easy instance surface. |
 | `instance list|get` | View existing managed-agent runtime state as project-local specialist instances. |
+
+`project easy specialist create` notes:
+
+- `--name` and `--tool` are required.
+- `--credential` is optional; when omitted, Houmao uses `<specialist-name>-creds`.
+- `--system-prompt` and `--system-prompt-file` are both optional; provide at most one.
+- If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
+
+`project easy instance launch` notes:
+
+- `--specialist` selects the compiled specialist definition to launch from.
+- `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
+- `--mail-transport filesystem` requires `--mail-root` and optionally accepts `--mail-account-dir` for a symlink-backed private mailbox directory.
+- `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.
+- `--mail-transport email` is reserved for a future real-email path and currently fails fast as not implemented.
 
 #### `project mailbox`
 

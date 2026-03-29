@@ -44,7 +44,10 @@ class CodexHeadlessSession(HeadlessInteractiveSession):
             return command, prompt
 
         command = [self._plan.executable, *self._plan.args]
-        if self._plan.role_injection.method == "native_developer_instructions":
+        if (
+            self._plan.role_injection.method == "native_developer_instructions"
+            and self._plan.role_injection.prompt
+        ):
             command.extend(["-c", f"developer_instructions={self._plan.role_injection.prompt}"])
         command.extend(["exec", "--json"])
         if self._state.session_id:

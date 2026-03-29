@@ -43,11 +43,11 @@ Commands that need an agent-definition root resolve it with this precedence:
     │   │       │   └── <setup>/...
     │   │       └── auth/
     │   │           └── <auth>/...
-    │   └── compatibility-profiles/
+    │   └── compatibility-profiles/   # optional, created only when explicitly enabled
     └── mailbox/                      # optional, created only when mailbox workflows are enabled
 ```
 
-`houmao-mgr project init` seeds `tools/` for supported tools. You author `skills/` and `roles/` locally inside the overlay.
+`houmao-mgr project init` seeds `tools/` for supported tools and creates the default `skills/` and `roles/` authoring roots. It does not create `compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` unless you opt into those workflows explicitly.
 
 The repo-local project surface is intentionally split into three views:
 
@@ -63,7 +63,7 @@ Reusable capability packages projected into runtime homes. Each skill directory 
 
 ### `roles/<role>/system-prompt.md`
 
-The role prompt and behavior policy for one logical agent role.
+The role prompt and behavior policy for one logical agent role. The file is canonical even for promptless roles and may be intentionally empty to mean "no system prompt."
 
 ### `roles/<role>/presets/<tool>/<setup>.yaml`
 
@@ -95,7 +95,7 @@ Local-only auth bundles for one tool. `houmao-mgr project agents tools <tool> au
 
 ### `compatibility-profiles/`
 
-Optional compatibility metadata for specialized CAO or server-facing flows.
+Optional compatibility metadata for specialized CAO or server-facing flows. `houmao-mgr project init` does not create this subtree by default; use `houmao-mgr project init --with-compatibility-profiles` when you want the optional root pre-created.
 
 ### `.houmao/mailbox/`
 
@@ -110,7 +110,7 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 | `.houmao/agents/tools/<tool>/adapter.yaml` | ❌ No | Local copy of the tool projection and launch contract |
 | `.houmao/agents/tools/<tool>/setups/` | ❌ No | Local copy of secret-free setup bundles |
 | `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles |
-| `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata |
+| `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata, not created by default |
 | `.houmao/mailbox/` | ❌ No | Optional project-local mailbox root |
 
 Generated runtime homes and manifests are also disposable. If the runtime later creates `.houmao/jobs/` under the repo root, that scratch subtree is still runtime-local scratch, not tracked project source.
@@ -128,4 +128,5 @@ Generated runtime homes and manifests are also disposable. If the runtime later 
 The same canonical `.houmao/agents/` tree can be authored through two different UX layers:
 
 - `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist compiled into the canonical tree.
+- `project easy instance launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
 - `project agents ...` is the low-level maintenance surface when you want to inspect or mutate roles, presets, setups, or auth bundles directly.

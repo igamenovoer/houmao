@@ -105,43 +105,14 @@ def _caller_has_interactive_terminal() -> bool:
     return all(stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr))
 
 
-@click.group(name="agents")
-def agents_group() -> None:
-    """Managed-agent operations across local runtime and `houmao-server` backends."""
-
-
-@agents_group.command(name="launch")
-@click.option("--agents", required=True, help="Native launch selector to resolve the preset.")
-@click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
-@click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
-@click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
-@click.option("--session-name", help="Optional tmux session name.")
-@click.option("--headless", is_flag=True, help="Launch in detached mode.")
-@click.option(
-    "--provider",
-    default=_DEFAULT_PROVIDER,
-    show_default=True,
-    help="Provider identifier to use for the launch.",
-)
-@click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
-def launch_agents_command(
-    agents: str,
-    agent_name: str | None,
-    agent_id: str | None,
-    auth: str | None,
-    session_name: str | None,
-    headless: bool,
-    provider: str,
-    yolo: bool,
-) -> None:
-    """Build and launch one managed agent locally without `houmao-server`."""
+def _confirm_workspace_access(*, provider: str, working_directory: Path, yolo: bool) -> None:
+    """Prompt before granting provider workspace access when required."""
 
     if provider not in _PROVIDERS:
         raise click.ClickException(
             f"Invalid provider `{provider}`. Available providers: {', '.join(sorted(_PROVIDERS))}."
         )
 
-    working_directory = Path.cwd().resolve()
     if provider in _PROVIDERS_REQUIRING_WORKSPACE_ACCESS and not yolo:
         click.echo(
             f"The underlying provider ({provider}) will be trusted to perform all actions "
@@ -151,6 +122,30 @@ def launch_agents_command(
         )
         if not click.confirm("Do you trust all the actions in this folder?", default=True):
             raise click.ClickException("Launch cancelled by user.")
+
+
+def launch_managed_agent_locally(
+    *,
+    agents: str,
+    agent_name: str | None,
+    agent_id: str | None,
+    auth: str | None,
+    session_name: str | None,
+    headless: bool,
+    provider: str,
+    yolo: bool,
+    working_directory: Path,
+    mailbox_transport: str | None = None,
+    mailbox_root: Path | None = None,
+    mailbox_account_dir: Path | None = None,
+):
+    """Resolve, build, and start one managed agent locally."""
+
+    _confirm_workspace_access(
+        provider=provider,
+        working_directory=working_directory,
+        yolo=yolo,
+    )
 
     resolved_backend_name = "unknown"
     try:
@@ -190,6 +185,9 @@ def launch_agents_command(
             agent_name=agent_name,
             agent_id=agent_id,
             tmux_session_name=session_name,
+            mailbox_transport=mailbox_transport,
+            mailbox_root=mailbox_root,
+            mailbox_account_dir=mailbox_account_dir,
         )
     except LaunchPolicyResolutionError as exc:
         raise click.ClickException(
@@ -207,9 +205,21 @@ def launch_agents_command(
     ) as exc:
         raise click.ClickException(str(exc)) from exc
 
+    return controller
+
+
+def emit_local_launch_completion(
+    *,
+    controller,
+    agent_name: str | None,
+    session_name: str | None,
+    headless: bool,
+) -> None:
+    """Print one successful local launch result and hand off to tmux when appropriate."""
+
     click.echo("Managed agent launch complete:")
     click.echo(f"agent_name={controller.agent_identity or agent_name}")
-    click.echo(f"agent_id={controller.agent_id or agent_id or 'unknown'}")
+    click.echo(f"agent_id={controller.agent_id or 'unknown'}")
     click.echo(f"tmux_session_name={controller.tmux_session_name or session_name or 'unknown'}")
     click.echo(f"manifest_path={controller.manifest_path}")
     if not headless and controller.tmux_session_name is not None:
@@ -223,6 +233,58 @@ def launch_agents_command(
         else:
             click.echo("terminal_handoff=skipped_non_interactive")
             click.echo(f"attach_command=tmux attach-session -t {controller.tmux_session_name}")
+
+
+@click.group(name="agents")
+def agents_group() -> None:
+    """Managed-agent operations across local runtime and `houmao-server` backends."""
+
+
+@agents_group.command(name="launch")
+@click.option("--agents", required=True, help="Native launch selector to resolve the preset.")
+@click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
+@click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
+@click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
+@click.option("--session-name", help="Optional tmux session name.")
+@click.option("--headless", is_flag=True, help="Launch in detached mode.")
+@click.option(
+    "--provider",
+    default=_DEFAULT_PROVIDER,
+    show_default=True,
+    help="Provider identifier to use for the launch.",
+)
+@click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
+def launch_agents_command(
+    agents: str,
+    agent_name: str | None,
+    agent_id: str | None,
+    auth: str | None,
+    session_name: str | None,
+    headless: bool,
+    provider: str,
+    yolo: bool,
+) -> None:
+    """Build and launch one managed agent locally without `houmao-server`."""
+
+    working_directory = Path.cwd().resolve()
+    controller = launch_managed_agent_locally(
+        agents=agents,
+        agent_name=agent_name,
+        agent_id=agent_id,
+        auth=auth,
+        session_name=session_name,
+        headless=headless,
+        provider=provider,
+        yolo=yolo,
+        working_directory=working_directory,
+    )
+
+    emit_local_launch_completion(
+        controller=controller,
+        agent_name=agent_name,
+        session_name=session_name,
+        headless=headless,
+    )
 
 
 @agents_group.command(name="join")

@@ -86,18 +86,29 @@ class LaunchPlanMailboxFilesystemV1(_StrictBoundaryModel):
     address: str
     bindings_version: str
     filesystem_root: str
+    mailbox_kind: Literal["in_root", "symlink"] = "in_root"
+    mailbox_path: str | None = None
 
     @field_validator(
         "principal_id",
         "address",
         "bindings_version",
         "filesystem_root",
+        "mailbox_path",
     )
     @classmethod
-    def _not_blank(cls, value: str) -> str:
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+    @model_validator(mode="after")
+    def _require_path_for_symlink(self) -> "LaunchPlanMailboxFilesystemV1":
+        if self.mailbox_kind == "symlink" and self.mailbox_path is None:
+            raise ValueError("mailbox_path is required when mailbox_kind is `symlink`")
+        return self
 
 
 class LaunchPlanMailboxStalwartV1(_StrictBoundaryModel):

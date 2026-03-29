@@ -92,7 +92,7 @@ def _manifest(
             "env_contract": {
                 "source_file": str(env_file),
                 "allowlisted_env_vars": allowlisted_env_vars,
-            }
+            },
         },
     }
     if launch_policy is not None:
@@ -110,6 +110,17 @@ def test_load_role_package_reads_prompt(tmp_path: Path) -> None:
     assert role.role_name == "test-role"
     assert role.path == role_path
     assert "You are role test" in role.system_prompt
+
+
+def test_load_role_package_allows_empty_prompt(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    role_path = agent_def_dir / "roles/test-role/system-prompt.md"
+    _write(role_path, "")
+
+    role = load_role_package(agent_def_dir, "test-role")
+
+    assert role.path == role_path
+    assert role.system_prompt == ""
 
 
 def test_plan_role_injection_native_vs_bootstrap() -> None:
@@ -140,6 +151,29 @@ def test_plan_role_injection_native_vs_bootstrap() -> None:
     assert gemini.method == "bootstrap_message"
     assert gemini.bootstrap_message is not None
     assert claude_local.method == "native_append_system_prompt"
+
+
+def test_plan_role_injection_empty_prompt_skips_bootstrap_message() -> None:
+    claude = plan_role_injection(
+        backend="claude_headless",
+        role_name="r",
+        role_prompt="",
+    )
+    gemini = plan_role_injection(
+        backend="gemini_headless",
+        role_name="r",
+        role_prompt="",
+    )
+    claude_local = plan_role_injection(
+        backend="local_interactive",
+        tool="claude",
+        role_name="r",
+        role_prompt="",
+    )
+
+    assert claude.bootstrap_message == ""
+    assert gemini.bootstrap_message == ""
+    assert claude_local.bootstrap_message == ""
 
 
 def test_backend_for_tool_defaults_to_codex_headless() -> None:

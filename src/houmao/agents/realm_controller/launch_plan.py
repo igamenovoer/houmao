@@ -528,6 +528,8 @@ def _validate_cao_parsing_mode(value: str) -> None:
 
 
 def _bootstrap_message(role_name: str, role_prompt: str) -> str:
+    if not role_prompt:
+        return ""
     return (
         "[ROLE BOOTSTRAP START]\n"
         f"Role: {role_name}\n"

@@ -114,12 +114,19 @@ For Gemini, the system SHALL support a non-CAO interactive backend using repeate
 - **AND THEN** resume uses the same working directory/project context recorded in the session manifest
 
 ### Requirement: Role prompt applied before first user turn
-The system SHALL apply the selected role package as the initial tool instructions before the first user prompt is processed.
+The system SHALL apply the selected role package as the initial tool instructions before the first user prompt is processed when the role package contains prompt content.
+
+When the selected role package intentionally contains an empty system prompt, launch SHALL remain valid and the runtime SHALL treat that role as having no startup prompt content.
 
 #### Scenario: Role is injected on session start
-- **WHEN** a session is started with role `R`
+- **WHEN** a session is started with role `R` whose `system-prompt.md` contains prompt content
 - **THEN** the tool is initialized with `R` as initial instructions using a tool-supported mechanism when available
 - **AND THEN** if the tool lacks a native mechanism, the system sends `R` as a clearly delimited bootstrap message before the first user prompt
+
+#### Scenario: Empty role prompt skips startup injection
+- **WHEN** a session is started with role `R` whose `system-prompt.md` is intentionally empty
+- **THEN** session startup remains valid
+- **AND THEN** the runtime does not pass empty native developer instructions, empty appended system-prompt arguments, or an empty bootstrap message to the provider
 
 #### Scenario: Role bootstrap is not replayed on resumed headless turns
 - **WHEN** a headless session has already applied role `R` during bootstrap
@@ -197,6 +204,38 @@ For `stalwart` sessions, that resolved configuration SHALL include the mailbox t
 - **WHEN** a developer resumes a previously started `stalwart` mailbox-enabled session
 - **THEN** the runtime restores the mailbox transport, principal binding, mailbox address, and transport-safe mailbox binding metadata from the persisted session manifest
 - **AND THEN** runtime mailbox commands for that resumed session preserve the same sender principal and Stalwart mailbox identity unless an explicit refresh changes them later
+
+### Requirement: Filesystem mailbox startup can target either the shared-root mailbox path or an explicit private mailbox directory
+
+For filesystem mailbox-enabled session startup, the runtime SHALL support a transport-specific registration target that distinguishes between:
+
+- `in_root`
+- `symlink`
+
+When filesystem startup uses `in_root`, the runtime SHALL bootstrap or confirm the mailbox registration at the shared-root mailbox entry for the session's mailbox address.
+
+When filesystem startup uses `symlink`, the runtime SHALL bootstrap or confirm the mailbox registration at the shared-root mailbox entry for the session's mailbox address while using the resolved explicit mailbox directory as the concrete mailbox path.
+
+The runtime SHALL validate that explicit filesystem mailbox target before session startup commits, SHALL preserve the selected filesystem mailbox kind and concrete mailbox path in the resolved filesystem mailbox configuration, and SHALL persist that resolved binding so resume restores the same mailbox association shape.
+
+The runtime SHALL reject a filesystem `symlink` mailbox target whose resolved concrete mailbox path is inside the resolved filesystem mailbox root.
+
+If filesystem mailbox bootstrap fails for the selected target, session startup SHALL fail explicitly and SHALL NOT report a successful started session.
+
+#### Scenario: Start session persists a symlink-backed filesystem mailbox binding
+- **WHEN** a developer starts a filesystem mailbox-enabled session with an explicit private mailbox directory outside the shared mailbox root
+- **THEN** the runtime bootstraps that mailbox association as a `symlink` filesystem mailbox binding
+- **AND THEN** the resolved session manifest preserves the filesystem mailbox kind and concrete mailbox directory needed to restore that same binding on resume
+
+#### Scenario: Resume restores the persisted symlink-backed filesystem mailbox binding
+- **WHEN** a developer resumes a previously started filesystem mailbox-enabled session whose persisted mailbox binding used an explicit private mailbox directory
+- **THEN** the runtime restores that same filesystem mailbox kind and concrete mailbox path from the session manifest
+- **AND THEN** subsequent mailbox-aware runtime work uses the same shared-root mailbox entry and private mailbox directory association
+
+#### Scenario: Start session rejects a private mailbox directory inside the mailbox root
+- **WHEN** a developer starts a filesystem mailbox-enabled session with a requested private mailbox directory that resolves inside the selected shared mailbox root
+- **THEN** session startup fails explicitly before reporting success
+- **AND THEN** the error explains that the private mailbox directory must live outside the shared mailbox root
 
 ### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and mailbox env bindings
 When mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under a reserved runtime-owned namespace and SHALL populate the transport-specific mailbox binding env contract before mailbox-related work is expected from the agent.
@@ -470,10 +509,17 @@ If runtime bootstrap or refresh can detect that the target mailbox root still us
 ### Requirement: Runtime-generated CAO agent profiles from roles
 When using CAO, the system SHALL generate CAO agent profiles at runtime from repo role packages rather than requiring committed/static CAO profile files.
 
+The generated profile system prompt SHALL be derived from `agents/roles/<R>/system-prompt.md`, including the empty-string case for promptless roles.
+
 #### Scenario: Generate and install a CAO profile for a role
 - **WHEN** a developer launches a CAO-backed session with role `R`
 - **THEN** the system generates an agent profile whose system prompt is derived from `agents/roles/<R>/system-prompt.md`
 - **AND THEN** the CAO terminal launch references that generated profile by name
+
+#### Scenario: Promptless role stays valid for CAO profile generation
+- **WHEN** a developer launches a CAO-backed session with role `R` whose `system-prompt.md` is intentionally empty
+- **THEN** the generated profile uses an empty system prompt
+- **AND THEN** launch remains valid rather than failing role validation
 
 ### Requirement: Credential env var allowlist enforcement at launch
 The system SHALL apply only allowlisted credential environment variables at launch time, as defined by the selected tool adapter and auth bundle.

@@ -224,6 +224,54 @@ def test_local_interactive_send_input_ex_keeps_raw_sequence_unmodified(
     assert result.action == "control_input"
 
 
+def test_local_interactive_build_launch_command_skips_empty_developer_instructions(
+    tmp_path: Path,
+) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool="codex",
+        executable="codex",
+        args=["exec"],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_developer_instructions",
+            role_name="gpu-kernel-coder",
+            prompt="",
+        ),
+        metadata={},
+    )
+
+    assert session._build_launch_command() == ["codex", "exec"]  # noqa: SLF001
+
+
+def test_local_interactive_build_launch_command_skips_empty_append_prompt(tmp_path: Path) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool="claude",
+        executable="claude",
+        args=["-p"],
+        working_directory=tmp_path,
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_append_system_prompt",
+            role_name="gpu-kernel-coder",
+            prompt="",
+        ),
+        metadata={},
+    )
+
+    assert session._build_launch_command() == ["claude", "-p"]  # noqa: SLF001
+
+
 def test_runtime_session_controller_rejects_non_cao_control_input(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

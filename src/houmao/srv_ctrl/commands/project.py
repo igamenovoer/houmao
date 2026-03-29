@@ -31,7 +31,7 @@ from houmao.project.overlay import (
     resolve_project_aware_agent_def_dir,
 )
 
-from .agents.core import launch_agents_command
+from .agents.core import emit_local_launch_completion, launch_managed_agent_locally
 from .common import emit_json
 from .mailbox_support import (
     cleanup_mailbox_root,
@@ -45,7 +45,7 @@ from .mailbox_support import (
     repair_mailbox_root,
     unregister_mailbox_at_root,
 )
-from .managed_agents import list_managed_agents, resolve_managed_agent_target
+from .managed_agents import list_managed_agents, resolve_managed_agent_target, stop_managed_agent
 
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
@@ -57,12 +57,20 @@ def project_group() -> None:
 
 
 @project_group.command(name="init")
-def init_project_command() -> None:
+@click.option(
+    "--with-compatibility-profiles",
+    is_flag=True,
+    help="Also create the optional `.houmao/agents/compatibility-profiles/` subtree.",
+)
+def init_project_command(with_compatibility_profiles: bool) -> None:
     """Create or validate the local `.houmao/` project overlay in the current directory."""
 
     cwd = Path.cwd().resolve()
     try:
-        result = bootstrap_project_overlay(cwd)
+        result = bootstrap_project_overlay(
+            cwd,
+            include_compatibility_profiles=with_compatibility_profiles,
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -1069,7 +1077,7 @@ def easy_specialist_group() -> None:
     type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
     help="Tool lane for the specialist.",
 )
-@click.option("--credential", required=True, help="Credential bundle name.")
+@click.option("--credential", default=None, help="Credential bundle name.")
 @click.option("--api-key", default=None, help="Common API key input for the selected tool.")
 @click.option(
     "--base-url", default=None, help="Common base URL input for the selected tool when supported."
@@ -1109,7 +1117,7 @@ def create_easy_specialist_command(
     system_prompt: str | None,
     system_prompt_file: Path | None,
     tool_name: str,
-    credential: str,
+    credential: str | None,
     api_key: str | None,
     base_url: str | None,
     claude_auth_token: str | None,
@@ -1126,7 +1134,11 @@ def create_easy_specialist_command(
 
     overlay = _require_project_overlay()
     specialist_name = _require_non_empty_name(name, field_name="--name")
-    credential_name = _require_non_empty_name(credential, field_name="--credential")
+    credential_name = (
+        _require_non_empty_name(credential, field_name="--credential")
+        if credential is not None
+        else f"{specialist_name}-creds"
+    )
     _validate_specialist_create_inputs(
         overlay=overlay,
         specialist_name=specialist_name,
@@ -1256,49 +1268,94 @@ def remove_easy_specialist_command(name: str) -> None:
     )
 
 
-@easy_specialist_group.command(name="launch")
-@click.option("--name", required=True, help="Specialist name.")
-@click.option(
-    "--instance", default=None, help="Optional managed-agent name for the launched instance."
-)
+@easy_project_group.group(name="instance")
+def easy_instance_group() -> None:
+    """View managed-agent runtime state through project-local specialist names."""
+
+
+@easy_instance_group.command(name="launch")
+@click.option("--specialist", required=True, help="Specialist name.")
+@click.option("--name", required=True, help="Managed-agent instance name.")
 @click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
-def launch_easy_specialist_command(
+@click.option(
+    "--mail-transport",
+    type=click.Choice(("filesystem", "email")),
+    default=None,
+    help="Optional easy-layer mailbox transport.",
+)
+@click.option(
+    "--mail-root",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Shared filesystem mailbox root when `--mail-transport filesystem` is used.",
+)
+@click.option(
+    "--mail-account-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional private filesystem mailbox directory to symlink into the shared root.",
+)
+def launch_easy_instance_command(
+    specialist: str,
     name: str,
-    instance: str | None,
     auth: str | None,
     session_name: str | None,
     headless: bool,
     yolo: bool,
+    mail_transport: str | None,
+    mail_root: Path | None,
+    mail_account_dir: Path | None,
 ) -> None:
-    """Launch one managed agent from a compiled specialist definition."""
+    """Launch one managed-agent instance from a compiled specialist definition."""
 
     overlay = _require_project_overlay()
-    specialist = _load_specialist_or_click(overlay=overlay, name=name)
-    if specialist.tool == "gemini" and not headless:
+    specialist_metadata = _load_specialist_or_click(overlay=overlay, name=specialist)
+    if specialist_metadata.tool == "gemini" and not headless:
         raise click.ClickException(
             "Gemini specialists are currently headless-only. Use `--headless`."
         )
-    launch_callback = getattr(launch_agents_command, "callback", None)
-    if launch_callback is None:
-        raise click.ClickException("Internal error: managed-agent launch callback is unavailable.")
-    launch_callback(
-        agents=specialist.role_name,
-        agent_name=_optional_non_empty_value(instance),
+    if mail_transport == "email":
+        raise click.ClickException(
+            "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
+        )
+    if mail_transport is None and (mail_root is not None or mail_account_dir is not None):
+        raise click.ClickException(
+            "`--mail-root` and `--mail-account-dir` require `--mail-transport filesystem`."
+        )
+    if mail_transport == "filesystem" and mail_root is None:
+        raise click.ClickException(
+            "`project easy instance launch --mail-transport filesystem` requires `--mail-root`."
+        )
+    if mail_transport != "filesystem" and mail_account_dir is not None:
+        raise click.ClickException(
+            "`--mail-account-dir` is only supported with `--mail-transport filesystem`."
+        )
+
+    controller = launch_managed_agent_locally(
+        agents=specialist_metadata.role_name,
+        agent_name=_require_non_empty_name(name, field_name="--name"),
         agent_id=None,
         auth=_optional_non_empty_value(auth),
         session_name=_optional_non_empty_value(session_name),
         headless=headless,
-        provider=specialist.provider,
+        provider=specialist_metadata.provider,
         yolo=yolo,
+        working_directory=Path.cwd().resolve(),
+        mailbox_transport=mail_transport,
+        mailbox_root=mail_root.resolve() if mail_root is not None else None,
+        mailbox_account_dir=(
+            mail_account_dir.resolve() if mail_account_dir is not None else None
+        ),
     )
-
-
-@easy_project_group.group(name="instance")
-def easy_instance_group() -> None:
-    """View managed-agent runtime state through project-local specialist names."""
+    emit_local_launch_completion(
+        controller=controller,
+        agent_name=name,
+        session_name=session_name,
+        headless=headless,
+    )
 
 
 @easy_instance_group.command(name="list")
@@ -1349,6 +1406,29 @@ def get_easy_instance_command(name: str) -> None:
             specialists_by_name=specialists_by_name,
         )
     )
+
+
+@easy_instance_group.command(name="stop")
+@click.option("--name", required=True, help="Managed-agent instance name.")
+def stop_easy_instance_command(name: str) -> None:
+    """Stop one managed-agent instance through the current project overlay."""
+
+    overlay = _require_project_overlay()
+    target = resolve_managed_agent_target(
+        agent_id=None,
+        agent_name=_require_non_empty_name(name, field_name="--name"),
+        port=None,
+    )
+    identity = target.identity
+    manifest_path = _require_manifest_path_for_identity(
+        identity_payload=identity.model_dump(mode="json")
+    )
+    manifest_payload = _load_manifest_payload(manifest_path)
+    if not _manifest_belongs_to_overlay(overlay=overlay, manifest_payload=manifest_payload):
+        raise click.ClickException(
+            f"Managed agent `{name}` does not belong to the discovered project overlay."
+        )
+    emit_json(stop_managed_agent(target))
 
 
 @project_group.group(name="mailbox")
@@ -1810,7 +1890,10 @@ def _write_role_prompt(*, role_root: Path, prompt_text: str) -> Path:
 
     role_root.mkdir(parents=True, exist_ok=False)
     prompt_path = (role_root / "system-prompt.md").resolve()
-    prompt_path.write_text(prompt_text.rstrip() + "\n", encoding="utf-8")
+    prompt_path.write_text(
+        prompt_text.rstrip() + "\n" if prompt_text.strip() else "",
+        encoding="utf-8",
+    )
     return prompt_path
 
 
@@ -2287,9 +2370,9 @@ def _validate_specialist_create_inputs(
 ) -> None:
     """Validate project easy specialist creation inputs."""
 
-    if (system_prompt is None) == (system_prompt_file is None):
+    if system_prompt is not None and system_prompt_file is not None:
         raise click.ClickException(
-            "Provide exactly one of `--system-prompt` or `--system-prompt-file`."
+            "Provide at most one of `--system-prompt` or `--system-prompt-file`."
         )
     metadata_path = overlay.specialists_root / f"{specialist_name}.toml"
     if metadata_path.exists():
@@ -2313,7 +2396,8 @@ def _resolve_system_prompt_text(
         if not value:
             raise click.ClickException("`--system-prompt` must not be empty.")
         return value
-    assert system_prompt_file is not None
+    if system_prompt_file is None:
+        return ""
     return system_prompt_file.read_text(encoding="utf-8").rstrip()
 
 
@@ -2429,6 +2513,7 @@ def _instance_payload(
     role_name = str(manifest_payload.get("role_name", "")).strip() or None
     tool_name = str(manifest_payload.get("tool", "")).strip() or None
     specialist = specialists_by_name.get(role_name) if role_name is not None else None
+    mailbox_payload = _instance_mailbox_payload(manifest_payload)
     return {
         "instance_name": identity_payload.get("agent_name"),
         "agent_id": identity_payload.get("agent_id"),
@@ -2443,6 +2528,56 @@ def _instance_payload(
         "project_agent_def_dir": manifest_payload.get("runtime", {}).get("agent_def_dir")
         if isinstance(manifest_payload.get("runtime"), dict)
         else None,
+        "mailbox": mailbox_payload,
+    }
+
+
+def _instance_mailbox_payload(manifest_payload: dict[str, object]) -> dict[str, object] | None:
+    """Return one runtime-derived mailbox summary for an instance payload."""
+
+    launch_plan_payload = manifest_payload.get("launch_plan")
+    if not isinstance(launch_plan_payload, dict):
+        return None
+    mailbox_payload = launch_plan_payload.get("mailbox")
+    if not isinstance(mailbox_payload, dict):
+        return None
+
+    transport = mailbox_payload.get("transport")
+    if not isinstance(transport, str) or not transport.strip():
+        return None
+
+    if transport == "filesystem":
+        address = mailbox_payload.get("address")
+        filesystem_root = mailbox_payload.get("filesystem_root")
+        if not isinstance(address, str) or not address.strip():
+            return None
+        if not isinstance(filesystem_root, str) or not filesystem_root.strip():
+            return None
+        mailbox_root = Path(filesystem_root).resolve()
+        mailbox_kind = mailbox_payload.get("mailbox_kind")
+        if not isinstance(mailbox_kind, str) or not mailbox_kind.strip():
+            mailbox_kind = "in_root"
+        mailbox_path_value = mailbox_payload.get("mailbox_path")
+        mailbox_dir = (
+            Path(mailbox_path_value).resolve()
+            if isinstance(mailbox_path_value, str) and mailbox_path_value.strip()
+            else mailbox_root / "mailboxes" / address
+        )
+        return {
+            "transport": transport,
+            "principal_id": mailbox_payload.get("principal_id"),
+            "address": address,
+            "mailbox_root": str(mailbox_root),
+            "mailbox_kind": mailbox_kind,
+            "mailbox_dir": str(mailbox_dir),
+            "bindings_version": mailbox_payload.get("bindings_version"),
+        }
+
+    return {
+        "transport": transport,
+        "principal_id": mailbox_payload.get("principal_id"),
+        "address": mailbox_payload.get("address"),
+        "bindings_version": mailbox_payload.get("bindings_version"),
     }
 
 

@@ -79,13 +79,28 @@ def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
     assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
     assert (repo_root / ".houmao" / "agents" / "skills").is_dir()
     assert (repo_root / ".houmao" / "agents" / "roles").is_dir()
-    assert (repo_root / ".houmao" / "agents" / "compatibility-profiles").is_dir()
+    assert not (repo_root / ".houmao" / "agents" / "compatibility-profiles").exists()
     assert (repo_root / ".houmao" / "agents" / "tools" / "claude" / "adapter.yaml").is_file()
     assert (
         repo_root / ".houmao" / "agents" / "tools" / "codex" / "setups" / "default" / "config.toml"
     ).is_file()
     assert not (repo_root / ".houmao" / "mailbox").exists()
     assert not (repo_root / ".houmao" / "easy").exists()
+
+
+def test_project_init_can_opt_into_compatibility_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(cli, ["project", "init", "--with-compatibility-profiles"])
+
+    assert result.exit_code == 0
+    assert (repo_root / ".houmao" / "agents" / "compatibility-profiles").is_dir()
 
 
 def test_project_status_reports_discovered_overlay_from_nested_directory(
@@ -442,8 +457,6 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
             "You are a precise repo researcher.",
             "--tool",
             "codex",
-            "--credential",
-            "work",
             "--api-key",
             "sk-openai",
             "--codex-auth-json",
@@ -474,7 +487,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
         / "tools"
         / "codex"
         / "auth"
-        / "work"
+        / "researcher-creds"
         / "files"
         / "auth.json"
     ).is_file()
@@ -492,7 +505,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     assert get_result.exit_code == 0
     get_payload = json.loads(get_result.output)
     assert get_payload["tool"] == "codex"
-    assert get_payload["credential"] == "work"
+    assert get_payload["credential"] == "researcher-creds"
     assert get_payload["skills"] == ["notes"]
 
     remove_result = runner.invoke(
@@ -509,13 +522,83 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
         / "tools"
         / "codex"
         / "auth"
-        / "work"
+        / "researcher-creds"
         / "files"
         / "auth.json"
     ).is_file()
 
 
-def test_project_easy_specialist_launch_derives_provider(
+def test_project_easy_specialist_create_allows_promptless_specialist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "reviewer",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    assert create_payload["credential"] == "reviewer-creds"
+    prompt_path = repo_root / ".houmao" / "agents" / "roles" / "reviewer" / "system-prompt.md"
+    assert prompt_path.is_file()
+    assert prompt_path.read_text(encoding="utf-8") == ""
+
+
+def test_project_easy_specialist_create_fails_when_default_bundle_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "You are a precise repo researcher.",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "researcher-creds" in result.output
+
+
+def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -556,28 +639,52 @@ def test_project_easy_specialist_launch_derives_provider(
     )
 
     captured: dict[str, object] = {}
+    emitted: dict[str, object] = {}
 
-    def _fake_launch(**kwargs: object) -> None:
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
         captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="AGENTSYS-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    def _fake_emit(**kwargs: object) -> None:
+        emitted.update(kwargs)
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_agents_command",
-        SimpleNamespace(callback=_fake_launch),
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        _fake_emit,
     )
 
+    mail_root = (tmp_path / "mail-root").resolve()
+    private_mailbox_dir = (tmp_path / "private-mailbox").resolve()
     result = runner.invoke(
         cli,
         [
             "project",
             "easy",
-            "specialist",
+            "instance",
             "launch",
-            "--name",
+            "--specialist",
             "researcher",
-            "--instance",
+            "--name",
             "repo-research-1",
             "--headless",
             "--yolo",
+            "--mail-transport",
+            "filesystem",
+            "--mail-root",
+            str(mail_root),
+            "--mail-account-dir",
+            str(private_mailbox_dir),
         ],
     )
 
@@ -586,6 +693,291 @@ def test_project_easy_specialist_launch_derives_provider(
     assert captured["agent_name"] == "repo-research-1"
     assert captured["provider"] == "codex"
     assert captured["headless"] is True
+    assert captured["mailbox_transport"] == "filesystem"
+    assert captured["mailbox_root"] == mail_root
+    assert captured["mailbox_account_dir"] == private_mailbox_dir
+    assert emitted["agent_name"] == "repo-research-1"
+    assert emitted["headless"] is True
+
+
+def test_project_easy_instance_launch_requires_specialist_and_name(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    missing_specialist = runner.invoke(
+        cli,
+        ["project", "easy", "instance", "launch", "--name", "repo-research-1"],
+    )
+    assert missing_specialist.exit_code != 0
+    assert "Missing option '--specialist'" in missing_specialist.output
+
+    missing_name = runner.invoke(
+        cli,
+        ["project", "easy", "instance", "launch", "--specialist", "researcher"],
+    )
+    assert missing_name.exit_code != 0
+    assert "Missing option '--name'" in missing_name.output
+
+
+def test_project_easy_instance_launch_rejects_email_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--mail-transport",
+            "email",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "not implemented yet" in result.output
+
+
+def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    missing_root = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--mail-transport",
+            "filesystem",
+        ],
+    )
+    assert missing_root.exit_code != 0
+    assert "requires `--mail-root`" in missing_root.output
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="AGENTSYS-repo-research-1",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    mail_root = (tmp_path / "mail-root").resolve()
+    success = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--yolo",
+            "--mail-transport",
+            "filesystem",
+            "--mail-root",
+            str(mail_root),
+        ],
+    )
+
+    assert success.exit_code == 0, success.output
+    assert captured["mailbox_transport"] == "filesystem"
+    assert captured["mailbox_root"] == mail_root
+    assert captured["mailbox_account_dir"] is None
+
+
+def test_project_easy_instance_stop_checks_overlay_and_delegates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-researcher",
+        transport="headless",
+        tool="codex",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="runtime-session-1",
+        tmux_session_name=None,
+        tmux_window_name=None,
+        manifest_path=str(manifest_path),
+        session_root=str((tmp_path / "runtime").resolve()),
+        agent_name="repo-research-1",
+        agent_id="agent-123",
+    )
+    target = SimpleNamespace(identity=identity)
+    stop_calls: list[object] = []
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.resolve_managed_agent_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project._load_manifest_payload",
+        lambda path: {
+            "runtime": {"agent_def_dir": str((repo_root / ".houmao" / "agents").resolve())}
+        },
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.stop_managed_agent",
+        lambda resolved_target: (
+            stop_calls.append(resolved_target)
+            or {"success": True, "agent_name": resolved_target.identity.agent_name}
+        ),
+    )
+
+    result = runner.invoke(
+        cli, ["project", "easy", "instance", "stop", "--name", "repo-research-1"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert stop_calls == [target]
+    assert json.loads(result.output) == {"success": True, "agent_name": "repo-research-1"}
+
+
+def test_project_easy_instance_stop_rejects_instances_from_other_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-researcher",
+        transport="headless",
+        tool="codex",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="runtime-session-1",
+        tmux_session_name=None,
+        tmux_window_name=None,
+        manifest_path=str(manifest_path),
+        session_root=str((tmp_path / "runtime").resolve()),
+        agent_name="repo-research-1",
+        agent_id="agent-123",
+    )
+    target = SimpleNamespace(identity=identity)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.resolve_managed_agent_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project._load_manifest_payload",
+        lambda path: {
+            "runtime": {"agent_def_dir": str((tmp_path / "other" / ".houmao" / "agents").resolve())}
+        },
+    )
+
+    result = runner.invoke(
+        cli, ["project", "easy", "instance", "stop", "--name", "repo-research-1"]
+    )
+
+    assert result.exit_code != 0
+    assert "does not belong to the discovered project overlay" in result.output
 
 
 def test_project_easy_instance_list_and_get_use_runtime_state(
@@ -647,6 +1039,17 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     manifest_payload = {
         "role_name": "researcher",
         "tool": "codex",
+        "launch_plan": {
+            "mailbox": {
+                "transport": "filesystem",
+                "principal_id": "AGENTSYS-repo-research-1",
+                "address": "AGENTSYS-repo-research-1@agents.localhost",
+                "filesystem_root": str((tmp_path / "mail-root").resolve()),
+                "mailbox_kind": "symlink",
+                "mailbox_path": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
+                "bindings_version": "2026-03-29T12:00:00Z",
+            }
+        },
         "runtime": {
             "agent_def_dir": str((repo_root / ".houmao" / "agents").resolve()),
         },
@@ -671,6 +1074,15 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert len(list_payload["instances"]) == 1
     assert list_payload["instances"][0]["specialist"] == "researcher"
     assert list_payload["instances"][0]["tool"] == "codex"
+    assert list_payload["instances"][0]["mailbox"] == {
+        "transport": "filesystem",
+        "principal_id": "AGENTSYS-repo-research-1",
+        "address": "AGENTSYS-repo-research-1@agents.localhost",
+        "mailbox_root": str((tmp_path / "mail-root").resolve()),
+        "mailbox_kind": "symlink",
+        "mailbox_dir": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
+        "bindings_version": "2026-03-29T12:00:00Z",
+    }
 
     get_result = runner.invoke(
         cli, ["project", "easy", "instance", "get", "--name", "repo-research-1"]
@@ -680,3 +1092,12 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert get_payload["specialist"] == "researcher"
     assert get_payload["agent_id"] == "agent-123"
     assert get_payload["manifest_path"] == str(manifest_path)
+    assert get_payload["mailbox"] == {
+        "transport": "filesystem",
+        "principal_id": "AGENTSYS-repo-research-1",
+        "address": "AGENTSYS-repo-research-1@agents.localhost",
+        "mailbox_root": str((tmp_path / "mail-root").resolve()),
+        "mailbox_kind": "symlink",
+        "mailbox_dir": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
+        "bindings_version": "2026-03-29T12:00:00Z",
+    }

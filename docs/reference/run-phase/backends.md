@@ -58,7 +58,7 @@ Runs Claude Code CLI in headless mode (`claude -p --verbose`). Output is capture
 
 - **Session class:** `ClaudeHeadlessSession` (extends `HeadlessInteractiveSession`)
 - **Resume:** `--continue` flag to resume a previous conversation.
-- **Role injection:** native appended system prompt (`--append-system-prompt <prompt>`) combined with a bootstrap message on the first turn.
+- **Role injection:** when the role prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty prompts skip both startup inputs.
 - **Use case:** automated pipelines, batch processing, and non-interactive agent orchestration.
 
 ### codex_headless
@@ -69,7 +69,7 @@ Runs Codex CLI in headless mode (`codex exec --json`). Produces structured JSON 
 
 - **Session class:** `CodexHeadlessSession` (extends `HeadlessInteractiveSession`)
 - **Resume:** `resume <thread_id>` command to continue a previous thread.
-- **Role injection:** native developer instructions flag (`-c developer_instructions=<prompt>`).
+- **Role injection:** when the role prompt is non-empty, Houmao passes `-c developer_instructions=<prompt>`. Empty prompts skip the developer-instructions flag.
 - **Use case:** automated pipelines, structured output processing, and non-interactive agent orchestration.
 
 ### gemini_headless

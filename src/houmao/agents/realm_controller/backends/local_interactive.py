@@ -246,9 +246,15 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
 
     def _build_launch_command(self) -> list[str]:
         command = [self._plan.executable, *self._plan.args]
-        if self._plan.role_injection.method == "native_developer_instructions":
+        if (
+            self._plan.role_injection.method == "native_developer_instructions"
+            and self._plan.role_injection.prompt
+        ):
             command.extend(["-c", f"developer_instructions={self._plan.role_injection.prompt}"])
-        elif self._plan.role_injection.method == "native_append_system_prompt":
+        elif (
+            self._plan.role_injection.method == "native_append_system_prompt"
+            and self._plan.role_injection.prompt
+        ):
             command.extend(["--append-system-prompt", self._plan.role_injection.prompt])
         return command
 

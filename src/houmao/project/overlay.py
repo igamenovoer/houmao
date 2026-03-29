@@ -184,7 +184,11 @@ def resolve_project_aware_agent_def_dir(
     )
 
 
-def bootstrap_project_overlay(project_root: Path) -> ProjectInitResult:
+def bootstrap_project_overlay(
+    project_root: Path,
+    *,
+    include_compatibility_profiles: bool = False,
+) -> ProjectInitResult:
     """Create or validate one repo-local Houmao project overlay."""
 
     resolved_project_root = project_root.resolve()
@@ -195,14 +199,17 @@ def bootstrap_project_overlay(project_root: Path) -> ProjectInitResult:
     written_files: list[Path] = []
     preserved_files: list[Path] = []
 
-    for directory in (
+    bootstrap_directories = [
         overlay_root,
         agent_def_dir,
         agent_def_dir / "skills",
         agent_def_dir / "roles",
         agent_def_dir / "tools",
-        agent_def_dir / "compatibility-profiles",
-    ):
+    ]
+    if include_compatibility_profiles:
+        bootstrap_directories.append(agent_def_dir / "compatibility-profiles")
+
+    for directory in bootstrap_directories:
         _ensure_directory(directory, created_directories=created_directories)
 
     gitignore_path = (overlay_root / PROJECT_GITIGNORE_FILENAME).resolve()
