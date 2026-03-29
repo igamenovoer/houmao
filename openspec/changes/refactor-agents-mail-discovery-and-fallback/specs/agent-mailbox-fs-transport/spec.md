@@ -67,7 +67,7 @@ The transport SHALL coordinate concurrent filesystem writers using deterministic
 
 Standardized filesystem write flows executed by Houmao-owned code SHALL acquire all affected address locks in ascending lexicographic full-address order before acquiring `locks/index.lock`.
 
-Ordinary agent-facing filesystem mailbox workflows SHALL reach those writes through gateway HTTP or `houmao-mgr agents mail ...` rather than through mailbox-owned scripts.
+Ordinary agent-facing filesystem mailbox workflows SHALL reach those writes through gateway HTTP or `houmao-mgr agents mail ...` rather than through mailbox-owned scripts. When a manager fallback command returns `authoritative: false`, the caller SHALL verify outcome through manager-owned or transport-owned state instead of treating that submission result as the write itself.
 
 #### Scenario: Sender delivers mail without a helper daemon
 - **WHEN** a sender process writes a mailbox message through the filesystem transport
@@ -78,6 +78,12 @@ Ordinary agent-facing filesystem mailbox workflows SHALL reach those writes thro
 - **WHEN** an agent sender interacts with a shared filesystem mailbox through the supported ordinary mailbox workflow
 - **THEN** that workflow uses the shared gateway facade when present or `houmao-mgr agents mail ...` when it is not
 - **AND THEN** the caller does not need to invoke a mailbox-owned script under `rules/scripts/` for the ordinary operation
+
+#### Scenario: Submission-only manager fallback does not replace filesystem verification
+- **WHEN** an ordinary filesystem mailbox action reaches `houmao-mgr agents mail ...`
+- **AND WHEN** the command returns `authoritative: false`
+- **THEN** the caller treats that result as request submission rather than as verified filesystem delivery or state mutation
+- **AND THEN** the caller verifies the mailbox outcome through mailbox state or a follow-up manager-owned check instead of falling back to mailbox-owned scripts as the truth boundary
 
 #### Scenario: Concurrent writers serialize conflicting mailbox updates
 - **WHEN** two sender processes attempt to update the same mailbox address concurrently

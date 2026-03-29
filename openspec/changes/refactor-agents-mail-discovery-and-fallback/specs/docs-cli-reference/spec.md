@@ -16,7 +16,10 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 - `project mailbox`,
 - `admin cleanup`.
 
-When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `check`, `send`, `reply`, and `mark-read`, and it SHALL explain the selector rules for explicit targeting versus current-session targeting inside the owning managed tmux session.
+When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `check`, `send`, `reply`, and `mark-read`, and it SHALL explain:
+
+- the selector rules for explicit targeting versus current-session targeting inside the owning managed tmux session,
+- the authority-aware result semantics that distinguish verified execution from non-authoritative TUI submission fallback.
 
 The `brains build` options table in the CLI reference SHALL reflect the current live CLI flag names: `--preset`, `--setup`, and `--auth`. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
 
@@ -34,6 +37,11 @@ The `brains build` options table in the CLI reference SHALL reflect the current 
 - **WHEN** a reader looks up `houmao-mgr agents mail`
 - **THEN** the CLI reference documents `resolve-live`, `mark-read`, and the other mailbox follow-up commands in that family
 - **AND THEN** the reader can see when omitted selectors resolve the current managed tmux session and when explicit `--agent-id` or `--agent-name` is required
+
+#### Scenario: Reader can find `agents mail` result-strength guidance
+- **WHEN** a reader looks up `houmao-mgr agents mail` result behavior
+- **THEN** the CLI reference explains when the command returns verified authoritative results versus non-authoritative submission-only fallback
+- **AND THEN** the page points the reader to the supported verification paths for non-authoritative outcomes
 
 #### Scenario: Reader finds brain management commands
 - **WHEN** a reader looks up `houmao-mgr brains`

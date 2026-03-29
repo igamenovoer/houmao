@@ -8,6 +8,7 @@ At minimum, that contract coverage SHALL include:
 - the canonical mailbox message and addressing model,
 - runtime mailbox bindings, discoverable mailbox skill projection, and manager-owned `houmao-mgr agents mail` expectations,
 - the gateway-first mailbox workflow and the `houmao-mgr agents mail resolve-live` discovery contract,
+- authority-aware mailbox command outcomes that distinguish verified execution from non-authoritative TUI submission fallback,
 - the filesystem mailbox layout and artifact contract,
 - the policy-oriented role of shared filesystem mailbox `rules/`.
 
@@ -24,6 +25,11 @@ Compatibility helper scripts under `rules/scripts/`, when still published, SHALL
 - **THEN** the mailbox contract pages explain the filesystem layout and durable artifacts first
 - **AND THEN** any documented `rules/scripts/` helpers are presented as compatibility or implementation detail instead of as the ordinary mailbox workflow contract
 
+#### Scenario: Contract documentation explains verified versus non-authoritative outcomes
+- **WHEN** a reader needs to understand what `houmao-mgr agents mail ...` can prove
+- **THEN** the mailbox contract pages explain the difference between verified manager-owned or gateway-backed execution and non-authoritative TUI submission fallback
+- **AND THEN** the docs do not present TUI submission as equivalent to verified mailbox success
+
 ### Requirement: Mailbox operation documentation covers common workflows and lifecycle handling
 The mailbox operation documentation SHALL explain how to work with the mailbox system safely in the implemented v1 flow, including the preferred local serverless late-registration workflow and the manager-owned live-binding discovery path.
 
@@ -36,6 +42,7 @@ At minimum, that operational guidance SHALL cover:
 - repair or recovery expectations for mailbox roots,
 - the supported use of `houmao-mgr agents mail resolve-live` to obtain current bindings and any live `gateway.base_url` for attached `/v1/mail/*` work instead of ad hoc host or port rediscovery,
 - the ordinary agent workflow of gateway HTTP when a live gateway is available and `houmao-mgr agents mail ...` when it is not,
+- the verification paths for non-authoritative manager fallback results,
 - the role of shared filesystem mailbox `rules/` as markdown policy guidance rather than the ordinary execution protocol.
 
 #### Scenario: Operational guidance covers runtime mailbox workflows
@@ -53,3 +60,9 @@ At minimum, that operational guidance SHALL cover:
 - **WHEN** a reader needs the current mailbox binding set or the exact live gateway mail endpoint for attached shared-mailbox work
 - **THEN** the mailbox operations docs direct the reader to `houmao-mgr agents mail resolve-live`
 - **AND THEN** the docs explain that the returned `gateway.base_url` is the supported discovery path instead of ad hoc live host or port guessing
+
+#### Scenario: Operational guidance explains verification for non-authoritative fallback
+- **WHEN** a reader follows a mailbox workflow that uses `houmao-mgr agents mail ...`
+- **AND WHEN** that command can return `authoritative: false`
+- **THEN** the mailbox operations docs explain how to verify the requested outcome through manager-owned `status` or `check`, filesystem mailbox inspection, or transport-native mailbox state
+- **AND THEN** the docs do not treat submission-only fallback as self-verifying mailbox success

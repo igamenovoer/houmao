@@ -82,6 +82,11 @@ For this change, ordinary mailbox work includes:
 - replying to one existing message,
 - marking one processed message read.
 
+When projected mailbox skills use the `houmao-mgr agents mail ...` fallback path, they SHALL preserve the manager command's authority-aware result contract:
+
+- `authoritative: true` means Houmao verified the mailbox outcome through manager-owned or gateway-backed execution,
+- `authoritative: false` means Houmao only submitted the mailbox request through a TUI-mediated fallback path and separate verification is required.
+
 When projected mailbox skills expose thin tmux-session-local shell helpers, those helpers SHALL delegate only to gateway HTTP or `houmao-mgr agents mail ...` rather than to direct Python-module entrypoints or mailbox-owned scripts.
 
 For attached filesystem sessions, projected mailbox system skills SHALL NOT present direct mailbox-owned Python scripts as the ordinary no-gateway fallback path for those routine actions.
@@ -97,6 +102,12 @@ For attached `stalwart` sessions, projected mailbox system skills SHALL NOT pres
 - **WHEN** a mailbox-enabled session has no live shared gateway mailbox facade
 - **THEN** the projected mailbox system skill directs the agent to use `houmao-mgr agents mail ...` for routine mailbox work
 - **AND THEN** the fallback remains manager-owned and transport-neutral from the agent's perspective
+
+#### Scenario: Non-authoritative manager fallback result triggers explicit verification
+- **WHEN** a projected mailbox system skill uses `houmao-mgr agents mail send ...` or `reply ...`
+- **AND WHEN** that command returns `authoritative: false`
+- **THEN** the skill treats the result as submission-only rather than verified mailbox success
+- **AND THEN** the skill uses `houmao-mgr agents mail check`, `status`, or transport-owned mailbox state to verify the requested outcome before assuming the mailbox mutation completed
 
 #### Scenario: Thin shell helpers stay wrappers over supported surfaces
 - **WHEN** a projected mailbox skill provides a shell helper for tmux-session-local mailbox work
@@ -135,6 +146,12 @@ The skill SHALL NOT instruct agents to mark a message read merely because unread
 - **WHEN** an agent finishes processing an unread mailbox message successfully
 - **THEN** the projected mailbox system skill instructs the agent to mark that message read through `POST /v1/mail/state` when gateway HTTP is in use or `houmao-mgr agents mail mark-read` when the manager fallback path is in use
 - **AND THEN** the agent does not treat message discovery or reminder prompts as implicit read-state mutation
+
+#### Scenario: Non-authoritative mark-read fallback still requires verification
+- **WHEN** an agent uses `houmao-mgr agents mail mark-read` through a manager fallback path
+- **AND WHEN** that command returns `authoritative: false`
+- **THEN** the projected mailbox system skill treats the result as submission-only rather than verified read-state mutation
+- **AND THEN** the agent verifies read state through a follow-up mailbox check or transport-owned state before assuming the message is now read
 
 ## REMOVED Requirements
 

@@ -15,7 +15,8 @@ At minimum, that family SHALL include:
 Those commands SHALL address managed agents by managed-agent reference and SHALL dispatch mailbox work by the resolved managed-agent authority:
 
 - pair-managed targets SHALL use pair-owned mail authority,
-- local managed targets SHALL use manager-owned local mail authority,
+- local managed targets SHALL use verified manager-owned local mail authority or verified gateway-backed authority when available,
+- when a local live-TUI target lacks verified direct or gateway authority for a mailbox action, the command MAY fall back to TUI-mediated submission and SHALL preserve a non-authoritative submission result instead of claiming mailbox success,
 - callers SHALL NOT be required to discover or call gateway endpoints directly themselves when using the CLI.
 
 For commands in that family that operate on one managed agent, `houmao-mgr` SHALL support both explicit selectors and same-session current-session targeting:
@@ -26,7 +27,7 @@ For commands in that family that operate on one managed agent, `houmao-mgr` SHAL
 
 `resolve-live` SHALL return machine-readable mailbox binding and live gateway discovery data for the resolved managed agent.
 
-For local managed targets, ordinary mailbox follow-up SHALL NOT require prompting the target agent to interpret mailbox instructions when manager-owned mailbox execution is available.
+For local managed targets, ordinary mailbox follow-up SHALL NOT require prompting the target agent to interpret mailbox instructions when verified manager-owned or gateway-backed mailbox execution is available.
 
 #### Scenario: Same-session resolve-live succeeds without explicit selectors
 - **WHEN** an operator or projected skill runs `houmao-mgr agents mail resolve-live` inside the owning managed tmux session
@@ -50,6 +51,13 @@ For local managed targets, ordinary mailbox follow-up SHALL NOT require promptin
 - **AND WHEN** `alice` resolves to local managed-agent authority on the current host
 - **THEN** `houmao-mgr` performs mailbox follow-up through manager-owned local mail authority
 - **AND THEN** the command does not require prompting the target agent to interpret mailbox instructions for that ordinary mailbox check
+
+#### Scenario: Local live-TUI send without verified direct authority returns submission-only fallback
+- **WHEN** an operator runs `houmao-mgr agents mail send --agent-name alice --to bob@agents.localhost --subject "..." --body-content "..."`
+- **AND WHEN** `alice` resolves to a local live-TUI managed-agent target
+- **AND WHEN** verified manager-owned or gateway-backed mail execution is unavailable for that action
+- **THEN** `houmao-mgr` returns a non-authoritative submission result for that mailbox request
+- **AND THEN** the command does not claim verified mailbox success solely from TUI transcript recovery
 
 #### Scenario: Pair-managed target still uses pair-owned mail authority
 - **WHEN** an operator runs `houmao-mgr agents mail send --agent-id abc123 --to bob@agents.localhost --subject "..." --body-content "..."`
