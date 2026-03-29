@@ -177,10 +177,10 @@ houmao-mgr project
 
 | Subcommand | Description |
 |---|---|
-| `init` | Create or validate `.houmao/`, write `.houmao/houmao-config.toml`, write `.houmao/.gitignore`, and seed `.houmao/agents/tools/` starter content. |
-| `status` | Report whether a project overlay was discovered from the current directory and which agent-definition root is effective. |
-| `agents` | Low-level filesystem-oriented management for `.houmao/agents/roles/` and `.houmao/agents/tools/`. |
-| `easy` | Higher-level specialist and instance workflow compiled into the canonical `.houmao/agents/` tree. |
+| `init` | Create or validate `.houmao/`, write `.houmao/houmao-config.toml`, write `.houmao/.gitignore`, create `.houmao/catalog.sqlite`, and create managed `.houmao/content/` roots. |
+| `status` | Report whether a project overlay was discovered from the current directory, which catalog was found, and which agent-definition root is effective. |
+| `agents` | Low-level filesystem-oriented management for the `.houmao/agents/` compatibility projection. |
+| `easy` | Higher-level specialist and instance workflow persisted in `.houmao/catalog.sqlite` with file-backed payloads under `.houmao/content/`. |
 | `mailbox` | Project-scoped wrapper over the generic mailbox-root CLI targeting `.houmao/mailbox`. |
 
 Project overlay notes:
@@ -188,12 +188,13 @@ Project overlay notes:
 - `project init` targets the current working directory in v1.
 - `.houmao/.gitignore` contains `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
 - `project status` uses nearest-ancestor discovery for `.houmao/houmao-config.toml`.
-- `project init` does not create `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` by default.
+- `project init` creates `.houmao/catalog.sqlite` plus managed `.houmao/content/prompts/`, `.houmao/content/auth/`, `.houmao/content/skills/`, and `.houmao/content/setups/`.
+- `project init` does not create `.houmao/agents/`, `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` by default.
 - `project init --with-compatibility-profiles` opts into pre-creating `.houmao/agents/compatibility-profiles/`.
 
 #### `project agents`
 
-`project agents` is the low-level maintenance surface for the canonical project-local source tree.
+`project agents` is the low-level maintenance surface for the compatibility projection tree under `.houmao/agents/`.
 
 | Subcommand | Description |
 |---|---|
@@ -209,7 +210,7 @@ Project overlay notes:
 
 | Subcommand | Description |
 |---|---|
-| `specialist create` | Compile one specialist into `.houmao/agents/roles/`, `.houmao/agents/tools/`, `.houmao/agents/skills/`, and `.houmao/easy/specialists/`. |
+| `specialist create` | Persist one specialist in `.houmao/catalog.sqlite`, snapshot prompt/auth/skill payloads into `.houmao/content/`, and materialize the needed `.houmao/agents/` compatibility projection. |
 | `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection. |
 | `instance launch` | Launch one managed agent from a compiled specialist with required `--specialist` and `--name` inputs. |
 | `instance stop` | Stop one managed agent through the project-aware easy instance surface. |
@@ -221,6 +222,7 @@ Project overlay notes:
 - `--credential` is optional; when omitted, Houmao uses `<specialist-name>-creds`.
 - `--system-prompt` and `--system-prompt-file` are both optional; provide at most one.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
+- The project-local catalog is the source of truth; `.houmao/agents/` is a compatibility projection that is materialized as needed.
 
 `project easy instance launch` notes:
 

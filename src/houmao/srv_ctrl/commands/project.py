@@ -16,17 +16,19 @@ from houmao.agents.definition_parser import (
     parse_tool_adapter,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
+from houmao.project.catalog import ProjectCatalog
 from houmao.project.easy import (
     SpecialistMetadata,
     TOOL_PROVIDER_MAP,
     list_specialists,
     load_specialist,
     remove_specialist_metadata,
-    save_specialist,
 )
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
     bootstrap_project_overlay,
+    ensure_project_agent_compatibility_tree,
+    materialize_project_agent_catalog_projection,
     require_project_overlay,
     resolve_project_aware_agent_def_dir,
 )
@@ -79,6 +81,8 @@ def init_project_command(with_compatibility_profiles: bool) -> None:
             "project_root": str(result.project_overlay.project_root),
             "overlay_root": str(result.project_overlay.overlay_root),
             "config_path": str(result.project_overlay.config_path),
+            "catalog_path": str(result.project_overlay.catalog_path),
+            "content_root": str(result.project_overlay.content_root),
             "agent_def_dir": str(result.project_overlay.agents_root),
             "mailbox_root": str(result.project_overlay.mailbox_root),
             "easy_root": str(result.project_overlay.easy_root),
@@ -102,6 +106,7 @@ def project_status_command() -> None:
             "project_root": str(overlay.project_root) if overlay is not None else None,
             "overlay_root": str(overlay.overlay_root) if overlay is not None else None,
             "config_path": str(overlay.config_path) if overlay is not None else None,
+            "catalog_path": str(overlay.catalog_path) if overlay is not None else None,
             "effective_agent_def_dir": str(resolution.agent_def_dir),
             "effective_agent_def_dir_source": resolution.source,
             "project_mailbox_root": str(overlay.mailbox_root) if overlay is not None else None,
@@ -1180,21 +1185,21 @@ def create_easy_specialist_command(
         auth=credential_name,
         prompt_mode=None,
     )
-    metadata = SpecialistMetadata(
+    metadata = ProjectCatalog.from_overlay(overlay).store_specialist_from_sources(
         name=specialist_name,
         tool=tool_name,
         provider=TOOL_PROVIDER_MAP[tool_name],
         credential_name=credential_name,
         role_name=specialist_name,
-        system_prompt_path=_overlay_relative_path(overlay=overlay, path=system_prompt_path),
-        preset_path=_overlay_relative_path(overlay=overlay, path=preset_path),
-        auth_path=_overlay_relative_path(
-            overlay=overlay,
-            path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
-        ),
-        skills=tuple(skill_path.name for skill_path in imported_skills),
+        setup_name="default",
+        prompt_path=system_prompt_path,
+        auth_path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
+        skill_paths=tuple(imported_skills),
+        launch_mapping=None,
+        mailbox_mapping=None,
+        extra_mapping=None,
     )
-    metadata_path = save_specialist(overlay=overlay, metadata=metadata)
+    metadata_path = metadata.metadata_path or overlay.catalog_path
     emit_json(
         {
             "project_root": str(overlay.project_root),
@@ -1249,9 +1254,6 @@ def remove_easy_specialist_command(name: str) -> None:
 
     overlay = _require_project_overlay()
     specialist = _load_specialist_or_click(overlay=overlay, name=name)
-    role_root = _role_root(overlay=overlay, role_name=specialist.role_name)
-    if role_root.is_dir():
-        shutil.rmtree(role_root)
     metadata_path = _remove_specialist_metadata_or_click(overlay=overlay, name=specialist.name)
     emit_json(
         {
@@ -1259,7 +1261,7 @@ def remove_easy_specialist_command(name: str) -> None:
             "specialist": specialist.name,
             "removed": True,
             "metadata_path": str(metadata_path),
-            "role_path": str(role_root),
+            "role_path": str(_role_root(overlay=overlay, role_name=specialist.role_name)),
             "preserved_auth_path": str(specialist.resolved_auth_path(overlay)),
             "preserved_skill_paths": [
                 str(path) for path in specialist.resolved_skill_paths(overlay)
@@ -1333,6 +1335,7 @@ def launch_easy_instance_command(
         raise click.ClickException(
             "`--mail-account-dir` is only supported with `--mail-transport filesystem`."
         )
+    materialize_project_agent_catalog_projection(overlay)
 
     controller = launch_managed_agent_locally(
         agents=specialist_metadata.role_name,
@@ -1786,6 +1789,7 @@ def _list_tool_bundle_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list
 def _tool_root(*, overlay: HoumaoProjectOverlay, tool: str) -> Path:
     """Return one project-local tool root."""
 
+    ensure_project_agent_compatibility_tree(overlay)
     return (overlay.agents_root / "tools" / tool).resolve()
 
 
@@ -1798,6 +1802,7 @@ def _tool_setup_path(*, overlay: HoumaoProjectOverlay, tool: str, name: str) -> 
 def _role_root(*, overlay: HoumaoProjectOverlay, role_name: str) -> Path:
     """Return one project-local role root."""
 
+    ensure_project_agent_compatibility_tree(overlay)
     return (overlay.agents_root / "roles" / role_name).resolve()
 
 
@@ -1812,6 +1817,7 @@ def _preset_path(*, overlay: HoumaoProjectOverlay, role_name: str, tool: str, se
 def _list_role_names(*, overlay: HoumaoProjectOverlay) -> list[str]:
     """Return the current project-local role names."""
 
+    ensure_project_agent_compatibility_tree(overlay)
     roles_root = (overlay.agents_root / "roles").resolve()
     if not roles_root.is_dir():
         return []
@@ -1928,6 +1934,7 @@ def _write_role_preset(
 def _ensure_skill_placeholder(*, overlay: HoumaoProjectOverlay, skill_name: str) -> Path | None:
     """Create one placeholder skill directory when it is currently missing."""
 
+    ensure_project_agent_compatibility_tree(overlay)
     skill_root = (overlay.agents_root / "skills" / skill_name).resolve()
     skill_doc = (skill_root / "SKILL.md").resolve()
     if skill_doc.is_file():
@@ -2374,9 +2381,10 @@ def _validate_specialist_create_inputs(
         raise click.ClickException(
             "Provide at most one of `--system-prompt` or `--system-prompt-file`."
         )
-    metadata_path = overlay.specialists_root / f"{specialist_name}.toml"
-    if metadata_path.exists():
-        raise click.ClickException(f"Specialist already exists: {metadata_path}")
+    if ProjectCatalog.from_overlay(overlay).specialist_exists(specialist_name):
+        raise click.ClickException(
+            f"Specialist already exists in the project catalog: {overlay.catalog_path}"
+        )
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
     if role_root.exists():
         raise click.ClickException(
@@ -2408,6 +2416,7 @@ def _import_skill_directories(
 ) -> list[Path]:
     """Copy or reuse skill directories under `.houmao/agents/skills/`."""
 
+    ensure_project_agent_compatibility_tree(overlay)
     imported: list[Path] = []
     for skill_dir in skill_dirs:
         source_dir = skill_dir.resolve()

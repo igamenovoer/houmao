@@ -12,7 +12,10 @@ from houmao.agents.brain_builder import (
     load_brain_recipe,
     load_launch_overrides_input,
 )
-from houmao.project.overlay import resolve_project_aware_agent_def_dir
+from houmao.project.overlay import (
+    materialize_project_agent_catalog_projection,
+    resolve_project_aware_agent_def_dir,
+)
 
 from .common import emit_json
 
@@ -167,7 +170,10 @@ def _optional_path(value: str | None, *, base: Path) -> Path | None:
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
     """Resolve the agent-definition root used for local brain construction."""
 
-    return resolve_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value).agent_def_dir
+    resolution = resolve_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    if resolution.project_overlay is not None and cli_value is None:
+        return materialize_project_agent_catalog_projection(resolution.project_overlay)
+    return resolution.agent_def_dir
 
 
 def _resolve_path(value: str, *, base: Path) -> Path:

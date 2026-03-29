@@ -77,13 +77,12 @@ def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
     assert root_gitignore.read_text(encoding="utf-8") == "existing-entry\n"
     assert (repo_root / ".houmao" / ".gitignore").read_text(encoding="utf-8") == "*\n"
     assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
-    assert (repo_root / ".houmao" / "agents" / "skills").is_dir()
-    assert (repo_root / ".houmao" / "agents" / "roles").is_dir()
-    assert not (repo_root / ".houmao" / "agents" / "compatibility-profiles").exists()
-    assert (repo_root / ".houmao" / "agents" / "tools" / "claude" / "adapter.yaml").is_file()
-    assert (
-        repo_root / ".houmao" / "agents" / "tools" / "codex" / "setups" / "default" / "config.toml"
-    ).is_file()
+    assert (repo_root / ".houmao" / "catalog.sqlite").is_file()
+    assert (repo_root / ".houmao" / "content" / "prompts").is_dir()
+    assert (repo_root / ".houmao" / "content" / "auth").is_dir()
+    assert (repo_root / ".houmao" / "content" / "skills").is_dir()
+    assert (repo_root / ".houmao" / "content" / "setups").is_dir()
+    assert not (repo_root / ".houmao" / "agents").exists()
     assert not (repo_root / ".houmao" / "mailbox").exists()
     assert not (repo_root / ".houmao" / "easy").exists()
 
@@ -512,7 +511,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
         cli, ["project", "easy", "specialist", "remove", "--name", "researcher"]
     )
     assert remove_result.exit_code == 0
-    assert not metadata_path.exists()
+    assert metadata_path.is_file()
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
     assert (
@@ -526,6 +525,9 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
         / "files"
         / "auth.json"
     ).is_file()
+    list_after_remove = runner.invoke(cli, ["project", "easy", "specialist", "list"])
+    assert list_after_remove.exit_code == 0
+    assert json.loads(list_after_remove.output)["specialists"] == []
 
 
 def test_project_easy_specialist_create_allows_promptless_specialist(

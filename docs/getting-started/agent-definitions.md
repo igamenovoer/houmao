@@ -9,7 +9,9 @@ For repo-local workflows, the supported path is `houmao-mgr project init`, which
 └── .houmao/
     ├── .gitignore
     ├── houmao-config.toml
-    └── agents/
+    ├── catalog.sqlite
+    ├── content/
+    └── agents/   # compatibility projection, materialized on demand
 ```
 
 The whole `.houmao/` overlay is local-only by default because `.houmao/.gitignore` contains `*`.
@@ -27,7 +29,13 @@ Commands that need an agent-definition root resolve it with this precedence:
 <repo>/
 └── .houmao/
     ├── houmao-config.toml
-    ├── agents/
+    ├── catalog.sqlite
+    ├── content/
+    │   ├── prompts/
+    │   ├── auth/
+    │   ├── skills/
+    │   └── setups/
+    ├── agents/                       # compatibility projection, materialized on demand
     │   ├── skills/
     │   │   └── <skill>/SKILL.md
     │   ├── roles/
@@ -47,7 +55,7 @@ Commands that need an agent-definition root resolve it with this precedence:
     └── mailbox/                      # optional, created only when mailbox workflows are enabled
 ```
 
-`houmao-mgr project init` seeds `tools/` for supported tools and creates the default `skills/` and `roles/` authoring roots. It does not create `compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` unless you opt into those workflows explicitly.
+`houmao-mgr project init` seeds the managed content roots and the SQLite catalog. It does not create `.houmao/agents/`, `compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` unless you opt into workflows that need those paths explicitly.
 
 The repo-local project surface is intentionally split into three views:
 
@@ -57,9 +65,17 @@ The repo-local project surface is intentionally split into three views:
 
 ## Directory Reference
 
+### `catalog.sqlite`
+
+The canonical semantic store for project-local specialists, roles, presets, setup profiles, skill packages, auth profiles, and managed content references. Advanced operators can inspect stable read views such as `v_specialists`, `v_presets`, and `v_content_refs` directly with SQLite tooling.
+
+### `content/`
+
+Managed file-backed payload storage. Large text blobs and tree-shaped payloads such as prompt files, auth bundles, skill packages, and setup bundles live here even though their semantic relationships are owned by `catalog.sqlite`.
+
 ### `skills/`
 
-Reusable capability packages projected into runtime homes. Each skill directory must contain `SKILL.md`.
+Reusable capability packages projected into runtime homes. Under `.houmao/agents/` this is now a compatibility projection fed from `catalog.sqlite` and `.houmao/content/`.
 
 ### `roles/<role>/system-prompt.md`
 
@@ -87,11 +103,11 @@ The tool adapter defines how Houmao projects setup files, skills, and auth mater
 
 ### `tools/<tool>/setups/<setup>/`
 
-Secret-free checked-in setup bundles for one tool. `houmao-mgr project init` seeds the current packaged setup bundles for supported tools here.
+Secret-free setup bundles for one tool. The canonical file-backed payloads live under `.houmao/content/setups/`; the `.houmao/agents/tools/<tool>/setups/` tree is the compatibility projection that builders and runtime currently consume.
 
 ### `tools/<tool>/auth/<auth>/`
 
-Local-only auth bundles for one tool. `houmao-mgr project agents tools <tool> auth add ...` writes these bundles for you under `.houmao/agents/tools/<tool>/auth/<name>/`.
+Local-only auth bundles for one tool. The canonical file-backed payloads live under `.houmao/content/auth/`; the `.houmao/agents/tools/<tool>/auth/<name>/` tree is the compatibility projection that legacy file-based flows still read.
 
 ### `compatibility-profiles/`
 
@@ -105,6 +121,8 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 
 | Directory | Committed | Description |
 |---|---|---|
+| `.houmao/catalog.sqlite` | ❌ No | Canonical project-local semantic catalog |
+| `.houmao/content/` | ❌ No | Managed prompt/auth/skill/setup payload store |
 | `.houmao/agents/skills/` | ❌ No | Repo-local reusable capability packages |
 | `.houmao/agents/roles/` | ❌ No | Repo-local role prompts and presets |
 | `.houmao/agents/tools/<tool>/adapter.yaml` | ❌ No | Local copy of the tool projection and launch contract |
@@ -117,16 +135,17 @@ Generated runtime homes and manifests are also disposable. If the runtime later 
 
 ## How The Pieces Connect
 
-1. Houmao parses `skills/`, `roles/`, and `tools/` into a canonical in-process catalog.
-2. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to `roles/<role>/presets/<tool>/default.yaml`.
-3. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings.
-4. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, and the effective auth bundle to materialize a runtime home.
-5. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
+1. Houmao persists project-local semantic objects in `.houmao/catalog.sqlite` and stores prompt/auth/skill/setup payloads under `.houmao/content/`.
+2. When current builders or launchers need a file tree, Houmao materializes the `.houmao/agents/` compatibility projection from the catalog plus managed content refs.
+3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to `roles/<role>/presets/<tool>/default.yaml` inside the projection.
+4. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings.
+5. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, and the effective auth bundle to materialize a runtime home.
+6. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
 
 ## Authoring Paths
 
-The same canonical `.houmao/agents/` tree can be authored through two different UX layers:
+The compatibility `.houmao/agents/` tree can still be inspected directly, but project-local truth now lives in the catalog and managed content store. The main UX layers are:
 
-- `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist compiled into the canonical tree.
+- `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist persisted into the catalog and projected into the compatibility tree.
 - `project easy instance launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
-- `project agents ...` is the low-level maintenance surface when you want to inspect or mutate roles, presets, setups, or auth bundles directly.
+- `project agents ...` is the low-level maintenance surface when you want to inspect or mutate the compatibility projection directly.

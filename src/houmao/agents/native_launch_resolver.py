@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from houmao.agents.definition_parser import AgentPreset, load_agent_catalog, resolve_agent_preset
-from houmao.project.overlay import resolve_project_aware_agent_def_dir
+from houmao.project.overlay import (
+    materialize_project_agent_catalog_projection,
+    resolve_project_aware_agent_def_dir,
+)
 
 _TOOL_BY_PROVIDER: dict[str, str] = {
     "claude_code": "claude",
@@ -55,7 +58,10 @@ def tool_for_provider(provider: str) -> str:
 def resolve_effective_agent_def_dir(*, working_directory: Path) -> Path:
     """Resolve the effective agent-definition root for pair launch."""
 
-    return resolve_project_aware_agent_def_dir(cwd=working_directory.resolve()).agent_def_dir
+    resolution = resolve_project_aware_agent_def_dir(cwd=working_directory.resolve())
+    if resolution.project_overlay is not None:
+        return materialize_project_agent_catalog_projection(resolution.project_overlay)
+    return resolution.agent_def_dir
 
 
 def resolve_native_launch_target(

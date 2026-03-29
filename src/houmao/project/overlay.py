@@ -11,6 +11,7 @@ import tomllib
 from typing import Literal, Mapping, cast
 
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.project.catalog import PROJECT_CATALOG_FILENAME, PROJECT_CONTENT_DIRNAME, ProjectCatalog
 
 PROJECT_DIRNAME = ".houmao"
 PROJECT_CONFIG_FILENAME = "houmao-config.toml"
@@ -39,6 +40,18 @@ class HoumaoProjectOverlay:
         """Return the effective project-local agent-definition root."""
 
         return self.agent_def_dir.resolve()
+
+    @property
+    def catalog_path(self) -> Path:
+        """Return the project-local SQLite catalog path."""
+
+        return (self.overlay_root / PROJECT_CATALOG_FILENAME).resolve()
+
+    @property
+    def content_root(self) -> Path:
+        """Return the project-local managed content root."""
+
+        return (self.overlay_root / PROJECT_CONTENT_DIRNAME).resolve()
 
     @property
     def easy_root(self) -> Path:
@@ -195,19 +208,20 @@ def bootstrap_project_overlay(
     overlay_root = project_overlay_root(resolved_project_root)
     config_path = project_config_path(resolved_project_root)
     agent_def_dir = (overlay_root / "agents").resolve()
+    catalog_path = (overlay_root / PROJECT_CATALOG_FILENAME).resolve()
+    content_root = (overlay_root / PROJECT_CONTENT_DIRNAME).resolve()
     created_directories: list[Path] = []
     written_files: list[Path] = []
     preserved_files: list[Path] = []
 
     bootstrap_directories = [
         overlay_root,
-        agent_def_dir,
-        agent_def_dir / "skills",
-        agent_def_dir / "roles",
-        agent_def_dir / "tools",
+        content_root,
+        content_root / "prompts",
+        content_root / "auth",
+        content_root / "skills",
+        content_root / "setups",
     ]
-    if include_compatibility_profiles:
-        bootstrap_directories.append(agent_def_dir / "compatibility-profiles")
 
     for directory in bootstrap_directories:
         _ensure_directory(directory, created_directories=created_directories)
@@ -231,23 +245,75 @@ def bootstrap_project_overlay(
         config_path.write_text(render_default_project_config(), encoding="utf-8")
         written_files.append(config_path)
 
-    _copy_starter_assets(
-        destination_root=agent_def_dir,
-        written_files=written_files,
-        preserved_files=preserved_files,
-        created_directories=created_directories,
-    )
-    _ensure_tool_auth_roots(
-        agent_def_dir=agent_def_dir,
-        created_directories=created_directories,
-    )
+    overlay = load_project_overlay(config_path)
+    catalog_was_present = catalog_path.exists()
+    ProjectCatalog.from_overlay(overlay).initialize()
+    if catalog_was_present:
+        preserved_files.append(catalog_path)
+    else:
+        written_files.append(catalog_path)
+
+    if include_compatibility_profiles:
+        ensure_project_agent_compatibility_tree(
+            overlay,
+            include_compatibility_profiles=True,
+            created_directories=created_directories,
+            written_files=written_files,
+            preserved_files=preserved_files,
+        )
 
     return ProjectInitResult(
-        project_overlay=load_project_overlay(config_path),
+        project_overlay=overlay,
         created_directories=tuple(dict.fromkeys(created_directories)),
         written_files=tuple(dict.fromkeys(written_files)),
         preserved_files=tuple(dict.fromkeys(preserved_files)),
     )
+
+
+def ensure_project_agent_compatibility_tree(
+    overlay: HoumaoProjectOverlay,
+    *,
+    include_compatibility_profiles: bool = False,
+    created_directories: list[Path] | None = None,
+    written_files: list[Path] | None = None,
+    preserved_files: list[Path] | None = None,
+) -> Path:
+    """Ensure the non-authoritative compatibility projection tree exists."""
+
+    created = [] if created_directories is None else created_directories
+    written = [] if written_files is None else written_files
+    preserved = [] if preserved_files is None else preserved_files
+    projection_root = overlay.agents_root
+    for directory in (
+        projection_root,
+        projection_root / "skills",
+        projection_root / "roles",
+        projection_root / "tools",
+    ):
+        _ensure_directory(directory, created_directories=created)
+    if include_compatibility_profiles:
+        _ensure_directory(
+            projection_root / "compatibility-profiles",
+            created_directories=created,
+        )
+    _copy_starter_assets(
+        destination_root=projection_root,
+        written_files=written,
+        preserved_files=preserved,
+        created_directories=created,
+    )
+    _ensure_tool_auth_roots(
+        agent_def_dir=projection_root,
+        created_directories=created,
+    )
+    return projection_root
+
+
+def materialize_project_agent_catalog_projection(overlay: HoumaoProjectOverlay) -> Path:
+    """Materialize the project-local compatibility tree from the catalog."""
+
+    ensure_project_agent_compatibility_tree(overlay)
+    return ProjectCatalog.from_overlay(overlay).materialize_projection()
 
 
 def _ensure_default_gitignore(

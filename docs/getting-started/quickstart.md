@@ -63,10 +63,9 @@ pixi run houmao-mgr project init
 
 - `.houmao/houmao-config.toml`
 - `.houmao/.gitignore`
-- `.houmao/agents/tools/<tool>/adapter.yaml`
-- `.houmao/agents/tools/<tool>/setups/<setup>/`
-- empty local authoring roots under `.houmao/agents/skills/` and `.houmao/agents/roles/`
-- no `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` state until you opt into those workflows explicitly
+- `.houmao/catalog.sqlite`
+- managed `.houmao/content/prompts/`, `.houmao/content/auth/`, `.houmao/content/skills/`, and `.houmao/content/setups/`
+- no `.houmao/agents/`, `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` state until you opt into those workflows explicitly
 
 If you need the optional compatibility metadata root pre-created, use:
 
@@ -92,17 +91,20 @@ When `--credential` is omitted, `project easy specialist create` derives the aut
 
 `--system-prompt` is optional for this higher-level workflow. If you omit both `--system-prompt` and `--system-prompt-file`, Houmao still writes the canonical role prompt file and treats that role as promptless.
 
-This higher-level flow compiles into the canonical project tree:
+This higher-level flow persists semantic state in the catalog and snapshots payload content into the managed content store. It also materializes the compatibility projection tree used by the existing builders and runtime:
 
 ```text
+.houmao/catalog.sqlite
+.houmao/content/prompts/researcher.md
+.houmao/content/auth/claude/researcher-creds/
+.houmao/content/skills/notes/
 .houmao/agents/roles/researcher/system-prompt.md
 .houmao/agents/roles/researcher/presets/claude/default.yaml
 .houmao/agents/tools/claude/auth/researcher-creds/
 .houmao/agents/skills/notes/
-.houmao/easy/specialists/researcher.toml
 ```
 
-Low-level maintenance still lives under `project agents ...`. For example, add or inspect auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, or scaffold roles and presets with `houmao-mgr project agents roles ...`.
+Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. For example, add or inspect auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, or scaffold roles and presets with `houmao-mgr project agents roles ...`.
 
 ### Step 3: Inspect The Generated Role And Preset
 
@@ -136,7 +138,7 @@ Key options:
 | `--home-id` | Optional fixed runtime-home id |
 | `--reuse-home` | Allow reuse of an existing home id |
 
-Because the local project overlay was initialized first, `brains build` resolves `.houmao/agents/` automatically from `.houmao/houmao-config.toml`.
+Because the local project overlay was initialized first, `brains build` discovers `.houmao/houmao-config.toml`, resolves the project-local catalog, and materializes `.houmao/agents/` automatically when the compatibility projection is needed.
 
 ### Step 5: Launch A Managed Agent
 
