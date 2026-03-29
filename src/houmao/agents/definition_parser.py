@@ -92,6 +92,7 @@ class PresetLaunchSettings:
 
     prompt_mode: OperatorPromptMode | None = None
     overrides: LaunchOverrides | None = None
+    env_records: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,12 @@ class AgentPreset:
         """Compatibility alias for the preset prompt mode."""
 
         return self.launch.prompt_mode
+
+    @property
+    def launch_env_records(self) -> dict[str, str]:
+        """Return persistent preset-owned launch env records."""
+
+        return dict(self.launch.env_records)
 
     @property
     def default_agent_name(self) -> str | None:
@@ -475,11 +482,13 @@ def _parse_preset_launch(raw_value: object, *, source: str) -> PresetLaunchSetti
     if not isinstance(raw_value, dict):
         raise ValueError(f"{source}: launch must be a mapping when set")
 
-    unknown_fields = sorted(key for key in raw_value if key not in {"prompt_mode", "overrides"})
+    unknown_fields = sorted(
+        key for key in raw_value if key not in {"prompt_mode", "overrides", "env_records"}
+    )
     if unknown_fields:
         joined = ", ".join(unknown_fields)
         raise ValueError(
-            f"{source}: launch supports only `prompt_mode` and `overrides`, got {joined}"
+            f"{source}: launch supports only `prompt_mode`, `overrides`, and `env_records`, got {joined}"
         )
 
     overrides_payload = raw_value.get("overrides")
@@ -490,13 +499,37 @@ def _parse_preset_launch(raw_value: object, *, source: str) -> PresetLaunchSetti
             source=f"{source}:launch.overrides",
         )
 
+    env_records = _parse_launch_env_records(
+        raw_value.get("env_records"),
+        source=f"{source}:launch.env_records",
+    )
+
     return PresetLaunchSettings(
         prompt_mode=_parse_operator_prompt_mode(
             raw_value.get("prompt_mode"),
             source=f"{source}:launch",
         ),
         overrides=overrides,
+        env_records=env_records,
     )
+
+
+def _parse_launch_env_records(raw_value: object, *, source: str) -> dict[str, str]:
+    """Parse one optional persistent launch env mapping."""
+
+    if raw_value is None:
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{source}: env_records must be a mapping when set")
+
+    env_records: dict[str, str] = {}
+    for raw_name, raw_value_item in raw_value.items():
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise ValueError(f"{source}: env_records keys must be non-empty strings")
+        if not isinstance(raw_value_item, str):
+            raise ValueError(f"{source}: env_records values must be strings")
+        env_records[raw_name.strip()] = raw_value_item
+    return env_records
 
 
 def _parse_mailbox(raw_value: object, *, source: str) -> MailboxDeclarativeConfig | None:

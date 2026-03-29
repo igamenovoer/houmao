@@ -141,6 +141,9 @@ def build_brain_command(
                 operator_prompt_mode=(
                     preset_payload.operator_prompt_mode if preset_payload is not None else None
                 ),
+                persistent_env_records=(
+                    preset_payload.launch_env_records if preset_payload is not None else None
+                ),
             )
         )
     except Exception as exc:

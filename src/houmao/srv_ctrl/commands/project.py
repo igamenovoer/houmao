@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,11 @@ from houmao.agents.definition_parser import (
     ToolAdapter,
     parse_agent_preset,
     parse_tool_adapter,
+)
+from houmao.agents.launch_env import (
+    parse_persistent_env_record_specs,
+    resolve_runtime_env_set_specs,
+    validate_persistent_env_records,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.project.catalog import ProjectCatalog
@@ -1129,6 +1135,12 @@ def easy_specialist_group() -> None:
     help="Repeatable skill directory to import into `.houmao/agents/skills/`.",
 )
 @click.option(
+    "--env-set",
+    "env_set",
+    multiple=True,
+    help="Repeatable persistent specialist env record (`NAME=value`).",
+)
+@click.option(
     "--no-unattended",
     is_flag=True,
     help="Persist `launch.prompt_mode: as_is` instead of the easy unattended default.",
@@ -1150,6 +1162,7 @@ def create_easy_specialist_command(
     use_vertex_ai: bool,
     gemini_oauth_creds: Path | None,
     skill_dirs: tuple[Path, ...],
+    env_set: tuple[str, ...],
     no_unattended: bool,
 ) -> None:
     """Create one project-local specialist and compile it into the canonical tree."""
@@ -1175,6 +1188,11 @@ def create_easy_specialist_command(
         overlay=overlay,
         skill_dirs=skill_dirs,
     )
+    adapter = _load_overlay_tool_adapter(overlay=overlay, tool=tool_name)
+    persistent_env_records = _parse_specialist_env_records_or_click(
+        adapter=adapter,
+        env_set=env_set,
+    )
     auth_result = _ensure_specialist_auth_bundle(
         overlay=overlay,
         tool=tool_name,
@@ -1191,6 +1209,9 @@ def create_easy_specialist_command(
         gemini_oauth_creds=gemini_oauth_creds,
     )
     prompt_mode = "as_is" if no_unattended or tool_name not in {"claude", "codex"} else "unattended"
+    launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}
+    if persistent_env_records:
+        launch_mapping["env_records"] = dict(persistent_env_records)
 
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
     system_prompt_path = _write_role_prompt(role_root=role_root, prompt_text=prompt_text)
@@ -1202,6 +1223,7 @@ def create_easy_specialist_command(
         skills=[skill_path.name for skill_path in imported_skills],
         auth=credential_name,
         prompt_mode=prompt_mode,
+        env_records=persistent_env_records,
     )
     metadata = ProjectCatalog.from_overlay(overlay).store_specialist_from_sources(
         name=specialist_name,
@@ -1213,7 +1235,7 @@ def create_easy_specialist_command(
         prompt_path=system_prompt_path,
         auth_path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
         skill_paths=tuple(imported_skills),
-        launch_mapping={"prompt_mode": prompt_mode},
+        launch_mapping=launch_mapping,
         mailbox_mapping=None,
         extra_mapping=None,
     )
@@ -1301,6 +1323,12 @@ def easy_instance_group() -> None:
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
 @click.option(
+    "--env-set",
+    "env_set",
+    multiple=True,
+    help="Repeatable one-off launch env (`NAME=value` or `NAME`).",
+)
+@click.option(
     "--mail-transport",
     type=click.Choice(("filesystem", "email")),
     default=None,
@@ -1325,6 +1353,7 @@ def launch_easy_instance_command(
     session_name: str | None,
     headless: bool,
     yolo: bool,
+    env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
     mail_account_dir: Path | None,
@@ -1354,6 +1383,7 @@ def launch_easy_instance_command(
             "`--mail-account-dir` is only supported with `--mail-transport filesystem`."
         )
     materialize_project_agent_catalog_projection(overlay)
+    launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
 
     controller = launch_managed_agent_locally(
         agents=specialist_metadata.role_name,
@@ -1365,6 +1395,7 @@ def launch_easy_instance_command(
         provider=specialist_metadata.provider,
         yolo=yolo,
         working_directory=Path.cwd().resolve(),
+        launch_env_overrides=launch_env_overrides,
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
         mailbox_account_dir=(
@@ -1930,6 +1961,7 @@ def _write_role_preset(
     skills: list[str],
     auth: str | None,
     prompt_mode: str | None,
+    env_records: dict[str, str] | None = None,
 ) -> Path:
     """Write one canonical project-local role preset."""
 
@@ -1944,6 +1976,8 @@ def _write_role_preset(
     if auth is not None:
         payload["auth"] = auth
     payload["launch"] = {"prompt_mode": resolved_prompt_mode}
+    if env_records:
+        payload["launch"]["env_records"] = dict(env_records)
     preset_file.parent.mkdir(parents=True, exist_ok=True)
     preset_file.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return preset_file
@@ -2448,6 +2482,33 @@ def _import_skill_directories(
             raise click.ClickException(f"Skill destination is not a directory: {destination_dir}")
         imported.append(destination_dir)
     return imported
+
+
+def _parse_specialist_env_records_or_click(
+    *,
+    adapter: ToolAdapter,
+    env_set: tuple[str, ...],
+) -> dict[str, str]:
+    """Parse and validate persistent specialist env records."""
+
+    try:
+        parsed = parse_persistent_env_record_specs(env_set)
+        return validate_persistent_env_records(
+            parsed,
+            auth_env_allowlist=adapter.auth_env_allowlist,
+            source="project easy specialist create --env-set",
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_instance_env_set_or_click(env_set: tuple[str, ...]) -> dict[str, str]:
+    """Resolve one-off instance launch env bindings."""
+
+    try:
+        return resolve_runtime_env_set_specs(env_set, process_env=os.environ)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _specialist_payload(

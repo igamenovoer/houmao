@@ -125,6 +125,7 @@ class LaunchPlan:
     metadata: dict[str, Any] = field(default_factory=dict)
     mailbox: MailboxResolvedConfig | None = None
     launch_policy_provenance: LaunchPolicyProvenance | None = None
+    transient_env_var_names: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
     def for_joined_session(
@@ -187,7 +188,9 @@ class LaunchPlan:
                 "env_var": self.home_env_var,
                 "home_path": str(self.home_path),
             },
-            "env_var_names": sorted(self.env_var_names),
+            "env_var_names": sorted(
+                name for name in self.env_var_names if name not in self.transient_env_var_names
+            ),
             "role_injection": {
                 "method": self.role_injection.method,
                 "role_name": self.role_injection.role_name,

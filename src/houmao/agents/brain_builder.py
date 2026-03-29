@@ -21,6 +21,7 @@ from houmao.agents.definition_parser import (
     parse_agent_preset,
     parse_tool_adapter,
 )
+from houmao.agents.launch_env import validate_persistent_env_records
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.launch_overrides import (
     LaunchOverrides,
@@ -66,6 +67,7 @@ class BuildRequest:
     reuse_home: bool = False
     launch_overrides: LaunchOverrides | None = None
     operator_prompt_mode: OperatorPromptMode | None = None
+    persistent_env_records: dict[str, str] | None = None
     extra: dict[str, Any] | None = None
     config_profile: str | None = None
     credential_profile: str | None = None
@@ -410,11 +412,15 @@ def _build_launch_helper(
         f"export {adapter.home_selector_env_var}={shlex.quote(str(home_path))}",
     ]
 
+    exported_names: set[str] = set()
     for key in allowlist:
         value = env_exports.get(key)
         if value is None:
             continue
         script_lines.append(f"export {key}={shlex.quote(value)}")
+        exported_names.add(key)
+    for key in sorted(name for name in env_exports if name not in exported_names):
+        script_lines.append(f"export {key}={shlex.quote(env_exports[key])}")
 
     if operator_prompt_mode == "unattended":
         script_lines.extend(
@@ -596,6 +602,14 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     auth_env_file = auth_dir / adapter.auth_env_source
     env_values = _parse_env_file(auth_env_file)
     selected_env_names = [key for key in adapter.auth_env_allowlist if key in env_values]
+    try:
+        persistent_env_records = validate_persistent_env_records(
+            request.persistent_env_records or {},
+            auth_env_allowlist=adapter.auth_env_allowlist,
+            source="BuildRequest.persistent_env_records",
+        )
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
 
     if adapter.env_injection_mode == "home_dotenv":
         env_file_in_home = adapter.env_file_in_home or ".env"
@@ -612,7 +626,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         helper_path=launch_helper_path,
         adapter=adapter,
         launch_args=launch_helper_args,
-        env_exports={key: env_values[key] for key in selected_env_names},
+        env_exports={
+            **{key: env_values[key] for key in selected_env_names},
+            **persistent_env_records,
+        },
         operator_prompt_mode=resolved_operator_prompt_mode,
     )
 
@@ -666,6 +683,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                     ),
                 },
                 "tool_metadata": adapter.launch_metadata.to_payload(),
+                "env_records": dict(persistent_env_records),
                 "construction_provenance": construction_provenance,
             },
         },
@@ -865,6 +883,7 @@ def main(argv: list[str] | None = None) -> int:
         reuse_home=namespace.reuse_home,
         launch_overrides=direct_launch_overrides,
         operator_prompt_mode=operator_prompt_mode,
+        persistent_env_records=recipe.launch_env_records if recipe else None,
         extra=recipe.extra if recipe else None,
     )
 

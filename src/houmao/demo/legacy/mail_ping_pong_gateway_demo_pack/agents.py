@@ -91,6 +91,7 @@ def build_participant_brain(
             agent_name=recipe.default_agent_name,
             home_id=home_id,
             reuse_home=False,
+            persistent_env_records=recipe.launch_env_records,
         )
     )
 

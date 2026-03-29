@@ -257,6 +257,7 @@ def run_recorded_capture(
                 launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode
                 or recipe.operator_prompt_mode,
+                persistent_env_records=recipe.launch_env_records,
             )
         )
         observed_version = detect_tool_version(tool=scenario.tool)

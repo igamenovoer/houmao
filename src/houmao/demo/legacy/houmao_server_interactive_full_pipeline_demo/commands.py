@@ -107,6 +107,7 @@ def start_demo(
                     operator_prompt_mode=target.recipe.operator_prompt_mode,
                     mailbox=target.recipe.mailbox,
                     agent_name=agent_name,
+                    persistent_env_records=target.recipe.launch_env_records,
                 )
             )
             resolved_backend = backend_for_tool(target.tool, prefer_local_interactive=True)

@@ -964,6 +964,7 @@ def start_runtime_session(
     gateway_host: str | None = None,
     gateway_port: int | None = None,
     tmux_session_name: str | None = None,
+    launch_env_overrides: dict[str, str] | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
@@ -1091,6 +1092,10 @@ def start_runtime_session(
         )
     )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
+    launch_plan = _launch_plan_with_transient_env_overrides(
+        launch_plan,
+        env_overrides=launch_env_overrides,
+    )
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
@@ -2433,6 +2438,33 @@ def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> Laun
         launch_plan,
         env=updated_env,
         env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+    )
+
+
+def _launch_plan_with_transient_env_overrides(
+    launch_plan: LaunchPlan,
+    *,
+    env_overrides: dict[str, str] | None,
+) -> LaunchPlan:
+    """Apply one-off live-session env overrides without persisting new env names."""
+
+    if not env_overrides:
+        return launch_plan
+
+    base_env_names = set(launch_plan.env_var_names)
+    updated_env = dict(launch_plan.env)
+    updated_env.update(env_overrides)
+    transient_names = frozenset(
+        {
+            *launch_plan.transient_env_var_names,
+            *(name for name in env_overrides if name not in base_env_names),
+        }
+    )
+    return replace(
+        launch_plan,
+        env=updated_env,
+        env_var_names=sorted({*launch_plan.env_var_names, *env_overrides.keys()}),
+        transient_env_var_names=transient_names,
     )
 
 

@@ -146,6 +146,7 @@ def start_live_watch(
                 launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode
                 or recipe.operator_prompt_mode,
+                persistent_env_records=recipe.launch_env_records,
             )
         )
         observed_version = detect_tool_version(tool=tool)

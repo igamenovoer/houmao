@@ -912,6 +912,7 @@ def _prepare_lane(
             home_id=f"projection-demo-{slot}",
             reuse_home=False,
             operator_prompt_mode=recipe.operator_prompt_mode,
+            persistent_env_records=recipe.launch_env_records,
         )
     )
     del repo_root

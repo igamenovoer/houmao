@@ -150,6 +150,8 @@ houmao-mgr brains build [OPTIONS]
 
 When project discovery wins, `.houmao/houmao-config.toml` is the overlay discovery anchor and `.houmao/agents/` is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
 
+When `--preset` resolves to a recipe that carries `launch.env_records`, `brains build` projects those records as durable non-credential launch env alongside the selected auth bundle. Those env records come from specialist launch config, not from one-off instance launch input.
+
 ### `project` — Repo-local Houmao project overlays
 
 ```
@@ -213,7 +215,7 @@ Project overlay notes:
 | Subcommand | Description |
 |---|---|
 | `specialist create` | Persist one specialist in `.houmao/catalog.sqlite`, snapshot prompt/auth/skill payloads into `.houmao/content/`, and materialize the needed `.houmao/agents/` compatibility projection. |
-| `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection. |
+| `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection; `get` reports stored launch config such as `launch.prompt_mode` and `launch.env_records`. |
 | `instance launch` | Launch one managed agent from a compiled specialist with required `--specialist` and `--name` inputs. |
 | `instance stop` | Stop one managed agent through the project-aware easy instance surface. |
 | `instance list|get` | View existing managed-agent runtime state as project-local specialist instances. |
@@ -224,8 +226,10 @@ Project overlay notes:
 - `--credential` is optional; when omitted, Houmao uses `<specialist-name>-creds`.
 - `--system-prompt` and `--system-prompt-file` are both optional; provide at most one.
 - `--no-unattended` opts out of the easy unattended default and persists `launch.prompt_mode: as_is` for that specialist.
+- repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
 - maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset.
+- specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
 - The project-local catalog is the source of truth; `.houmao/agents/` is a compatibility projection that is materialized as needed.
 
 `project easy instance launch` notes:
@@ -233,6 +237,7 @@ Project overlay notes:
 - `--specialist` selects the compiled specialist definition to launch from.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
+- repeatable `--env-set NAME=value|NAME` applies one-off env to the current live session, resolves inherited `NAME` bindings from the invoking shell, and does not survive relaunch.
 - `--mail-transport filesystem` requires `--mail-root` and optionally accepts `--mail-account-dir` for a symlink-backed private mailbox directory.
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.
 - `--mail-transport email` is reserved for a future real-email path and currently fails fast as not implemented.

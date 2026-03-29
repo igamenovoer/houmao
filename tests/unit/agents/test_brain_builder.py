@@ -192,6 +192,60 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert "sk-test-123" not in manifest_text
 
 
+def test_build_brain_home_persists_persistent_launch_env_records(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            persistent_env_records={
+                "FEATURE_FLAG_X": "1",
+                "OPENAI_MODEL": "gpt-5.4",
+            },
+            home_id="home-persistent-launch-env",
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert "export FEATURE_FLAG_X=1" in launch_script
+    assert "export OPENAI_MODEL=gpt-5.4" in launch_script
+    assert manifest["runtime"]["launch_contract"]["env_records"] == {
+        "FEATURE_FLAG_X": "1",
+        "OPENAI_MODEL": "gpt-5.4",
+    }
+
+
+def test_build_brain_home_rejects_persistent_env_records_owned_by_credentials(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    with pytest.raises(BuildError, match="belongs to credential env"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=["skill-a"],
+                config_profile="default",
+                credential_profile="personal-a",
+                persistent_env_records={"OPENAI_API_KEY": "override"},
+                home_id="home-invalid-persistent-launch-env",
+            )
+        )
+
+
 def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path: Path) -> None:
     """Projected mailbox skills should lead with gateway-first routine actions."""
 

@@ -138,8 +138,8 @@ Generated runtime homes and manifests are also disposable. If the runtime later 
 1. Houmao persists project-local semantic objects in `.houmao/catalog.sqlite` and stores prompt/auth/skill/setup payloads under `.houmao/content/`.
 2. When current builders or launchers need a file tree, Houmao materializes the `.houmao/agents/` compatibility projection from the catalog plus managed content refs.
 3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to `roles/<role>/presets/<tool>/default.yaml` inside the projection.
-4. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
-5. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, and the effective auth bundle to materialize a runtime home.
+4. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings, including durable `launch.env_records` when present. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
+5. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, and any durable `launch.env_records` to materialize a runtime home.
 6. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
 
 ## Authoring Paths
@@ -148,5 +148,7 @@ The compatibility `.houmao/agents/` tree can still be inspected directly, but pr
 
 - `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist persisted into the catalog and projected into the compatibility tree.
 - for maintained easy launch paths, `project easy specialist create ...` persists unattended launch posture by default; pass `--no-unattended` to persist `launch.prompt_mode: as_is` instead.
+- persistent non-credential launch env belongs to specialist config via repeatable `project easy specialist create --env-set NAME=value`, which projects into `launch.env_records` and survives relaunch.
 - `project easy instance launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
+- one-off runtime env belongs to `project easy instance launch --env-set NAME=value|NAME`; it applies to the current live session only and is dropped by relaunch.
 - `project agents ...` is the low-level maintenance surface when you want to inspect or mutate the compatibility projection directly.

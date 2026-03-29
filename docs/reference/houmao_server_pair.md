@@ -24,7 +24,18 @@ houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
 houmao-mgr project init
 houmao-mgr project agents tools codex auth add --name default --api-key your-api-key-here
-houmao-mgr project easy specialist create --name gpu --system-prompt "You are a GPU specialist." --tool codex --api-key your-api-key-here
+houmao-mgr project easy specialist create \
+  --name gpu \
+  --system-prompt "You are a GPU specialist." \
+  --tool codex \
+  --api-key your-api-key-here \
+  --env-set OPENAI_MODEL=gpt-5.4
+OPENAI_BASE_URL=https://api.example.test/v1 \
+houmao-mgr project easy instance launch \
+  --specialist gpu \
+  --name gpu \
+  --env-set FEATURE_FLAG_X=1 \
+  --env-set OPENAI_BASE_URL
 houmao-mgr project mailbox init
 houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889
@@ -49,6 +60,14 @@ Prompt-policy note:
 - current brain construction and preset-backed launch flows treat omitted prompt mode as the unattended default
 - use `launch.prompt_mode: as_is` when you want provider startup posture left unchanged
 - `houmao-mgr project easy specialist create --no-unattended ...` persists that `as_is` posture into the specialist config and generated preset
+
+Easy launch env note:
+
+- `houmao-mgr project easy specialist create --env-set NAME=value` stores durable non-credential launch env under `launch.env_records`
+- persistent `launch.env_records` survive preset-backed rebuild and relaunch because they are specialist-owned launch semantics
+- `houmao-mgr project easy instance launch --env-set NAME=value|NAME` applies one-off env only to the current live session and drops it on relaunch
+- inherited one-off `NAME` bindings resolve from the invoking shell environment at launch time
+- durable specialist env remains separate from auth-bundle env, and auth-owned or Houmao-owned reserved names are rejected
 
 ## Server Startup Controls
 

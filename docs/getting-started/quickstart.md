@@ -84,6 +84,7 @@ pixi run houmao-mgr project easy specialist create \
   --system-prompt "You are a local repo assistant." \
   --tool claude \
   --api-key your-api-key-here \
+  --env-set OPENAI_MODEL=claude-sonnet-4 \
   --with-skill /tmp/notes-skill
 ```
 
@@ -92,6 +93,8 @@ When `--credential` is omitted, `project easy specialist create` derives the aut
 `--system-prompt` is optional for this higher-level workflow. If you omit both `--system-prompt` and `--system-prompt-file`, Houmao still writes the canonical role prompt file and treats that role as promptless.
 
 For maintained easy TUI paths such as Claude and Codex, `project easy specialist create` now persists `launch.prompt_mode: unattended` by default in both the catalog-backed specialist metadata and the generated compatibility preset. Use `--no-unattended` when you want the specialist to persist `launch.prompt_mode: as_is` instead.
+
+Use repeatable `--env-set NAME=value` on `project easy specialist create` when the env is part of the specialist's durable launch semantics and should survive later relaunch. Those records are stored under `launch.env_records`, stay separate from credential env, and should not be used for secrets or auth-owned names such as `OPENAI_API_KEY`.
 
 This higher-level flow persists semantic state in the catalog and snapshots payload content into the managed content store. It also materializes the compatibility projection tree used by the existing builders and runtime:
 
@@ -117,6 +120,8 @@ pixi run houmao-mgr project easy specialist get --name researcher
 pixi run houmao-mgr project agents roles get --name researcher
 pixi run houmao-mgr project agents tools claude get
 ```
+
+The specialist payload reports durable launch config, including any persisted `launch.env_records`.
 
 ### Step 4: Build A Brain Home
 
@@ -144,6 +149,8 @@ Because the local project overlay was initialized first, `brains build` discover
 
 If the selected preset omits `launch.prompt_mode`, current builders resolve that omission to the unattended default. Set `launch.prompt_mode: as_is` explicitly when you want provider startup posture left unchanged.
 
+If the selected preset includes `launch.env_records`, `brains build` treats those values as durable non-credential launch env. They are projected from the specialist config and persist across later relaunches, unlike one-off `project easy instance launch --env-set` input.
+
 ### Step 5: Launch A Managed Agent
 
 Launch from the compiled bare role selector:
@@ -168,12 +175,16 @@ If you want the higher-level launch path, use:
 pixi run houmao-mgr project easy instance launch \
   --specialist researcher \
   --name research \
+  --env-set FEATURE_FLAG_X=1 \
+  --env-set OPENAI_BASE_URL \
   --yolo
 ```
 
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
+
+Use repeatable `--env-set` on `project easy instance launch` for one-off env on the current live session. This form accepts both `NAME=value` and inherited `NAME`, resolves inherited names from the invoking shell environment, and does not persist into specialist config or survive a later relaunch.
 
 ### Step 6: Prompt And Stop
 

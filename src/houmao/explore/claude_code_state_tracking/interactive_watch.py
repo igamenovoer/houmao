@@ -118,6 +118,7 @@ def start_interactive_watch(
             auth=preset.auth,
             preset_path=selected_preset_path,
             preset_launch_overrides=preset.launch_overrides,
+            persistent_env_records=preset.launch_env_records,
             runtime_root=paths.runtime_root,
             mailbox=preset.mailbox,
             agent_name=preset.default_agent_name,

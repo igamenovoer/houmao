@@ -92,6 +92,9 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     allowlist = _require_str_list(env_contract, "allowlisted_env_vars")
     env_values, selected_env_names = parse_allowlisted_env(env_source, allowlist)
     env_var_names = list(selected_env_names)
+    persistent_env_records = _persistent_launch_env_records(launch_contract)
+    env_values.update(persistent_env_records)
+    env_var_names = sorted({*env_var_names, *persistent_env_records.keys()})
 
     if request.mailbox is not None:
         mailbox_env = mailbox_env_bindings(request.mailbox)
@@ -332,6 +335,29 @@ def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptM
             "Manifest `launch_policy.operator_prompt_mode` must be `as_is` or `unattended`."
         )
     return cast(OperatorPromptMode, value)
+
+
+def _persistent_launch_env_records(launch_contract: dict[str, Any]) -> dict[str, str]:
+    """Return persistent launch-owned env records from one manifest contract."""
+
+    raw_value = launch_contract.get("env_records")
+    if raw_value is None:
+        return {}
+    if not isinstance(raw_value, dict):
+        raise LaunchPlanError("Manifest `runtime.launch_contract.env_records` must be a mapping.")
+
+    env_records: dict[str, str] = {}
+    for raw_name, raw_item in raw_value.items():
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise LaunchPlanError(
+                "Manifest `runtime.launch_contract.env_records` requires non-empty string names."
+            )
+        if not isinstance(raw_item, str):
+            raise LaunchPlanError(
+                "Manifest `runtime.launch_contract.env_records` requires string values."
+            )
+        env_records[raw_name.strip()] = raw_item
+    return env_records
 
 
 def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:

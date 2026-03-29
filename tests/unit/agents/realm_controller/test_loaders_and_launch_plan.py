@@ -42,6 +42,7 @@ def _manifest(
     recipe_overrides: dict[str, Any] | None = None,
     direct_overrides: dict[str, Any] | None = None,
     tool_metadata: dict[str, Any] | None = None,
+    env_records: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     adapter_path = "/tmp/tool-adapter.yaml"
     runtime: dict[str, Any] = {
@@ -72,6 +73,8 @@ def _manifest(
             },
         },
     }
+    if env_records is not None:
+        runtime["launch_contract"]["env_records"] = dict(env_records)
     if runtime_extra is not None:
         runtime.update(runtime_extra)
 
@@ -219,6 +222,45 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
     redacted = plan.redacted_payload()
     assert redacted["env_var_names"] == ["OPENAI_API_KEY", "OPENAI_BASE_URL"]
     assert "sk-secret" not in str(redacted)
+
+
+def test_build_launch_plan_overlays_persistent_launch_env_records(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text(
+        "OPENAI_API_KEY=sk-secret\nOPENAI_BASE_URL=https://auth.example\n",
+        encoding="utf-8",
+    )
+    role_prompt_path = tmp_path / "repo/roles/test-role/system-prompt.md"
+    _write(role_prompt_path, "Test role prompt")
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+        env_records={
+            "OPENAI_BASE_URL": "https://launch.example",
+            "FEATURE_FLAG_X": "1",
+        },
+    )
+
+    role = load_role_package(tmp_path / "repo", "test-role")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="codex_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.env["OPENAI_API_KEY"] == "sk-secret"
+    assert plan.env["OPENAI_BASE_URL"] == "https://launch.example"
+    assert plan.env["FEATURE_FLAG_X"] == "1"
+    assert "FEATURE_FLAG_X" in plan.env_var_names
+    assert "FEATURE_FLAG_X" in plan.redacted_payload()["env_var_names"]
 
 
 def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> None:

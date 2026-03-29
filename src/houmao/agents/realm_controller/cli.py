@@ -488,6 +488,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             reuse_home=bool(args.reuse_home),
             launch_overrides=direct_launch_overrides,
             extra=recipe.extra if recipe else None,
+            persistent_env_records=recipe.launch_env_records if recipe else None,
         )
     )
 

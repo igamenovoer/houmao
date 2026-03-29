@@ -151,6 +151,31 @@ launch:
     assert preset.operator_prompt_mode == "as_is"
 
 
+def test_parse_agent_preset_accepts_launch_env_records(tmp_path: Path) -> None:
+    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    _write(
+        preset_path,
+        """
+skills:
+  - skill-a
+launch:
+  prompt_mode: unattended
+  env_records:
+    FEATURE_FLAG_X: "1"
+    OPENAI_MODEL: gpt-5.4
+""".strip()
+        + "\n",
+    )
+
+    preset = parse_agent_preset(preset_path)
+
+    assert preset.operator_prompt_mode == "unattended"
+    assert preset.launch_env_records == {
+        "FEATURE_FLAG_X": "1",
+        "OPENAI_MODEL": "gpt-5.4",
+    }
+
+
 def test_parse_agent_preset_rejects_invalid_gateway_defaults_under_extra(tmp_path: Path) -> None:
     preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
     _write(

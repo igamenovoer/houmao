@@ -619,6 +619,99 @@ def test_project_easy_specialist_create_can_persist_as_is_opt_out(
     assert preset_payload["launch"] == {"prompt_mode": "as_is"}
 
 
+def test_project_easy_specialist_create_persists_env_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--env-set",
+            "OPENAI_MODEL=gpt-5.4",
+            "--env-set",
+            "FEATURE_FLAG_X=1",
+        ],
+    )
+
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    preset_path = Path(create_payload["generated"]["preset"])
+    preset_payload = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ).output
+    )
+
+    assert preset_payload["launch"] == {
+        "prompt_mode": "unattended",
+        "env_records": {
+            "OPENAI_MODEL": "gpt-5.4",
+            "FEATURE_FLAG_X": "1",
+        },
+    }
+    assert specialist_payload["launch"] == preset_payload["launch"]
+
+
+def test_project_easy_specialist_create_rejects_credential_owned_env_names(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--env-set",
+            "OPENAI_API_KEY=other",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "belongs to credential env" in result.output
+
+
 def test_project_easy_specialist_create_fails_when_default_bundle_is_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -750,6 +843,89 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
     assert captured["mailbox_account_dir"] == private_mailbox_dir
     assert emitted["agent_name"] == "repo-research-1"
     assert emitted["headless"] is True
+
+
+def test_project_easy_instance_launch_resolves_one_off_env_set(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="AGENTSYS-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--yolo",
+            "--env-set",
+            "FEATURE_FLAG_X=1",
+            "--env-set",
+            "OPENAI_BASE_URL",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["launch_env_overrides"] == {
+        "FEATURE_FLAG_X": "1",
+        "OPENAI_BASE_URL": "https://example.invalid/v1",
+    }
 
 
 def test_project_easy_instance_launch_requires_specialist_and_name(tmp_path: Path) -> None:

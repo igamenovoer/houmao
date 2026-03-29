@@ -561,6 +561,7 @@ def materialize_headless_launch_request(
             preset_path=target.preset_path,
             preset_launch_overrides=target.preset.launch_overrides,
             operator_prompt_mode=target.preset.operator_prompt_mode,
+            persistent_env_records=target.preset.launch_env_records,
             mailbox=target.preset.mailbox,
             extra=target.preset.extra,
         )

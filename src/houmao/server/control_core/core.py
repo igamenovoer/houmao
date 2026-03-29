@@ -556,6 +556,7 @@ class CompatibilityControlCore:
                     preset_path=resolved_target.preset_path,
                     preset_launch_overrides=resolved_target.preset.launch_overrides,
                     operator_prompt_mode=resolved_target.preset.operator_prompt_mode,
+                    persistent_env_records=resolved_target.preset.launch_env_records,
                     mailbox=resolved_target.preset.mailbox,
                     extra=resolved_target.preset.extra,
                 )

@@ -11,7 +11,7 @@ This change needs to separate those two intents explicitly instead of persisting
 - Add persistent specialist-owned env records as a separate specialist launch-config concept.
 - Extend `project easy specialist create` to accept repeatable `--env-set NAME=value` for persistent specialist-owned env records.
 - Extend specialist inspection to report env records separately from the credential bundle and its auth env.
-- Extend preset launch schema with a dedicated `launch.env_records` section instead of folding persistent env into auth env files.
+- Extend the existing specialist launch schema, which already carries launch posture like `launch.prompt_mode`, with a dedicated `launch.env_records` section instead of folding persistent env into auth env files.
 - Keep credential env and specialist env records distinct:
   - credential env remains tool-auth-owned input
   - specialist env records remain non-credential specialist launch config

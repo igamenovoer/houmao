@@ -42,6 +42,7 @@ def _seed_brain_manifest(
     *,
     tool: str = "codex",
     mailbox_block: str | None = None,
+    env_records: dict[str, str] | None = None,
 ) -> Path:
     if tool == "claude":
         env_var = "ANTHROPIC_API_KEY"
@@ -86,14 +87,22 @@ def _seed_brain_manifest(
         "      preset_path: null",
         "      preset_overrides_present: false",
         "      direct_overrides_present: false",
-        "credentials:",
-        f"  auth_path: {tmp_path / 'auth'}",
-        "  projected_files: []",
-        "  env_contract:",
-        f"    source_file: {env_file}",
-        "    allowlisted_env_vars:",
-        f"      - {env_var}",
     ]
+    if env_records:
+        lines.extend(["    env_records:"])
+        for name, value in env_records.items():
+            lines.append(f"      {name}: {json.dumps(value)}")
+    lines.extend(
+        [
+            "credentials:",
+            f"  auth_path: {tmp_path / 'auth'}",
+            "  projected_files: []",
+            "  env_contract:",
+            f"    source_file: {env_file}",
+            "    allowlisted_env_vars:",
+            f"      - {env_var}",
+        ]
+    )
     if mailbox_block is not None:
         lines.extend(["mailbox:", *mailbox_block.splitlines()])
 
@@ -762,6 +771,10 @@ def test_relaunch_syncs_pending_local_interactive_mailbox_activation(
         "houmao.agents.realm_controller.runtime._refresh_pair_launch_registration",
         lambda controller: None,
     )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._refresh_backend_launch_plan",
+        lambda *, backend_session, launch_plan: None,
+    )
 
     result = controller.relaunch()
 
@@ -772,6 +785,68 @@ def test_relaunch_syncs_pending_local_interactive_mailbox_activation(
         controller.launch_plan.metadata["mailbox_live_bindings_version"]
         == existing_mailbox.bindings_version
     )
+
+
+def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    _seed_role(agent_def_dir)
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(
+        tmp_path,
+        env_records={"FEATURE_FLAG_X": "1"},
+    )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: object(),
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="local_interactive",
+        working_directory=tmp_path,
+        tmux_session_name="AGENTSYS-research",
+        launch_env_overrides={
+            "FEATURE_FLAG_X": "2",
+            "SESSION_ONLY": "2",
+        },
+    )
+    controller.tmux_session_name = "AGENTSYS-research"
+    controller.persist_manifest(refresh_registry=False)
+
+    assert controller.launch_plan.env["FEATURE_FLAG_X"] == "2"
+    assert controller.launch_plan.env["SESSION_ONLY"] == "2"
+    assert controller.launch_plan.transient_env_var_names == frozenset({"SESSION_ONLY"})
+
+    persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
+    assert "FEATURE_FLAG_X" in persisted["launch_plan"]["env_var_names"]
+    assert "SESSION_ONLY" not in persisted["launch_plan"]["env_var_names"]
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._relaunch_backend_session",
+        lambda controller: SimpleNamespace(status="ok", action="relaunch", detail="relaunched"),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._refresh_pair_launch_registration",
+        lambda controller: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._refresh_backend_launch_plan",
+        lambda *, backend_session, launch_plan: None,
+    )
+
+    result = controller.relaunch()
+
+    assert result.status == "ok"
+    assert controller.launch_plan.env["FEATURE_FLAG_X"] == "1"
+    assert "SESSION_ONLY" not in controller.launch_plan.env
+    assert controller.launch_plan.transient_env_var_names == frozenset()
 
 
 def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_posture(

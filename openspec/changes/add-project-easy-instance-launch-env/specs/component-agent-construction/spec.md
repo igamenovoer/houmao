@@ -28,6 +28,8 @@ If present, preset `launch` SHALL be an object containing optional `prompt_mode`
 
 `launch.overrides`, when present, SHALL use the existing launch-overrides shape of optional `args` and optional `tool_params`.
 
+Allowed `launch.prompt_mode` values SHALL be `unattended` and `as_is`.
+
 `launch.env_records`, when present, SHALL be a mapping of non-empty env names to string values representing persistent specialist-owned launch env records.
 
 `launch.env_records` SHALL remain distinct from credential env:
@@ -47,6 +49,7 @@ Unknown top-level preset fields SHALL be rejected. Non-core extension data SHALL
 
 - **WHEN** a developer authors preset-owned launch behavior
 - **THEN** `prompt_mode` SHALL appear under `launch.prompt_mode`
+- **AND THEN** `launch.prompt_mode` SHALL use only `unattended` or `as_is`
 - **AND THEN** any preset-owned launch overrides SHALL appear under `launch.overrides`
 - **AND THEN** persistent specialist env records SHALL appear under `launch.env_records`
 - **AND THEN** `launch.overrides` SHALL use only the supported `args` and `tool_params` sections
@@ -72,6 +75,8 @@ Each constructed runtime home SHALL produce a resolved manifest that records the
 The resolved manifest SHALL use `schema_version: 3`.
 
 When persistent specialist env records are present, the resolved manifest SHALL record them as a launch-owned env contract separate from the credential env contract.
+
+That launch-owned env contract is additive to the existing launch-policy intent contract such as `launch_policy.operator_prompt_mode`; it SHALL NOT replace or redefine prompt-policy semantics.
 
 #### Scenario: Runtime manifest supports audit and reproducibility
 

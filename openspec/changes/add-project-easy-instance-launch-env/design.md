@@ -65,12 +65,14 @@ Durable env records will be part of specialist launch config and represented in 
 
 `launch.env_records` will be a mapping of env name to literal string value. This is distinct from:
 
+- `launch.prompt_mode`, which already carries durable easy-launch posture like `unattended` vs `as_is`
 - `launch.overrides`, which controls CLI args and typed tool params
 - auth-bundle env files, which remain credential-owned input
 
 Rationale:
 
 - These values are launch semantics, so they belong with other launch-owned preset data.
+- Adding them beside the already-persisted launch posture keeps the `launch` object coherent instead of introducing another storage seam.
 - Keeping them in projected preset YAML lets the compatibility tree remain an honest view of durable specialist launch semantics.
 - Using a dedicated section avoids smuggling them through auth bundles or `extra`.
 
