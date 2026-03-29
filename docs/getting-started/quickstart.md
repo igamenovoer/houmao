@@ -91,6 +91,8 @@ When `--credential` is omitted, `project easy specialist create` derives the aut
 
 `--system-prompt` is optional for this higher-level workflow. If you omit both `--system-prompt` and `--system-prompt-file`, Houmao still writes the canonical role prompt file and treats that role as promptless.
 
+For maintained easy TUI paths such as Claude and Codex, `project easy specialist create` now persists `launch.prompt_mode: unattended` by default in both the catalog-backed specialist metadata and the generated compatibility preset. Use `--no-unattended` when you want the specialist to persist `launch.prompt_mode: as_is` instead.
+
 This higher-level flow persists semantic state in the catalog and snapshots payload content into the managed content store. It also materializes the compatibility projection tree used by the existing builders and runtime:
 
 ```text
@@ -140,6 +142,8 @@ Key options:
 
 Because the local project overlay was initialized first, `brains build` discovers `.houmao/houmao-config.toml`, resolves the project-local catalog, and materializes `.houmao/agents/` automatically when the compatibility projection is needed.
 
+If the selected preset omits `launch.prompt_mode`, current builders resolve that omission to the unattended default. Set `launch.prompt_mode: as_is` explicitly when you want provider startup posture left unchanged.
+
 ### Step 5: Launch A Managed Agent
 
 Launch from the compiled bare role selector:
@@ -168,6 +172,8 @@ pixi run houmao-mgr project easy instance launch \
 ```
 
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
+
+`project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
 
 ### Step 6: Prompt And Stop
 

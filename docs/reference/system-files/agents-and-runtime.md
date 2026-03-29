@@ -58,9 +58,10 @@ Important boundary: Houmao owns the generated-home path family and the build man
 
 Current manifest-level launch-policy artifacts:
 
-- the build manifest carries secret-free `launch_policy.operator_prompt_mode`,
+- the build manifest carries secret-free `launch_policy.operator_prompt_mode` using the `unattended|as_is` policy vocabulary,
 - unattended `launch.sh` helpers call `houmao.agents.launch_policy.cli` before the final tool exec,
-- runtime-managed session manifests and redacted launch plans may persist typed `launch_policy_provenance` metadata describing requested mode, detected version, selected strategy, and override source.
+- runtime-managed session manifests and redacted launch plans may persist typed `launch_policy_provenance` metadata describing requested mode, detected version, selected strategy, and override source,
+- current build flows resolve omitted prompt mode to unattended before manifest write; `as_is` is the explicit pass-through opt-out.
 
 Current manifest-level launch-override artifacts:
 

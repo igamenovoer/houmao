@@ -223,13 +223,16 @@ Project overlay notes:
 - `--name` and `--tool` are required.
 - `--credential` is optional; when omitted, Houmao uses `<specialist-name>-creds`.
 - `--system-prompt` and `--system-prompt-file` are both optional; provide at most one.
+- `--no-unattended` opts out of the easy unattended default and persists `launch.prompt_mode: as_is` for that specialist.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
+- maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset.
 - The project-local catalog is the source of truth; `.houmao/agents/` is a compatibility projection that is materialized as needed.
 
 `project easy instance launch` notes:
 
 - `--specialist` selects the compiled specialist definition to launch from.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
+- the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
 - `--mail-transport filesystem` requires `--mail-root` and optionally accepts `--mail-account-dir` for a symlink-backed private mailbox directory.
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.
 - `--mail-transport email` is reserved for a future real-email path and currently fails fast as not implemented.

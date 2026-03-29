@@ -4,6 +4,8 @@ Module: `src/houmao/agents/realm_controller/launch_plan.py` — Launch-plan comp
 
 The launch plan is the bridge between Houmao's build phase and run phase. It takes a built brain manifest and a role package, resolves environment variables, merges launch overrides, binds mailbox configuration, and produces a fully resolved, backend-specific plan that a session backend can execute directly.
 
+For operator prompt policy, the launch plan consumes the manifest's resolved `launch_policy.operator_prompt_mode` intent. Current builds resolve omission to `unattended`, while `as_is` means launch-plan composition leaves provider startup posture untouched.
+
 ## Resolution pipeline
 
 ```mermaid

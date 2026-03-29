@@ -44,6 +44,12 @@ houmao-mgr admin cleanup registry --grace-seconds 0
 houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 ```
 
+Prompt-policy note:
+
+- current brain construction and preset-backed launch flows treat omitted prompt mode as the unattended default
+- use `launch.prompt_mode: as_is` when you want provider startup posture left unchanged
+- `houmao-mgr project easy specialist create --no-unattended ...` persists that `as_is` posture into the specialist config and generated preset
+
 ## Server Startup Controls
 
 `houmao-mgr server start` is detached by default. It starts or reuses `houmao-server`, waits for health, emits one JSON startup result, and returns the terminal to the operator. Use `--foreground` when you intentionally want the old attached `houmao-server serve` behavior in the current process.
