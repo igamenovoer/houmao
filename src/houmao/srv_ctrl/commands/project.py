@@ -1104,6 +1104,7 @@ def easy_specialist_group() -> None:
     type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
     help="Tool lane for the specialist.",
 )
+@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
 @click.option("--credential", default=None, help="Credential bundle name.")
 @click.option("--api-key", default=None, help="Common API key input for the selected tool.")
 @click.option(
@@ -1156,6 +1157,7 @@ def create_easy_specialist_command(
     system_prompt: str | None,
     system_prompt_file: Path | None,
     tool_name: str,
+    setup: str,
     credential: str | None,
     api_key: str | None,
     base_url: str | None,
@@ -1207,6 +1209,10 @@ def create_easy_specialist_command(
         overlay=overlay,
         skill_dirs=skill_dirs,
     )
+    setup_name = _require_non_empty_name(setup, field_name="--setup")
+    setup_path = _tool_setup_path(overlay=overlay, tool=tool_name, name=setup_name)
+    if not setup_path.is_dir():
+        raise click.ClickException(f"Setup bundle not found: {setup_path}")
     adapter = _load_overlay_tool_adapter(overlay=overlay, tool=tool_name)
     persistent_env_records = _parse_specialist_env_records_or_click(
         adapter=adapter,
@@ -1244,7 +1250,7 @@ def create_easy_specialist_command(
         overlay=overlay,
         role_name=specialist_name,
         tool=tool_name,
-        setup="default",
+        setup=setup_name,
         skills=[skill_path.name for skill_path in imported_skills],
         auth=credential_name,
         prompt_mode=prompt_mode,
@@ -1257,10 +1263,11 @@ def create_easy_specialist_command(
         provider=TOOL_PROVIDER_MAP[tool_name],
         credential_name=credential_name,
         role_name=specialist_name,
-        setup_name="default",
+        setup_name=setup_name,
         prompt_path=system_prompt_path,
         auth_path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
         skill_paths=tuple(imported_skills),
+        setup_path=setup_path,
         launch_mapping=launch_mapping,
         mailbox_mapping=None,
         extra_mapping=None,
@@ -1271,6 +1278,7 @@ def create_easy_specialist_command(
             "project_root": str(overlay.project_root),
             "specialist": specialist_name,
             "tool": tool_name,
+            "setup": setup_name,
             "provider": metadata.provider,
             "credential": credential_name,
             "metadata_path": str(metadata_path),
@@ -2575,6 +2583,7 @@ def _specialist_payload(
         "tool": metadata.tool,
         "provider": metadata.provider,
         "credential": metadata.credential_name,
+        "setup": metadata.setup_name,
         "role_name": metadata.role_name,
         "skills": list(metadata.skills),
         "launch": dict(metadata.launch_payload),

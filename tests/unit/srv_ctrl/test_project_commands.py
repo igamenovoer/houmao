@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 from click.testing import CliRunner
@@ -23,6 +24,20 @@ def _make_skill_dir(root: Path, name: str) -> Path:
         encoding="utf-8",
     )
     return skill_root
+
+
+def _clone_setup_dir(repo_root: Path, *, tool: str, source: str, target: str) -> Path:
+    """Clone one project-local setup directory for test coverage."""
+
+    source_root = repo_root / ".houmao" / "agents" / "tools" / tool / "setups" / source
+    target_root = repo_root / ".houmao" / "agents" / "tools" / tool / "setups" / target
+    if source_root.is_dir():
+        shutil.copytree(source_root, target_root)
+        return target_root
+
+    target_root.mkdir(parents=True, exist_ok=True)
+    (target_root / "config.toml").write_text('model = "gpt-5.4"\n', encoding="utf-8")
+    return target_root
 
 
 def test_project_help_mentions_agents_easy_and_mailbox() -> None:
@@ -914,6 +929,167 @@ def test_project_easy_specialist_create_persists_env_records(
         },
     }
     assert specialist_payload["launch"] == preset_payload["launch"]
+
+
+def test_project_easy_specialist_create_persists_non_default_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    _clone_setup_dir(repo_root, tool="codex", source="default", target="yunwu-openai")
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--setup",
+            "yunwu-openai",
+            "--api-key",
+            "sk-openai",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ).output
+    )
+
+    assert payload["setup"] == "yunwu-openai"
+    assert payload["generated"]["preset"].endswith("/codex/yunwu-openai.yaml")
+    assert specialist_payload["setup"] == "yunwu-openai"
+    assert specialist_payload["generated"]["preset"].endswith("/codex/yunwu-openai.yaml")
+
+
+@pytest.mark.parametrize("tool_name", ["claude", "codex"])
+def test_project_easy_specialist_create_persists_default_setup_for_supported_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_name: str,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / f"repo-{tool_name}").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            tool_name,
+            "--api-key",
+            "sk-openai",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+
+    assert payload["setup"] == "default"
+    assert payload["generated"]["preset"].endswith(f"/{tool_name}/default.yaml")
+
+
+def test_project_easy_instance_launch_uses_stored_specialist_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    _clone_setup_dir(repo_root, tool="codex", source="default", target="yunwu-openai")
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--setup",
+                "yunwu-openai",
+                "--api-key",
+                "sk-openai",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    shutil.rmtree(repo_root / ".houmao" / "agents" / "roles" / "researcher")
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        preset_root = (
+            repo_root / ".houmao" / "agents" / "roles" / "researcher" / "presets" / "codex"
+        )
+        assert (preset_root / "yunwu-openai.yaml").is_file()
+        assert not (preset_root / "default.yaml").exists()
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="AGENTSYS-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["agents"] == "researcher"
 
 
 def test_project_easy_specialist_create_rejects_credential_owned_env_names(

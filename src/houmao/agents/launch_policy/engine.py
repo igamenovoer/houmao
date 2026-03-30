@@ -253,9 +253,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         payload, "operator_prompt_mode", source=source
     )
     if operator_prompt_mode_raw not in _OPERATOR_PROMPT_MODES:
-        raise LaunchPolicyError(
-            f"{source}.operator_prompt_mode must be `as_is` or `unattended`."
-        )
+        raise LaunchPolicyError(f"{source}.operator_prompt_mode must be `as_is` or `unattended`.")
     operator_prompt_mode = cast(OperatorPromptMode, operator_prompt_mode_raw)
 
     backends_payload = payload.get("backends")
@@ -447,10 +445,12 @@ def _apply_action(
         )
         return
     if action.kind == "provider_hook.call":
-        if request.application_kind != "provider_start":
-            return
         hook_id = _require_non_blank_str(action.params, "hook_id", source=action.kind)
-        run_provider_hook(hook_id=hook_id, request=request)
+        if request.application_kind != "provider_start" and hook_id not in {
+            "codex.canonicalize_unattended_launch_inputs"
+        }:
+            return
+        run_provider_hook(hook_id=hook_id, request=request, args=args)
         return
     raise LaunchPolicyError(f"Unsupported launch-policy action kind `{action.kind}`.")
 

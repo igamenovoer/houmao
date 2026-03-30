@@ -146,6 +146,81 @@ wire_api = "responses"
     assert payload["projects"][str((tmp_path / "workspace").resolve())]["trust_level"] == "trusted"
 
 
+def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="codex",
+            backend="codex_headless",
+            executable="codex",
+            base_args=(
+                "--full-auto",
+                "--yolo",
+                "-a",
+                "on-request",
+                "--ask-for-approval=on-failure",
+                "-s",
+                "workspace-write",
+                "--sandbox=read-only",
+                "-c",
+                'approval_policy="on-request"',
+                "--config",
+                'sandbox_mode="workspace-write"',
+                "--config=notice.hide_full_access_warning=false",
+                "-c",
+                'notice.model_migrations.gpt-5.3-codex="skip"',
+                "--config",
+                'projects.repo.trust_level="untrusted"',
+                "-m",
+                "gpt-5.2",
+                "--config",
+                'model_provider="yunwu-openai"',
+            ),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    assert result.args == (
+        "-m",
+        "gpt-5.2",
+        "--config",
+        'model_provider="yunwu-openai"',
+    )
+
+
+def test_codex_unattended_strategy_rejects_api_key_only_without_provider_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    home = tmp_path / "codex-home"
+    home.mkdir()
+
+    with pytest.raises(LaunchPolicyError, match="Codex credential readiness requires"):
+        apply_launch_policy(
+            LaunchPolicyRequest(
+                tool="codex",
+                backend="codex_headless",
+                executable="codex",
+                base_args=(),
+                requested_operator_prompt_mode="unattended",
+                working_directory=tmp_path / "workspace",
+                home_path=home,
+                env={"OPENAI_API_KEY": "sk-test"},
+            )
+        )
+
+
 @pytest.mark.parametrize("version_output", ["2.1.81 (Claude Code)", "2.1.83 (Claude Code)"])
 def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
     monkeypatch: pytest.MonkeyPatch,
@@ -194,6 +269,29 @@ def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
         is True
     )
     assert api_key not in state_text
+
+
+def test_claude_unattended_strategy_deduplicates_owned_launch_arg(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="2.1.83 (Claude Code)")
+    home = tmp_path / "claude-home"
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="claude",
+            backend="claude_headless",
+            executable="claude",
+            base_args=("-p", "--dangerously-skip-permissions", "--dangerously-skip-permissions"),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={"ANTHROPIC_API_KEY": "sk-test"},
+        )
+    )
+
+    assert result.args == ("-p", "--dangerously-skip-permissions")
 
 
 def test_claude_resume_control_preserves_cli_args_without_touching_owned_files(

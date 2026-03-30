@@ -192,6 +192,43 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert "sk-test-123" not in manifest_text
 
 
+def test_build_brain_home_copies_selected_setup_bundle_verbatim(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    custom_setup = (
+        """
+model = "gpt-5.4"
+model_provider = "yunwu-openai"
+
+[model_providers.yunwu-openai]
+name = "Yunwu"
+base_url = "https://api.example.test/v1"
+env_key = "OPENAI_API_KEY"
+requires_openai_auth = false
+wire_api = "responses"
+""".strip()
+        + "\n"
+    )
+    _write(agent_def_dir / "tools/codex/setups/yunwu-openai/config.toml", custom_setup)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="yunwu-openai",
+            credential_profile="personal-a",
+            home_id="home-selected-setup",
+        )
+    )
+
+    assert (result.home_path / "config.toml").read_text(encoding="utf-8") == custom_setup
+
+
 def test_build_brain_home_persists_persistent_launch_env_records(
     tmp_path: Path,
 ) -> None:
@@ -226,7 +263,9 @@ def test_build_brain_home_persists_persistent_launch_env_records(
     }
 
 
-def test_build_brain_home_rejects_persistent_env_records_owned_by_credentials(tmp_path: Path) -> None:
+def test_build_brain_home_rejects_persistent_env_records_owned_by_credentials(
+    tmp_path: Path,
+) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_repo(agent_def_dir)
