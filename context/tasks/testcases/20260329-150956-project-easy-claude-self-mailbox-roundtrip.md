@@ -55,3 +55,34 @@ Verify a clean-start project can create a Claude Code specialist, provision a fi
 - This case intentionally uses a clean project-local `.houmao/` start rather than a reused overlay.
 - The target is a real end-to-end operator path, not a unit or smoke test.
 - The mailbox transport should remain filesystem-based unless the run explicitly pivots for a discovered blocker.
+
+## Latest Result
+
+**Last run:** 2026-03-30 05:01:55 UTC
+**Tested commit:** `330bfca80f330fc14d46521900fc50475fac87d2`
+**Outcome:** passed
+
+### Observed Success Path
+
+1. Removed the project-local `.houmao/` overlay and re-ran `houmao-mgr project init`.
+2. Imported the Claude fixture auth bundle into the fresh project overlay and created specialist `claude-self-050155`.
+3. Initialized the project mailbox root and registered project address `claude-self-050155@agents.localhost`.
+4. Launched a TUI instance for `claude-self-050155`.
+5. Bound the running instance to the project mailbox account.
+6. Sent a self-addressed message with `houmao-mgr agents mail send`.
+7. Verified delivery with both `houmao-mgr agents mail check` and `houmao-mgr project mailbox messages list/get`.
+8. Stopped the temporary instance after verification.
+
+### Delivery Evidence
+
+- `houmao-mgr agents mail send` returned an authoritative result with `execution_path=manager_direct` and `status=verified`.
+- Canonical message id: `msg-20260330T050646Z-de5702b2499e4e52a0e3aadd50cd67a6`
+- Subject: `HTT self-mail 20260330-050155`
+- Body: `Self mailbox roundtrip from claude-self-050155 at 2026-03-30T05:01:55Z.`
+- The message was visible in both `inbox` and `sent` projections under the project mailbox root.
+
+### Important Caveat
+
+- The old `MailboxResultParseError` failure from the 2026-03-29 run did not reproduce on this commit.
+- During the rerun, `houmao-mgr agents mailbox register --agent-name claude-self-050155` defaulted to the global mailbox root and `AGENTSYS-claude-self-050155@agents.localhost`.
+- To keep this testcase on the project-local mailbox path, the successful rerun used explicit `--mailbox-root`, `--principal-id`, and `--address` overrides on the late mailbox registration step.
