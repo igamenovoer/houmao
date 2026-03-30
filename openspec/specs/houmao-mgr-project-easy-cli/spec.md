@@ -21,6 +21,7 @@ At minimum, `specialist create` SHALL support:
 - repeated `--with-skill <skill-dir>`
 - `--no-unattended` as the explicit opt-out from the easy unattended default
 - repeated persistent specialist env input `--env-set NAME=value`
+- `--yes` to confirm replacement of an existing specialist definition without prompting
 
 When `--credential` is omitted, the command SHALL derive the credential bundle name as `<specialist-name>-creds`.
 
@@ -53,6 +54,12 @@ For tools whose maintained easy launch path does not support unattended startup,
 - duplicate env names in the same specialist definition
 - Houmao-owned reserved env names
 - env names that belong to the selected tool adapter's auth-env allowlist
+
+When `specialist create` detects an existing specialist definition with the same name, whether through the project catalog entry, an existing specialist-owned role projection, or both, the CLI SHALL require explicit operator confirmation before replacing that specialist-owned state.
+When `--yes` is present, the command SHALL perform the confirmed replacement without prompting.
+When `--yes` is absent and no interactive terminal is available, the command SHALL fail clearly before replacing specialist-owned generated state.
+A confirmed replacement SHALL update the persisted specialist definition and regenerate the specialist-owned prompt and preset projection for that specialist name.
+A confirmed replacement SHALL NOT delete shared skills, shared auth content, or unrelated live runtime sessions solely because the specialist was replaced.
 
 #### Scenario: Create uses the derived credential name by default
 - **WHEN** an operator runs `houmao-mgr project easy specialist create --name researcher --system-prompt "You are a precise repo researcher." --tool codex --api-key sk-test --with-skill /tmp/notes-skill`
@@ -95,6 +102,28 @@ For tools whose maintained easy launch path does not support unattended startup,
 - **AND WHEN** an operator runs `houmao-mgr project easy specialist create --name researcher --tool codex --system-prompt "You are a precise repo researcher."`
 - **THEN** the command fails clearly
 - **AND THEN** the error identifies the resolved credential name `researcher-creds`
+
+#### Scenario: Operator replaces an existing specialist after confirmation
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name researcher --tool codex --api-key sk-test`
+- **AND WHEN** the project already contains specialist `researcher`
+- **AND WHEN** an interactive terminal is available
+- **AND WHEN** the operator confirms replacement
+- **THEN** the command updates the persisted specialist definition for `researcher`
+- **AND THEN** it regenerates the specialist-owned prompt and preset projection for `researcher`
+- **AND THEN** it does not delete shared skills or shared auth content solely because the specialist was replaced
+
+#### Scenario: Non-interactive specialist conflict without yes fails clearly
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name researcher --tool codex --api-key sk-test`
+- **AND WHEN** the project already contains specialist `researcher`
+- **AND WHEN** no interactive terminal is available
+- **AND WHEN** `--yes` is not present
+- **THEN** the command fails clearly before replacing specialist-owned generated state
+
+#### Scenario: Yes replaces an existing specialist without prompting
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name researcher --tool codex --api-key sk-test --yes`
+- **AND WHEN** the project already contains specialist `researcher`
+- **THEN** the command replaces the existing specialist definition without prompting
+- **AND THEN** it regenerates the specialist-owned prompt and preset projection for `researcher`
 
 ### Requirement: `project easy specialist list/get/remove` manages persisted specialist definitions
 
