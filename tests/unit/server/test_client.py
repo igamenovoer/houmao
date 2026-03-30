@@ -34,6 +34,8 @@ from houmao.server.models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
@@ -719,6 +721,44 @@ def test_send_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
             "kwargs": {"json_body": reply_request.model_dump(mode="json")},
         },
     ]
+
+
+def test_update_managed_agent_mail_state_posts_json_body(monkeypatch) -> None:
+    client = HoumaoServerClient("http://127.0.0.1:9889")
+    recorded: dict[str, object] = {}
+    request_model = HoumaoManagedAgentMailStateRequest(
+        message_ref="filesystem:msg-123",
+        read=True,
+    )
+
+    def _request_root_model(
+        method: str,
+        path: str,
+        model: type[HoumaoManagedAgentMailStateResponse],
+        **kwargs,
+    ):
+        recorded.update({"method": method, "path": path, "kwargs": kwargs})
+        return model.model_validate(
+            {
+                "schema_version": 1,
+                "transport": "filesystem",
+                "principal_id": "agent-1234",
+                "address": "agent@agents.localhost",
+                "message_ref": "filesystem:msg-123",
+                "read": True,
+            }
+        )
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    response = client.update_managed_agent_mail_state("AGENTSYS gpu/1", request_model)
+
+    assert response.read is True
+    assert recorded == {
+        "method": "POST",
+        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/state",
+        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+    }
 
 
 def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:

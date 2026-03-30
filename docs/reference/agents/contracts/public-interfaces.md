@@ -57,7 +57,7 @@ The main `houmao-mgr agents` commands are intentionally different:
 | --- | --- | --- | --- |
 | `agents prompt` | Runs the normal prompt-turn path against the resumed backend session | Yes | Advances persisted backend state after the turn |
 | `agents gateway send-keys` | Sends raw control input through the live gateway | No | For TUI situations where prompt submission is wrong |
-| `agents mail check/send/reply` | Prepares a structured prompt and sends it through the normal prompt-turn path | Yes | Mailbox transport is `filesystem` only in v1 |
+| `agents mail resolve-live/status/check/send/reply/mark-read` | Discovers current mailbox bindings and performs mailbox follow-up | `resolve-live`: N/A, others: Yes | Prefers verified manager-owned or gateway-backed execution and falls back to submission-only TUI prompting only when direct authority is unavailable |
 | `agents gateway attach` | Starts a live gateway sidecar for a gateway-capable session | N/A | Supported for `local_interactive`, `houmao_server_rest`, and native headless backends with implemented adapters |
 | `agents gateway status` | Reads live gateway status or seeded offline state | No | Falls back to `state.json` when no live gateway is attached |
 | `agents gateway prompt` | Queues a prompt through the live gateway | No | Returns an accepted queue record instead of waiting for turn completion |
@@ -74,8 +74,8 @@ Publicly relevant details:
 - Tmux-backed sessions publish `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, and `AGENTSYS_AGENT_DEF_DIR`.
 - `gateway/attach.json` is internal runtime bootstrap state, not part of the supported external discovery contract.
 - Live gateway env vars appear only while a gateway instance is actually attached.
-- For attached shared-mailbox work, the supported runtime-owned discovery path is `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
-- Inside the managed session, that resolver prefers current process env, falls back to the owning tmux session env, and validates the resulting live gateway binding before returning `gateway.base_url`.
+- For attached shared-mailbox work, the supported runtime-owned discovery path is `pixi run houmao-mgr agents mail resolve-live`.
+- Inside the owning managed tmux session, that resolver may omit selectors, prefers manifest-first discovery, and validates the resulting live gateway binding before returning `gateway.base_url`.
 - Outside the managed session, shared-registry discovery uses `runtime.manifest_path` as a locator and treats `gateway/run/current-instance.json` as the authoritative local live-gateway record once the session root is known.
 
 Pair-managed note:
@@ -106,7 +106,7 @@ The runtime keeps these paths separate because they promise different things.
 
 - `agents prompt` is the high-level prompt-turn path. It waits for readiness and completion and persists the updated backend state after the turn.
 - `agents gateway send-keys` is the low-level control-input path. It is meant for partial typing, menu navigation, escape delivery, or explicit key sequences that should not auto-submit.
-- `agents mail` commands are not a separate transport client. They prepare a structured mailbox prompt and send it through the same prompt-turn path used by `agents prompt`.
+- `agents mail` commands are not a separate long-lived transport client. They resolve the current mailbox authority, prefer verified manager-owned or gateway-backed execution, and only fall back to the structured prompt-turn path when direct authority is unavailable.
 - Gateway-routed commands (`agents gateway prompt`, `agents gateway interrupt`) are queue submission surfaces. They require a live attached gateway and return accepted request records instead of turn results.
 
 ## Current Implementation Scope
@@ -116,7 +116,7 @@ These docs intentionally describe the implemented behavior, not the full design 
 - Gateway capability publication exists for runtime-owned tmux-backed sessions.
 - Live gateway attach supports runtime-owned `local_interactive`, `houmao_server_rest`, and runtime-owned native headless backends whose execution adapters are implemented.
 - Raw control input (`agents gateway send-keys`) is supported for `local_interactive` and `houmao_server_rest` backends.
-- Mailbox control currently supports the filesystem transport only.
+- Late mailbox registration via `agents mailbox` targets the filesystem transport, while `agents mail` follow-up works with the runtime-managed mailbox transports supported by the addressed session.
 - The public managed-agent server surface for TUI-backed and server-managed headless agents lives under `/houmao/agents/*`; use [Managed-Agent API](../../managed_agent_api.md) for the server-owned request, detail-state, and gateway-route contracts.
 
 ## Low-Level Access

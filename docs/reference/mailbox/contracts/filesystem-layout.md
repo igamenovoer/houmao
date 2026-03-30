@@ -22,7 +22,7 @@ The mailbox root mixes shared artifacts with per-address projections.
     protocols/
       filesystem-mailbox-v1.md      # Shipped protocol note for this build
     scripts/
-      requirements.txt              # Third-party Python deps for managed helpers
+      requirements.txt              # Third-party Python deps for optional compatibility helpers
       register_mailbox.py
       deregister_mailbox.py
       deliver_message.py
@@ -65,7 +65,7 @@ The mailbox root mixes shared artifacts with per-address projections.
 - `rules/` is the mailbox-local policy and helper area.
 - `rules/README.md` explains the mailbox-local expectations.
 - `rules/protocols/filesystem-mailbox-v1.md` documents the shipped v1 contract.
-- `rules/scripts/` contains the managed helper entrypoints for sensitive operations.
+- `rules/scripts/`, when published, contains compatibility or implementation-detail helpers for repair, debugging, or deep direct filesystem workflows. It is not the ordinary attached-session workflow surface.
 
 ### Shared state
 
@@ -95,7 +95,7 @@ The mailbox root mixes shared artifacts with per-address projections.
 - The shared `index.sqlite` is the mutable structural catalog for the mailbox root.
 - The mailbox-local `mailbox.sqlite` is the mutable mailbox-view store for read flags, archive flags, deleted or starred state, and thread unread summaries.
 
-If you need the exact message schema, pair this page with [Canonical Model](canonical-model.md). If you need the mutation boundary, pair it with [Managed Scripts](managed-scripts.md).
+If you need the exact message schema, pair this page with [Canonical Model](canonical-model.md). If you need the compatibility-helper mutation boundary, pair it with [Managed Scripts](managed-scripts.md).
 
 ## Source References
 

@@ -1,6 +1,6 @@
 # Mailbox Quickstart
 
-This page shows the shortest safe path to a working mailbox-enabled local managed agent and the three manager-owned mailbox commands you will use first: `agents mail check`, `agents mail send`, and `agents mail reply`.
+This page shows the shortest safe path to a working mailbox-enabled local managed agent and the manager-owned mailbox flow you will use first: `agents mail resolve-live`, `agents mail check`, `agents mail send`, `agents mail reply`, and `agents mail mark-read`.
 
 ## Choose Your Transport
 
@@ -11,17 +11,19 @@ Choose the transport before you copy a startup example.
 | `filesystem` | you want the fully Houmao-owned mailbox transport with local rules, SQLite state, and projections | stay on this page |
 | `stalwart` | you want Stalwart to be the mailbox authority for delivery, unread state, and reply ancestry | [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md) |
 
-The rest of this page keeps the shortest inline filesystem example. The `mail check`, `mail send`, and `mail reply` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
+The rest of this page keeps the shortest inline filesystem example. The `mail resolve-live`, `mail check`, `mail send`, `mail reply`, and `mail mark-read` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
 
 ## Mental Model
 
-Do not wire mailbox behavior into prompts by hand. For the preferred local serverless workflow, `houmao-mgr` splits mailbox setup into two explicit seams:
+Do not wire mailbox behavior into prompts by hand. For the preferred local serverless workflow, `houmao-mgr` splits mailbox setup into three explicit seams:
 
 1. `houmao-mgr mailbox ...` manages the shared filesystem mailbox root and address lifecycle.
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
-3. `houmao-mgr agents mail ...` reuses that persisted binding for manager-owned mailbox follow-up after the agent is launched or joined, and only falls back to TUI-mediated request submission when direct authority is unavailable.
+3. `houmao-mgr agents mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
 
-After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface. When attached shared-mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc.
+After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session, and for tmux-backed managed sessions it also refreshes the targeted `AGENTSYS_MAILBOX_*` keys in tmux session environment so later `agents mail ...` commands can reuse the same binding immediately. The visible `skills/mailbox/...` subtree is the mailbox skill surface.
+
+When attached shared-mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run houmao-mgr agents mail resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc. Inside the owning managed tmux session, selectors may be omitted; outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
 
 ## Filesystem Quickstart
 
@@ -74,7 +76,13 @@ Typical status output after a successful headless registration:
 }
 ```
 
-For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, late mailbox registration refreshes the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`. That helper prefers current process env, falls back to the owning tmux session env, and returns optional `gateway.base_url` data when an attached shared-mailbox gateway is live.
+5. Resolve the current live mailbox binding before direct gateway HTTP work or shell automation.
+
+```bash
+pixi run houmao-mgr agents mail resolve-live --agent-name research
+```
+
+For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, late mailbox registration refreshes the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. That helper returns normalized mailbox bindings plus optional `gateway.base_url` data when an attached shared-mailbox gateway is live, and `--format shell` can export the same binding set for shell automation.
 
 Workspace-local job dirs remain separate from mailbox state. When the runtime uses local job storage under `<working-directory>/.houmao/jobs/<session-id>/`, that `.houmao/` tree is scratch/runtime state rather than the shared mailbox root. If the repo also uses `houmao-mgr project init`, the same hidden `.houmao/` overlay may contain both project-local agent-definition sources and runtime-local `jobs/` scratch, but the mailbox root remains separate and `.houmao/.gitignore` already hides the overlay by default.
 
@@ -92,6 +100,8 @@ sequenceDiagram
     Op->>CLI: agents mailbox register
     RT->>FS: register address<br/>and persist binding
     RT-->>CLI: activation state<br/>plus mailbox identity
+    Op->>CLI: agents mail resolve-live
+    CLI-->>Op: normalized binding<br/>and optional gateway
 ```
 
 ## Check Mail
@@ -108,6 +118,7 @@ pixi run houmao-mgr agents mail check \
 Important details:
 
 - `--agent-name` or `--agent-id` uses the normal managed-agent selector rules.
+- Inside the owning managed tmux session, those selectors may be omitted for current-session targeting.
 - `--unread-only` and `--limit` are optional filters.
 - `--since` accepts an RFC3339 lower bound when you want incremental review.
 
@@ -161,10 +172,25 @@ pixi run houmao-mgr agents mail reply \
 Important details:
 
 - `--message-ref` is required.
-- `--message-id` remains accepted as a compatibility alias.
 - Exactly one of `--body-file` or `--body-content` must be supplied.
 - Attachments are allowed on replies too.
 - Replies target the shared opaque `message_ref` contract; do not derive behavior from transport-prefixed values embedded inside the ref.
+
+## Mark Mail Read
+
+After you successfully process one nominated unread message, mark that same `message_ref` read.
+
+```bash
+pixi run houmao-mgr agents mail mark-read \
+  --agent-name research \
+  --message-ref filesystem:msg-20260312T050000Z-parent
+```
+
+Important details:
+
+- `mark-read` is the manager-owned fallback companion to gateway `POST /v1/mail/state`.
+- Only mark a message read after the processing step succeeded.
+- If the command returns `authoritative: false`, verify the outcome through `houmao-mgr agents mail check`, filesystem mailbox inspection, or transport-native mailbox state.
 
 ## Direct Execution And TUI Fallback
 
@@ -173,13 +199,13 @@ Important details:
 - Filesystem sessions use `skills/mailbox/email-via-filesystem/SKILL.md` as the mailbox skill document.
 - Stalwart sessions use `skills/mailbox/email-via-stalwart/SKILL.md` as the mailbox skill document.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
-- For bounded attached-session turns, that shared facade now includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
+- For bounded attached-session turns, that shared facade includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
 - In TUI fallback mode, exact sentinel-delimited result recovery is optional preview data, not the correctness boundary for the command result.
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
-    participant CLI as mail send<br/>or reply
+    participant CLI as mail send<br/>reply or mark-read
     participant RT as Runtime
     participant MB as Gateway facade<br/>or transport
     participant Ses as Live TUI

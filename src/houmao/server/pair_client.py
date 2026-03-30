@@ -36,6 +36,8 @@ from houmao.server.models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -228,6 +230,13 @@ class PairAuthorityClientProtocol(Protocol):
         request_model: HoumaoManagedAgentMailReplyRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Reply to managed-agent mail."""
+
+    def update_managed_agent_mail_state(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        """Update managed-agent mail state."""
 
     def submit_headless_turn(
         self,

@@ -112,7 +112,7 @@ Important rules:
 - The runtime validates these bindings structurally before trusting them.
 - `GET /health` is the authoritative liveness check for the live gateway.
 - A dead gateway can leave stale env behind temporarily; validation plus health probing is what cleans that up.
-- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
+- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run houmao-mgr agents mail resolve-live`.
 
 ## HTTP Surface
 

@@ -25,6 +25,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailCheckResponseV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
+    GatewayMailStateRequestV1,
+    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
@@ -830,8 +832,16 @@ class HoumaoManagedAgentMailReplyRequest(GatewayMailReplyRequestV1):
     """Pair-owned managed-agent mail-reply request payload."""
 
 
+class HoumaoManagedAgentMailStateRequest(GatewayMailStateRequestV1):
+    """Pair-owned managed-agent mail-state request payload."""
+
+
 class HoumaoManagedAgentMailActionResponse(GatewayMailActionResponseV1):
     """Pair-owned managed-agent mail action response payload."""
+
+
+class HoumaoManagedAgentMailStateResponse(GatewayMailStateResponseV1):
+    """Pair-owned managed-agent mail-state response payload."""
 
 
 class HoumaoHeadlessLaunchMailboxOptions(_HoumaoModel):

@@ -42,6 +42,8 @@ from houmao.server.models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
@@ -156,6 +158,7 @@ class _AppServiceDouble:
         self.m_mail_check_calls: list[tuple[str, HoumaoManagedAgentMailCheckRequest]] = []
         self.m_mail_send_calls: list[tuple[str, HoumaoManagedAgentMailSendRequest]] = []
         self.m_mail_reply_calls: list[tuple[str, HoumaoManagedAgentMailReplyRequest]] = []
+        self.m_mail_state_calls: list[tuple[str, HoumaoManagedAgentMailStateRequest]] = []
 
     def startup(self) -> None:
         return None
@@ -714,6 +717,20 @@ class _AppServiceDouble:
             },
         )
 
+    def update_managed_agent_mail_state(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        self.m_mail_state_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentMailStateResponse(
+            transport="filesystem",
+            principal_id="agent-1234",
+            address="agent@agents.localhost",
+            message_ref=request_model.message_ref,
+            read=request_model.read,
+        )
+
 
 def _compat_route_inventory() -> set[tuple[str, str]]:
     app = create_app(service=_AppServiceDouble())
@@ -1164,6 +1181,7 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     mail_check_route = _route("/houmao/agents/{agent_ref}/mail/check", "POST", app=app)
     mail_send_route = _route("/houmao/agents/{agent_ref}/mail/send", "POST", app=app)
     mail_reply_route = _route("/houmao/agents/{agent_ref}/mail/reply", "POST", app=app)
+    mail_state_route = _route("/houmao/agents/{agent_ref}/mail/state", "POST", app=app)
 
     assert list_route.endpoint().agents[0].tracked_agent_id == "claude-headless-1"
     assert get_route.endpoint(agent_ref="claude-headless-1").transport == "headless"
@@ -1286,6 +1304,14 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert mail_reply_response.operation == "reply"
+    mail_state_response = mail_state_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentMailStateRequest(
+            message_ref="filesystem:msg-123",
+            read=True,
+        ),
+    )
+    assert mail_state_response.read is True
     assert len(service.m_gateway_control_calls) == 1
     assert len(service.m_gateway_prompt_control_calls) == 1
     assert service.m_gateway_prompt_control_calls[0][0] == "claude-headless-1"
@@ -1295,3 +1321,12 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert service.m_gateway_tui_state_calls == ["claude-headless-1"]
     assert service.m_gateway_tui_history_calls == [("claude-headless-1", 7)]
     assert service.m_gateway_tui_note_prompt_calls == [("claude-headless-1", "hello")]
+    assert service.m_mail_state_calls == [
+        (
+            "claude-headless-1",
+            HoumaoManagedAgentMailStateRequest(
+                message_ref="filesystem:msg-123",
+                read=True,
+            ),
+        )
+    ]

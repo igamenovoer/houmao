@@ -28,8 +28,8 @@ from .backends.shadow_parser_core import DialogProjection
 from .errors import BackendExecutionError, MailboxCommandError, MailboxResultParseError
 from .models import LaunchPlan, SessionEvent
 
-MailOperation = Literal["check", "send", "reply"]
-MailCommandOperation = Literal["status", "check", "send", "reply"]
+MailOperation = Literal["check", "send", "reply", "mark-read"]
+MailCommandOperation = Literal["status", "check", "send", "reply", "mark-read"]
 MailExecutionPath = Literal["manager_direct", "gateway_backed", "tui_submission"]
 MailSubmissionStatus = Literal["submitted", "rejected", "busy", "interrupted", "tui_error"]
 
@@ -252,13 +252,7 @@ def ensure_mailbox_command_ready(
             paths.protocol_version_file,
             paths.sqlite_path,
             paths.rules_dir / "README.md",
-            paths.rules_scripts_dir / "requirements.txt",
-            paths.rules_scripts_dir / "deliver_message.py",
-            paths.rules_scripts_dir / "register_mailbox.py",
-            paths.rules_scripts_dir / "deregister_mailbox.py",
-            paths.rules_scripts_dir / "insert_standard_headers.py",
-            paths.rules_scripts_dir / "update_mailbox_state.py",
-            paths.rules_scripts_dir / "repair_index.py",
+            paths.rules_protocols_dir / "filesystem-mailbox-v1.md",
         )
         missing = [path for path in required_files if not path.is_file()]
         if missing:
@@ -293,8 +287,7 @@ def _mail_prompt_instruction_lines(
         ),
         (
             "Before any direct mailbox access, resolve current mailbox bindings through the "
-            "runtime-owned helper "
-            "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`."
+            "manager-owned helper `pixi run houmao-mgr agents mail resolve-live --format json`."
         ),
         (
             "Use only the targeted mailbox binding keys returned by that helper. Do not guess "
@@ -311,47 +304,13 @@ def _mail_prompt_instruction_lines(
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         lines.extend(
             [
-                "Inspect the shared mailbox `rules/` directory first before touching shared mailbox state.",
-                "Inspect `rules/scripts/requirements.txt` before invoking a shared Python mailbox helper.",
+                "Inspect the shared mailbox `rules/` directory first for mailbox-local policy guidance.",
                 (
-                    "Use shared scripts from `rules/scripts/` for any mailbox step that touches "
-                    "shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`."
+                    "Treat shared `rules/` content as policy guidance, not as the ordinary public "
+                    "execution contract for send, reply, check, or mark-read workflows."
                 ),
             ]
         )
-        if operation == "send":
-            lines.extend(
-                [
-                    (
-                        "For direct filesystem `send` without a live gateway facade, stage the "
-                        "Markdown body under the mailbox root `staging/` directory, then invoke "
-                        "`rules/scripts/deliver_message.py --mailbox-root \"$AGENTSYS_MAILBOX_FS_ROOT\" --payload-file <payload.json>`."
-                    ),
-                    (
-                        "Use `message_id` format `msg-{YYYYMMDDTHHMMSSZ}-{uuid4-no-dashes}` and "
-                        "set `thread_id = message_id` for a new message thread."
-                    ),
-                ]
-            )
-            if any(key in args for key in ("resolved_sender", "resolved_to", "resolved_cc")):
-                lines.append(
-                    "When direct filesystem delivery is required, treat `args.resolved_sender`, "
-                    "`args.resolved_to`, and `args.resolved_cc` as authoritative principal "
-                    "records and use them exactly instead of rediscovering mailbox ownership."
-                )
-            payload_template = _filesystem_send_payload_template(args)
-            if payload_template is not None:
-                lines.extend(
-                    [
-                        (
-                            "For direct filesystem `send`, use this `DeliveryRequest` JSON shape "
-                            "directly instead of reading more repository code to infer the payload:"
-                        ),
-                        "```json",
-                        json.dumps(payload_template, indent=2, sort_keys=True),
-                        "```",
-                    ]
-                )
     elif not prefer_live_gateway:
         lines.extend(
             [
@@ -412,6 +371,9 @@ def _mail_result_contract_template(
         payload["recipient_count"] = 1
     elif operation == "reply":
         payload["message_id"] = "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>"
+    elif operation == "mark-read":
+        payload["message_ref"] = "<opaque message_ref>"
+        payload["read"] = True
     elif operation == "check":
         payload["message_count"] = 0
         payload["messages"] = []

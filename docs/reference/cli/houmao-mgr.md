@@ -48,7 +48,7 @@ For dedicated coverage of complex nested command families, see:
 | `list`, `state` | Inspect locally discovered or pair-backed managed agents. |
 | `prompt` | Send a prompt to a running agent session. |
 | `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. |
-| `mail` | Check, send, or reply to inter-agent mail messages. |
+| `mail` | Resolve live mailbox bindings, inspect status, check, send, reply, or mark messages read. |
 | `mailbox` | Register, unregister, or inspect late filesystem mailbox bindings on an existing local managed agent. |
 | `cleanup session|logs|mailbox` | Clean one stopped managed-session envelope, session-local log artifacts, or session-local mailbox secret material without calling `houmao-server`. |
 | `gateway attach` | Attach a gateway to an agent session. |
@@ -72,6 +72,12 @@ Gateway TUI notes:
 - `gateway tui history` returns bounded in-memory snapshot history from the live gateway tracker, not coarse managed-agent `/history`.
 - `gateway tui note-prompt` records explicit prompt provenance on the live gateway tracker without enqueueing a gateway prompt request.
 
+Mail targeting rules:
+
+- Outside tmux, `agents mail` requires an explicit `--agent-id` or `--agent-name`.
+- Inside a managed tmux session, omitting those selectors resolves the current session from `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus shared-registry metadata second.
+- `--port` on `agents mail` is only supported with an explicit selector.
+
 The preferred local serverless mailbox workflow is:
 
 1. `houmao-mgr mailbox init --mailbox-root <path>`
@@ -79,7 +85,7 @@ The preferred local serverless mailbox workflow is:
 3. `houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
 4. `houmao-mgr agents mail ...`
 
-For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That remains true even when a joined session is controllable but non-relaunchable because no launch options were recorded, as long as Houmao can still update the session manifest and the owning tmux live mailbox projection safely. When a direct mailbox workflow needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`. That helper prefers current process env, falls back to the owning tmux session env, and returns optional live `gateway.base_url` data for attached `/v1/mail/*` work.
+For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That remains true even when a joined session is controllable but non-relaunchable because no launch options were recorded, as long as Houmao can still update the session manifest and the owning tmux live mailbox projection safely. When a direct mailbox workflow needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. Inside the owning tmux session, selectors may be omitted. Outside tmux, or when targeting a different agent, use an explicit `--agent-id` or `--agent-name`. The resolver returns normalized mailbox bindings plus optional live `gateway.base_url` data for attached `/v1/mail/*` work, and `--format shell` emits stable `export ...` assignments for shell automation.
 
 Cleanup targeting rules:
 

@@ -130,6 +130,8 @@ from houmao.server.models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentMailboxSummaryView,
     HoumaoManagedAgentRequestAcceptedResponse,
@@ -1305,6 +1307,17 @@ class HoumaoServerService:
         client = self._require_live_managed_mail_gateway_client(agent_ref)
         response = self._invoke_live_gateway(lambda: client.reply_mail(request_model))
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
+
+    def update_managed_agent_mail_state(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        """Update pair-owned mailbox state for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.update_mail_state(request_model))
+        return HoumaoManagedAgentMailStateResponse.model_validate(response.model_dump(mode="json"))
 
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Poll one known tracked terminal immediately and return the updated state."""

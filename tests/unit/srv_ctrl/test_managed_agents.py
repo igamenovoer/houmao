@@ -20,6 +20,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayMailActionResponseV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayMailboxMessageV1,
     GatewayMailboxParticipantV1,
@@ -34,6 +35,7 @@ from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentIdentity,
@@ -65,6 +67,8 @@ from houmao.srv_ctrl.commands.managed_agents import (
     interrupt_managed_agent,
     list_managed_agents,
     mail_send,
+    mail_mark_read,
+    mail_resolve_live,
     mail_status,
     mailbox_status,
     managed_agent_detail_payload,
@@ -72,6 +76,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     prompt_managed_agent,
     register_mailbox_binding,
     relaunch_managed_agent,
+    resolve_managed_agent_mail_target,
     resolve_managed_agent_target,
     submit_headless_turn,
     unregister_mailbox_binding,
@@ -165,6 +170,64 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
 def test_resolve_managed_agent_target_rejects_prefixed_agent_name_selector() -> None:
     with pytest.raises(click.ClickException, match="raw creation-time name"):
         resolve_managed_agent_target(agent_id=None, agent_name="AGENTSYS-gpu", port=None)
+
+
+def test_resolve_managed_agent_mail_target_uses_current_session_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = ManagedAgentTarget(
+        mode="local",
+        agent_ref="current",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_gateway_command_helpers",
+        lambda: SimpleNamespace(
+            _try_current_tmux_session_name=lambda: "AGENTSYS-gpu",
+            _resolve_gateway_current_session_target=lambda session_name: (
+                expected if session_name == "AGENTSYS-gpu" else None
+            ),
+        ),
+    )
+
+    target = resolve_managed_agent_mail_target(agent_id=None, agent_name=None, port=None)
+
+    assert target is expected
+
+
+def test_resolve_managed_agent_mail_target_prefers_explicit_selector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = ManagedAgentTarget(
+        mode="local",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "resolve_managed_agent_target",
+        lambda **kwargs: expected,
+    )
+
+    target = resolve_managed_agent_mail_target(agent_id=None, agent_name="gpu", port=None)
+
+    assert target is expected
+
+
+def test_resolve_managed_agent_mail_target_fails_outside_tmux_without_selectors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_gateway_command_helpers",
+        lambda: SimpleNamespace(_try_current_tmux_session_name=lambda: None),
+    )
+
+    with pytest.raises(click.ClickException, match="run inside the target tmux session"):
+        resolve_managed_agent_mail_target(agent_id=None, agent_name=None, port=None)
 
 
 def test_local_registry_resolution_does_not_fall_back_to_tmux_session_alias(
@@ -593,6 +656,146 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
     assert payload["status"] == "verified"
     assert payload["execution_path"] == "manager_direct"
     assert payload["message"]["message_ref"] == "filesystem:msg-1"
+
+
+def test_mail_mark_read_local_headless_uses_verified_manager_direct_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    response = GatewayMailStateResponseV1(
+        transport="filesystem",
+        principal_id="AGENTSYS-alpha",
+        address="AGENTSYS-alpha@agents.localhost",
+        message_ref="filesystem:msg-1",
+        read=True,
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_mark_read",
+        lambda controller, **kwargs: response,
+    )
+
+    payload = mail_mark_read(target, message_ref="filesystem:msg-1")
+
+    assert payload["authoritative"] is True
+    assert payload["status"] == "verified"
+    assert payload["execution_path"] == "manager_direct"
+    assert payload["read"] is True
+
+
+def test_mail_mark_read_local_tui_without_gateway_returns_submission_only_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    expected = {
+        "schema_version": 1,
+        "operation": "mark-read",
+        "authoritative": False,
+        "status": "submitted",
+        "execution_path": "tui_submission",
+        "request_id": "mailreq-3",
+    }
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_live_gateway_client_for_controller",
+        lambda _controller: None,
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_run_local_mail_prompt",
+        lambda **kwargs: expected,
+    )
+
+    payload = mail_mark_read(target, message_ref="filesystem:msg-1")
+
+    assert payload == expected
+
+
+def test_mail_resolve_live_local_returns_normalized_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    resolution = SimpleNamespace(
+        gateway=None,
+        payload=lambda: {
+            "source": "tmux_session_env",
+            "transport": "filesystem",
+            "principal_id": "AGENTSYS-alpha",
+            "address": "AGENTSYS-alpha@agents.localhost",
+            "bindings_version": "2026-03-29T15:00:00Z",
+            "mailbox": {"transport": "filesystem"},
+            "env": {"AGENTSYS_MAILBOX_TRANSPORT": "filesystem"},
+            "gateway": None,
+        },
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(
+            launch_plan=SimpleNamespace(mailbox=object()),
+            manifest_path=tmp_path / "manifest.json",
+        ),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "resolve_live_mailbox_binding_from_manifest_path",
+        lambda **kwargs: resolution,
+    )
+
+    payload = mail_resolve_live(target)
+
+    assert payload["schema_version"] == 1
+    assert payload["managed_agent"]["mode"] == "local"
+    assert payload["transport"] == "filesystem"
+    assert payload["gateway_available"] is False
+
+
+def test_mail_resolve_live_server_returns_pair_authority_payload() -> None:
+    state = _managed_state(_managed_identity(transport="tui"))
+    state.gateway = HoumaoManagedAgentGatewaySummaryView(
+        gateway_health="healthy",
+        managed_agent_connectivity="connected",
+        managed_agent_recovery="idle",
+        request_admission="open",
+        active_execution="idle",
+        queue_depth=0,
+        gateway_host="127.0.0.1",
+        gateway_port=43123,
+    )
+    status = GatewayMailStatusV1(
+        transport="filesystem",
+        principal_id="AGENTSYS-alpha",
+        address="AGENTSYS-alpha@agents.localhost",
+        bindings_version="2026-03-29T15:00:00Z",
+    )
+    client = SimpleNamespace(
+        get_managed_agent_state=lambda agent_ref: state,
+        get_managed_agent_mail_status=lambda agent_ref: status,
+    )
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="remote",
+        identity=_managed_identity(transport="tui"),
+        client=client,
+    )
+
+    payload = mail_resolve_live(target)
+
+    assert payload["source"] == "pair_authority"
+    assert payload["managed_agent"]["mode"] == "server"
+    assert payload["gateway_available"] is True
+    assert payload["gateway"]["base_url"] == "http://127.0.0.1:43123"
 
 
 def test_enrich_local_mail_prompt_args_resolves_filesystem_mailbox_principals(

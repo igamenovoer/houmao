@@ -96,6 +96,7 @@ def _native_launch_target(*, tmp_path: Path, agent_def_dir: Path) -> SimpleNames
             skills=[],
             setup="default",
             auth="default",
+            launch_env_records={},
             launch_overrides=None,
             operator_prompt_mode=None,
             mailbox=None,
@@ -915,6 +916,82 @@ def test_houmao_mgr_agents_help_retires_history_command() -> None:
     history_result = runner.invoke(cli, ["agents", "history", "--help"])
     assert history_result.exit_code != 0
     assert "No such command 'history'" in history_result.output
+
+
+def test_houmao_mgr_agents_mail_resolve_live_supports_json_and_shell_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "source": "tmux_session_env",
+        "managed_agent": {
+            "mode": "local",
+            "agent_ref": "alpha",
+            "agent_name": "AGENTSYS-alpha",
+            "agent_id": "agent-alpha",
+            "tmux_session_name": "AGENTSYS-alpha",
+        },
+        "transport": "filesystem",
+        "principal_id": "AGENTSYS-alpha",
+        "address": "AGENTSYS-alpha@agents.localhost",
+        "bindings_version": "2026-03-29T15:00:00Z",
+        "mailbox": {"transport": "filesystem"},
+        "env": {
+            "AGENTSYS_MAILBOX_TRANSPORT": "filesystem",
+            "AGENTSYS_MAILBOX_PRINCIPAL_ID": "AGENTSYS-alpha",
+            "AGENTSYS_MAILBOX_ADDRESS": "AGENTSYS-alpha@agents.localhost",
+            "AGENTSYS_MAILBOX_BINDINGS_VERSION": "2026-03-29T15:00:00Z",
+            "AGENTSYS_MAILBOX_FS_ROOT": "/tmp/mailbox",
+        },
+        "gateway": {
+            "source": "tmux_session_env",
+            "host": "127.0.0.1",
+            "port": 43123,
+            "base_url": "http://127.0.0.1:43123",
+            "protocol_version": "v1",
+            "state_path": "/tmp/state.json",
+        },
+        "gateway_available": True,
+    }
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target",
+        lambda **kwargs: SimpleNamespace(agent_ref="alpha"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mail.mail_resolve_live",
+        lambda target: payload,
+    )
+    runner = CliRunner()
+
+    json_result = runner.invoke(
+        cli,
+        ["agents", "mail", "resolve-live", "--agent-name", "alpha"],
+    )
+    shell_result = runner.invoke(
+        cli,
+        ["agents", "mail", "resolve-live", "--format", "shell", "--agent-name", "alpha"],
+    )
+
+    assert json_result.exit_code == 0, json_result.output
+    assert json.loads(json_result.output)["gateway"]["base_url"] == "http://127.0.0.1:43123"
+    assert shell_result.exit_code == 0, shell_result.output
+    assert "export AGENTSYS_MAILBOX_TRANSPORT=filesystem" in shell_result.output
+    assert "export AGENTSYS_MAILBOX_GATEWAY_AVAILABLE=1" in shell_result.output
+    assert "export AGENTSYS_MAILBOX_GATEWAY_BASE_URL=http://127.0.0.1:43123" in shell_result.output
+
+
+def test_houmao_mgr_agents_mail_resolve_live_requires_selector_outside_tmux(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._gateway_command_helpers",
+        lambda: SimpleNamespace(_try_current_tmux_session_name=lambda: None),
+    )
+
+    result = CliRunner().invoke(cli, ["agents", "mail", "resolve-live"])
+
+    assert result.exit_code != 0
+    assert "run inside the target tmux session" in result.output
 
 
 def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(

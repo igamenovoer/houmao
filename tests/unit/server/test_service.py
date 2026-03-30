@@ -51,6 +51,7 @@ from houmao.server.models import (
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailCheckRequest,
+    HoumaoManagedAgentMailStateRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
 )
@@ -720,6 +721,46 @@ def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) 
         service.check_managed_agent_mail(
             "cao-gpu",
             HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5),
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+def test_managed_agent_mail_state_requires_pair_owned_mail_capability(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=None,
+            session_root=None,
+            agent_name="AGENTSYS-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(
+        HTTPException,
+        match="does not expose pair-owned mailbox capability",
+    ) as exc_info:
+        service.update_managed_agent_mail_state(
+            "cao-gpu",
+            HoumaoManagedAgentMailStateRequest(
+                message_ref="filesystem:msg-123",
+                read=True,
+            ),
         )
 
     assert exc_info.value.status_code == 503

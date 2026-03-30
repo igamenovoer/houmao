@@ -14,6 +14,7 @@ import click
 from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessProcessMetadata,
@@ -47,6 +48,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierStatusV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
+    GatewayMailStateRequestV1,
+    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
@@ -100,6 +103,7 @@ from houmao.server.models import (
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailboxSummaryView,
+    HoumaoManagedAgentMailStateRequest,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTuiDetailView,
@@ -261,6 +265,42 @@ def resolve_managed_agent_target(
         identity=identity,
         client=client,
     )
+
+
+def resolve_managed_agent_mail_target(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    port: int | None,
+) -> ManagedAgentTarget:
+    """Resolve one `agents mail` target using explicit or current-session selectors."""
+
+    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        allow_missing=True,
+    )
+    if selected_agent_id is not None or selected_agent_name is not None:
+        return resolve_managed_agent_target(
+            agent_id=selected_agent_id,
+            agent_name=selected_agent_name,
+            port=port,
+        )
+
+    if port is not None:
+        raise click.ClickException(
+            "`--port` is only supported with an explicit `--agent-id` or `--agent-name` "
+            "`agents mail` target."
+        )
+
+    gateway_commands = _gateway_command_helpers()
+    session_name = gateway_commands._try_current_tmux_session_name()
+    if session_name is None:
+        raise click.ClickException(
+            "Exactly one of `--agent-id` or `--agent-name` is required unless the command is "
+            "run inside the target tmux session."
+        )
+    return gateway_commands._resolve_gateway_current_session_target(session_name=session_name)
 
 
 def _resolve_local_managed_agent_record(
@@ -1015,7 +1055,11 @@ def unregister_mailbox_binding(
 def _local_manager_mail_status(controller: RuntimeSessionController) -> GatewayMailStatusV1:
     """Return authoritative local mailbox status through manager-owned execution."""
 
-    return _local_mailbox_adapter_for_controller(controller).status()
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        return adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _local_manager_mail_check(
@@ -1028,8 +1072,11 @@ def _local_manager_mail_check(
     """Check mailbox contents through manager-owned local execution."""
 
     adapter = _local_mailbox_adapter_for_controller(controller)
-    messages = adapter.check(unread_only=unread_only, limit=limit, since=since)
-    status = adapter.status()
+    try:
+        messages = adapter.check(unread_only=unread_only, limit=limit, since=since)
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
     unread_count = sum(1 for message in messages if message.unread is True)
     return GatewayMailCheckResponseV1(
         transport=status.transport,
@@ -1054,14 +1101,17 @@ def _local_manager_mail_send(
     """Send mail through manager-owned local execution."""
 
     adapter = _local_mailbox_adapter_for_controller(controller)
-    message = adapter.send(
-        to_addresses=to_recipients,
-        cc_addresses=cc_recipients,
-        subject=subject,
-        body_content=body_content,
-        attachments=attachments,
-    )
-    status = adapter.status()
+    try:
+        message = adapter.send(
+            to_addresses=to_recipients,
+            cc_addresses=cc_recipients,
+            subject=subject,
+            body_content=body_content,
+            attachments=attachments,
+        )
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
     return GatewayMailActionResponseV1(
         operation="send",
         transport=status.transport,
@@ -1081,12 +1131,15 @@ def _local_manager_mail_reply(
     """Reply through manager-owned local execution."""
 
     adapter = _local_mailbox_adapter_for_controller(controller)
-    message = adapter.reply(
-        message_ref=message_ref,
-        body_content=body_content,
-        attachments=attachments,
-    )
-    status = adapter.status()
+    try:
+        message = adapter.reply(
+            message_ref=message_ref,
+            body_content=body_content,
+            attachments=attachments,
+        )
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
     return GatewayMailActionResponseV1(
         operation="reply",
         transport=status.transport,
@@ -1094,6 +1147,20 @@ def _local_manager_mail_reply(
         address=status.address,
         message=message,
     )
+
+
+def _local_manager_mail_mark_read(
+    controller: RuntimeSessionController,
+    *,
+    message_ref: str,
+) -> GatewayMailStateResponseV1:
+    """Mark one mailbox message read through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        return adapter.update_read_state(message_ref=message_ref, read=True)
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _local_mailbox_adapter_for_controller(
@@ -1156,6 +1223,24 @@ def _gateway_mail_reply(
                 message_ref=message_ref,
                 body_content=body_content,
                 attachments=list(attachments),
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def _gateway_mail_mark_read(
+    client: GatewayClient,
+    *,
+    message_ref: str,
+) -> GatewayMailStateResponseV1:
+    """Mark one mailbox message read through one live loopback gateway client."""
+
+    try:
+        return client.update_mail_state(
+            GatewayMailStateRequestV1(
+                message_ref=message_ref,
+                read=True,
             )
         )
     except GatewayHttpError as exc:
@@ -1253,44 +1338,61 @@ def mail_send(
         )
 
     assert target.controller is not None
-    if target.identity.transport == "tui":
-        gateway_client = _live_gateway_client_for_controller(target.controller)
-        if gateway_client is not None:
-            return build_verified_mail_command_result(
-                operation="send",
-                execution_path="gateway_backed",
-                payload=_gateway_mail_send(
-                    gateway_client,
-                    to_recipients=to_recipients,
-                    cc_recipients=cc_recipients,
-                    subject=subject,
-                    body_content=body_content,
-                    attachments=attachments,
-                ),
-            )
-        return _run_local_mail_prompt(
-            controller=target.controller,
+    if target.identity.transport != "tui":
+        return build_verified_mail_command_result(
             operation="send",
-            args={
-                "to": to_recipients,
-                "cc": cc_recipients,
-                "subject": subject,
-                "body_content": body_content,
-                "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
-            },
+            execution_path="manager_direct",
+            payload=_local_manager_mail_send(
+                target.controller,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
         )
 
-    return build_verified_mail_command_result(
+    direct_mail_error = _local_manager_mail_authority_error(target.controller)
+    if direct_mail_error is None:
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_send(
+                target.controller,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    gateway_client = _live_gateway_client_for_controller(target.controller)
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_send(
+                gateway_client,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+    # Preserve the submission-only fallback when verified direct or gateway-backed
+    # execution is unavailable for a live TUI-managed session.
+    return _run_local_mail_prompt(
+        controller=target.controller,
         operation="send",
-        execution_path="manager_direct",
-        payload=_local_manager_mail_send(
-            target.controller,
-            to_recipients=to_recipients,
-            cc_recipients=cc_recipients,
-            subject=subject,
-            body_content=body_content,
-            attachments=attachments,
-        ),
+        args={
+            "to": to_recipients,
+            "cc": cc_recipients,
+            "subject": subject,
+            "body_content": body_content,
+            "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
+        },
     )
 
 
@@ -1322,39 +1424,234 @@ def mail_reply(
         )
 
     assert target.controller is not None
-    if target.identity.transport == "tui":
-        gateway_client = _live_gateway_client_for_controller(target.controller)
-        if gateway_client is not None:
-            return build_verified_mail_command_result(
-                operation="reply",
-                execution_path="gateway_backed",
-                payload=_gateway_mail_reply(
-                    gateway_client,
-                    message_ref=message_ref,
-                    body_content=body_content,
-                    attachments=attachments,
-                ),
-            )
-        return _run_local_mail_prompt(
-            controller=target.controller,
+    if target.identity.transport != "tui":
+        return build_verified_mail_command_result(
             operation="reply",
-            args={
-                "message_ref": message_ref,
-                "body_content": body_content,
-                "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
-            },
+            execution_path="manager_direct",
+            payload=_local_manager_mail_reply(
+                target.controller,
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=attachments,
+            ),
         )
 
-    return build_verified_mail_command_result(
+    direct_mail_error = _local_manager_mail_authority_error(target.controller)
+    if direct_mail_error is None:
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_reply(
+                target.controller,
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    gateway_client = _live_gateway_client_for_controller(target.controller)
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_reply(
+                gateway_client,
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+    return _run_local_mail_prompt(
+        controller=target.controller,
         operation="reply",
-        execution_path="manager_direct",
-        payload=_local_manager_mail_reply(
-            target.controller,
-            message_ref=message_ref,
-            body_content=body_content,
-            attachments=attachments,
-        ),
+        args={
+            "message_ref": message_ref,
+            "body_content": body_content,
+            "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
+        },
     )
+
+
+def mail_mark_read(
+    target: ManagedAgentTarget,
+    *,
+    message_ref: str,
+) -> object:
+    """Mark one mailbox message read for a managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.update_managed_agent_mail_state,
+                target.agent_ref,
+                HoumaoManagedAgentMailStateRequest(
+                    message_ref=message_ref,
+                    read=True,
+                ),
+            ),
+        )
+
+    assert target.controller is not None
+    if target.identity.transport != "tui":
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_mark_read(
+                target.controller,
+                message_ref=message_ref,
+            ),
+        )
+
+    direct_mail_error = _local_manager_mail_authority_error(target.controller)
+    if direct_mail_error is None:
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_mark_read(
+                target.controller,
+                message_ref=message_ref,
+            ),
+        )
+
+    gateway_client = _live_gateway_client_for_controller(target.controller)
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_mark_read(
+                gateway_client,
+                message_ref=message_ref,
+            ),
+        )
+    return _run_local_mail_prompt(
+        controller=target.controller,
+        operation="mark-read",
+        args={
+            "message_ref": message_ref,
+            "read": True,
+        },
+    )
+
+
+def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
+    """Resolve one managed agent's live mailbox bindings and gateway metadata."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        state = pair_request(target.client.get_managed_agent_state, target.agent_ref)
+        status = pair_request(target.client.get_managed_agent_mail_status, target.agent_ref)
+        return _server_live_mail_payload(target=target, state=state, status=status)
+
+    assert target.controller is not None
+    if target.controller.launch_plan.mailbox is None:
+        raise click.ClickException("Target session is not mailbox-enabled.")
+    try:
+        resolution = resolve_live_mailbox_binding_from_manifest_path(
+            manifest_path=target.controller.manifest_path,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return _local_live_mail_payload(target=target, resolution=resolution)
+
+
+def _local_manager_mail_authority_error(
+    controller: RuntimeSessionController,
+) -> click.ClickException | None:
+    """Return one direct-mail authority error, or `None` when direct execution is ready."""
+
+    try:
+        _local_mailbox_adapter_for_controller(controller)
+    except AttributeError:
+        return click.ClickException(
+            "Manager-owned local mail authority is unavailable for this runtime controller."
+        )
+    except click.ClickException as exc:
+        return exc
+    return None
+
+
+def _local_live_mail_payload(target: ManagedAgentTarget, resolution: Any) -> dict[str, Any]:
+    """Normalize one local live mailbox resolution payload."""
+
+    payload = resolution.payload()
+    payload["schema_version"] = 1
+    payload["managed_agent"] = _managed_agent_live_payload(target)
+    payload["gateway_available"] = resolution.gateway is not None
+    return payload
+
+
+def _server_live_mail_payload(
+    *,
+    target: ManagedAgentTarget,
+    state: HoumaoManagedAgentStateResponse,
+    status: GatewayMailStatusV1,
+) -> dict[str, Any]:
+    """Normalize one pair-backed live mailbox payload."""
+
+    gateway_payload: dict[str, Any] | None = None
+    gateway_summary = state.gateway
+    if (
+        gateway_summary is not None
+        and gateway_summary.gateway_host is not None
+        and gateway_summary.gateway_port is not None
+    ):
+        gateway_payload = {
+            "source": "pair_authority",
+            "host": gateway_summary.gateway_host,
+            "port": gateway_summary.gateway_port,
+            "base_url": f"http://{gateway_summary.gateway_host}:{gateway_summary.gateway_port}",
+            "protocol_version": "v1",
+            "state_path": None,
+        }
+
+    env_payload = {
+        "AGENTSYS_MAILBOX_TRANSPORT": status.transport,
+        "AGENTSYS_MAILBOX_PRINCIPAL_ID": status.principal_id,
+        "AGENTSYS_MAILBOX_ADDRESS": status.address,
+        "AGENTSYS_MAILBOX_BINDINGS_VERSION": status.bindings_version,
+    }
+    return {
+        "schema_version": 1,
+        "source": "pair_authority",
+        "managed_agent": _managed_agent_live_payload(target),
+        "transport": status.transport,
+        "principal_id": status.principal_id,
+        "address": status.address,
+        "bindings_version": status.bindings_version,
+        "mailbox": {
+            "transport": status.transport,
+            "principal_id": status.principal_id,
+            "address": status.address,
+            "bindings_version": status.bindings_version,
+        },
+        "env": env_payload,
+        "gateway": gateway_payload,
+        "gateway_available": gateway_payload is not None,
+    }
+
+
+def _managed_agent_live_payload(target: ManagedAgentTarget) -> dict[str, Any]:
+    """Project stable managed-agent identity fields for `resolve-live` payloads."""
+
+    return {
+        "mode": target.mode,
+        "agent_ref": target.agent_ref,
+        "tracked_agent_id": target.identity.tracked_agent_id,
+        "agent_name": target.identity.agent_name,
+        "agent_id": target.identity.agent_id,
+        "tmux_session_name": target.identity.tmux_session_name,
+    }
+
+
+def _gateway_command_helpers() -> Any:
+    """Import the gateway command module lazily to reuse current-session helpers."""
+
+    from .agents import gateway as gateway_commands
+
+    return gateway_commands
 
 
 def submit_headless_turn(

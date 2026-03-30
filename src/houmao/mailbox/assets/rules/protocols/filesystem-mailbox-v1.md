@@ -10,10 +10,10 @@ This protocol note is materialized by the runtime during filesystem mailbox boot
 - `mailboxes/<address>/inbox` and `mailboxes/<address>/sent` contain symlink projections back to canonical message files for the active registration of that full mailbox address.
 - `archive/` and `drafts/` are reserved placeholder directories in v1.
 - `locks/addresses/<address>.lock` is the address-scoped serialization key for delivery, mailbox-state mutation, register, deregister, and repair flows.
-- Sensitive operations that touch shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/` should use the managed scripts under `rules/scripts/`.
-- `rules/scripts/requirements.txt` declares the third-party Python dependencies needed by those managed Python helpers and uses minimum-version requirements for the managed validation stack.
-- The managed lifecycle surface includes `register_mailbox.py` for `safe|force|stash` joins and `deregister_mailbox.py` for `deactivate|purge` leave flows.
-- The managed Python helpers keep the stable `--mailbox-root` plus `--payload-file` contract, validate payloads through strict shared schemas before mutation, and emit exactly one JSON object to stdout for both success and failure outcomes.
+- Ordinary mailbox work should flow through Houmao-owned surfaces such as gateway `/v1/mail/*` or `houmao-mgr agents mail ...`, not through mailbox-owned scripts as the public execution contract.
+- `rules/` remains the mailbox-local source of policy guidance such as formatting, etiquette, and workflow hints.
+- `rules/scripts/`, when published, is compatibility or implementation detail rather than the primary ordinary workflow surface.
+- Published compatibility helpers keep the stable `--mailbox-root` plus `--payload-file` contract, validate payloads through strict shared schemas before mutation, and emit exactly one JSON object to stdout for both success and failure outcomes.
 
 ## Current implementation state
 
