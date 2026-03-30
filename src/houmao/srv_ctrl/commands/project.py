@@ -40,7 +40,12 @@ from houmao.project.overlay import (
 )
 
 from .agents.core import emit_local_launch_completion, launch_managed_agent_locally
-from .common import emit_json
+from .common import (
+    build_destructive_confirmation_callback,
+    confirm_destructive_action,
+    emit_json,
+    overwrite_confirm_option,
+)
 from .mailbox_support import (
     cleanup_mailbox_root,
     get_mailbox_account,
@@ -1145,6 +1150,7 @@ def easy_specialist_group() -> None:
     is_flag=True,
     help="Persist `launch.prompt_mode: as_is` instead of the easy unattended default.",
 )
+@overwrite_confirm_option
 def create_easy_specialist_command(
     name: str,
     system_prompt: str | None,
@@ -1164,6 +1170,7 @@ def create_easy_specialist_command(
     skill_dirs: tuple[Path, ...],
     env_set: tuple[str, ...],
     no_unattended: bool,
+    yes: bool,
 ) -> None:
     """Create one project-local specialist and compile it into the canonical tree."""
 
@@ -1174,12 +1181,24 @@ def create_easy_specialist_command(
         if credential is not None
         else f"{specialist_name}-creds"
     )
-    _validate_specialist_create_inputs(
+    replace_conflict = _validate_specialist_create_inputs(
         overlay=overlay,
         specialist_name=specialist_name,
         system_prompt=system_prompt,
         system_prompt_file=system_prompt_file,
     )
+    if replace_conflict is not None:
+        confirm_destructive_action(
+            prompt=(
+                f"Replace specialist `{specialist_name}` and regenerate its managed prompt/preset?"
+            ),
+            yes=yes,
+            non_interactive_message=(
+                f"Specialist `{specialist_name}` already exists ({replace_conflict}). "
+                "Rerun with `--yes` to replace it non-interactively."
+            ),
+            cancelled_message="Specialist replacement cancelled.",
+        )
     prompt_text = _resolve_system_prompt_text(
         system_prompt=system_prompt,
         system_prompt_file=system_prompt_file,
@@ -1214,7 +1233,13 @@ def create_easy_specialist_command(
         launch_mapping["env_records"] = dict(persistent_env_records)
 
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
-    system_prompt_path = _write_role_prompt(role_root=role_root, prompt_text=prompt_text)
+    if replace_conflict is not None:
+        _prepare_specialist_role_projection_for_replace(role_root=role_root)
+    system_prompt_path = _write_role_prompt(
+        role_root=role_root,
+        prompt_text=prompt_text,
+        overwrite=replace_conflict is not None,
+    )
     preset_path = _write_role_preset(
         overlay=overlay,
         role_name=specialist_name,
@@ -1224,6 +1249,7 @@ def create_easy_specialist_command(
         auth=credential_name,
         prompt_mode=prompt_mode,
         env_records=persistent_env_records,
+        overwrite=replace_conflict is not None,
     )
     metadata = ProjectCatalog.from_overlay(overlay).store_specialist_from_sources(
         name=specialist_name,
@@ -1398,9 +1424,7 @@ def launch_easy_instance_command(
         launch_env_overrides=launch_env_overrides,
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
-        mailbox_account_dir=(
-            mail_account_dir.resolve() if mail_account_dir is not None else None
-        ),
+        mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),
     )
     emit_local_launch_completion(
         controller=controller,
@@ -1512,7 +1536,8 @@ def status_project_mailbox_command() -> None:
     show_default=True,
     help="Filesystem mailbox registration mode.",
 )
-def register_project_mailbox_command(address: str, principal_id: str, mode: str) -> None:
+@overwrite_confirm_option
+def register_project_mailbox_command(address: str, principal_id: str, mode: str, yes: bool) -> None:
     """Register one mailbox address under the current project's mailbox root."""
 
     emit_json(
@@ -1521,6 +1546,14 @@ def register_project_mailbox_command(address: str, principal_id: str, mode: str)
             address=address,
             principal_id=principal_id,
             mode=mode,
+            confirm_destructive_replace=build_destructive_confirmation_callback(
+                yes=yes,
+                non_interactive_message=(
+                    "Mailbox registration would replace existing durable mailbox state. "
+                    "Rerun with `--yes` to confirm overwrite non-interactively or choose "
+                    "a non-destructive registration mode."
+                ),
+            ),
         )
     )
 
@@ -1940,11 +1973,13 @@ def _preset_summary(
     }
 
 
-def _write_role_prompt(*, role_root: Path, prompt_text: str) -> Path:
+def _write_role_prompt(*, role_root: Path, prompt_text: str, overwrite: bool = False) -> Path:
     """Write one canonical role prompt file."""
 
-    role_root.mkdir(parents=True, exist_ok=False)
+    role_root.mkdir(parents=True, exist_ok=overwrite)
     prompt_path = (role_root / "system-prompt.md").resolve()
+    if prompt_path.exists() and prompt_path.is_dir():
+        raise click.ClickException(f"Prompt path already exists as a directory: {prompt_path}")
     prompt_path.write_text(
         prompt_text.rstrip() + "\n" if prompt_text.strip() else "",
         encoding="utf-8",
@@ -1962,6 +1997,7 @@ def _write_role_preset(
     auth: str | None,
     prompt_mode: str | None,
     env_records: dict[str, str] | None = None,
+    overwrite: bool = False,
 ) -> Path:
     """Write one canonical project-local role preset."""
 
@@ -1969,7 +2005,7 @@ def _write_role_preset(
     if not role_root.is_dir():
         raise click.ClickException(f"Role not found: {role_root}")
     preset_file = _preset_path(overlay=overlay, role_name=role_name, tool=tool, setup=setup)
-    if preset_file.exists():
+    if preset_file.exists() and not overwrite:
         raise click.ClickException(f"Preset already exists: {preset_file}")
     resolved_prompt_mode = prompt_mode or "unattended"
     payload: dict[str, Any] = {"skills": list(skills)}
@@ -1981,6 +2017,22 @@ def _write_role_preset(
     preset_file.parent.mkdir(parents=True, exist_ok=True)
     preset_file.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return preset_file
+
+
+def _prepare_specialist_role_projection_for_replace(*, role_root: Path) -> None:
+    """Clear specialist-owned generated projection paths before one replacement write."""
+
+    if not role_root.exists():
+        return
+    prompt_path = (role_root / "system-prompt.md").resolve()
+    if prompt_path.is_dir():
+        raise click.ClickException(f"Prompt path already exists as a directory: {prompt_path}")
+    prompt_path.unlink(missing_ok=True)
+    presets_root = (role_root / "presets").resolve()
+    if presets_root.is_file():
+        raise click.ClickException(f"Preset root already exists as a file: {presets_root}")
+    if presets_root.is_dir():
+        shutil.rmtree(presets_root)
 
 
 def _ensure_skill_placeholder(*, overlay: HoumaoProjectOverlay, skill_name: str) -> Path | None:
@@ -2426,22 +2478,22 @@ def _validate_specialist_create_inputs(
     specialist_name: str,
     system_prompt: str | None,
     system_prompt_file: Path | None,
-) -> None:
+) -> str | None:
     """Validate project easy specialist creation inputs."""
 
     if system_prompt is not None and system_prompt_file is not None:
         raise click.ClickException(
             "Provide at most one of `--system-prompt` or `--system-prompt-file`."
         )
+    conflict_reasons: list[str] = []
     if ProjectCatalog.from_overlay(overlay).specialist_exists(specialist_name):
-        raise click.ClickException(
-            f"Specialist already exists in the project catalog: {overlay.catalog_path}"
-        )
+        conflict_reasons.append(f"catalog entry in `{overlay.catalog_path}`")
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
     if role_root.exists():
-        raise click.ClickException(
-            f"Role `{specialist_name}` already exists under the project overlay: {role_root}"
-        )
+        conflict_reasons.append(f"role projection at `{role_root}`")
+    if not conflict_reasons:
+        return None
+    return ", ".join(conflict_reasons)
 
 
 def _resolve_system_prompt_text(
@@ -2603,6 +2655,7 @@ def _instance_payload(
     tool_name = str(manifest_payload.get("tool", "")).strip() or None
     specialist = specialists_by_name.get(role_name) if role_name is not None else None
     mailbox_payload = _instance_mailbox_payload(manifest_payload)
+    runtime_payload = manifest_payload.get("runtime")
     return {
         "instance_name": identity_payload.get("agent_name"),
         "agent_id": identity_payload.get("agent_id"),
@@ -2614,8 +2667,8 @@ def _instance_payload(
         "tmux_session_name": identity_payload.get("tmux_session_name"),
         "specialist": specialist.name if specialist is not None else None,
         "project_root": str(overlay.project_root),
-        "project_agent_def_dir": manifest_payload.get("runtime", {}).get("agent_def_dir")
-        if isinstance(manifest_payload.get("runtime"), dict)
+        "project_agent_def_dir": runtime_payload.get("agent_def_dir")
+        if isinstance(runtime_payload, dict)
         else None,
         "mailbox": mailbox_payload,
     }

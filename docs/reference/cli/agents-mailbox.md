@@ -22,8 +22,11 @@ houmao-mgr agents mailbox register [OPTIONS]
 | `--principal-id TEXT` | Optional mailbox principal id override. Defaults from the managed-agent identity. |
 | `--address TEXT` | Optional full mailbox address override. Defaults from the managed-agent identity. |
 | `--mode [safe\|force\|stash]` | Filesystem mailbox registration mode. Default: `safe`. |
+| `--yes` | Confirm destructive replacement without prompting. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
+
+When `register` would replace existing shared mailbox state, it prompts before destructive replacement on interactive terminals. In automation or other non-interactive contexts, rerun with `--yes` to confirm the overwrite explicitly.
 
 ### `unregister`
 

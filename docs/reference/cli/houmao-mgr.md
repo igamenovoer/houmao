@@ -87,6 +87,8 @@ The preferred local serverless mailbox workflow is:
 
 For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That remains true even when a joined session is controllable but non-relaunchable because no launch options were recorded, as long as Houmao can still update the session manifest and the owning tmux live mailbox projection safely. When a direct mailbox workflow needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. Inside the owning tmux session, selectors may be omitted. Outside tmux, or when targeting a different agent, use an explicit `--agent-id` or `--agent-name`. The resolver returns normalized mailbox bindings plus optional live `gateway.base_url` data for attached `/v1/mail/*` work, and `--format shell` emits stable `export ...` assignments for shell automation.
 
+If `agents mailbox register` would replace existing shared mailbox state, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
+
 Cleanup targeting rules:
 
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
@@ -113,6 +115,8 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 | `messages list|get` | Inspect mailbox-visible messages for one registered mailbox address. |
 | `repair` | Rebuild one filesystem mailbox root's shared index state locally. |
 | `cleanup` | Remove inactive or stashed mailbox registrations while preserving active registrations and canonical `messages/` history. |
+
+`mailbox register` keeps the existing `safe`, `force`, and `stash` mode vocabulary. When a requested registration would replace existing durable mailbox state or an occupying mailbox entry artifact, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
 
 ### `brains` — Local brain-construction commands
 
@@ -233,6 +237,7 @@ Project overlay notes:
 - `--system-prompt` and `--system-prompt-file` are both optional; provide at most one.
 - `--no-unattended` opts out of the easy unattended default and persists `launch.prompt_mode: as_is` for that specialist.
 - repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
+- when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt/preset projection and accepts `--yes` for non-interactive replacement.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
 - maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset.
 - specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
@@ -257,6 +262,8 @@ Project overlay notes:
 | `init`, `status`, `register`, `unregister`, `repair`, `cleanup` | Perform mailbox-root lifecycle operations against `.houmao/mailbox`. |
 | `accounts list|get` | Inspect mailbox registrations under the project mailbox root. |
 | `messages list|get` | Inspect mailbox-visible messages under the project mailbox root. |
+
+`project mailbox register` mirrors the generic mailbox overwrite-confirmation contract, including interactive overwrite prompts and `--yes` for non-interactive replacement.
 
 ### `server` — Server lifecycle management
 

@@ -9,7 +9,7 @@ import click
 
 from houmao.owned_paths import resolve_mailbox_root
 
-from .common import emit_json
+from .common import build_destructive_confirmation_callback, emit_json, overwrite_confirm_option
 from .mailbox_support import (
     cleanup_mailbox_root,
     get_mailbox_account,
@@ -74,11 +74,13 @@ def status_mailbox_command(mailbox_root: Path | None) -> None:
     show_default=True,
     help="Filesystem mailbox registration mode.",
 )
+@overwrite_confirm_option
 def register_mailbox_command(
     mailbox_root: Path | None,
     address: str,
     principal_id: str,
     mode: str,
+    yes: bool,
 ) -> None:
     """Register one filesystem mailbox address under the resolved root."""
 
@@ -88,6 +90,14 @@ def register_mailbox_command(
             address=address,
             principal_id=principal_id,
             mode=mode,
+            confirm_destructive_replace=build_destructive_confirmation_callback(
+                yes=yes,
+                non_interactive_message=(
+                    "Mailbox registration would replace existing durable mailbox state. "
+                    "Rerun with `--yes` to confirm overwrite non-interactively or choose "
+                    "a non-destructive registration mode."
+                ),
+            ),
         )
     )
 

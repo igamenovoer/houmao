@@ -32,6 +32,7 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller import runtime as runtime_module
+from houmao.mailbox.managed import ManagedMailboxOperationError
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
@@ -536,6 +537,76 @@ def test_register_mailbox_binding_converts_runtime_errors_to_click() -> None:
         )
 
 
+def test_register_mailbox_binding_converts_mailbox_operation_errors_to_click() -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(
+            register_filesystem_mailbox=lambda **kwargs: (_ for _ in ()).throw(
+                ManagedMailboxOperationError("expected overwrite failure")
+            )
+        ),
+    )
+
+    with pytest.raises(click.ClickException, match="expected overwrite failure"):
+        register_mailbox_binding(
+            target,
+            mailbox_root=None,
+            principal_id=None,
+            address=None,
+            mode="safe",
+        )
+
+
+def test_register_mailbox_binding_forwards_confirmation_callback() -> None:
+    observed: dict[str, object] = {}
+
+    def _register_filesystem_mailbox(**kwargs: object) -> SimpleNamespace:
+        observed.update(kwargs)
+        return SimpleNamespace(
+            mailbox=SimpleNamespace(
+                transport="filesystem",
+                principal_id="AGENTSYS-alpha",
+                address="AGENTSYS-alpha@agents.localhost",
+                filesystem_root=Path("/tmp/mailbox-root"),
+                bindings_version="2026-03-30T00:00:00Z",
+            ),
+            activation_state="active",
+            shared_lifecycle_result={"ok": True, "mode": "force"},
+        )
+
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(
+            agent_identity="alpha",
+            agent_id="agent-123",
+            register_filesystem_mailbox=_register_filesystem_mailbox,
+        ),
+    )
+    confirm_calls: list[str] = []
+
+    def _confirm(prompt: str) -> bool:
+        confirm_calls.append(prompt)
+        return True
+
+    payload = register_mailbox_binding(
+        target,
+        mailbox_root=None,
+        principal_id=None,
+        address=None,
+        mode="safe",
+        confirm_destructive_replace=_confirm,
+    )
+
+    assert observed["confirm_destructive_replace"] is _confirm
+    assert payload["activation_state"] == "active"
+    assert payload["shared_registration"] == {"ok": True, "mode": "force"}
+    assert confirm_calls == []
+
+
 def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
     controller = SimpleNamespace(
         launch_plan=SimpleNamespace(mailbox=object()),
@@ -810,7 +881,9 @@ def test_enrich_local_mail_prompt_args_resolves_filesystem_mailbox_principals(
         bindings_version="2026-03-29T15:00:00Z",
     )
 
-    def _fake_load_active_mailbox_registration(mailbox_root: Path, *, address: str) -> SimpleNamespace:
+    def _fake_load_active_mailbox_registration(
+        mailbox_root: Path, *, address: str
+    ) -> SimpleNamespace:
         assert mailbox_root == mailbox.filesystem_root
         if address == "alpha@agents.localhost":
             return SimpleNamespace(
