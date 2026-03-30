@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
@@ -85,6 +85,7 @@ from houmao.agents.realm_controller.boundary_models import SessionManifestPayloa
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
+from houmao.mailbox.managed import ManagedMailboxOperationError
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -986,6 +987,7 @@ def register_mailbox_binding(
     principal_id: str | None,
     address: str | None,
     mode: str,
+    confirm_destructive_replace: Callable[[str], bool] | None = None,
 ) -> dict[str, object]:
     """Register one late filesystem mailbox binding for a local managed agent."""
 
@@ -996,8 +998,9 @@ def register_mailbox_binding(
             principal_id=principal_id,
             address=address,
             mode=cast(Any, mode),
+            confirm_destructive_replace=confirm_destructive_replace,
         )
-    except SessionManifestError as exc:
+    except (MailboxBootstrapError, ManagedMailboxOperationError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
     mailbox = result.mailbox
     assert mailbox is not None

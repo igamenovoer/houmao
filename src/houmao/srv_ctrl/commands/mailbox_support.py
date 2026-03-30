@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 from pathlib import Path
 import sqlite3
 from typing import Literal, cast
+
+import click
 
 from houmao.mailbox import (
     MailboxBootstrapError,
@@ -21,6 +24,7 @@ from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
     MailboxCleanupRecord,
     MailboxCleanupResult,
+    ManagedMailboxOperationError,
     RegisterMailboxRequest,
     RepairRequest,
     cleanup_mailbox_registrations,
@@ -107,22 +111,27 @@ def register_mailbox_at_root(
     address: str,
     principal_id: str,
     mode: str,
+    confirm_destructive_replace: Callable[[str], bool] | None = None,
 ) -> dict[str, object]:
     """Register one filesystem mailbox address under the selected root."""
 
     resolved_root = mailbox_root.resolve()
-    bootstrap_filesystem_mailbox(resolved_root)
-    paths = resolve_filesystem_mailbox_paths(resolved_root)
-    result = register_mailbox(
-        resolved_root,
-        RegisterMailboxRequest(
-            mode=cast(Literal["safe", "force", "stash"], mode),
-            address=address,
-            owner_principal_id=principal_id,
-            mailbox_kind="in_root",
-            mailbox_path=paths.mailbox_entry_path(address),
-        ),
-    )
+    try:
+        bootstrap_filesystem_mailbox(resolved_root)
+        paths = resolve_filesystem_mailbox_paths(resolved_root)
+        result = register_mailbox(
+            resolved_root,
+            RegisterMailboxRequest(
+                mode=cast(Literal["safe", "force", "stash"], mode),
+                address=address,
+                owner_principal_id=principal_id,
+                mailbox_kind="in_root",
+                mailbox_path=paths.mailbox_entry_path(address),
+            ),
+            confirm_destructive_replace=confirm_destructive_replace,
+        )
+    except (MailboxBootstrapError, ManagedMailboxOperationError) as exc:
+        raise click.ClickException(str(exc)) from exc
     return {
         "schema_version": 1,
         "mailbox_root": str(resolved_root),

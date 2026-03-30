@@ -6,7 +6,12 @@ from pathlib import Path
 
 import click
 
-from ..common import emit_json, managed_agent_selector_options
+from ..common import (
+    build_destructive_confirmation_callback,
+    emit_json,
+    managed_agent_selector_options,
+    overwrite_confirm_option,
+)
 from ..managed_agents import (
     mailbox_status,
     register_mailbox_binding,
@@ -56,12 +61,14 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     show_default=True,
     help="Filesystem mailbox registration mode.",
 )
+@overwrite_confirm_option
 @managed_agent_selector_options
 def register_mailbox_command(
     mailbox_root: Path | None,
     principal_id: str | None,
     address: str | None,
     mode: str,
+    yes: bool,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
@@ -75,6 +82,14 @@ def register_mailbox_command(
             principal_id=principal_id,
             address=address,
             mode=mode,
+            confirm_destructive_replace=build_destructive_confirmation_callback(
+                yes=yes,
+                non_interactive_message=(
+                    "Mailbox registration would replace existing durable mailbox state. "
+                    "Rerun with `--yes` to confirm overwrite non-interactively or choose "
+                    "a non-destructive registration mode."
+                ),
+            ),
         )
     )
 

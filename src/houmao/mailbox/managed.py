@@ -967,6 +967,106 @@ def _confirm_managed_file_replacement(
         )
 
 
+def _confirm_destructive_registration_replacement(
+    *,
+    prompt: str,
+    cancelled_message: str,
+    confirm_destructive_replace: Callable[[str], bool] | None,
+) -> bool:
+    """Confirm one destructive mailbox-registration replacement path when supported."""
+
+    if confirm_destructive_replace is None:
+        return False
+    if not confirm_destructive_replace(prompt):
+        raise ManagedMailboxOperationError(cancelled_message)
+    return True
+
+
+def _resolve_registration_conflict_prompt(
+    *,
+    request: RegisterMailboxRequest,
+    active_registration: MailboxRegistration | None,
+    occupying_registration: MailboxRegistration | None,
+    desired_entry_path: Path,
+) -> tuple[str, str]:
+    """Describe one replaceable tracked-registration conflict."""
+
+    if active_registration is not None:
+        return (
+            f"Replace the active mailbox registration for `{request.address}`?",
+            f"safe registration failed: `{request.address}` already has an active mailbox",
+        )
+    assert occupying_registration is not None
+    return (
+        f"Replace the preserved mailbox artifact for `{request.address}` at `{desired_entry_path}`?",
+        f"safe registration failed: `{request.address}` still has a preserved mailbox artifact",
+    )
+
+
+def _resolve_untracked_artifact_conflict_prompt(
+    *,
+    request: RegisterMailboxRequest,
+    desired_mailbox_path: Path,
+    desired_entry_path: Path,
+) -> tuple[str, str] | None:
+    """Describe one replaceable untracked mailbox-entry conflict when applicable."""
+
+    if not (desired_entry_path.exists() or desired_entry_path.is_symlink()):
+        return None
+    if request.mailbox_kind == "symlink":
+        if desired_entry_path.is_symlink() and desired_entry_path.resolve() == desired_mailbox_path:
+            return None
+        if desired_entry_path.is_symlink():
+            return (
+                "Replace the existing mailbox symlink at "
+                f"`{desired_entry_path}` with one targeting `{desired_mailbox_path}`?",
+                "safe registration failed: mailbox symlink points to a different target: "
+                f"{desired_entry_path}",
+            )
+        return (
+            f"Replace the existing mailbox entry at `{desired_entry_path}` with a symlink?",
+            "safe registration failed: mailbox entry already exists and is not a symlink: "
+            f"{desired_entry_path}",
+        )
+    return (
+        f"Replace the existing mailbox entry artifact at `{desired_entry_path}`?",
+        f"safe registration failed: mailbox entry already exists: {desired_entry_path}",
+    )
+
+
+def _resolve_effective_registration_mode(
+    *,
+    request: RegisterMailboxRequest,
+    prompt: str | None,
+    safe_error_message: str | None,
+    confirm_destructive_replace: Callable[[str], bool] | None,
+) -> Literal["safe", "force", "stash"]:
+    """Resolve the effective registration mode after one optional confirmation."""
+
+    if prompt is None or request.mode == "stash":
+        return request.mode
+    if request.mode == "safe":
+        if _confirm_destructive_registration_replacement(
+            prompt=prompt,
+            cancelled_message=(
+                "Mailbox registration cancelled: operator declined destructive replacement."
+            ),
+            confirm_destructive_replace=confirm_destructive_replace,
+        ):
+            return "force"
+        assert safe_error_message is not None
+        raise ManagedMailboxOperationError(safe_error_message)
+    if request.mode == "force":
+        _confirm_destructive_registration_replacement(
+            prompt=prompt,
+            cancelled_message=(
+                "Mailbox registration cancelled: operator declined destructive replacement."
+            ),
+            confirm_destructive_replace=confirm_destructive_replace,
+        )
+    return request.mode
+
+
 def _prepare_private_mailbox_local_sqlite_for_safe_registration(
     *,
     mailbox_path: Path,
@@ -1148,6 +1248,7 @@ def register_mailbox(
     *,
     lock_timeout_seconds: float = 5.0,
     confirm_replace_managed_file: Callable[[str], bool] | None = None,
+    confirm_destructive_replace: Callable[[str], bool] | None = None,
 ) -> dict[str, object]:
     """Register or replace one mailbox address under the shared mailbox root."""
 
@@ -1195,7 +1296,9 @@ def register_mailbox(
             if request.mailbox_kind == "symlink" and request.mode == "safe":
                 _prepare_private_mailbox_local_sqlite_for_safe_registration(
                     mailbox_path=desired_mailbox_path,
-                    confirm_replace_managed_file=confirm_replace_managed_file,
+                    confirm_replace_managed_file=(
+                        confirm_destructive_replace or confirm_replace_managed_file
+                    ),
                 )
 
             if active_registration is not None and _registration_matches_request(
@@ -1251,23 +1354,47 @@ def register_mailbox(
                     "reused_existing": True,
                 }
 
-            if active_registration is not None and request.mode == "safe":
-                raise ManagedMailboxOperationError(
-                    f"safe registration failed: `{request.address}` already has an active mailbox"
-                )
-            if (
-                active_registration is None
-                and occupying_registration is not None
-                and request.mode == "safe"
+            tracked_conflict_prompt: str | None = None
+            tracked_conflict_error: str | None = None
+            if active_registration is not None or (
+                active_registration is None and occupying_registration is not None
             ):
-                raise ManagedMailboxOperationError(
-                    f"safe registration failed: `{request.address}` still has a preserved mailbox artifact"
+                tracked_conflict_prompt, tracked_conflict_error = (
+                    _resolve_registration_conflict_prompt(
+                        request=request,
+                        active_registration=active_registration,
+                        occupying_registration=occupying_registration,
+                        desired_entry_path=desired_entry_path,
+                    )
+                )
+
+            untracked_conflict: tuple[str, str] | None = None
+            if confirm_destructive_replace is not None or request.mailbox_kind == "symlink":
+                untracked_conflict = _resolve_untracked_artifact_conflict_prompt(
+                    request=request,
+                    desired_mailbox_path=desired_mailbox_path,
+                    desired_entry_path=desired_entry_path,
+                )
+            effective_mode = request.mode
+            if tracked_conflict_prompt is not None:
+                effective_mode = _resolve_effective_registration_mode(
+                    request=request,
+                    prompt=tracked_conflict_prompt,
+                    safe_error_message=tracked_conflict_error,
+                    confirm_destructive_replace=confirm_destructive_replace,
+                )
+            elif untracked_conflict is not None:
+                effective_mode = _resolve_effective_registration_mode(
+                    request=request,
+                    prompt=untracked_conflict[0],
+                    safe_error_message=untracked_conflict[1],
+                    confirm_destructive_replace=confirm_destructive_replace,
                 )
 
             replacement_registration_id = _generate_registration_id()
             result: dict[str, object] = {
                 "ok": True,
-                "mode": request.mode,
+                "mode": effective_mode,
                 "address": request.address,
                 "active_registration_id": replacement_registration_id,
                 "owner_principal_id": request.owner_principal_id,
@@ -1275,7 +1402,7 @@ def register_mailbox(
             }
 
             if occupying_registration is not None:
-                if request.mode == "stash":
+                if effective_mode == "stash":
                     stashed_entry_path, stashed_mailbox_path = _stash_registration_artifact(
                         paths=paths,
                         registration=occupying_registration,
@@ -1297,7 +1424,7 @@ def register_mailbox(
                     _remove_registration_artifact(occupying_registration)
                     result["replaced_registration_id"] = occupying_registration.registration_id
             elif desired_entry_path.exists() or desired_entry_path.is_symlink():
-                if request.mode == "safe" and request.mailbox_kind == "symlink":
+                if effective_mode == "safe" and request.mailbox_kind == "symlink":
                     if desired_entry_path.is_symlink():
                         if desired_entry_path.resolve() != desired_mailbox_path:
                             raise ManagedMailboxOperationError(
@@ -1309,7 +1436,7 @@ def register_mailbox(
                             "safe registration failed: mailbox entry already exists and is not a "
                             f"symlink: {desired_entry_path}"
                         )
-                elif request.mode == "stash":
+                elif effective_mode == "stash":
                     stashed_path = _stash_untracked_artifact(
                         paths, desired_entry_path, request.address
                     )

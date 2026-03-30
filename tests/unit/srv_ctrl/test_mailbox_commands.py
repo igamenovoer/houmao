@@ -6,9 +6,28 @@ from pathlib import Path
 from click.testing import CliRunner
 import pytest
 
-from houmao.mailbox import generate_message_id, resolve_filesystem_mailbox_paths
+from houmao.mailbox import (
+    generate_message_id,
+    load_active_mailbox_registration,
+    resolve_filesystem_mailbox_paths,
+)
 from houmao.mailbox.managed import DeliveryRequest, ManagedPrincipal, deliver_message
 from houmao.srv_ctrl.commands.main import cli
+
+
+def _init_project_mailbox_repo(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[CliRunner, Path, Path]:
+    """Create one project repo with an initialized project mailbox root."""
+
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert runner.invoke(cli, ["project", "mailbox", "init"]).exit_code == 0
+    return runner, repo_root, repo_root / ".houmao" / "mailbox"
 
 
 def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
@@ -258,4 +277,304 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
     assert generic_message["message_id"] == message_id
     assert project_message["message_id"] == message_id
     assert generic_message["subject"] == "Hello Alice"
-    assert project_message["subject"] == "Hello Alice"
+
+
+def test_mailbox_register_prompts_before_overwriting_active_registration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    address = "AGENTSYS-alice@agents.localhost"
+
+    assert (
+        runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "mailbox",
+                "register",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--address",
+                address,
+                "--principal-id",
+                "AGENTSYS-alice",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: True,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "register",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--address",
+            address,
+            "--principal-id",
+            "AGENTSYS-bob",
+        ],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    registration = load_active_mailbox_registration(mailbox_root, address=address)
+    assert registration.owner_principal_id == "AGENTSYS-bob"
+
+
+def test_mailbox_register_decline_keeps_existing_registration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    address = "AGENTSYS-alice@agents.localhost"
+
+    assert (
+        runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "mailbox",
+                "register",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--address",
+                address,
+                "--principal-id",
+                "AGENTSYS-alice",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: True,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "register",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--address",
+            address,
+            "--principal-id",
+            "AGENTSYS-bob",
+        ],
+        input="n\n",
+    )
+
+    assert result.exit_code != 0
+    assert "Mailbox registration cancelled" in result.output
+    registration = load_active_mailbox_registration(mailbox_root, address=address)
+    assert registration.owner_principal_id == "AGENTSYS-alice"
+
+
+def test_mailbox_register_noninteractive_conflict_requires_yes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    address = "AGENTSYS-alice@agents.localhost"
+
+    assert (
+        runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "mailbox",
+                "register",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--address",
+                address,
+                "--principal-id",
+                "AGENTSYS-alice",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: False,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "register",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--address",
+            address,
+            "--principal-id",
+            "AGENTSYS-bob",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Rerun with `--yes`" in result.output
+    registration = load_active_mailbox_registration(mailbox_root, address=address)
+    assert registration.owner_principal_id == "AGENTSYS-alice"
+
+
+def test_mailbox_register_yes_overwrites_without_tty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    address = "AGENTSYS-alice@agents.localhost"
+
+    assert (
+        runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "mailbox",
+                "register",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--address",
+                address,
+                "--principal-id",
+                "AGENTSYS-alice",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: False,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "register",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--address",
+            address,
+            "--principal-id",
+            "AGENTSYS-bob",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    registration = load_active_mailbox_registration(mailbox_root, address=address)
+    assert registration.owner_principal_id == "AGENTSYS-bob"
+
+
+def test_project_mailbox_register_prompts_before_overwrite(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, mailbox_root = _init_project_mailbox_repo(monkeypatch, tmp_path)
+    address = "AGENTSYS-alice@agents.localhost"
+
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "mailbox",
+                "register",
+                "--address",
+                address,
+                "--principal-id",
+                "AGENTSYS-alice",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: True,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "mailbox",
+            "register",
+            "--address",
+            address,
+            "--principal-id",
+            "AGENTSYS-bob",
+        ],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    registration = load_active_mailbox_registration(mailbox_root, address=address)
+    assert registration.owner_principal_id == "AGENTSYS-bob"
+
+
+def test_project_mailbox_register_yes_overwrites_without_tty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, mailbox_root = _init_project_mailbox_repo(monkeypatch, tmp_path)
+    address = "AGENTSYS-alice@agents.localhost"
+
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "mailbox",
+                "register",
+                "--address",
+                address,
+                "--principal-id",
+                "AGENTSYS-alice",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: False,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "mailbox",
+            "register",
+            "--address",
+            address,
+            "--principal-id",
+            "AGENTSYS-bob",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    registration = load_active_mailbox_registration(mailbox_root, address=address)
+    assert registration.owner_principal_id == "AGENTSYS-bob"

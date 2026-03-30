@@ -136,6 +136,37 @@ def test_main_renders_mailbox_click_exception_without_traceback(
     assert "Traceback" not in captured.err
 
 
+def test_agents_mailbox_register_accepts_yes_and_forwards_confirmation_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mailbox.resolve_managed_agent_target",
+        lambda **kwargs: object(),
+    )
+
+    def _register_mailbox_binding(target: object, **kwargs: object) -> dict[str, object]:
+        observed["target"] = target
+        observed.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mailbox.register_mailbox_binding",
+        _register_mailbox_binding,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "mailbox", "register", "--agent-id", "agent-123", "--yes"],
+    )
+
+    assert result.exit_code == 0, result.output
+    callback = observed["confirm_destructive_replace"]
+    assert callable(callback)
+    assert callback("Replace mailbox?") is True
+
+
 def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

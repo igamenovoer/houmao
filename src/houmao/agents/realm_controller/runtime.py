@@ -524,6 +524,7 @@ class RuntimeSessionController:
         principal_id: str | None = None,
         address: str | None = None,
         mode: Literal["safe", "force", "stash"] = "safe",
+        confirm_destructive_replace: Callable[[str], bool] | None = None,
     ) -> FilesystemMailboxBindingMutationResult:
         """Attach one filesystem mailbox binding to the current session."""
 
@@ -560,6 +561,7 @@ class RuntimeSessionController:
                 manifest_path_hint=str(self.manifest_path.resolve()),
                 role=self.role_name,
             ),
+            confirm_destructive_replace=confirm_destructive_replace,
         )
 
         updated_mailbox = FilesystemMailboxResolvedConfig(

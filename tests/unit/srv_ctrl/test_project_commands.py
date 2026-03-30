@@ -619,6 +619,247 @@ def test_project_easy_specialist_create_can_persist_as_is_opt_out(
     assert preset_payload["launch"] == {"prompt_mode": "as_is"}
 
 
+def test_project_easy_specialist_create_prompts_before_replacing_existing_specialist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--system-prompt",
+                "Initial prompt",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+                "--with-skill",
+                str(skill_dir),
+                "--no-unattended",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: True,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "Replacement prompt",
+        ],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    preset_path = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "roles"
+        / "researcher"
+        / "presets"
+        / "codex"
+        / "default.yaml"
+    )
+    assert prompt_path.read_text(encoding="utf-8") == "Replacement prompt\n"
+    assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
+        "prompt_mode": "unattended"
+    }
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "codex"
+        / "auth"
+        / "researcher-creds"
+        / "files"
+        / "auth.json"
+    ).is_file()
+    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+
+
+def test_project_easy_specialist_create_noninteractive_conflict_requires_yes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--system-prompt",
+                "Initial prompt",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: False,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "Replacement prompt",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Rerun with `--yes`" in result.output
+    prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    assert prompt_path.read_text(encoding="utf-8") == "Initial prompt\n"
+
+
+def test_project_easy_specialist_create_yes_replaces_existing_specialist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--system-prompt",
+                "Initial prompt",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+                "--with-skill",
+                str(skill_dir),
+                "--no-unattended",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: False,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "Replacement prompt",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    preset_path = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "roles"
+        / "researcher"
+        / "presets"
+        / "codex"
+        / "default.yaml"
+    )
+    assert prompt_path.read_text(encoding="utf-8") == "Replacement prompt\n"
+    assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
+        "prompt_mode": "unattended"
+    }
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "codex"
+        / "auth"
+        / "researcher-creds"
+        / "files"
+        / "auth.json"
+    ).is_file()
+    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+
+
 def test_project_easy_specialist_create_persists_env_records(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
