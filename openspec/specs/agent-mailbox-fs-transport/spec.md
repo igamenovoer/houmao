@@ -50,17 +50,19 @@ That bootstrap path SHALL create or validate at minimum:
 
 - `protocol-version.txt`
 - the SQLite schema
-- the `rules/` tree and managed scripts
+- the `rules/` tree and mailbox-local policy documents
 - the locks area
 - the staging area
 - any in-root address-based mailbox directories and mailbox-registration entries being initialized
+
+The runtime MAY also publish compatibility or diagnostic helper assets under `rules/scripts/`, but ordinary mailbox operation SHALL NOT depend on those assets being the public execution contract.
 
 On an existing mailbox root, bootstrap SHALL validate `protocol-version.txt` before continuing and SHALL fail explicitly when the on-disk protocol version is unsupported.
 
 #### Scenario: Bootstrap materializes a new mailbox root without pre-existing helper scripts
 - **WHEN** the runtime initializes a new filesystem mailbox root that does not yet contain shared mailbox helper scripts
 - **THEN** the runtime performs bootstrap directly through package-internal code rather than invoking pre-existing `rules/scripts/` helpers
-- **AND THEN** the resulting mailbox root contains the initialized SQLite schema, `protocol-version.txt`, and managed `rules/` content needed for later standardized mailbox operations
+- **AND THEN** the resulting mailbox root contains the initialized SQLite schema, `protocol-version.txt`, and mailbox-local `rules/` policy content needed for later mailbox operations
 
 #### Scenario: Bootstrap creates initial in-root mailbox registration
 - **WHEN** the runtime initializes mailbox support for a participant that uses an in-root mailbox directory for one full mailbox address
@@ -73,43 +75,33 @@ On an existing mailbox root, bootstrap SHALL validate `protocol-version.txt` bef
 - **AND THEN** the runtime does not proceed with partial initialization against the unsupported on-disk protocol
 
 ### Requirement: Filesystem mailbox root publishes shared mailbox rules
-The filesystem mailbox transport SHALL publish a `rules/` directory under the mailbox root as the mailbox-local source of truth for shared mailbox interaction guidance.
+The filesystem mailbox transport SHALL publish a `rules/` directory under the mailbox root as the mailbox-local source of truth for shared mailbox policy guidance.
 
 That `rules/` directory SHALL contain at minimum:
 
 - a human-readable `README`
-- mailbox protocol documentation
-- helper scripts for standardized mailbox operations
-- a dependency manifest for Python-based helper scripts
-- agent-skill materials for standardized mailbox operations
+- mailbox-local markdown guidance
 
-Sensitive mailbox operations that touch `index.sqlite` or `locks/` SHALL be represented by shared scripts under `rules/scripts/`.
+That guidance MAY cover:
 
-Those scripts MAY be implemented in Python or shell. Python implementations MAY depend on the Python standard library and/or additional Python packages, including packages distributed on PyPI, as long as `rules/scripts/requirements.txt` declares the dependencies needed by the published Python helpers.
+- message formatting,
+- reply or subject conventions,
+- mailbox-local etiquette,
+- other workflow hints specific to that mailbox.
 
-In v1, the runtime-managed asset set under `rules/scripts/` SHALL include `requirements.txt`, `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`.
+The filesystem mailbox public contract SHALL NOT require `rules/` to carry the canonical execution protocol for ordinary send, reply, check, or mark-read operations.
 
-These filenames SHALL be treated as stable within a given `protocol-version.txt` value.
+The transport MAY publish compatibility or diagnostic assets under `rules/scripts/`, but it SHALL NOT require a stable public `rules/scripts/` filename set for ordinary agent or operator mailbox work.
 
-#### Scenario: Filesystem mailbox root exposes mailbox-local rules
+#### Scenario: Filesystem mailbox root exposes mailbox-local policy guidance
 - **WHEN** a participant inspects the shared filesystem mailbox root before mailbox interaction
 - **THEN** the participant can find a `rules/` directory under that mailbox root
-- **AND THEN** that `rules/` directory contains the shared mailbox interaction guidance and helper assets needed for standardized mailbox operations
+- **AND THEN** that `rules/` directory contains mailbox-local policy guidance that can refine formatting or workflow expectations without becoming the canonical execution protocol
 
-#### Scenario: Sensitive mailbox scripts are available under rules/scripts
-- **WHEN** a participant needs to perform a standardized mailbox operation that touches `index.sqlite` or `locks/`
-- **THEN** the shared filesystem mailbox root provides a corresponding helper script under `rules/scripts/`
-- **AND THEN** if that helper is Python-based, the shared filesystem mailbox root also provides `rules/scripts/requirements.txt` so the participant can discover the dependencies needed before invoking it
-
-#### Scenario: Bootstrap materializes the managed script set
-- **WHEN** the runtime initializes or upgrades a filesystem mailbox root for the current protocol version
-- **THEN** `rules/scripts/` contains the managed filenames `requirements.txt`, `deliver_message.py`, `insert_standard_headers.py`, `update_mailbox_state.py`, and `repair_index.py`
-- **AND THEN** those managed assets correspond to the mailbox root's `protocol-version.txt`
-
-#### Scenario: Optional header helper script is available for standardized composition
-- **WHEN** a shared filesystem mailbox wants to help participants standardize message headers or YAML front matter during composition
-- **THEN** the shared mailbox MAY provide a helper script under `rules/scripts/` that accepts header-related parameters and inserts or normalizes those headers
-- **AND THEN** that helper script acts as an optional lint-style tool rather than a required transport primitive
+#### Scenario: Ordinary mailbox workflow does not require shared scripts
+- **WHEN** an agent or operator performs an ordinary filesystem mailbox action through the supported Houmao-owned workflow
+- **THEN** the action can complete without requiring the caller to discover or invoke a mailbox-owned script under `rules/scripts/`
+- **AND THEN** the participant does not need to reconstruct the mailbox protocol from script names or dependency manifests
 
 ### Requirement: Filesystem mailbox groups support symlink-based mailbox registration
 The filesystem mailbox transport SHALL allow each full-address entry under `mailboxes/` to be either a concrete mailbox directory inside the mail-group root or a symlink to that address's private mailbox directory outside the root.
@@ -174,22 +166,25 @@ The filesystem mailbox transport SHALL NOT require a background process for deli
 
 The transport SHALL coordinate concurrent filesystem writers using deterministic `.lock` files and SHALL combine multi-file delivery changes with transactional SQLite index updates.
 
-Standardized filesystem write flows SHALL acquire all affected address locks in ascending lexicographic full-address order before acquiring `locks/index.lock`.
+Standardized filesystem write flows executed by Houmao-owned code SHALL acquire all affected address locks in ascending lexicographic full-address order before acquiring `locks/index.lock`.
+
+Ordinary agent-facing filesystem mailbox workflows SHALL reach those writes through gateway HTTP or `houmao-mgr agents mail ...` rather than through mailbox-owned scripts. When a manager fallback command returns `authoritative: false`, the caller SHALL verify outcome through manager-owned or transport-owned state instead of treating that submission result as the write itself.
 
 #### Scenario: Sender delivers mail without a helper daemon
 - **WHEN** a sender process writes a mailbox message through the filesystem transport
 - **THEN** the sender performs delivery directly through filesystem and SQLite operations
 - **AND THEN** the delivery does not depend on a persistent helper daemon being active
 
-#### Scenario: Sender consults mailbox-local rules before standardized delivery
-- **WHEN** an agent sender interacts with a shared filesystem mailbox through the standardized mailbox workflow
-- **THEN** that workflow instructs the agent to consult the shared mailbox `rules/` directory before performing mailbox mutations
-- **AND THEN** the transport behavior still remains daemon-free because those rules are read directly from the filesystem mailbox root
+#### Scenario: Ordinary filesystem mailbox workflow uses Houmao-owned surfaces
+- **WHEN** an agent sender interacts with a shared filesystem mailbox through the supported ordinary mailbox workflow
+- **THEN** that workflow uses the shared gateway facade when present or `houmao-mgr agents mail ...` when it is not
+- **AND THEN** the caller does not need to invoke a mailbox-owned script under `rules/scripts/` for the ordinary operation
 
-#### Scenario: Sensitive delivery steps use shared mailbox scripts
-- **WHEN** a standardized filesystem mailbox operation needs to touch `index.sqlite` or `locks/`
-- **THEN** the agent-facing workflow uses the shared script under `rules/scripts/` for that sensitive portion of the operation
-- **AND THEN** the participant does not need to hand-author raw SQLite or lock-file manipulation for that step
+#### Scenario: Submission-only manager fallback does not replace filesystem verification
+- **WHEN** an ordinary filesystem mailbox action reaches `houmao-mgr agents mail ...`
+- **AND WHEN** the command returns `authoritative: false`
+- **THEN** the caller treats that result as request submission rather than as verified filesystem delivery or state mutation
+- **AND THEN** the caller verifies the mailbox outcome through mailbox state or a follow-up manager-owned check instead of falling back to mailbox-owned scripts as the truth boundary
 
 #### Scenario: Concurrent writers serialize conflicting mailbox updates
 - **WHEN** two sender processes attempt to update the same mailbox address concurrently
@@ -198,7 +193,7 @@ Standardized filesystem write flows SHALL acquire all affected address locks in 
 
 #### Scenario: Lock acquisition order avoids deadlock
 - **WHEN** a standardized filesystem mailbox write affects multiple mailbox addresses
-- **THEN** the helper workflow acquires the corresponding address locks in ascending lexicographic full-address order before acquiring `locks/index.lock`
+- **THEN** the Houmao-owned write flow acquires the corresponding address locks in ascending lexicographic full-address order before acquiring `locks/index.lock`
 - **AND THEN** the operation fails explicitly rather than partially committing delivery if it cannot obtain the required lock set within its bounded timeout
 
 #### Scenario: Missing symlink target causes explicit delivery failure

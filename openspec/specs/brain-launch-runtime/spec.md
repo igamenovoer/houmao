@@ -386,11 +386,15 @@ That `mail` command surface SHALL support at minimum the operations `check`, `se
 - **AND THEN** the reply preserves the existing `thread_id`, `in_reply_to`, and `references` semantics for that thread
 
 ### Requirement: Runtime mail commands keep one operator surface while allowing gateway-backed shared mailbox interaction
-The runtime SHALL preserve the current operator-facing `mail check`, `mail send`, and `mail reply` command surface and structured mailbox result shape across filesystem and `stalwart` sessions.
+The runtime SHALL preserve the current operator-facing `mail check`, `mail send`, and `mail reply` command surface across filesystem and `stalwart` sessions.
 
-The runtime SHALL translate each `mail` command invocation into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly manipulating mailbox files or mailbox SQLite state itself.
+When the runtime owns mailbox execution directly, including manager-owned direct execution or gateway-backed execution, it SHALL return authoritative mailbox success or failure for the requested operation.
 
-That mailbox prompt SHALL explicitly tell the agent which discoverable projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation and result parsing.
+When the runtime executes a mailbox operation by submitting a request through a live TUI session, it SHALL treat the command outcome as non-authoritative request lifecycle state rather than mailbox success or failure recovered from exact transcript parsing.
+
+The runtime SHALL still translate TUI-mediated `mail` invocations into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly manipulating mailbox files or mailbox SQLite state itself.
+
+That mailbox prompt SHALL explicitly tell the agent which discoverable projected mailbox system skill to use for the mailbox operation and SHALL append structured mailbox metadata needed for the mailbox operation.
 
 For the current mailbox skill contract, that prompt SHALL identify the stable transport-specific mailbox skill name together with the primary visible mailbox skill path under the active skill destination.
 
@@ -407,67 +411,44 @@ The mailbox prompt SHALL follow gateway-aware transport expectations:
 
 The runtime-owned prompt-construction path SHALL dispatch by transport and gateway availability rather than assuming filesystem-only mailbox instructions for every mailbox-enabled session.
 
-The `mail` command handler SHALL validate exactly one structured mailbox result payload returned between `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` sentinels in the agent output and SHALL surface that result to the operator in a parseable form.
+For TUI-mediated mailbox commands, exact sentinel-delimited structured result parsing SHALL NOT be the correctness boundary for command completion.
 
-That sentinel-delimited structured result contract SHALL be the correctness boundary for mailbox result parsing. The runtime SHALL NOT rely on generic shadow dialog projection fidelity as the guarantee that mailbox result text was recovered exactly.
+For TUI-mediated mailbox commands, shadow parsing and transcript recovery MAY be used for:
 
-For `shadow_only` mailbox commands, the runtime SHALL continue polling post-submit shadow text for the active request after generic lifecycle completion becomes provisionally satisfied until exactly one sentinel-delimited mailbox result payload for that request is visible or an existing timeout, stall, blocked-surface, unsupported-surface, or disconnect failure ends the command.
+- submit-ready versus busy state tracking,
+- request-submission confirmation,
+- optional preview,
+- diagnostics.
 
-For `shadow_only` mailbox commands, a submit-ready surface without a complete sentinel-delimited mailbox result for the active request SHALL be treated as provisional only. The runtime SHALL NOT return mailbox success or a missing-sentinel parse failure solely because the generic shadow lifecycle gate became satisfied before the sentinel contract was observed.
+For TUI-mediated mailbox commands, the runtime SHALL NOT require exactly one parseable mailbox-result payload for the active request in order to return a non-authoritative submitted or rejected outcome.
 
-For `shadow_only` mailbox commands, prompt-echo mentions of `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` inside ordinary prose, echoed mailbox request content, or echoed response-contract metadata SHALL NOT satisfy mailbox completion gating or mailbox result validation by themselves.
+If a parseable active-request sentinel payload is recovered in TUI-mediated mode, the runtime MAY surface it as optional diagnostic or preview data. It SHALL NOT be required for the command to return.
 
-For `shadow_only` mailbox commands, mailbox completion gating and mailbox result validation SHALL use the same active-request result-selection contract so that surfaces ignored as prompt-echo noise during provisional completion are not later treated as malformed mailbox results.
+For `shadow_only` mailbox commands, prompt-echo mentions of `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` inside ordinary prose, echoed mailbox request content, or echoed response-contract metadata SHALL NOT be treated as authoritative mailbox-result evidence.
 
-#### Scenario: Filesystem mail command prompt includes filesystem-specific mailbox guidance
-- **WHEN** a developer invokes a runtime `mail` command for a filesystem mailbox-enabled session
-- **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
-- **AND THEN** that prompt explicitly names the discoverable filesystem mailbox system skill the agent should use
-- **AND THEN** that prompt points at the primary visible filesystem mailbox skill path without mentioning a hidden `.system` mailbox path
-- **AND THEN** that prompt tells the agent to inspect the shared mailbox `rules/` directory before interacting with shared mailbox state
-- **AND THEN** that prompt tells the agent to use shared scripts from `rules/scripts/` for any mailbox step that touches `index.sqlite` or `locks/`
+For `shadow_only` mailbox commands, mailbox correctness SHALL not depend on `dialog_projection.dialog_text` being an exact recovered reply transcript.
 
-#### Scenario: Gateway-aware mail command prompt prefers the shared gateway facade
-- **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session with a live gateway mailbox facade
-- **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
-- **AND THEN** that prompt explicitly names the discoverable projected mailbox system skill the agent should use
-- **AND THEN** that prompt tells the agent to prefer the live gateway mailbox facade for the shared mailbox operation rather than reasoning about transport details directly
+#### Scenario: Verified direct execution returns authoritative mailbox result
+- **WHEN** a developer invokes a runtime `mail` command for a mailbox-enabled session
+- **AND WHEN** the runtime owns the mailbox execution path directly
+- **THEN** the runtime returns authoritative mailbox success or failure for that operation
+- **AND THEN** the command result reflects protocol-owned or manager-owned mailbox truth rather than transcript recovery
 
-#### Scenario: Stalwart mail command prompt excludes filesystem-only mailbox guidance when direct transport fallback is used
-- **WHEN** a developer invokes a runtime `mail` command for a `stalwart` mailbox-enabled session with no live gateway mailbox facade
-- **THEN** the runtime delivers a runtime-owned mailbox prompt through the existing prompt-turn control surface for that session
-- **AND THEN** that prompt explicitly names the discoverable Stalwart mailbox system skill the agent should use
-- **AND THEN** that prompt does not direct the agent to use filesystem mailbox `rules/`, lock files, or managed scripts that are not part of the Stalwart transport
+#### Scenario: TUI-mediated mail send returns non-authoritative submitted state
+- **WHEN** a developer invokes `mail send` for a mailbox-enabled session
+- **AND WHEN** the execution path is prompt submission into a live TUI session
+- **THEN** the runtime returns request lifecycle state such as submitted, rejected, interrupted, busy, or TUI error
+- **AND THEN** the runtime does not require exact structured mailbox-result parsing to complete the command
 
-#### Scenario: Mail command returns structured mailbox result
-- **WHEN** a mailbox-enabled agent completes a runtime `mail` request
-- **THEN** the agent returns one structured mailbox result payload describing the mailbox operation outcome between the required sentinels
-- **AND THEN** the runtime validates and prints that result in a parseable form for the operator
-
-#### Scenario: Shadow-mode mailbox parsing relies on the schema contract rather than exact projection cleanup
-- **WHEN** a mailbox-enabled shadow-mode session returns one sentinel-delimited JSON result together with surrounding TUI noise or imperfect projection cleanup
-- **THEN** the runtime still treats the sentinel-delimited structured payload as the reliability boundary
-- **AND THEN** mailbox correctness does not depend on `dialog_projection.dialog_text` being an exact recovered reply transcript
-
-#### Scenario: Shadow-mode mailbox waits past transient submit-ready rebound for sentinel result
-- **WHEN** a mailbox-enabled `shadow_only` session returns to a submit-ready surface before the sentinel-delimited mailbox result for the active request is visible
-- **THEN** the runtime keeps polling post-submit shadow text instead of returning mailbox success or a missing-sentinel parse failure
-- **AND THEN** the runtime surfaces the mailbox result only after exactly one sentinel-delimited payload for that request is observed or the existing bounded turn failure policy fires
-
-#### Scenario: Shadow-mode mailbox ignores echoed request sentinel names
-- **WHEN** a mailbox-enabled `shadow_only` session echoes the runtime-owned mailbox prompt or response-contract metadata so that the sentinel names appear in projected text before any real mailbox result block is emitted
-- **THEN** the runtime treats those echoed sentinel mentions as provisional noise rather than mailbox-result evidence
-- **AND THEN** the runtime keeps polling until a real active-request mailbox result payload is observed or the existing bounded turn failure policy fires
-
-#### Scenario: Mail command fails on malformed sentinel payload
-- **WHEN** a mailbox-enabled agent omits the required sentinels, emits malformed JSON inside a real sentinel-delimited result block, or returns more than one sentinel-delimited mailbox result payload for the active request
-- **THEN** the runtime returns an explicit mailbox-result parsing error for that `mail` command
-- **AND THEN** the runtime does not send an automatic retry prompt in v1
+#### Scenario: TUI preview data does not redefine mailbox truth
+- **WHEN** a mailbox-enabled TUI session emits a parseable sentinel-delimited JSON result or other mailbox-related preview text
+- **THEN** the runtime MAY surface that data as optional preview or diagnostics
+- **AND THEN** the authoritative outcome contract for the command remains based on execution authority rather than preview transcript recovery
 
 #### Scenario: Mail command fails fast when session cannot accept a new turn
 - **WHEN** a developer invokes a runtime `mail` command for a session that is already busy or otherwise cannot safely accept a new prompt turn
 - **THEN** the runtime returns an explicit mailbox-command error
-- **AND THEN** the runtime does not silently queue hidden mailbox work for later execution
+- **AND THEN** it does not silently queue hidden mailbox work for later execution
 
 ### Requirement: Runtime mail send and reply commands require full recipient addresses and explicit body inputs
 The runtime `mail` command surface SHALL treat `send` and `reply` as explicit mailbox operations rather than prompt-composition helpers.
@@ -2065,6 +2046,39 @@ For native headless sessions, relaunch remains valid between turns even when no 
 - **WHEN** the runtime relaunches a tmux-backed managed session
 - **THEN** it targets the managed agent surface in window `0`
 - **AND THEN** it does not create or search for another tmux window when window `0` has been repurposed by the user
+
+### Requirement: Relaunch preserves durable specialist env but not one-off instance-launch env
+
+For Houmao-started tmux-backed sessions, relaunch SHALL rebuild provider-start state from durable persisted launch inputs rather than from one-off extra env supplied only at initial instance launch.
+
+When the built brain manifest contains persistent specialist-owned launch env records, relaunch SHALL reapply those env records as part of the rebuilt launch plan.
+
+When the original live session also received one-off extra env through `project easy instance launch --env-set`, that one-off extra env SHALL apply only to the current live session and SHALL NOT be persisted in relaunch authority.
+
+The runtime SHALL NOT store one-off instance-launch extra env in:
+
+- specialist config,
+- the built brain manifest, or
+- session-manifest relaunch authority.
+
+#### Scenario: Relaunch keeps persistent specialist env records
+- **WHEN** a specialist declares persistent launch env record `FEATURE_FLAG_X=1`
+- **AND WHEN** one tmux-backed session for that specialist is later relaunched
+- **THEN** the relaunched session still uses `FEATURE_FLAG_X=1`
+- **AND THEN** the runtime obtains that value from durable specialist launch input rather than from the old live session's one-off launch state
+
+#### Scenario: Relaunch drops one-off instance-launch env
+- **WHEN** a tmux-backed session originally started with one-off `project easy instance launch --env-set FEATURE_FLAG_X=2`
+- **AND WHEN** the underlying specialist does not declare persistent env record `FEATURE_FLAG_X`
+- **AND WHEN** that session is later relaunched
+- **THEN** the relaunched session does not keep `FEATURE_FLAG_X=2`
+- **AND THEN** relaunch uses only durable launch input that was persisted before runtime rebuild
+
+#### Scenario: Live-session headless turns can still use one-off instance-launch env before relaunch
+- **WHEN** a headless tmux-backed session starts with one-off `project easy instance launch --env-set FEATURE_FLAG_X=2`
+- **AND WHEN** the session remains live without relaunch
+- **THEN** later runtime-controlled work in that same live session still uses `FEATURE_FLAG_X=2`
+- **AND THEN** that behavior does not imply that `FEATURE_FLAG_X=2` is durable relaunch posture
 
 ### Requirement: Supported pair-managed tmux sessions keep the agent in window 0 while auxiliary windows remain non-authoritative
 For pair-managed tmux sessions that place gateway or other support processes in the same tmux session, the runtime SHALL reserve tmux window `0` for the agent process.
