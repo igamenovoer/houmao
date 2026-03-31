@@ -14,7 +14,7 @@ from houmao.agents.brain_builder import (
 )
 from houmao.project.overlay import resolve_materialized_project_aware_agent_def_dir
 
-from .common import emit_json
+from .output import emit
 
 
 @click.group(name="brains")
@@ -149,7 +149,7 @@ def build_brain_command(
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
-    emit_json(
+    emit(
         {
             "home_id": result.home_id,
             "home_path": str(result.home_path),

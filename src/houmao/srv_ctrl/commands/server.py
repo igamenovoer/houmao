@@ -16,11 +16,12 @@ from houmao.server.pair_client import (
 from houmao.server.commands.common import build_config
 
 from .common import (
-    emit_json,
     pair_port_option,
     require_houmao_server_pair,
     resolve_server_base_url,
 )
+from .output import emit
+from .renderers.server import render_server_status_fancy, render_server_status_plain
 from ...server.commands.serve import run_server, server_serve_options
 from ..server_startup import start_detached_server
 
@@ -91,7 +92,7 @@ def start_server_command(
         compat_codex_warmup_seconds=compat_codex_warmup_seconds,
         startup_child=startup_child,
     )
-    emit_json(start_detached_server(config))
+    emit(start_detached_server(config))
 
 
 @server_group.command(name="status")
@@ -103,12 +104,14 @@ def status_server_command(port: int | None) -> None:
     try:
         resolution = resolve_pair_authority_client(base_url=base_url)
     except PairAuthorityConnectionError:
-        emit_json(
+        emit(
             {
                 "running": False,
                 "api_base_url": base_url,
                 "detail": "No supported Houmao pair authority is running.",
-            }
+            },
+            plain_renderer=render_server_status_plain,
+            fancy_renderer=render_server_status_fancy,
         )
         return
     except UnsupportedPairAuthorityError as exc:
@@ -138,7 +141,7 @@ def status_server_command(port: int | None) -> None:
     else:
         sessions = None
 
-    emit_json(
+    emit(
         {
             "running": True,
             "api_base_url": base_url,
@@ -152,7 +155,9 @@ def status_server_command(port: int | None) -> None:
                 if sessions is not None
                 else None
             ),
-        }
+        },
+        plain_renderer=render_server_status_plain,
+        fancy_renderer=render_server_status_fancy,
     )
 
 
@@ -165,7 +170,7 @@ def stop_server_command(port: int | None) -> None:
     try:
         client = resolve_pair_authority_client(base_url=base_url).client
     except PairAuthorityConnectionError:
-        emit_json(
+        emit(
             {
                 "success": True,
                 "running": False,
@@ -178,7 +183,7 @@ def stop_server_command(port: int | None) -> None:
         raise click.ClickException(str(exc)) from exc
 
     client.shutdown_server()
-    emit_json(
+    emit(
         {
             "success": True,
             "running": False,
@@ -199,7 +204,7 @@ def list_server_sessions_command(port: int | None) -> None:
     """List active sessions from the running server."""
 
     client = require_houmao_server_pair(base_url=resolve_server_base_url(port=port))
-    emit_json({"sessions": [session.model_dump(mode="json") for session in client.list_sessions()]})
+    emit({"sessions": [session.model_dump(mode="json") for session in client.list_sessions()]})
 
 
 @server_sessions_group.command(name="show")
@@ -209,7 +214,7 @@ def show_server_session_command(port: int | None, session: str) -> None:
     """Show one server-owned session payload."""
 
     client = require_houmao_server_pair(base_url=resolve_server_base_url(port=port))
-    emit_json(client.get_session(session).model_dump(mode="json"))
+    emit(client.get_session(session).model_dump(mode="json"))
 
 
 @server_sessions_group.command(name="shutdown")
@@ -235,7 +240,7 @@ def shutdown_server_sessions_command(
         sessions_to_shutdown = [session or ""]
 
     if not sessions_to_shutdown:
-        emit_json({"success": True, "detail": "No server sessions found to shutdown."})
+        emit({"success": True, "detail": "No server sessions found to shutdown."})
         return
 
     results: list[dict[str, object]] = []
@@ -256,7 +261,7 @@ def shutdown_server_sessions_command(
                     "detail": exc.detail,
                 }
             )
-    emit_json({"results": results})
+    emit({"results": results})
 
 
 server_group.add_command(server_sessions_group)

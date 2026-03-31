@@ -37,13 +37,19 @@ from houmao.server.models import HoumaoManagedAgentIdentity
 from houmao.server.pair_client import PairAuthorityClientProtocol
 
 from ..common import (
-    emit_json,
     managed_agent_selector_options,
     pair_port_option,
     require_houmao_server_pair,
     resolve_managed_agent_selector,
     resolve_managed_agent_identity,
     resolve_prompt_text,
+)
+from ..output import emit
+from ..renderers.gateway import (
+    render_gateway_status_fancy,
+    render_gateway_status_plain,
+    render_prompt_result_fancy,
+    render_prompt_result_plain,
 )
 from ..managed_agents import (
     GatewayPromptControlCliError,
@@ -115,7 +121,7 @@ def attach_gateway_command(
         current_session=current_session,
         operation_name="attach",
     )
-    emit_json(attach_gateway(target, foreground=foreground))
+    emit(attach_gateway(target, foreground=foreground))
 
 
 @gateway_group.command(name="detach")
@@ -137,7 +143,7 @@ def detach_gateway_command(
         current_session=current_session,
         operation_name="detach",
     )
-    emit_json(detach_gateway(target))
+    emit(detach_gateway(target))
 
 
 @gateway_group.command(name="status")
@@ -159,7 +165,11 @@ def status_gateway_command(
         current_session=current_session,
         operation_name="status",
     )
-    emit_json(gateway_status(target))
+    emit(
+        gateway_status(target),
+        plain_renderer=render_gateway_status_plain,
+        fancy_renderer=render_gateway_status_fancy,
+    )
 
 
 @gateway_group.command(name="prompt")
@@ -194,7 +204,11 @@ def prompt_gateway_command(
         operation_name="prompt",
     )
     try:
-        emit_json(gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt), force=force))
+        emit(
+            gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt), force=force),
+            plain_renderer=render_prompt_result_plain,
+            fancy_renderer=render_prompt_result_fancy,
+        )
     except GatewayPromptControlCliError as exc:
         click.echo(
             json.dumps(exc.payload.model_dump(mode="json"), indent=2, sort_keys=True), err=True
@@ -221,7 +235,7 @@ def interrupt_gateway_command(
         current_session=current_session,
         operation_name="interrupt",
     )
-    emit_json(gateway_interrupt(target))
+    emit(gateway_interrupt(target))
 
 
 @gateway_group.command(name="send-keys")
@@ -255,7 +269,7 @@ def send_keys_gateway_command(
         current_session=current_session,
         operation_name="send-keys",
     )
-    emit_json(
+    emit(
         gateway_send_keys(
             target,
             sequence=sequence,
@@ -288,7 +302,7 @@ def state_gateway_tui_command(
         current_session=current_session,
         operation_name="tui state",
     )
-    emit_json(gateway_tui_state(target))
+    emit(gateway_tui_state(target))
 
 
 @gateway_tui_group.command(name="history")
@@ -310,7 +324,7 @@ def history_gateway_tui_command(
         current_session=current_session,
         operation_name="tui history",
     )
-    emit_json(gateway_tui_history(target))
+    emit(gateway_tui_history(target))
 
 
 @gateway_tui_group.command(name="watch")
@@ -346,7 +360,7 @@ def watch_gateway_tui_command(
             state = gateway_tui_state(target)
             if stdout.isatty():
                 click.clear()
-                emit_json(state)
+                emit(state)
             else:
                 click.echo(json.dumps(state.model_dump(mode="json"), sort_keys=True))
             time.sleep(interval_seconds)
@@ -379,7 +393,7 @@ def note_prompt_gateway_tui_command(
         current_session=current_session,
         operation_name="tui note-prompt",
     )
-    emit_json(gateway_tui_note_prompt(target, prompt=resolve_prompt_text(prompt=prompt)))
+    emit(gateway_tui_note_prompt(target, prompt=resolve_prompt_text(prompt=prompt)))
 
 
 @gateway_group.group(name="mail-notifier")
@@ -406,7 +420,7 @@ def status_gateway_mail_notifier_command(
         current_session=current_session,
         operation_name="mail-notifier status",
     )
-    emit_json(gateway_mail_notifier_status(target))
+    emit(gateway_mail_notifier_status(target))
 
 
 @mail_notifier_gateway_group.command(name="enable")
@@ -435,7 +449,7 @@ def enable_gateway_mail_notifier_command(
         current_session=current_session,
         operation_name="mail-notifier enable",
     )
-    emit_json(gateway_mail_notifier_enable(target, interval_seconds=interval_seconds))
+    emit(gateway_mail_notifier_enable(target, interval_seconds=interval_seconds))
 
 
 @mail_notifier_gateway_group.command(name="disable")
@@ -457,7 +471,7 @@ def disable_gateway_mail_notifier_command(
         current_session=current_session,
         operation_name="mail-notifier disable",
     )
-    emit_json(gateway_mail_notifier_disable(target))
+    emit(gateway_mail_notifier_disable(target))
 
 
 @dataclass(frozen=True)

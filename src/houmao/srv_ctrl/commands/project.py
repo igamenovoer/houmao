@@ -45,9 +45,9 @@ from .agents.core import emit_local_launch_completion, launch_managed_agent_loca
 from .common import (
     build_destructive_confirmation_callback,
     confirm_destructive_action,
-    emit_json,
     overwrite_confirm_option,
 )
+from .output import emit
 from .mailbox_support import (
     cleanup_mailbox_root,
     get_mailbox_account,
@@ -90,7 +90,7 @@ def init_project_command(with_compatibility_profiles: bool) -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    emit_json(
+    emit(
         {
             "project_root": str(result.project_overlay.project_root),
             "overlay_root": str(result.project_overlay.overlay_root),
@@ -118,7 +118,7 @@ def project_status_command() -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     overlay = overlay_resolution.project_overlay
-    emit_json(
+    emit(
         {
             "discovered": overlay is not None,
             "project_root": str(overlay.project_root) if overlay is not None else None,
@@ -747,7 +747,7 @@ def list_project_roles_command() -> None:
     """List project-local role roots."""
 
     overlay = _require_project_overlay()
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "roles": [
@@ -768,7 +768,7 @@ def get_project_role_command(name: str) -> None:
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if not role_root.is_dir():
         raise click.ClickException(f"Role not found: {role_root}")
-    emit_json(_role_summary(overlay=overlay, role_name=role_name))
+    emit(_role_summary(overlay=overlay, role_name=role_name))
 
 
 @project_roles_group.command(name="init")
@@ -824,7 +824,7 @@ def init_project_role_command(
         )
         created_paths.append(str(written_preset_path))
         preset_path = str(written_preset_path)
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "role": role_name,
@@ -925,7 +925,7 @@ def scaffold_project_role_command(
         )
         created_paths.append(str(preset_path))
 
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "role": role_name,
@@ -946,7 +946,7 @@ def remove_project_role_command(name: str) -> None:
     if not role_root.is_dir():
         raise click.ClickException(f"Role not found: {role_root}")
     shutil.rmtree(role_root)
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "role": role_name,
@@ -968,7 +968,7 @@ def list_project_role_presets_command(role: str) -> None:
 
     overlay = _require_project_overlay()
     role_name = _require_non_empty_name(role, field_name="--role")
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "role": role_name,
@@ -991,7 +991,7 @@ def get_project_role_preset_command(role: str, tool_name: str, setup: str) -> No
     """Inspect one project-local role preset."""
 
     overlay = _require_project_overlay()
-    emit_json(
+    emit(
         _preset_summary(
             overlay=overlay,
             role_name=_require_non_empty_name(role, field_name="--role"),
@@ -1040,7 +1040,7 @@ def add_project_role_preset_command(
         auth=_optional_non_empty_value(auth),
         prompt_mode=_optional_non_empty_value(prompt_mode),
     )
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "role": role_name,
@@ -1074,7 +1074,7 @@ def remove_project_role_preset_command(role: str, tool_name: str, setup: str) ->
     if not preset_path.is_file():
         raise click.ClickException(f"Preset not found: {preset_path}")
     preset_path.unlink()
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "role": role_name,
@@ -1281,7 +1281,7 @@ def create_easy_specialist_command(
         extra_mapping=None,
     )
     metadata_path = metadata.metadata_path or overlay.catalog_path
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "specialist": specialist_name,
@@ -1308,7 +1308,7 @@ def list_easy_specialists_command() -> None:
     """List persisted project-local specialist definitions."""
 
     overlay = _require_project_overlay()
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "specialists": [
@@ -1326,7 +1326,7 @@ def get_easy_specialist_command(name: str) -> None:
 
     overlay = _require_project_overlay()
     specialist = _load_specialist_or_click(overlay=overlay, name=name)
-    emit_json(_specialist_payload(overlay=overlay, metadata=specialist))
+    emit(_specialist_payload(overlay=overlay, metadata=specialist))
 
 
 @easy_specialist_group.command(name="remove")
@@ -1337,7 +1337,7 @@ def remove_easy_specialist_command(name: str) -> None:
     overlay = _require_project_overlay()
     specialist = _load_specialist_or_click(overlay=overlay, name=name)
     metadata_path = _remove_specialist_metadata_or_click(overlay=overlay, name=specialist.name)
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "specialist": specialist.name,
@@ -1459,7 +1459,7 @@ def list_easy_instances_command() -> None:
         metadata.name: metadata for metadata in list_specialists(overlay=overlay)
     }
     instances = _list_project_instances(overlay=overlay, specialists_by_name=specialists_by_name)
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "instances": instances,
@@ -1490,7 +1490,7 @@ def get_easy_instance_command(name: str) -> None:
         raise click.ClickException(
             f"Managed agent `{name}` does not belong to the discovered project overlay."
         )
-    emit_json(
+    emit(
         _instance_payload(
             overlay=overlay,
             identity_payload=identity.model_dump(mode="json"),
@@ -1520,7 +1520,7 @@ def stop_easy_instance_command(name: str) -> None:
         raise click.ClickException(
             f"Managed agent `{name}` does not belong to the discovered project overlay."
         )
-    emit_json(stop_managed_agent(target))
+    emit(stop_managed_agent(target))
 
 
 @project_group.group(name="mailbox")
@@ -1532,14 +1532,14 @@ def project_mailbox_group() -> None:
 def init_project_mailbox_command() -> None:
     """Bootstrap or validate the current project's mailbox root."""
 
-    emit_json(init_mailbox_root(_project_mailbox_root()))
+    emit(init_mailbox_root(_project_mailbox_root()))
 
 
 @project_mailbox_group.command(name="status")
 def status_project_mailbox_command() -> None:
     """Inspect the current project's mailbox root."""
 
-    emit_json(mailbox_root_status_payload(_project_mailbox_root()))
+    emit(mailbox_root_status_payload(_project_mailbox_root()))
 
 
 @project_mailbox_group.command(name="register")
@@ -1556,7 +1556,7 @@ def status_project_mailbox_command() -> None:
 def register_project_mailbox_command(address: str, principal_id: str, mode: str, yes: bool) -> None:
     """Register one mailbox address under the current project's mailbox root."""
 
-    emit_json(
+    emit(
         register_mailbox_at_root(
             mailbox_root=_project_mailbox_root(),
             address=address,
@@ -1586,7 +1586,7 @@ def register_project_mailbox_command(address: str, principal_id: str, mode: str,
 def unregister_project_mailbox_command(address: str, mode: str) -> None:
     """Deactivate or purge one mailbox address under the current project's mailbox root."""
 
-    emit_json(
+    emit(
         unregister_mailbox_at_root(
             mailbox_root=_project_mailbox_root(),
             address=address,
@@ -1611,7 +1611,7 @@ def unregister_project_mailbox_command(address: str, mode: str) -> None:
 def repair_project_mailbox_command(cleanup_staging: bool, quarantine_staging: bool) -> None:
     """Repair the current project's mailbox root."""
 
-    emit_json(
+    emit(
         repair_mailbox_root(
             mailbox_root=_project_mailbox_root(),
             cleanup_staging=cleanup_staging,
@@ -1647,7 +1647,7 @@ def cleanup_project_mailbox_command(
 ) -> None:
     """Clean inactive or stashed registrations under the current project's mailbox root."""
 
-    emit_json(
+    emit(
         cleanup_mailbox_root(
             mailbox_root=_project_mailbox_root(),
             inactive_older_than_seconds=inactive_older_than_seconds,
@@ -1666,7 +1666,7 @@ def project_mailbox_accounts_group() -> None:
 def list_project_mailbox_accounts_command() -> None:
     """List mailbox accounts under the current project's mailbox root."""
 
-    emit_json(list_mailbox_accounts(mailbox_root=_project_mailbox_root()))
+    emit(list_mailbox_accounts(mailbox_root=_project_mailbox_root()))
 
 
 @project_mailbox_accounts_group.command(name="get")
@@ -1678,7 +1678,7 @@ def get_project_mailbox_account_command(address: str) -> None:
         payload = get_mailbox_account(mailbox_root=_project_mailbox_root(), address=address)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit_json(payload)
+    emit(payload)
 
 
 @project_mailbox_group.group(name="messages")
@@ -1695,7 +1695,7 @@ def list_project_mailbox_messages_command(address: str) -> None:
         payload = list_mailbox_messages(mailbox_root=_project_mailbox_root(), address=address)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit_json(payload)
+    emit(payload)
 
 
 @project_mailbox_messages_group.command(name="get")
@@ -1712,7 +1712,7 @@ def get_project_mailbox_message_command(address: str, message_id: str) -> None:
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit_json(payload)
+    emit(payload)
 
 
 def _require_project_overlay() -> HoumaoProjectOverlay:
@@ -1736,7 +1736,7 @@ def _emit_tool_get(*, tool: str) -> None:
     overlay = _require_project_overlay()
     tool_root = _tool_root(overlay=overlay, tool=tool)
     adapter_path = (tool_root / "adapter.yaml").resolve()
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
@@ -1753,7 +1753,7 @@ def _emit_tool_setup_list(*, tool: str) -> None:
     """Emit the setup names for one supported tool."""
 
     overlay = _require_project_overlay()
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
@@ -1770,7 +1770,7 @@ def _emit_tool_setup_get(*, tool: str, name: str) -> None:
     setup_path = _tool_setup_path(overlay=overlay, tool=tool, name=setup_name)
     if not setup_path.is_dir():
         raise click.ClickException(f"Setup bundle not found: {setup_path}")
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
@@ -1794,7 +1794,7 @@ def _emit_tool_setup_add(*, tool: str, name: str, source_name: str) -> None:
     if target_path.exists():
         raise click.ClickException(f"Setup bundle already exists: {target_path}")
     shutil.copytree(source_path, target_path)
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
@@ -1815,7 +1815,7 @@ def _emit_tool_setup_remove(*, tool: str, name: str) -> None:
     if not setup_path.is_dir():
         raise click.ClickException(f"Setup bundle not found: {setup_path}")
     shutil.rmtree(setup_path)
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
@@ -1830,7 +1830,7 @@ def _emit_tool_auth_list(*, tool: str) -> None:
     """Emit the auth-bundle names for one supported tool."""
 
     overlay = _require_project_overlay()
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
@@ -1843,7 +1843,7 @@ def _emit_tool_auth_get(*, tool: str, name: str) -> None:
     """Emit one structured auth-bundle description."""
 
     overlay = _require_project_overlay()
-    emit_json(_describe_project_auth_bundle(overlay=overlay, tool=tool, name=name))
+    emit(_describe_project_auth_bundle(overlay=overlay, tool=tool, name=name))
 
 
 def _emit_tool_auth_remove(*, tool: str, name: str) -> None:
@@ -1855,7 +1855,7 @@ def _emit_tool_auth_remove(*, tool: str, name: str) -> None:
     if not target_path.is_dir():
         raise click.ClickException(f"Auth bundle not found: {target_path}")
     shutil.rmtree(target_path)
-    emit_json(
+    emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
@@ -2154,7 +2154,7 @@ def _run_claude_auth_write(
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": default_haiku_model,
         }
     )
-    emit_json(
+    emit(
         _write_project_auth_bundle(
             overlay=overlay,
             tool="claude",
@@ -2192,7 +2192,7 @@ def _run_codex_auth_write(
             "OPENAI_ORG_ID": org_id,
         }
     )
-    emit_json(
+    emit(
         _write_project_auth_bundle(
             overlay=overlay,
             tool="codex",
@@ -2227,7 +2227,7 @@ def _run_gemini_auth_write(
             "GOOGLE_GENAI_USE_VERTEXAI": "true" if use_vertex_ai else None,
         }
     )
-    emit_json(
+    emit(
         _write_project_auth_bundle(
             overlay=overlay,
             tool="gemini",

@@ -9,7 +9,8 @@ import click
 
 from houmao.owned_paths import resolve_mailbox_root
 
-from .common import build_destructive_confirmation_callback, emit_json, overwrite_confirm_option
+from .common import build_destructive_confirmation_callback, overwrite_confirm_option
+from .output import emit
 from .mailbox_support import (
     cleanup_mailbox_root,
     get_mailbox_account,
@@ -48,7 +49,7 @@ def mailbox_group() -> None:
 def init_mailbox_command(mailbox_root: Path | None) -> None:
     """Bootstrap or validate one filesystem mailbox root."""
 
-    emit_json(init_mailbox_root(resolve_mailbox_root(explicit_root=mailbox_root)))
+    emit(init_mailbox_root(resolve_mailbox_root(explicit_root=mailbox_root)))
 
 
 @mailbox_group.command(name="status")
@@ -56,7 +57,7 @@ def init_mailbox_command(mailbox_root: Path | None) -> None:
 def status_mailbox_command(mailbox_root: Path | None) -> None:
     """Inspect one filesystem mailbox root and return a structured summary."""
 
-    emit_json(mailbox_root_status_payload(resolve_mailbox_root(explicit_root=mailbox_root)))
+    emit(mailbox_root_status_payload(resolve_mailbox_root(explicit_root=mailbox_root)))
 
 
 @mailbox_group.command(name="register")
@@ -84,7 +85,7 @@ def register_mailbox_command(
 ) -> None:
     """Register one filesystem mailbox address under the resolved root."""
 
-    emit_json(
+    emit(
         register_mailbox_at_root(
             mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
             address=address,
@@ -119,7 +120,7 @@ def register_mailbox_command(
 def unregister_mailbox_command(mailbox_root: Path | None, address: str, mode: str) -> None:
     """Deactivate or purge one filesystem mailbox address."""
 
-    emit_json(
+    emit(
         unregister_mailbox_at_root(
             mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
             address=address,
@@ -149,7 +150,7 @@ def repair_mailbox_command(
 ) -> None:
     """Rebuild filesystem mailbox index state locally."""
 
-    emit_json(
+    emit(
         repair_mailbox_root(
             mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
             cleanup_staging=cleanup_staging,
@@ -187,7 +188,7 @@ def cleanup_mailbox_command(
 ) -> None:
     """Clean inactive or stashed mailbox registrations without deleting canonical mail."""
 
-    emit_json(
+    emit(
         cleanup_mailbox_root(
             mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
             inactive_older_than_seconds=inactive_older_than_seconds,
@@ -207,7 +208,7 @@ def mailbox_accounts_group() -> None:
 def list_mailbox_accounts_command(mailbox_root: Path | None) -> None:
     """List mailbox registrations as operator-facing accounts."""
 
-    emit_json(list_mailbox_accounts(mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root)))
+    emit(list_mailbox_accounts(mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root)))
 
 
 @mailbox_accounts_group.command(name="get")
@@ -223,7 +224,7 @@ def get_mailbox_account_command(mailbox_root: Path | None, address: str) -> None
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit_json(payload)
+    emit(payload)
 
 
 @mailbox_group.group(name="messages")
@@ -244,7 +245,7 @@ def list_mailbox_messages_command(mailbox_root: Path | None, address: str) -> No
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit_json(payload)
+    emit(payload)
 
 
 @mailbox_messages_group.command(name="get")
@@ -266,4 +267,4 @@ def get_mailbox_message_command(
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit_json(payload)
+    emit(payload)

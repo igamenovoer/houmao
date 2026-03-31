@@ -11,7 +11,7 @@ import click
 from houmao.agents.realm_controller.registry_storage import cleanup_stale_live_agent_records
 
 from .cleanup_support import CleanupAction, build_cleanup_payload
-from .common import emit_json
+from .output import emit
 from .runtime_cleanup import (
     CleanupResolutionError,
     cleanup_runtime_builds,
@@ -79,7 +79,7 @@ def cleanup_registry_command(
 ) -> None:
     """Clean stale shared-registry live-agent directories on the local host."""
 
-    emit_json(
+    emit(
         _registry_cleanup_payload(
             grace_seconds=grace_seconds,
             dry_run=dry_run,
@@ -109,7 +109,7 @@ def cleanup_registry_alias_command(
 ) -> None:
     """Compatibility alias for `houmao-mgr admin cleanup registry`."""
 
-    emit_json(
+    emit(
         _registry_cleanup_payload(
             grace_seconds=grace_seconds,
             dry_run=dry_run,
@@ -255,7 +255,7 @@ def _emit_runtime_cleanup(payload: dict[str, object]) -> None:
     """Emit one runtime cleanup payload with consistent click error handling."""
 
     try:
-        emit_json(payload)
+        emit(payload)
     except CleanupResolutionError as exc:
         raise click.ClickException(str(exc)) from exc
 

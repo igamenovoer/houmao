@@ -373,7 +373,7 @@ def _run_houmao_mgr_command(*args: str) -> subprocess.CompletedProcess[str]:
 
     repo_root = _source_repo_root()
     return subprocess.run(
-        [sys.executable, "-m", "houmao.srv_ctrl", *args],
+        [sys.executable, "-m", "houmao.srv_ctrl", "--print-json", *args],
         cwd=repo_root,
         env=_python_subprocess_env(),
         stdout=subprocess.PIPE,
@@ -499,19 +499,19 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     assert "Managed agent launch complete:" in launch_result.output
     assert resolve_live_agent_record("gpu") is not None
 
-    list_result = runner.invoke(cli, ["agents", "list"])
+    list_result = runner.invoke(cli, ["--print-json", "agents", "list"])
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
     assert [item["agent_name"] for item in list_payload["agents"]] == ["gpu"]
 
-    state_result = runner.invoke(cli, ["agents", "state", "--agent-name", "gpu"])
+    state_result = runner.invoke(cli, ["--print-json", "agents", "state", "--agent-name", "gpu"])
     assert state_result.exit_code == 0, state_result.output
     state_payload = json.loads(state_result.output)
     assert state_payload["identity"]["transport"] == "headless"
     assert state_payload["identity"]["agent_name"] == "gpu"
     assert state_payload["availability"] == "available"
 
-    stop_result = runner.invoke(cli, ["agents", "stop", "--agent-name", "gpu"])
+    stop_result = runner.invoke(cli, ["--print-json", "agents", "stop", "--agent-name", "gpu"])
     assert stop_result.exit_code == 0, stop_result.output
     stop_payload = json.loads(stop_result.output)
     assert stop_payload["success"] is True
@@ -566,14 +566,14 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
     assert record is not None
     assert record.identity.backend == "local_interactive"
 
-    state_result = runner.invoke(cli, ["agents", "state", "--agent-name", "gpu"])
+    state_result = runner.invoke(cli, ["--print-json", "agents", "state", "--agent-name", "gpu"])
     assert state_result.exit_code == 0, state_result.output
     state_payload = json.loads(state_result.output)
     assert state_payload["identity"]["transport"] == "tui"
     assert state_payload["identity"]["terminal_id"] == "abcd1234"
     assert state_payload["availability"] == "available"
 
-    stop_result = runner.invoke(cli, ["agents", "stop", "--agent-name", "gpu"])
+    stop_result = runner.invoke(cli, ["--print-json", "agents", "stop", "--agent-name", "gpu"])
     assert stop_result.exit_code == 0, stop_result.output
     stop_payload = json.loads(stop_result.output)
     assert stop_payload["success"] is True
@@ -626,7 +626,7 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
     )
     assert launch_result.exit_code == 0, launch_result.output
 
-    relaunch_result = runner.invoke(cli, ["agents", "relaunch", "--agent-name", "gpu"])
+    relaunch_result = runner.invoke(cli, ["--print-json", "agents", "relaunch", "--agent-name", "gpu"])
 
     assert relaunch_result.exit_code == 0, relaunch_result.output
     relaunch_payload = json.loads(relaunch_result.output)
@@ -682,6 +682,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     register_result = runner.invoke(
         cli,
         [
+            "--print-json",
             "agents",
             "mailbox",
             "register",
@@ -697,7 +698,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     assert register_payload["address"] == "AGENTSYS-gpu@agents.localhost"
     assert register_payload["mailbox_root"] == str(mailbox_root)
 
-    status_result = runner.invoke(cli, ["agents", "mailbox", "status", "--agent-name", "gpu"])
+    status_result = runner.invoke(cli, ["--print-json", "agents", "mailbox", "status", "--agent-name", "gpu"])
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
     assert status_payload["registered"] is True
@@ -709,14 +710,14 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     assert record.mailbox is not None
     assert record.mailbox.address == "AGENTSYS-gpu@agents.localhost"
 
-    mail_status_result = runner.invoke(cli, ["agents", "mail", "status", "--agent-name", "gpu"])
+    mail_status_result = runner.invoke(cli, ["--print-json", "agents", "mail", "status", "--agent-name", "gpu"])
     assert mail_status_result.exit_code == 0, mail_status_result.output
     mail_status_payload = json.loads(mail_status_result.output)
     assert mail_status_payload["transport"] == "filesystem"
 
     unregister_result = runner.invoke(
         cli,
-        ["agents", "mailbox", "unregister", "--agent-name", "gpu"],
+        ["--print-json", "agents", "mailbox", "unregister", "--agent-name", "gpu"],
     )
     assert unregister_result.exit_code == 0, unregister_result.output
     unregister_payload = json.loads(unregister_result.output)
@@ -775,6 +776,7 @@ def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_pro
     register_result = runner.invoke(
         cli,
         [
+            "--print-json",
             "agents",
             "mailbox",
             "register",
@@ -790,14 +792,14 @@ def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_pro
 
     mailbox_status_result = runner.invoke(
         cli,
-        ["agents", "mailbox", "status", "--agent-name", "gpu"],
+        ["--print-json", "agents", "mailbox", "status", "--agent-name", "gpu"],
     )
     assert mailbox_status_result.exit_code == 0, mailbox_status_result.output
     mailbox_status_payload = json.loads(mailbox_status_result.output)
     assert mailbox_status_payload["activation_state"] == "active"
     assert mailbox_status_payload["runtime_mailbox_enabled"] is True
 
-    mail_status_result = runner.invoke(cli, ["agents", "mail", "status", "--agent-name", "gpu"])
+    mail_status_result = runner.invoke(cli, ["--print-json", "agents", "mail", "status", "--agent-name", "gpu"])
     assert mail_status_result.exit_code == 0, mail_status_result.output
     mail_status_payload = json.loads(mail_status_result.output)
     assert mail_status_payload["transport"] == "filesystem"
@@ -884,7 +886,7 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
         ),
     )
 
-    result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])
+    result = CliRunner().invoke(cli, ["--print-json", "agents", "gateway", "attach"])
 
     assert result.exit_code == 0, result.output
     assert captured == {
@@ -908,11 +910,11 @@ def test_houmao_mgr_agents_help_retires_history_command() -> None:
 
     runner = CliRunner()
 
-    help_result = runner.invoke(cli, ["agents", "--help"])
+    help_result = runner.invoke(cli, ["--print-json", "agents", "--help"])
     assert help_result.exit_code == 0, help_result.output
     assert "history" not in help_result.output
 
-    history_result = runner.invoke(cli, ["agents", "history", "--help"])
+    history_result = runner.invoke(cli, ["--print-json", "agents", "history", "--help"])
     assert history_result.exit_code != 0
     assert "No such command 'history'" in history_result.output
 
@@ -969,7 +971,7 @@ def test_houmao_mgr_agents_mail_resolve_live_returns_structured_json(
 
     json_result = runner.invoke(
         cli,
-        ["agents", "mail", "resolve-live", "--agent-name", "alpha"],
+        ["--print-json", "agents", "mail", "resolve-live", "--agent-name", "alpha"],
     )
 
     assert json_result.exit_code == 0, json_result.output
@@ -1017,7 +1019,7 @@ def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
 
     runner = CliRunner()
 
-    status_result = runner.invoke(cli, ["server", "status", "--port", str(port)])
+    status_result = runner.invoke(cli, ["--print-json", "server", "status", "--port", str(port)])
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
     assert status_payload["running"] is True
@@ -1033,13 +1035,13 @@ def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
     assert reuse_payload["reused_existing"] is True
     assert reuse_payload["pid"] == live_instance["pid"]
 
-    sessions_result = runner.invoke(cli, ["server", "sessions", "list", "--port", str(port)])
+    sessions_result = runner.invoke(cli, ["--print-json", "server", "sessions", "list", "--port", str(port)])
     assert sessions_result.exit_code == 0, sessions_result.output
     assert json.loads(sessions_result.output) == {"sessions": []}
 
     shutdown_all_result = runner.invoke(
         cli,
-        ["server", "sessions", "shutdown", "--all", "--port", str(port)],
+        ["--print-json", "server", "sessions", "shutdown", "--all", "--port", str(port)],
     )
     assert shutdown_all_result.exit_code == 0, shutdown_all_result.output
     assert json.loads(shutdown_all_result.output) == {
@@ -1047,7 +1049,7 @@ def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
         "success": True,
     }
 
-    stop_result = runner.invoke(cli, ["server", "stop", "--port", str(port)])
+    stop_result = runner.invoke(cli, ["--print-json", "server", "stop", "--port", str(port)])
     assert stop_result.exit_code == 0, stop_result.output
     stop_payload = json.loads(stop_result.output)
     assert stop_payload["success"] is True

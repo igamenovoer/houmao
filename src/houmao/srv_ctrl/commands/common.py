@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 import os
 import shutil
 import subprocess
 from typing import Any, ParamSpec, Sequence, TypeVar, cast
 
 import click
-from pydantic import BaseModel
 
 from houmao.agents.realm_controller.agent_identity import normalize_user_managed_agent_name
 from houmao.agents.realm_controller.errors import SessionManifestError
@@ -244,17 +242,6 @@ def resolve_managed_agent_selector(
     if not allow_missing and normalized_agent_id is None and normalized_agent_name is None:
         raise click.ClickException("Exactly one of `--agent-id` or `--agent-name` is required.")
     return normalized_agent_id, normalized_agent_name
-
-
-def emit_json(payload: object) -> None:
-    """Render one model or JSON-compatible payload with stable formatting."""
-
-    normalized: object
-    if isinstance(payload, BaseModel):
-        normalized = payload.model_dump(mode="json")
-    else:
-        normalized = payload
-    click.echo(json.dumps(normalized, indent=2, sort_keys=True))
 
 
 def pair_request(

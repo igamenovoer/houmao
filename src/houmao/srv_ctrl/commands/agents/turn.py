@@ -5,11 +5,11 @@ from __future__ import annotations
 import click
 
 from ..common import (
-    emit_json,
     managed_agent_selector_options,
     pair_port_option,
     resolve_prompt_text,
 )
+from ..output import emit
 from ..managed_agents import (
     headless_turn_artifact_text,
     headless_turn_events,
@@ -41,7 +41,7 @@ def submit_turn_command(
     """Submit one managed headless turn for a headless agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(submit_headless_turn(target, prompt=resolve_prompt_text(prompt=prompt)))
+    emit(submit_headless_turn(target, prompt=resolve_prompt_text(prompt=prompt)))
 
 
 @turn_group.command(name="status")
@@ -57,7 +57,7 @@ def status_turn_command(
     """Show one managed headless turn status payload."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(headless_turn_status(target, turn_id=turn_id))
+    emit(headless_turn_status(target, turn_id=turn_id))
 
 
 @turn_group.command(name="events")
@@ -73,7 +73,7 @@ def events_turn_command(
     """Show structured events for one managed headless turn."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(headless_turn_events(target, turn_id=turn_id))
+    emit(headless_turn_events(target, turn_id=turn_id))
 
 
 @turn_group.command(name="stdout")

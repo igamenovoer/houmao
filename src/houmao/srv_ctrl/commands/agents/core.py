@@ -38,11 +38,19 @@ from .mailbox import mailbox_group
 from .turn import turn_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
-    emit_json,
     managed_agent_selector_options,
     pair_port_option,
     resolve_prompt_text,
     resolve_managed_agent_selector,
+)
+from ..output import emit
+from ..renderers.agents import (
+    render_agent_list_fancy,
+    render_agent_list_plain,
+    render_agent_state_fancy,
+    render_agent_state_plain,
+    render_launch_completion_fancy,
+    render_launch_completion_plain,
 )
 from ..managed_agents import (
     interrupt_managed_agent,
@@ -220,11 +228,17 @@ def emit_local_launch_completion(
 ) -> None:
     """Print one successful local launch result and hand off to tmux when appropriate."""
 
-    click.echo("Managed agent launch complete:")
-    click.echo(f"agent_name={controller.agent_identity or agent_name}")
-    click.echo(f"agent_id={controller.agent_id or 'unknown'}")
-    click.echo(f"tmux_session_name={controller.tmux_session_name or session_name or 'unknown'}")
-    click.echo(f"manifest_path={controller.manifest_path}")
+    emit(
+        {
+            "status": "Managed agent launch complete",
+            "agent_name": controller.agent_identity or agent_name,
+            "agent_id": controller.agent_id or "unknown",
+            "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
+            "manifest_path": str(controller.manifest_path),
+        },
+        plain_renderer=render_launch_completion_plain,
+        fancy_renderer=render_launch_completion_fancy,
+    )
     if not headless and controller.tmux_session_name is not None:
         if _caller_has_interactive_terminal():
             try:
@@ -234,8 +248,12 @@ def emit_local_launch_completion(
                     f"Managed agent launch succeeded, but tmux handoff failed: {exc}"
                 ) from exc
         else:
-            click.echo("terminal_handoff=skipped_non_interactive")
-            click.echo(f"attach_command=tmux attach-session -t {controller.tmux_session_name}")
+            emit(
+                {
+                    "terminal_handoff": "skipped_non_interactive",
+                    "attach_command": f"tmux attach-session -t {controller.tmux_session_name}",
+                }
+            )
 
 
 @click.group(name="agents")
@@ -409,7 +427,11 @@ def join_agents_command(
 def list_agents_command(port: int | None) -> None:
     """List managed agents from the shared registry, optionally enriched by the server."""
 
-    emit_json(list_managed_agents(port=port))
+    emit(
+        list_managed_agents(port=port),
+        plain_renderer=render_agent_list_plain,
+        fancy_renderer=render_agent_list_fancy,
+    )
 
 
 @agents_group.command(name="state")
@@ -419,7 +441,11 @@ def state_agent_command(port: int | None, agent_id: str | None, agent_name: str 
     """Show the operational managed-agent summary view."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(managed_agent_state_payload(target))
+    emit(
+        managed_agent_state_payload(target),
+        plain_renderer=render_agent_state_plain,
+        fancy_renderer=render_agent_state_fancy,
+    )
 
 
 @agents_group.command(name="prompt")
@@ -439,7 +465,7 @@ def prompt_agent_command(
     """Submit the default prompt path for one managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(prompt_managed_agent(target, prompt=resolve_prompt_text(prompt=prompt)))
+    emit(prompt_managed_agent(target, prompt=resolve_prompt_text(prompt=prompt)))
 
 
 @agents_group.command(name="interrupt")
@@ -453,7 +479,7 @@ def interrupt_agent_command(
     """Interrupt one managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(interrupt_managed_agent(target))
+    emit(interrupt_managed_agent(target))
 
 
 @agents_group.command(name="stop")
@@ -463,7 +489,7 @@ def stop_agent_command(port: int | None, agent_id: str | None, agent_name: str |
     """Stop one managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(stop_managed_agent(target))
+    emit(stop_managed_agent(target))
 
 
 @agents_group.command(name="relaunch")
@@ -497,7 +523,7 @@ def relaunch_agent_command(
             session_manifest_path=resolution.manifest_path,
         )
         result = controller.relaunch()
-        emit_json(
+        emit(
             {
                 "success": result.status == "ok",
                 "tracked_agent_id": (
@@ -515,7 +541,7 @@ def relaunch_agent_command(
         agent_name=selected_agent_name,
         port=port,
     )
-    emit_json(relaunch_managed_agent(target))
+    emit(relaunch_managed_agent(target))
 
 
 agents_group.add_command(gateway_group)
@@ -670,10 +696,14 @@ def _emit_join_result(
     provider: str,
     headless: bool,
 ) -> None:
-    click.echo("Managed agent join complete:")
-    click.echo(f"agent_name={result.agent_name}")
-    click.echo(f"agent_id={result.agent_id}")
-    click.echo(f"provider={provider}")
-    click.echo(f"backend={'headless' if headless else 'local_interactive'}")
-    click.echo(f"tmux_session_name={tmux_session_name}")
-    click.echo(f"manifest_path={result.manifest_path}")
+    emit(
+        {
+            "status": "Managed agent join complete",
+            "agent_name": result.agent_name,
+            "agent_id": result.agent_id,
+            "provider": provider,
+            "backend": "headless" if headless else "local_interactive",
+            "tmux_session_name": tmux_session_name,
+            "manifest_path": str(result.manifest_path),
+        }
+    )

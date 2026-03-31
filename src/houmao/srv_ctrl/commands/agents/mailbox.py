@@ -8,10 +8,10 @@ import click
 
 from ..common import (
     build_destructive_confirmation_callback,
-    emit_json,
     managed_agent_selector_options,
     overwrite_confirm_option,
 )
+from ..output import emit
 from ..managed_agents import (
     mailbox_status,
     register_mailbox_binding,
@@ -31,7 +31,7 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     """Report late mailbox registration posture for one local managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
-    emit_json(mailbox_status(target))
+    emit(mailbox_status(target))
 
 
 @mailbox_group.command(name="register")
@@ -75,7 +75,7 @@ def register_mailbox_command(
     """Register one filesystem mailbox binding for an existing local managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
-    emit_json(
+    emit(
         register_mailbox_binding(
             target,
             mailbox_root=mailbox_root,
@@ -111,4 +111,4 @@ def unregister_mailbox_command(
     """Remove one filesystem mailbox binding from an existing local managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
-    emit_json(unregister_mailbox_binding(target, mode=mode))
+    emit(unregister_mailbox_binding(target, mode=mode))
