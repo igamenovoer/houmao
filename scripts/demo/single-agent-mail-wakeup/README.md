@@ -54,10 +54,24 @@ Stepwise workflow:
 
 ```bash
 scripts/demo/single-agent-mail-wakeup/run_demo.sh start --tool claude
-scripts/demo/single-agent-mail-wakeup/run_demo.sh manual-send
+scripts/demo/single-agent-mail-wakeup/run_demo.sh attach
+scripts/demo/single-agent-mail-wakeup/run_demo.sh watch-gateway --follow
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier status
+scripts/demo/single-agent-mail-wakeup/run_demo.sh send
 scripts/demo/single-agent-mail-wakeup/run_demo.sh inspect
 scripts/demo/single-agent-mail-wakeup/run_demo.sh verify
 scripts/demo/single-agent-mail-wakeup/run_demo.sh stop
+```
+
+During stepwise `start`, the demo attaches the gateway in a foreground auxiliary tmux window while leaving the agent TUI in the primary agent window. `attach` re-enters the live agent session, and `watch-gateway` prints the gateway console by polling that auxiliary tmux window so the operator does not need to inspect tmux window metadata manually.
+
+Additional stepwise controls:
+
+```bash
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier on --seconds 2
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier off
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier set-interval --seconds 5
+scripts/demo/single-agent-mail-wakeup/run_demo.sh send --body-file path/to/message.md
 ```
 
 Matrix run across both supported tools:
@@ -77,6 +91,8 @@ Success means all of the following:
 
 The demo does **not** treat project-mailbox `read` state as authoritative. Structural project-mailbox inspection is used only for canonical identity, folder, projection path, canonical path, sender, recipients, subject, body, and attachments.
 
+The new stepwise controls are for live observation and experimentation only. `inspect` and `verify` remain the persisted evidence/report surfaces, and `auto` remains the canonical unattended path.
+
 ## Failure Modes
 
 - fixture auth bundle missing or incomplete
@@ -85,4 +101,3 @@ The demo does **not** treat project-mailbox `read` state as authoritative. Struc
 - gateway wake-up never occurs
 - the agent does not create the requested output file with the expected deterministic content
 - `agents mail check --unread-only` never reaches zero
-

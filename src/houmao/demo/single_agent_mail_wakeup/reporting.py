@@ -16,6 +16,7 @@ from .models import MANAGED_PROJECT_METADATA_NAME, DemoState, REPORT_SCHEMA_VERS
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
 _RUN_ID_PATTERN = re.compile(r"single-agent-mail-wakeup-\d{8}T\d{6}Z-[a-f0-9]{8}")
 _MESSAGE_ID_PATTERN = re.compile(r"msg-\d{8}T\d{6}Z-[a-f0-9]{32}")
+_DELIVERY_SUBJECT_PATTERN = re.compile(r"^(Single-agent mail wake-up demo) [a-f0-9]{8}$")
 
 
 def read_notifier_audit_rows(state: DemoState) -> list[dict[str, Any]]:
@@ -447,6 +448,10 @@ def sanitize_report(payload: Any, *, key: str | None = None) -> Any:
             return f"<{key.upper()}>"
         if _ABSOLUTE_PATH_PATTERN.match(payload):
             return "<ABSOLUTE_PATH>"
+        if key == "subject":
+            subject_match = _DELIVERY_SUBJECT_PATTERN.match(payload)
+            if subject_match is not None:
+                return f"{subject_match.group(1)} <RUN_ID>"
         normalized = _RUN_ID_PATTERN.sub("<RUN_ID>", payload)
         normalized = _MESSAGE_ID_PATTERN.sub("<MESSAGE_ID>", normalized)
         return normalized

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shlex
 import sys
 import time
 from typing import Any
@@ -51,9 +52,12 @@ from .reporting import (
 from .runtime import (
     DemoRuntimeError,
     attach_gateway,
+    attach_to_demo_session,
     build_demo_environment,
+    capture_gateway_console,
     create_specialist,
     disable_notifier,
+    enable_notifier,
     enable_notifier_with_retry,
     gateway_status,
     get_instance,
@@ -87,8 +91,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "start":
             return _command_start(args)
-        if args.command == "manual-send":
-            return _command_manual_send(args)
+        if args.command in {"send", "manual-send"}:
+            return _command_send(args)
+        if args.command == "attach":
+            return _command_attach(args)
+        if args.command == "watch-gateway":
+            return _command_watch_gateway(args)
+        if args.command == "notifier":
+            return _command_notifier(args)
         if args.command == "inspect":
             return _command_inspect(args)
         if args.command == "verify":
@@ -115,11 +125,30 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_common_arguments(start_parser)
     start_parser.add_argument("--tool", choices=("claude", "codex"), required=True)
 
-    send_parser = subparsers.add_parser("manual-send")
+    attach_parser = subparsers.add_parser("attach")
+    _add_common_arguments(attach_parser)
+
+    send_parser = subparsers.add_parser("send", aliases=["manual-send"])
     _add_common_arguments(send_parser)
     send_parser.add_argument("--subject", default=None)
     send_parser.add_argument("--body-content", default=None)
     send_parser.add_argument("--body-file", default=None)
+
+    watch_parser = subparsers.add_parser("watch-gateway")
+    _add_common_arguments(watch_parser)
+    watch_parser.add_argument("--follow", action="store_true")
+    watch_parser.add_argument("--lines", type=int, default=80)
+    watch_parser.add_argument("--poll-interval-seconds", type=float, default=1.0)
+
+    notifier_parser = subparsers.add_parser("notifier")
+    _add_common_arguments(notifier_parser)
+    notifier_subparsers = notifier_parser.add_subparsers(dest="notifier_command", required=True)
+    notifier_subparsers.add_parser("status")
+    on_parser = notifier_subparsers.add_parser("on")
+    on_parser.add_argument("--seconds", type=int, default=None)
+    notifier_subparsers.add_parser("off")
+    interval_parser = notifier_subparsers.add_parser("set-interval")
+    interval_parser.add_argument("--seconds", type=int, required=True)
 
     inspect_parser = subparsers.add_parser("inspect")
     _add_common_arguments(inspect_parser)
@@ -268,13 +297,44 @@ def _require_demo_state(paths: DemoPaths) -> DemoState:
     return load_demo_state(paths.state_path)
 
 
+def _require_active_demo_state(paths: DemoPaths) -> DemoState:
+    """Load persisted demo state and require an active session."""
+
+    state = _require_demo_state(paths)
+    if not state.active:
+        raise DemoPackError("demo is not active; run `start` first")
+    return state
+
+
+def _followup_command(*, paths: DemoPaths, command: str) -> str:
+    """Return one exact follow-up demo command pinned to the current output root."""
+
+    return (
+        "scripts/demo/single-agent-mail-wakeup/run_demo.sh "
+        f"{command} --demo-output-dir {shlex.quote(str(paths.output_root))}"
+    )
+
+
 def _command_start(args: argparse.Namespace) -> int:
     """Implement `start`."""
 
     repo_root = _repo_root()
     parameters = _load_parameters(args, repo_root=repo_root)
     paths = _resolve_paths(args, repo_root=repo_root, tool=args.tool)
-    state = _start_demo(repo_root=repo_root, paths=paths, parameters=parameters, tool=args.tool)
+    state = _start_demo(
+        repo_root=repo_root,
+        paths=paths,
+        parameters=parameters,
+        tool=args.tool,
+        gateway_foreground=True,
+    )
+    env = build_demo_environment(paths=paths)
+    gateway_payload = gateway_status(
+        paths=paths,
+        env=env,
+        agent_name=state.agent_name,
+        timeout_seconds=30.0,
+    )
     print(
         json.dumps(
             {
@@ -288,8 +348,12 @@ def _command_start(args: argparse.Namespace) -> int:
                 "attach_command": (
                     None
                     if state.tmux_session_name is None
-                    else f"tmux attach-session -t {state.tmux_session_name}"
+                    else _followup_command(paths=paths, command="attach")
                 ),
+                "send_command": _followup_command(paths=paths, command="send"),
+                "watch_gateway_command": _followup_command(paths=paths, command="watch-gateway"),
+                "notifier_status_command": _followup_command(paths=paths, command="notifier status"),
+                "gateway_tmux_window_index": gateway_payload.get("gateway_tmux_window_index"),
             },
             indent=2,
         )
@@ -303,6 +367,7 @@ def _start_demo(
     paths: DemoPaths,
     parameters: DemoParameters,
     tool: SupportedTool,
+    gateway_foreground: bool = False,
 ) -> DemoState:
     """Start one project-easy mailbox-enabled local interactive session."""
 
@@ -417,6 +482,7 @@ def _start_demo(
         env=env,
         agent_name=instance_name,
         timeout_seconds=parameters.command_timeout_seconds,
+        foreground=gateway_foreground,
     )
     enable_notifier_with_retry(
         paths=paths,
@@ -544,15 +610,26 @@ def _wait_for_session_ready(
     raise DemoPackError(f"session did not become ready within {timeout_seconds:.1f}s")
 
 
-def _command_manual_send(args: argparse.Namespace) -> int:
-    """Implement `manual-send`."""
+def _command_attach(args: argparse.Namespace) -> int:
+    """Implement `attach`."""
+
+    repo_root = _repo_root()
+    _load_parameters(args, repo_root=repo_root)
+    paths = _resolve_paths(args, repo_root=repo_root, tool=None)
+    state = _require_active_demo_state(paths)
+    if state.tmux_session_name is None:
+        raise DemoPackError("active demo state does not include a tmux session name")
+    attach_to_demo_session(session_name=state.tmux_session_name)
+    return 0
+
+
+def _command_send(args: argparse.Namespace) -> int:
+    """Implement `send`."""
 
     repo_root = _repo_root()
     parameters = _load_parameters(args, repo_root=repo_root)
     paths = _resolve_paths(args, repo_root=repo_root, tool=None)
-    state = _require_demo_state(paths)
-    if not state.active:
-        raise DemoPackError("demo is not active; run `start` first")
+    state = _require_active_demo_state(paths)
     subject = args.subject or default_delivery_subject(parameters=parameters, state=state)
     body_file = (
         None
@@ -579,6 +656,96 @@ def _command_manual_send(args: argparse.Namespace) -> int:
             indent=2,
         )
     )
+    return 0
+
+
+def _command_watch_gateway(args: argparse.Namespace) -> int:
+    """Implement `watch-gateway`."""
+
+    if args.lines <= 0:
+        raise DemoPackError("`--lines` must be > 0")
+    if args.poll_interval_seconds <= 0:
+        raise DemoPackError("`--poll-interval-seconds` must be > 0")
+
+    repo_root = _repo_root()
+    _load_parameters(args, repo_root=repo_root)
+    paths = _resolve_paths(args, repo_root=repo_root, tool=None)
+    state = _require_active_demo_state(paths)
+    env = build_demo_environment(paths=paths)
+
+    try:
+        last_rendered: str | None = None
+        while True:
+            capture = capture_gateway_console(
+                paths=paths,
+                env=env,
+                agent_name=state.agent_name,
+                fallback_session_name=state.tmux_session_name,
+                timeout_seconds=30.0,
+                lines=args.lines,
+            )
+            rendered = capture["text"]
+            if args.follow:
+                if rendered != last_rendered:
+                    sys.stdout.write("\033[2J\033[H")
+                    sys.stdout.write(rendered)
+                    sys.stdout.flush()
+                    last_rendered = rendered
+                time.sleep(args.poll_interval_seconds)
+                continue
+            sys.stdout.write(rendered)
+            sys.stdout.flush()
+            return 0
+    except KeyboardInterrupt:
+        return 130
+
+
+def _command_notifier(args: argparse.Namespace) -> int:
+    """Implement `notifier ...`."""
+
+    repo_root = _repo_root()
+    _load_parameters(args, repo_root=repo_root)
+    paths = _resolve_paths(args, repo_root=repo_root, tool=None)
+    state = _require_active_demo_state(paths)
+    env = build_demo_environment(paths=paths)
+
+    if args.notifier_command == "status":
+        payload = notifier_status(
+            paths=paths,
+            env=env,
+            agent_name=state.agent_name,
+            timeout_seconds=30.0,
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.notifier_command == "off":
+        payload = disable_notifier(
+            paths=paths,
+            env=env,
+            agent_name=state.agent_name,
+            timeout_seconds=30.0,
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    interval_seconds = (
+        args.seconds if args.notifier_command == "set-interval" else args.seconds
+    )
+    if interval_seconds is None:
+        interval_seconds = state.notifier_interval_seconds
+    if interval_seconds <= 0:
+        raise DemoPackError("notifier interval must be > 0 seconds")
+    payload = enable_notifier(
+        paths=paths,
+        env=env,
+        agent_name=state.agent_name,
+        interval_seconds=interval_seconds,
+        timeout_seconds=30.0,
+    )
+    updated_state = state.model_copy(update={"notifier_interval_seconds": interval_seconds})
+    save_demo_state(paths.state_path, updated_state)
+    print(json.dumps(payload, indent=2))
     return 0
 
 

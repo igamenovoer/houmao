@@ -147,12 +147,104 @@ def test_driver_parser_accepts_supported_command_surface() -> None:
     parser = driver._build_parser()  # type: ignore[attr-defined]
 
     assert parser.parse_args(["start", "--tool", "claude"]).command == "start"
+    assert parser.parse_args(["send"]).command == "send"
     assert parser.parse_args(["manual-send"]).command == "manual-send"
+    assert parser.parse_args(["attach"]).command == "attach"
+    assert parser.parse_args(["watch-gateway"]).command == "watch-gateway"
+    assert parser.parse_args(["watch-gateway", "--follow"]).command == "watch-gateway"
+    notifier_args = parser.parse_args(["notifier", "status"])
+    assert notifier_args.command == "notifier"
+    assert notifier_args.notifier_command == "status"
+    notifier_on_args = parser.parse_args(["notifier", "on", "--seconds", "2"])
+    assert notifier_on_args.notifier_command == "on"
+    assert notifier_on_args.seconds == 2
+    notifier_interval_args = parser.parse_args(["notifier", "set-interval", "--seconds", "5"])
+    assert notifier_interval_args.notifier_command == "set-interval"
+    assert notifier_interval_args.seconds == 5
     assert parser.parse_args(["inspect"]).command == "inspect"
     assert parser.parse_args(["verify"]).command == "verify"
     assert parser.parse_args(["stop"]).command == "stop"
     assert parser.parse_args(["auto", "--tool", "codex"]).command == "auto"
     assert parser.parse_args(["matrix"]).command == "matrix"
+
+
+def test_attach_gateway_can_request_foreground_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/claude")
+    paths.project_dir.mkdir(parents=True)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_json_command(command: object, **kwargs: object) -> dict[str, object]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
+
+    runtime.attach_gateway(
+        paths=paths,
+        env={},
+        agent_name="single-mail-claude-demo",
+        timeout_seconds=30.0,
+        foreground=True,
+    )
+
+    command = captured["command"]
+    assert command == [
+        "pixi",
+        "run",
+        "houmao-mgr",
+        "agents",
+        "gateway",
+        "attach",
+        "--agent-name",
+        "single-mail-claude-demo",
+        "--foreground",
+    ]
+
+
+def test_capture_gateway_console_uses_authoritative_gateway_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/claude")
+    paths.project_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        runtime,
+        "gateway_status",
+        lambda **kwargs: {
+            "tmux_session_name": "hm-single-mail-claude-demo",
+            "gateway_tmux_window_index": 2,
+        },
+    )
+    monkeypatch.setattr(
+        runtime,
+        "resolve_tmux_pane",
+        lambda **kwargs: type("_Pane", (), {"pane_id": "%42"})(),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "capture_tmux_pane",
+        lambda **kwargs: "line-1\nline-2\nline-3\n",
+    )
+
+    payload = runtime.capture_gateway_console(
+        paths=paths,
+        env={},
+        agent_name="single-mail-claude-demo",
+        fallback_session_name="fallback-session",
+        timeout_seconds=30.0,
+        lines=2,
+    )
+
+    assert payload["session_name"] == "hm-single-mail-claude-demo"
+    assert payload["window_index"] == "2"
+    assert payload["pane_id"] == "%42"
+    assert payload["text"] == "line-2\nline-3\n"
 
 
 def test_report_contract_accepts_structural_project_mailbox_without_read_state(tmp_path: Path) -> None:
@@ -282,3 +374,27 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(t
     assert report["outcome"]["status"] == "complete"
     reporting.validate_report_contract(report)
     assert report["structural_mailbox_evidence"]["delivered_message_visible"] is True
+
+
+def test_sanitize_report_normalizes_delivery_subject_run_token() -> None:
+    sanitized = reporting.sanitize_report(
+        {
+            "deliveries": [
+                {
+                    "subject": "Single-agent mail wake-up demo e72b254f",
+                    "message_id": "msg-20260331T060421Z-f8a1b0ce96c44bebaa431c78141ac216",
+                    "thread_id": "msg-20260331T060421Z-f8a1b0ce96c44bebaa431c78141ac216",
+                }
+            ]
+        }
+    )
+
+    assert sanitized == {
+        "deliveries": [
+            {
+                "subject": "Single-agent mail wake-up demo <RUN_ID>",
+                "message_id": "<MESSAGE_ID>",
+                "thread_id": "<THREAD_ID>",
+            }
+        ]
+    }

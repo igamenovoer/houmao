@@ -15,6 +15,12 @@ import click
 from houmao.agents.brain_builder import BuildResult
 from houmao.agents.mailbox_runtime_support import project_runtime_mailbox_system_skills
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    TmuxCommandError,
+    attach_tmux_session,
+    capture_tmux_pane,
+    resolve_tmux_pane,
+)
 from houmao.agents.realm_controller.loaders import parse_env_file
 from houmao.agents.realm_controller.loaders import load_brain_manifest
 from houmao.agents.realm_controller.manifest import (
@@ -638,11 +644,15 @@ def attach_gateway(
     env: Mapping[str, str],
     agent_name: str,
     timeout_seconds: float,
+    foreground: bool = False,
 ) -> dict[str, Any]:
     """Attach the live gateway for the selected managed agent."""
 
+    command = ["agents", "gateway", "attach", "--agent-name", agent_name]
+    if foreground:
+        command.append("--foreground")
     payload = run_json_command(
-        manager_cli_command(["agents", "gateway", "attach", "--agent-name", agent_name]),
+        manager_cli_command(command),
         cwd=paths.project_dir,
         stdout_path=paths.logs_dir / "gateway-attach.stdout",
         stderr_path=paths.logs_dir / "gateway-attach.stderr",
@@ -782,6 +792,55 @@ def disable_notifier(
         env=env,
         timeout_seconds=timeout_seconds,
     )
+
+
+def attach_to_demo_session(*, session_name: str) -> None:
+    """Attach the caller terminal to the live demo tmux session."""
+
+    try:
+        attach_tmux_session(session_name=session_name)
+    except TmuxCommandError as exc:
+        raise DemoRuntimeError(str(exc)) from exc
+
+
+def capture_gateway_console(
+    *,
+    paths: DemoPaths,
+    env: Mapping[str, str],
+    agent_name: str,
+    fallback_session_name: str | None,
+    timeout_seconds: float,
+    lines: int,
+) -> dict[str, Any]:
+    """Capture the current gateway console text from the authoritative tmux window."""
+
+    status_payload = gateway_status(
+        paths=paths,
+        env=env,
+        agent_name=agent_name,
+        timeout_seconds=timeout_seconds,
+    )
+    session_name = str(status_payload.get("tmux_session_name") or fallback_session_name or "").strip()
+    if not session_name:
+        raise DemoRuntimeError("gateway status did not include a tmux session name")
+    window_index = status_payload.get("gateway_tmux_window_index")
+    if window_index is None:
+        raise DemoRuntimeError(
+            "gateway is not attached in a watchable auxiliary tmux window for this demo"
+        )
+    try:
+        pane = resolve_tmux_pane(session_name=session_name, window_index=str(window_index))
+        full_text = capture_tmux_pane(target=pane.pane_id)
+    except TmuxCommandError as exc:
+        raise DemoRuntimeError(str(exc)) from exc
+    tail_lines = full_text.splitlines()[-lines:] if lines > 0 else full_text.splitlines()
+    return {
+        "gateway_status": status_payload,
+        "session_name": session_name,
+        "window_index": str(window_index),
+        "pane_id": pane.pane_id,
+        "text": "\n".join(tail_lines) + ("\n" if tail_lines else ""),
+    }
 
 
 def stop_instance(
