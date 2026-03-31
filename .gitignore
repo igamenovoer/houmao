@@ -87,5 +87,6 @@ site/
 .agent-automation/hacktest/
 
 .agent-automation/impl-branches/
+.agent-automation/merge-backups/
 .git/
 scripts/demo/mail-ping-pong-gateway-demo-pack/outputs/

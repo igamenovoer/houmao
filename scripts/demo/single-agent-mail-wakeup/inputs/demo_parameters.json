@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "demo_id": "single-agent-mail-wakeup",
+  "agent_def_dir": "tests/fixtures/agents",
+  "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
+  "system_prompt_file": "scripts/demo/single-agent-mail-wakeup/inputs/system_prompt.md",
+  "command_timeout_seconds": 180,
+  "gateway": {
+    "host": "127.0.0.1",
+    "notifier_interval_seconds": 5
+  },
+  "automatic": {
+    "ready_timeout_seconds": 180,
+    "output_timeout_seconds": 180,
+    "output_dir_relative_path": "tmp/single-agent-mail-wakeup",
+    "output_file_prefix": "processed",
+    "output_content_prefix": "single-agent-mail-wakeup"
+  },
+  "delivery": {
+    "sender_principal_id": "operator",
+    "sender_address": "operator@agents.localhost",
+    "subject_prefix": "Single-agent mail wake-up demo",
+    "body_file": "scripts/demo/single-agent-mail-wakeup/inputs/operator_body.md"
+  },
+  "tools": {
+    "claude": {
+      "provider": "claude_code",
+      "setup": "default",
+      "auth_name": "kimi-coding",
+      "auth_fixture_dir": "tests/fixtures/agents/tools/claude/auth/kimi-coding",
+      "specialist_name_prefix": "single-mail-claude",
+      "instance_name_prefix": "single-mail-claude",
+      "session_name_prefix": "hm-single-mail-claude"
+    },
+    "codex": {
+      "provider": "codex",
+      "setup": "yunwu-openai",
+      "auth_name": "yunwu-openai",
+      "auth_fixture_dir": "tests/fixtures/agents/tools/codex/auth/yunwu-openai",
+      "specialist_name_prefix": "single-mail-codex",
+      "instance_name_prefix": "single-mail-codex",
+      "session_name_prefix": "hm-single-mail-codex"
+    }
+  }
+}
+
