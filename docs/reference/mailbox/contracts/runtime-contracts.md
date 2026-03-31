@@ -1,6 +1,6 @@
 # Mailbox Runtime Contracts
 
-This page explains the runtime-owned contract around mailbox configuration, env bindings, projected skills, and `agents mail` request and result handling.
+This page explains the runtime-owned contract around mailbox configuration, manifest-backed bindings, projected skills, and `agents mail` request and result handling.
 
 ## Mental Model
 
@@ -9,7 +9,6 @@ The runtime is the authority for mailbox attachment to a session.
 - Declarative config or CLI overrides choose the mailbox transport and identity.
 - The runtime resolves that into one `MailboxResolvedConfig`.
 - The session manifest persists that resolved mailbox binding as the durable mailbox authority reused by resume and gateway transport access.
-- For tmux-backed managed sessions, the runtime also publishes the targeted `AGENTSYS_MAILBOX_*` keys into tmux session environment as the live mailbox projection for later mailbox work.
 - The runtime projects the mailbox system skill into the built brain home under the visible `skills/mailbox/...` mailbox subtree.
 - Later mailbox work resolves current bindings through `pixi run houmao-mgr agents mail resolve-live` instead of assuming the provider process's inherited mailbox env snapshot is still current.
 - That same command is also the runtime-owned discovery path for the attached shared-mailbox gateway facade: when a valid live gateway is attached it returns a `gateway` object with `base_url`, `host`, `port`, `protocol_version`, and `state_path`; otherwise it returns `gateway: null`.
@@ -29,7 +28,7 @@ Current rules:
 - `filesystem` and `stalwart` are implemented in v1.
 - If `principal_id` is omitted, the runtime derives one from the tool, role, and optional agent identity.
 - If `address` is omitted, it defaults to `<principal_id>@agents.localhost`.
-- If `filesystem_root` is omitted, it defaults to `<runtime_root>/mailbox`.
+- If `filesystem_root` is omitted, it defaults to `~/.houmao/mailbox` or the location selected by `AGENTSYS_GLOBAL_MAILBOX_DIR`.
 - `stalwart` bindings resolve from either `base_url` or explicit `jmap_url` plus `management_url`.
 - Persisted `stalwart` bindings remain secret-free and store `credential_ref` instead of inline credentials.
 
@@ -47,43 +46,51 @@ Representative resolved payload:
 
 That persisted `launch_plan.mailbox` payload is also the durable mailbox capability contract reused by resume, refresh, and gateway-side integrations. The gateway mail transport uses that durable manifest-backed capability rather than persisting a second mailbox copy under `gateway/`.
 
-## Runtime-Owned Mailbox Bindings
+## Manager-Owned `resolve-live` Contract
 
-Common env vars:
+`pixi run houmao-mgr agents mail resolve-live` is the supported current-mailbox discovery surface.
 
-- `AGENTSYS_MAILBOX_TRANSPORT`
-- `AGENTSYS_MAILBOX_PRINCIPAL_ID`
-- `AGENTSYS_MAILBOX_ADDRESS`
-- `AGENTSYS_MAILBOX_BINDINGS_VERSION`
+Top-level fields:
 
-Filesystem-specific env vars:
+- `source`
+- `transport`
+- `principal_id`
+- `address`
+- `bindings_version`
+- `mailbox`
+- `gateway`
+- `gateway_available`
+- `managed_agent`
 
-- `AGENTSYS_MAILBOX_FS_ROOT`
-- `AGENTSYS_MAILBOX_FS_SQLITE_PATH`
-- `AGENTSYS_MAILBOX_FS_MAILBOX_DIR`
-- `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH`
-- `AGENTSYS_MAILBOX_FS_INBOX_DIR`
+Filesystem-specific fields:
 
-Email-transport env vars:
+- `mailbox.filesystem.root`
+- `mailbox.filesystem.sqlite_path`
+- `mailbox.filesystem.mailbox_path`
+- `mailbox.filesystem.local_sqlite_path`
+- `mailbox.filesystem.inbox_path`
+- `mailbox.filesystem.mailbox_kind`
 
-- `AGENTSYS_MAILBOX_EMAIL_JMAP_URL`
-- `AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL`
-- `AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY`
-- `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF`
-- `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE`
+Stalwart-specific fields:
+
+- `mailbox.stalwart.jmap_url`
+- `mailbox.stalwart.management_url`
+- `mailbox.stalwart.login_identity`
+- `mailbox.stalwart.credential_ref`
+- `mailbox.stalwart.credential_file`
 
 Important rules:
 
-- For tmux-backed managed sessions, treat the manifest as durable authority, treat tmux session environment as the authoritative live mailbox publication, and treat inherited process env only as a launch-time snapshot unless the runtime-owned resolver validates it as still current.
+- Treat the persisted manifest mailbox payload as durable authority and the resolver output as the current actionable mailbox contract.
 - Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before direct attached-session mailbox work. Inside the owning tmux session, selectors may be omitted. Outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
-- `resolve-live --format shell` emits stable `export ...` assignments for `HOUMAO_MANAGED_AGENT_*`, `AGENTSYS_MAILBOX_*`, and `AGENTSYS_MAILBOX_GATEWAY_*`.
-- Treat `AGENTSYS_MAILBOX_FS_ROOT` as authoritative.
-- `AGENTSYS_MAILBOX_FS_SQLITE_PATH` remains the shared mailbox-root `index.sqlite` catalog.
-- `AGENTSYS_MAILBOX_FS_MAILBOX_DIR` resolves the current mailbox-view directory for the addressed mailbox.
-- `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` is the authoritative mailbox-view SQLite database for the current mailbox.
-- `AGENTSYS_MAILBOX_FS_INBOX_DIR` follows the active mailbox registration, so it may resolve through a symlinked `mailboxes/<address>` entry into a private directory.
-- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes, discard cached assumptions and reload the current bindings.
-- `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` is session-local secret material derived from the persisted secret-free `credential_ref`.
+- Mailbox-specific shell export is not part of the supported runtime contract.
+- Treat `mailbox.filesystem.root` as authoritative.
+- `mailbox.filesystem.sqlite_path` remains the shared mailbox-root `index.sqlite` catalog.
+- `mailbox.filesystem.mailbox_path` resolves the current mailbox-view directory for the addressed mailbox.
+- `mailbox.filesystem.local_sqlite_path` is the authoritative mailbox-view SQLite database for the current mailbox.
+- `mailbox.filesystem.inbox_path` follows the active mailbox registration, so it may resolve through a symlinked `mailboxes/<address>` entry into a private directory.
+- If `bindings_version` changes, discard cached assumptions and reload the current bindings.
+- `mailbox.stalwart.credential_file` is session-local secret material derived from the persisted secret-free `credential_ref`.
 
 ## Shared Catalog Versus Mailbox-Local State
 
@@ -115,11 +122,11 @@ Filesystem-specific rules:
 
 - inspect `rules/README.md` and `rules/protocols/filesystem-mailbox-v1.md` for policy or repair guidance,
 - do not require ordinary attached-session mailbox work to invoke mailbox-owned scripts under `rules/scripts/`,
-- treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for mailbox-view read or unread and thread-summary state.
+- treat `mailbox.filesystem.local_sqlite_path` as the source of truth for mailbox-view read or unread and thread-summary state.
 
 Stalwart-specific rules:
 
-- use the current `AGENTSYS_MAILBOX_EMAIL_*` bindings returned by the resolver for direct transport access when no live gateway mailbox facade is available,
+- use the current `mailbox.stalwart.*` fields returned by the resolver for direct transport access when no live gateway mailbox facade is available,
 - do not assume filesystem mailbox rules, SQLite paths, locks, or projection symlinks exist for this transport.
 
 ## Managed `agents mail` Contract
@@ -142,7 +149,6 @@ Selector rules:
 
 Argument rules:
 
-- `resolve-live` supports `--format json|shell`.
 - `check` accepts `--unread-only`, `--limit`, and `--since`.
 - `send` requires at least one `--to`, a `--subject`, and exactly one of `--body-file` or `--body-content`.
 - `reply` requires `--message-ref` and exactly one of `--body-file` or `--body-content`.

@@ -20,10 +20,6 @@ from houmao.agents.mailbox_runtime_support import (
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.gateway_models import GatewayCurrentInstanceV1
 from houmao.agents.realm_controller.gateway_storage import (
-    AGENT_GATEWAY_HOST_ENV_VAR,
-    AGENT_GATEWAY_PORT_ENV_VAR,
-    AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
-    AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     gateway_paths_from_manifest_path,
     write_gateway_current_instance,
 )
@@ -105,8 +101,8 @@ def _seed_manifest_with_mailbox(
         working_directory=tmp_path,
         home_env_var="CLAUDE_CONFIG_DIR",
         home_path=tmp_path / "home",
-        env=mailbox_env_bindings(mailbox),
-        env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
+        env={},
+        env_var_names=[],
         role_injection=RoleInjectionPlan(
             method="native_append_system_prompt",
             role_name="r",
@@ -164,17 +160,16 @@ def test_resolve_live_mailbox_binding_uses_targeted_filesystem_projection(
     tmp_path: Path,
 ) -> None:
     durable_mailbox = _build_filesystem_mailbox(tmp_path)
-    env_bindings = mailbox_env_bindings(durable_mailbox)
+    resolution = resolve_live_mailbox_binding(durable_mailbox=durable_mailbox)
 
-    resolution = resolve_live_mailbox_binding(
-        durable_mailbox=durable_mailbox,
-        env_reader=env_bindings.get,
-    )
+    payload = resolution.payload()
 
-    assert resolution.source == "tmux_session_env"
+    assert resolution.source == "manifest_binding"
     assert resolution.mailbox == durable_mailbox
-    assert resolution.env_bindings["AGENTSYS_MAILBOX_FS_ROOT"] == str(
-        durable_mailbox.filesystem_root
+    assert "env" not in payload
+    assert payload["mailbox"]["filesystem"]["root"] == str(durable_mailbox.filesystem_root)
+    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(
+        durable_mailbox.mailbox_path
     )
 
 
@@ -182,30 +177,30 @@ def test_resolve_live_mailbox_binding_preserves_symlink_filesystem_projection(
     tmp_path: Path,
 ) -> None:
     durable_mailbox = _build_symlink_filesystem_mailbox(tmp_path)
-    env_bindings = mailbox_env_bindings(durable_mailbox)
+    resolution = resolve_live_mailbox_binding(durable_mailbox=durable_mailbox)
 
-    resolution = resolve_live_mailbox_binding(
-        durable_mailbox=durable_mailbox,
-        env_reader=env_bindings.get,
-    )
+    payload = resolution.payload()
 
-    assert resolution.source == "tmux_session_env"
+    assert resolution.source == "manifest_binding"
     assert resolution.mailbox == durable_mailbox
-    assert resolution.env_bindings["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
+    assert payload["mailbox"]["filesystem"]["mailbox_kind"] == "symlink"
+    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(
         durable_mailbox.mailbox_path
     )
 
 
-def test_resolve_live_mailbox_binding_rejects_incomplete_projection(tmp_path: Path) -> None:
+def test_resolve_live_mailbox_binding_rejects_missing_active_registration(tmp_path: Path) -> None:
     durable_mailbox = _build_filesystem_mailbox(tmp_path)
-    env_bindings = mailbox_env_bindings(durable_mailbox)
-    env_bindings.pop("AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH")
+    unregistered_mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id=durable_mailbox.principal_id,
+        address="AGENTSYS-missing@agents.localhost",
+        filesystem_root=durable_mailbox.filesystem_root,
+        bindings_version=durable_mailbox.bindings_version,
+    )
 
-    with pytest.raises(ValueError, match="missing required env vars"):
-        resolve_live_mailbox_binding(
-            durable_mailbox=durable_mailbox,
-            env_reader=env_bindings.get,
-        )
+    with pytest.raises(ValueError, match="no active mailbox registration exists"):
+        resolve_live_mailbox_binding(durable_mailbox=unregistered_mailbox)
 
 
 def test_publish_tmux_live_mailbox_projection_refreshes_current_bindings(tmp_path: Path) -> None:
@@ -298,35 +293,33 @@ def test_publish_tmux_live_mailbox_projection_clears_stale_transport_vars(tmp_pa
     ]
 
 
-def test_resolve_live_mailbox_binding_from_manifest_path_prefers_process_env_and_falls_back_for_gateway(
+def test_resolve_live_mailbox_binding_from_manifest_path_uses_manifest_binding_and_current_instance_gateway(
     tmp_path: Path,
 ) -> None:
     mailbox = _build_filesystem_mailbox(tmp_path)
     manifest_path = _seed_manifest_with_mailbox(tmp_path, mailbox=mailbox)
     state_path = _seed_gateway_current_instance(manifest_path)
-    process_bindings = mailbox_env_bindings(mailbox)
-    tmux_bindings = {
-        **mailbox_env_bindings(mailbox),
-        AGENT_GATEWAY_HOST_ENV_VAR: "127.0.0.1",
-        AGENT_GATEWAY_PORT_ENV_VAR: "43123",
-        AGENT_GATEWAY_STATE_PATH_ENV_VAR: str(state_path),
-        AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR: "v1",
-    }
     endpoint_log: list[str] = []
 
     resolution = resolve_live_mailbox_binding_from_manifest_path(
         manifest_path=manifest_path,
         source="auto",
-        process_env_reader=process_bindings.get,
-        tmux_env_reader=tmux_bindings.get,
+        process_env_reader=lambda _: None,
+        tmux_env_reader=lambda _: None,
         gateway_client_factory=_healthy_gateway_client_factory(endpoint_log),
     )
 
-    assert resolution.source == "process_env"
+    payload = resolution.payload()
+
+    assert resolution.source == "manifest_binding"
     assert resolution.mailbox == mailbox
     assert resolution.gateway is not None
-    assert resolution.gateway.source == "tmux_session_env"
+    assert resolution.gateway.source == "current_instance_record"
     assert resolution.gateway.base_url == "http://127.0.0.1:43123"
+    assert resolution.gateway.state_path == state_path.resolve()
+    assert payload["mailbox"]["filesystem"]["inbox_path"].endswith(
+        "AGENTSYS-research@agents.localhost/inbox"
+    )
     assert endpoint_log == ["http://127.0.0.1:43123"]
 
 
@@ -372,7 +365,7 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
         gateway_client_factory=_healthy_gateway_client_factory(endpoint_log),
     )
 
-    assert resolution.source == "tmux_session_env"
+    assert resolution.source == "manifest_binding"
     assert resolution.mailbox == mailbox
     assert resolution.gateway is not None
     assert resolution.gateway.source == "current_instance_record"

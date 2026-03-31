@@ -517,6 +517,26 @@ class HoumaoServerClient(CaoRestClient):
             HoumaoManagedAgentMailStatusResponse,
         )
 
+    def get_managed_agent_mail_resolve_live(
+        self,
+        agent_ref: str,
+    ) -> dict[str, object]:
+        """Call `GET /houmao/agents/{agent_ref}/mail/resolve-live`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        payload, _, _url = self._request_root_json(
+            "GET",
+            f"/houmao/agents/{escaped}/mail/resolve-live",
+        )
+        if not isinstance(payload, dict):
+            raise CaoApiError(
+                method="GET",
+                url=f"{self.base_url}/houmao/agents/{escaped}/mail/resolve-live",
+                detail="Expected an object response.",
+                payload=payload,
+            )
+        return payload
+
     def check_managed_agent_mail(
         self,
         agent_ref: str,

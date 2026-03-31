@@ -468,6 +468,10 @@ def create_app(
     def managed_agent_mail_status(agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         return resolved_service.managed_agent_mail_status(agent_ref)
 
+    @app.get("/houmao/agents/{agent_ref}/mail/resolve-live")
+    def managed_agent_mail_resolve_live(agent_ref: str) -> dict[str, object]:
+        return resolved_service.managed_agent_mail_resolve_live(agent_ref)
+
     @app.post("/houmao/agents/{agent_ref}/mail/check")
     def check_managed_agent_mail(
         agent_ref: str,

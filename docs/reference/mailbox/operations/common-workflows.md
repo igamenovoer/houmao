@@ -56,7 +56,6 @@ Important details:
 
 - Inside the owning managed tmux session, selectors may be omitted.
 - Outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
-- `--format shell` exports stable `HOUMAO_MANAGED_AGENT_*`, `AGENTSYS_MAILBOX_*`, and `AGENTSYS_MAILBOX_GATEWAY_*` assignments for shell automation.
 - When the returned payload includes `gateway.base_url`, that is the supported discovery path for attached `/v1/mail/*` work instead of ad hoc host or port guessing.
 
 ## Read Mail Safely
@@ -73,8 +72,8 @@ pixi run houmao-mgr agents mail check \
 Operational guidance:
 
 - Re-resolve current bindings when you switch shells, sessions, or long-running automation contexts.
-- Treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for unread versus read state and mailbox-local thread summaries.
-- Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the shared structural catalog, not as the mailbox-view read or unread authority.
+- Treat `mailbox.filesystem.local_sqlite_path` as the source of truth for unread versus read state and mailbox-local thread summaries.
+- Treat `mailbox.filesystem.sqlite_path` as the shared structural catalog, not as the mailbox-view read or unread authority.
 - Only mark a message read after the mailbox action or processing step has completed successfully.
 - If a manager fallback result is `authoritative: false`, verify with `agents mail check`, filesystem inspection, or transport-native mailbox state.
 

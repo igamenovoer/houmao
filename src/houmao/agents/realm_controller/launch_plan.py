@@ -28,7 +28,6 @@ from houmao.agents.launch_overrides import (
 from houmao.agents.launch_overrides.models import SupportedLaunchBackend
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from .errors import LaunchPlanError, LaunchPolicyResolutionError
-from houmao.agents.mailbox_runtime_support import mailbox_env_bindings, mailbox_env_var_names
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
 
@@ -95,11 +94,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     persistent_env_records = _persistent_launch_env_records(launch_contract)
     env_values.update(persistent_env_records)
     env_var_names = sorted({*env_var_names, *persistent_env_records.keys()})
-
-    if request.mailbox is not None:
-        mailbox_env = mailbox_env_bindings(request.mailbox)
-        env_values.update(mailbox_env)
-        env_var_names = sorted({*env_var_names, *mailbox_env_var_names(request.mailbox)})
 
     role_injection = plan_role_injection(
         backend=request.backend,

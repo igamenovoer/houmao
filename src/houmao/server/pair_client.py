@@ -210,6 +210,12 @@ class PairAuthorityClientProtocol(Protocol):
     ) -> HoumaoManagedAgentMailStatusResponse:
         """Return managed-agent mailbox status."""
 
+    def get_managed_agent_mail_resolve_live(
+        self,
+        agent_ref: str,
+    ) -> dict[str, object]:
+        """Return manifest-backed managed-agent mailbox discovery."""
+
     def check_managed_agent_mail(
         self,
         agent_ref: str,

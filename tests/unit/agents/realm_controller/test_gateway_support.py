@@ -3152,7 +3152,7 @@ def test_gateway_mail_notifier_rejects_enablement_when_manifest_is_missing(
         )
 
 
-def test_gateway_mail_notifier_rejects_enablement_without_live_projection(
+def test_gateway_mail_notifier_supports_manifest_backed_mailbox_without_tmux_projection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3174,12 +3174,13 @@ def test_gateway_mail_notifier_rejects_enablement_without_live_projection(
 
     status = runtime.get_mail_notifier()
     assert status.enabled is False
-    assert status.supported is False
-    assert status.support_error is not None
-    assert "live mailbox projection" in status.support_error
+    assert status.supported is True
+    assert status.support_error is None
 
-    with pytest.raises(HTTPException, match="live mailbox projection"):
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+    enabled = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+    assert enabled.supported is True
+    assert enabled.enabled is True
+    assert enabled.interval_seconds == 60
 
 
 def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtrip(

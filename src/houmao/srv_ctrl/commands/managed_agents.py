@@ -965,7 +965,6 @@ def mailbox_status(target: ManagedAgentTarget) -> dict[str, object]:
         "registered": mailbox is not None,
         "activation_state": activation_state,
         "runtime_mailbox_enabled": mailbox is not None and activation_state == "active",
-        "relaunch_required": activation_state == "pending_relaunch",
     }
     if mailbox is not None:
         payload.update(
@@ -1015,7 +1014,6 @@ def register_mailbox_binding(
         "mailbox_root": str(mailbox.filesystem_root),
         "bindings_version": mailbox.bindings_version,
         "activation_state": result.activation_state,
-        "relaunch_required": result.activation_state == "pending_relaunch",
         "shared_registration": result.shared_lifecycle_result,
     }
 
@@ -1050,7 +1048,6 @@ def unregister_mailbox_binding(
         "address": previous_mailbox.address,
         "mailbox_root": str(previous_mailbox.filesystem_root),
         "activation_state": result.activation_state,
-        "relaunch_required": result.activation_state == "pending_relaunch",
         "shared_unregistration": result.shared_lifecycle_result,
     }
 
@@ -1544,9 +1541,12 @@ def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
 
     if target.mode == "server":
         assert target.client is not None
-        state = pair_request(target.client.get_managed_agent_state, target.agent_ref)
-        status = pair_request(target.client.get_managed_agent_mail_status, target.agent_ref)
-        return _server_live_mail_payload(target=target, state=state, status=status)
+        payload = pair_request(target.client.get_managed_agent_mail_resolve_live, target.agent_ref)
+        return _normalized_live_mail_payload(
+            target=target,
+            payload=payload,
+            source_override="pair_authority",
+        )
 
     assert target.controller is not None
     if target.controller.launch_plan.mailbox is None:
@@ -1557,7 +1557,7 @@ def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    return _local_live_mail_payload(target=target, resolution=resolution)
+    return _normalized_live_mail_payload(target=target, payload=resolution.payload())
 
 
 def _local_manager_mail_authority_error(
@@ -1576,64 +1576,21 @@ def _local_manager_mail_authority_error(
     return None
 
 
-def _local_live_mail_payload(target: ManagedAgentTarget, resolution: Any) -> dict[str, Any]:
-    """Normalize one local live mailbox resolution payload."""
-
-    payload = resolution.payload()
-    payload["schema_version"] = 1
-    payload["managed_agent"] = _managed_agent_live_payload(target)
-    payload["gateway_available"] = resolution.gateway is not None
-    return payload
-
-
-def _server_live_mail_payload(
+def _normalized_live_mail_payload(
     *,
     target: ManagedAgentTarget,
-    state: HoumaoManagedAgentStateResponse,
-    status: GatewayMailStatusV1,
+    payload: dict[str, Any],
+    source_override: str | None = None,
 ) -> dict[str, Any]:
-    """Normalize one pair-backed live mailbox payload."""
+    """Normalize one live mailbox resolution payload for CLI output."""
 
-    gateway_payload: dict[str, Any] | None = None
-    gateway_summary = state.gateway
-    if (
-        gateway_summary is not None
-        and gateway_summary.gateway_host is not None
-        and gateway_summary.gateway_port is not None
-    ):
-        gateway_payload = {
-            "source": "pair_authority",
-            "host": gateway_summary.gateway_host,
-            "port": gateway_summary.gateway_port,
-            "base_url": f"http://{gateway_summary.gateway_host}:{gateway_summary.gateway_port}",
-            "protocol_version": "v1",
-            "state_path": None,
-        }
-
-    env_payload = {
-        "AGENTSYS_MAILBOX_TRANSPORT": status.transport,
-        "AGENTSYS_MAILBOX_PRINCIPAL_ID": status.principal_id,
-        "AGENTSYS_MAILBOX_ADDRESS": status.address,
-        "AGENTSYS_MAILBOX_BINDINGS_VERSION": status.bindings_version,
-    }
-    return {
-        "schema_version": 1,
-        "source": "pair_authority",
-        "managed_agent": _managed_agent_live_payload(target),
-        "transport": status.transport,
-        "principal_id": status.principal_id,
-        "address": status.address,
-        "bindings_version": status.bindings_version,
-        "mailbox": {
-            "transport": status.transport,
-            "principal_id": status.principal_id,
-            "address": status.address,
-            "bindings_version": status.bindings_version,
-        },
-        "env": env_payload,
-        "gateway": gateway_payload,
-        "gateway_available": gateway_payload is not None,
-    }
+    normalized = dict(payload)
+    if source_override is not None:
+        normalized["source"] = source_override
+    normalized["schema_version"] = 1
+    normalized["managed_agent"] = _managed_agent_live_payload(target)
+    normalized["gateway_available"] = isinstance(normalized.get("gateway"), dict)
+    return normalized
 
 
 def _managed_agent_live_payload(target: ManagedAgentTarget) -> dict[str, Any]:

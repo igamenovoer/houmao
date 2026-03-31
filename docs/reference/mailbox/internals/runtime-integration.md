@@ -8,7 +8,7 @@ Mailbox support spans build time, start time, resume time, and control time.
 
 - Build time projects both runtime-owned mailbox skills into the home under the visible mailbox subtree.
 - Start time resolves one effective mailbox config and performs transport-specific bootstrap.
-- Launch-plan composition injects transport-specific mailbox env vars into the session and, for tmux-backed managed sessions, publishes the targeted mailbox keys into tmux session environment as the live mailbox projection.
+- Launch-plan composition keeps the durable mailbox binding on the manifest-backed launch plan and does not treat mailbox-specific env publication as part of the mailbox contract.
 - Session manifests persist the redacted mailbox binding rather than inline secrets.
 - Resume reconstructs the same mailbox binding from the manifest payload and materializes session-local secret files when the selected transport needs them.
 - Public `houmao-mgr agents mail ...` commands resolve current mailbox authority first, prefer verified manager-owned or gateway-backed execution when that authority is available, and only fall back to the prompt-turn path when direct authority is unavailable.
@@ -29,7 +29,7 @@ That means mailbox guidance is repo-owned runtime material, not something each r
 2. Apply CLI overrides such as `--mailbox-transport`, `--mailbox-root`, `--mailbox-principal-id`, and `--mailbox-address`.
 3. Resolve defaults for missing mailbox fields plus any Stalwart endpoint overrides.
 4. Bootstrap the selected transport.
-5. Build a launch plan that includes transport-specific mailbox env bindings.
+5. Build a launch plan that persists the resolved mailbox binding without mailbox-specific env publication.
 6. Persist a session manifest with the redacted mailbox payload.
 
 Transport-specific bootstrap rules:
@@ -58,9 +58,8 @@ sequenceDiagram
         RT->>RR: write or reuse durable<br/>credential material
         RT->>SR: materialize session-local<br/>credential file
     end
-    RT->>LP: inject AGENTSYS_MAILBOX_* env
-    RT->>RT: publish targeted mailbox<br/>projection into tmux env
-    RT->>Man: persist redacted mailbox<br/>payload and bindings_version
+    RT->>RT: validate actionable mailbox<br/>state from binding
+    RT->>Man: persist mailbox binding<br/>and bindings_version
 ```
 
 ## Refresh Behavior
@@ -71,17 +70,16 @@ The refresh flow:
 
 1. Create a fresh `MailboxResolvedConfig` with a new `bindings_version`.
 2. Bootstrap the refreshed root.
-3. Refresh or clear the targeted mailbox keys in tmux session environment for tmux-backed managed sessions.
-4. Update the backend launch plan if the backend supports launch-plan refresh.
-5. Persist the updated mailbox payload into the session manifest.
+3. Update the backend launch plan if the backend supports launch-plan refresh.
+4. Persist the updated mailbox payload into the session manifest.
 
-This is why code interacting with mailbox paths must respect `AGENTSYS_MAILBOX_BINDINGS_VERSION` rather than caching paths forever, and why direct mailbox work should resolve current bindings through the public runtime-owned helper instead of assuming launch-time process env stays current forever.
+This is why code interacting with mailbox paths must respect `bindings_version` rather than caching paths forever, and why direct mailbox work should resolve current bindings through the public runtime-owned helper instead of assuming launch-time process env stays current forever.
 
 ## Resume Time
 
 `resume_runtime_session()` reconstructs the mailbox binding from the persisted manifest payload using `resolved_mailbox_config_from_payload()`. That lets a resumed session reuse the same mailbox contract instead of resolving it again from ambient caller state.
 
-For `stalwart`, resume also materializes the session-local credential file from the runtime-owned `credential_ref` store before mailbox env bindings are published. That keeps the manifest secret-free while still allowing direct transport access or gateway-backed transport access to reuse the same resolved mailbox capability.
+For `stalwart`, resume also materializes the session-local credential file from the runtime-owned `credential_ref` store before direct transport access or gateway-backed transport access needs it. That keeps the manifest secret-free while still allowing direct transport access or gateway-backed transport access to reuse the same resolved mailbox capability.
 
 ## `agents mail` Integration
 

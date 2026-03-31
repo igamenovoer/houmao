@@ -36,7 +36,6 @@ from houmao.mailbox.managed import ManagedMailboxOperationError
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
-    HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentIdentity,
@@ -799,13 +798,17 @@ def test_mail_resolve_live_local_returns_normalized_payload(
     resolution = SimpleNamespace(
         gateway=None,
         payload=lambda: {
-            "source": "tmux_session_env",
+            "source": "manifest_binding",
             "transport": "filesystem",
             "principal_id": "AGENTSYS-alpha",
             "address": "AGENTSYS-alpha@agents.localhost",
             "bindings_version": "2026-03-29T15:00:00Z",
-            "mailbox": {"transport": "filesystem"},
-            "env": {"AGENTSYS_MAILBOX_TRANSPORT": "filesystem"},
+            "mailbox": {
+                "transport": "filesystem",
+                "filesystem": {
+                    "root": "/tmp/mailbox",
+                },
+            },
             "gateway": None,
         },
     )
@@ -833,26 +836,28 @@ def test_mail_resolve_live_local_returns_normalized_payload(
 
 
 def test_mail_resolve_live_server_returns_pair_authority_payload() -> None:
-    state = _managed_state(_managed_identity(transport="tui"))
-    state.gateway = HoumaoManagedAgentGatewaySummaryView(
-        gateway_health="healthy",
-        managed_agent_connectivity="connected",
-        managed_agent_recovery="idle",
-        request_admission="open",
-        active_execution="idle",
-        queue_depth=0,
-        gateway_host="127.0.0.1",
-        gateway_port=43123,
-    )
-    status = GatewayMailStatusV1(
-        transport="filesystem",
-        principal_id="AGENTSYS-alpha",
-        address="AGENTSYS-alpha@agents.localhost",
-        bindings_version="2026-03-29T15:00:00Z",
-    )
     client = SimpleNamespace(
-        get_managed_agent_state=lambda agent_ref: state,
-        get_managed_agent_mail_status=lambda agent_ref: status,
+        get_managed_agent_mail_resolve_live=lambda agent_ref: {
+            "source": "manifest_binding",
+            "transport": "filesystem",
+            "principal_id": "AGENTSYS-alpha",
+            "address": "AGENTSYS-alpha@agents.localhost",
+            "bindings_version": "2026-03-29T15:00:00Z",
+            "mailbox": {
+                "transport": "filesystem",
+                "filesystem": {
+                    "root": "/tmp/mailbox",
+                },
+            },
+            "gateway": {
+                "source": "current_instance_record",
+                "host": "127.0.0.1",
+                "port": 43123,
+                "base_url": "http://127.0.0.1:43123",
+                "protocol_version": "v1",
+                "state_path": "/tmp/state.json",
+            },
+        },
     )
     target = ManagedAgentTarget(
         mode="server",

@@ -25,12 +25,11 @@ houmao-mgr agents mail resolve-live [OPTIONS]
 
 | Option | Description |
 |---|---|
-| `--format [json\|shell]` | Emit normalized JSON or `export ...` shell assignments. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
 
-JSON output includes the resolved mailbox binding, mailbox env payload, a `managed_agent` summary, and optional `gateway` metadata including `base_url` when a live shared `/v1/mail/*` facade is available. Shell output exports stable `HOUMAO_MANAGED_AGENT_*`, `AGENTSYS_MAILBOX_*`, and `AGENTSYS_MAILBOX_GATEWAY_*` assignments.
+JSON output includes the resolved mailbox binding, a `managed_agent` summary, `gateway_available`, and optional `gateway` metadata including `base_url` when a live shared `/v1/mail/*` facade is available. The transport-specific mailbox details live under `mailbox.filesystem.*` or `mailbox.stalwart.*`. Mailbox-specific shell export is not part of the supported `resolve-live` contract.
 
 ### `status`
 
@@ -127,9 +126,6 @@ houmao-mgr agents mail mark-read [OPTIONS]
 ```bash
 # Resolve the current session's live mailbox binding from inside the owning tmux session.
 pixi run houmao-mgr agents mail resolve-live
-
-# Export the current binding set for shell automation.
-eval "$(pixi run houmao-mgr agents mail resolve-live --format shell)"
 
 # Mark one processed unread message read for an explicit target.
 pixi run houmao-mgr agents mail mark-read \

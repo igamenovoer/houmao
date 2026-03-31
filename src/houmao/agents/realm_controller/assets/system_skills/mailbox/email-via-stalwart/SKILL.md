@@ -10,7 +10,7 @@ Use this skill when the resolved mailbox transport is `stalwart`.
 
 ## Supported Workflow
 
-- Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live --format json` before mailbox work.
+- Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat that resolver output as the manager-owned discovery contract for this turn.
 - When the resolver returns a `gateway` object, use `gateway.base_url` for the live attached `/v1/mail/*` facade.
 - When the resolver returns `gateway: null`, use `pixi run houmao-mgr agents mail check|send|reply|mark-read` as the fallback surface.
@@ -34,16 +34,16 @@ Use this skill when the resolved mailbox transport is `stalwart`.
 
 - Read [references/env-vars.md](references/env-vars.md) before using the transport.
 - When the resolver returns a `gateway` object, treat `gateway.base_url` as the exact live endpoint for the shared `/v1/mail/*` facade instead of rediscovering host or port elsewhere.
-- Refuse to use this skill when the resolved `AGENTSYS_MAILBOX_TRANSPORT` is not `stalwart`.
+- Refuse to use this skill when `mailbox.transport` is not `stalwart`.
 - Re-resolve the current mailbox bindings before each mailbox action. Do not cache session endpoints or credentials across turns.
 - Do not scrape tmux state directly or rely on stale inherited process env snapshots when the manager-owned resolver is available.
 
 ## Direct Stalwart Guidance
 
 - Use direct Stalwart access only when no live shared gateway mailbox facade is available or when the task falls outside the shared gateway routine surface.
-- Use the current `AGENTSYS_MAILBOX_EMAIL_*` bindings returned by the resolver for direct Stalwart-backed mailbox access.
-- Treat `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` as secret material. Read it only when needed for authenticated mailbox access and do not print its contents.
-- Use `AGENTSYS_MAILBOX_ADDRESS` as the sender address for outbound mail.
+- Use the current `mailbox.stalwart.*` fields returned by the resolver for direct Stalwart-backed mailbox access.
+- Treat `mailbox.stalwart.credential_file` as secret material. Read it only when needed for authenticated mailbox access and do not print its contents.
+- Use `address` as the sender address for outbound mail.
 - Preserve reply ancestry with standard email headers and the opaque `message_ref` contract.
 
 ## Guardrails

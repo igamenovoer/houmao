@@ -1,57 +1,60 @@
-# Filesystem Mailbox Env Vars
+# Filesystem Mailbox Resolver Fields
 
-Resolve the current binding set through `pixi run houmao-mgr agents mail resolve-live --format json` before mailbox work. For current-session managed use, that manager-owned helper resolves the current agent from the owning tmux session when selectors are omitted, returns the current mailbox projection, and includes a `gateway` object with the exact `base_url`, `host`, `port`, `protocol_version`, and `state_path` for the shared `/v1/mail/*` facade when a valid attached gateway is live.
+Resolve the current binding set through `pixi run houmao-mgr agents mail resolve-live` before mailbox work. For current-session managed use, that manager-owned helper resolves the current agent from the owning tmux session when selectors are omitted, returns the current actionable mailbox payload, and includes a `gateway` object with the exact `base_url`, `host`, `port`, `protocol_version`, and `state_path` for the shared `/v1/mail/*` facade when a valid attached gateway is live.
 
-## Common mailbox bindings
+## Common fields
 
-- `AGENTSYS_MAILBOX_TRANSPORT`
+- `transport`
   Meaning: selects the active mailbox transport.
   Expected value for this skill: `filesystem`
 
-- `AGENTSYS_MAILBOX_PRINCIPAL_ID`
+- `principal_id`
   Meaning: stable mailbox principal id for the current agent or participant.
   Example: `AGENTSYS-research`
 
-- `AGENTSYS_MAILBOX_ADDRESS`
+- `address`
   Meaning: email-like address associated with the current mailbox principal.
   Example: `AGENTSYS-research@agents.localhost`
 
-- `AGENTSYS_MAILBOX_BINDINGS_VERSION`
-  Meaning: monotonic binding version or timestamp used to detect runtime binding refresh.
+- `bindings_version`
+  Meaning: monotonic binding version or timestamp used to detect mailbox-binding refresh.
 
-## Filesystem-specific bindings
+## Filesystem-specific fields
 
-- `AGENTSYS_MAILBOX_FS_ROOT`
+- `mailbox.filesystem.root`
   Meaning: root directory of the filesystem mailbox transport.
   Example: `<mailbox_root>`
-  Default when no explicit override is configured: `<runtime_root>/mailbox`
+  Default when no explicit override is configured: `~/.houmao/mailbox`
   Shared mailbox rules directory: `<mailbox_root>/rules`
   Optional compatibility helper directory: `<mailbox_root>/rules/scripts`
 
-- `AGENTSYS_MAILBOX_FS_SQLITE_PATH`
+- `mailbox.filesystem.sqlite_path`
   Meaning: shared mailbox-root SQLite catalog path for registrations, canonical messages, projections, and structural indexes.
   Example: `<mailbox_root>/index.sqlite`
 
-- `AGENTSYS_MAILBOX_FS_INBOX_DIR`
+- `mailbox.filesystem.inbox_path`
   Meaning: mailbox projection directory for the current session's active mailbox registration.
   Example: `<mailbox_root>/mailboxes/<address>/inbox`
-  Note: this path follows the active registration path for `AGENTSYS_MAILBOX_ADDRESS`, which may traverse a symlinked `mailboxes/<address>` entry into a private mailbox directory outside `<mailbox_root>`.
+  Note: this path follows the active registration path for `address`, which may traverse a symlinked `mailboxes/<address>` entry into a private mailbox directory outside `<mailbox_root>`.
 
-- `AGENTSYS_MAILBOX_FS_MAILBOX_DIR`
+- `mailbox.filesystem.mailbox_path`
   Meaning: resolved mailbox directory for the current session's active mailbox registration.
   Example: `<mailbox_root>/mailboxes/<address>`
   Note: for a symlinked registration this points at the resolved mailbox target directory, not merely the shared-root entry path.
 
-- `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH`
+- `mailbox.filesystem.local_sqlite_path`
   Meaning: mailbox-local SQLite path that stores mailbox-view state for this one mailbox.
   Example: `<resolved_mailbox_dir>/mailbox.sqlite`
 
+- `mailbox.filesystem.mailbox_kind`
+  Meaning: whether the active registration lives directly under the shared root or resolves through a symlinked private mailbox directory.
+
 ## Usage rules
 
-- Require all common bindings plus all filesystem-specific bindings before mailbox work.
+- Require all common fields plus all filesystem-specific fields before mailbox work.
 - When the resolver returns `gateway.base_url`, treat that value as the exact live shared-mailbox endpoint instead of guessing another loopback URL.
-- Treat `AGENTSYS_MAILBOX_FS_ROOT` as authoritative for mailbox content location.
-- Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the shared structural catalog and `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the authoritative mailbox-view state store for the current mailbox.
+- Treat `mailbox.filesystem.root` as authoritative for mailbox content location.
+- Treat `mailbox.filesystem.sqlite_path` as the shared structural catalog and `mailbox.filesystem.local_sqlite_path` as the authoritative mailbox-view state store for the current mailbox.
 - Treat shared `rules/` as mailbox-local policy guidance rather than as the ordinary execution protocol.
 - Resolve and re-read these bindings before each mailbox action.
-- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes, discard cached filesystem assumptions and reload the current bindings.
+- If `bindings_version` changes, discard cached filesystem assumptions and reload the current bindings.

@@ -14,7 +14,7 @@ import re
 import sys
 from typing import Any, Callable, Literal, Mapping, cast
 
-from houmao.mailbox import bootstrap_filesystem_mailbox
+from houmao.mailbox import MailboxBootstrapError, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import (
     resolve_active_mailbox_dir,
     resolve_active_mailbox_inbox_dir,
@@ -96,7 +96,7 @@ _MAILBOX_EMAIL_ENV_VARS = (
     "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF",
     "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE",
 )
-MailboxBindingSource = Literal["tmux_session_env", "process_env"]
+MailboxBindingSource = Literal["manifest_binding"]
 ResolveLiveSource = Literal["auto", "tmux_session_env", "process_env"]
 LiveGatewayBindingSource = Literal[
     "process_env",
@@ -141,15 +141,12 @@ class LiveMailboxBindingResolution:
 
     mailbox: MailboxResolvedConfig
     source: MailboxBindingSource
-    env_bindings: dict[str, str]
     gateway: LiveGatewayBindingResolution | None = None
 
     def payload(self) -> dict[str, Any]:
         """Return a JSON-safe payload for helper and diagnostic surfaces."""
 
-        mailbox_payload = self.mailbox.redacted_payload()
-        if isinstance(self.mailbox, StalwartMailboxResolvedConfig) and self.mailbox.credential_file:
-            mailbox_payload["credential_file"] = str(self.mailbox.credential_file.resolve())
+        mailbox_payload = _structured_live_mailbox_payload(self.mailbox)
         return {
             "source": self.source,
             "transport": self.mailbox.transport,
@@ -157,7 +154,6 @@ class LiveMailboxBindingResolution:
             "address": self.mailbox.address,
             "bindings_version": self.mailbox.bindings_version,
             "mailbox": mailbox_payload,
-            "env": dict(self.env_bindings),
             "gateway": self.gateway.payload() if self.gateway is not None else None,
         }
 
@@ -568,34 +564,14 @@ def resolve_live_mailbox_binding(
     *,
     durable_mailbox: MailboxResolvedConfig,
     tmux_session_name: str | None = None,
-    source: MailboxBindingSource = "tmux_session_env",
+    source: MailboxBindingSource = "manifest_binding",
     env_reader: Callable[[str], str | None] | None = None,
 ) -> LiveMailboxBindingResolution:
-    """Resolve one live mailbox projection from the runtime-owned live source."""
+    """Resolve actionable mailbox state from the durable manifest-backed binding."""
 
-    resolved_env_reader = env_reader
-    if resolved_env_reader is None:
-        if source == "process_env":
-            resolved_env_reader = _optional_env
-        else:
-            if tmux_session_name is None or not tmux_session_name.strip():
-                raise ValueError(
-                    "tmux-backed live mailbox resolution requires a non-empty tmux session name"
-                )
-            resolved_env_reader = _tmux_mailbox_env_reader(tmux_session_name.strip())
-    env_bindings = _read_live_mailbox_env_bindings(
-        durable_mailbox=durable_mailbox,
-        env_reader=resolved_env_reader,
-    )
-    mailbox = _mailbox_config_from_live_env_bindings(
-        durable_mailbox=durable_mailbox,
-        env_bindings=env_bindings,
-    )
-    return LiveMailboxBindingResolution(
-        mailbox=mailbox,
-        source=source,
-        env_bindings=env_bindings,
-    )
+    del tmux_session_name, env_reader
+    _structured_live_mailbox_payload(durable_mailbox)
+    return LiveMailboxBindingResolution(mailbox=durable_mailbox, source=source)
 
 
 def resolve_live_mailbox_binding_from_manifest_path(
@@ -609,18 +585,14 @@ def resolve_live_mailbox_binding_from_manifest_path(
 ) -> LiveMailboxBindingResolution:
     """Resolve one live mailbox binding starting from a runtime-owned manifest path."""
     handle, durable_mailbox, tmux_session_name = _load_live_mailbox_manifest_context(manifest_path)
-    mailbox_resolution = _resolve_live_mailbox_binding_with_fallbacks(
-        durable_mailbox=durable_mailbox,
-        tmux_session_name=tmux_session_name,
-        source=source,
-        process_env_reader=process_env_reader,
-        tmux_env_reader=tmux_env_reader,
-    )
+    mailbox_resolution = resolve_live_mailbox_binding(durable_mailbox=durable_mailbox)
     resolved_gateway = resolve_live_gateway_binding_from_manifest_path(
         manifest_path=handle.path,
         tmux_session_name=tmux_session_name,
         source=(
-            gateway_source if gateway_source is not None else cast(ResolveLiveGatewaySource, source)
+            gateway_source
+            if gateway_source is not None
+            else "current_instance_record"
         ),
         process_env_reader=process_env_reader,
         tmux_env_reader=tmux_env_reader,
@@ -629,7 +601,6 @@ def resolve_live_mailbox_binding_from_manifest_path(
     return LiveMailboxBindingResolution(
         mailbox=mailbox_resolution.mailbox,
         source=mailbox_resolution.source,
-        env_bindings=mailbox_resolution.env_bindings,
         gateway=resolved_gateway,
     )
 
@@ -659,6 +630,62 @@ def resolve_live_mailbox_binding_from_agent_identity(
         gateway_client_factory=gateway_client_factory,
         gateway_source="current_instance_record",
     )
+
+
+def _structured_live_mailbox_payload(mailbox: MailboxResolvedConfig) -> dict[str, Any]:
+    """Return one structured, actionable mailbox payload derived from the durable binding."""
+
+    if isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        mailbox_root = mailbox.filesystem_root.resolve()
+        try:
+            mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=mailbox.address).resolve()
+            inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=mailbox.address).resolve()
+            local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+                mailbox_root,
+                address=mailbox.address,
+            ).resolve()
+        except MailboxBootstrapError as exc:
+            raise ValueError(str(exc)) from exc
+        if mailbox_dir != mailbox.mailbox_path:
+            raise ValueError(
+                "manifest-backed filesystem mailbox binding does not match the current active "
+                f"mailbox registration for `{mailbox.address}`: expected `{mailbox.mailbox_path}`, "
+                f"found `{mailbox_dir}`"
+            )
+        return {
+            "transport": mailbox.transport,
+            "principal_id": mailbox.principal_id,
+            "address": mailbox.address,
+            "bindings_version": mailbox.bindings_version,
+            "filesystem": {
+                "root": str(mailbox_root),
+                "mailbox_kind": mailbox.mailbox_kind,
+                "mailbox_path": str(mailbox_dir),
+                "inbox_path": str(inbox_dir),
+                "sqlite_path": str((mailbox_root / "index.sqlite").resolve()),
+                "local_sqlite_path": str(local_sqlite_path),
+            },
+        }
+
+    credential_file = mailbox.credential_file
+    if credential_file is None or not credential_file.is_file():
+        raise ValueError(
+            "stalwart mailbox binding is missing the session credential file required for "
+            "current mailbox work"
+        )
+    return {
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+        "bindings_version": mailbox.bindings_version,
+        "stalwart": {
+            "jmap_url": mailbox.jmap_url,
+            "management_url": mailbox.management_url,
+            "login_identity": mailbox.login_identity,
+            "credential_ref": mailbox.credential_ref,
+            "credential_file": str(credential_file.resolve()),
+        },
+    }
 
 
 def resolve_live_gateway_binding_from_manifest_path(

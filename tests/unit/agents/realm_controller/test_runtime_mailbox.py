@@ -51,6 +51,10 @@ def _seed_brain_manifest(
         env_var = "OPENAI_API_KEY"
         home_env_var = "CODEX_HOME"
 
+    home_path = tmp_path / "home"
+    home_path.mkdir(parents=True, exist_ok=True)
+    if tool == "codex":
+        (home_path / "auth.json").write_text('{"session_id":"test-session"}\n', encoding="utf-8")
     env_file = tmp_path / "vars.env"
     env_file.write_text(f"{env_var}=secret\n", encoding="utf-8")
     manifest_path = tmp_path / f"{tool}-brain.yaml"
@@ -67,12 +71,12 @@ def _seed_brain_manifest(
         "runtime:",
         f"  runtime_root: {tmp_path}",
         "  home_id: test-home",
-        f"  home_path: {tmp_path / 'home'}",
-        f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
+        f"  home_path: {home_path}",
+        f"  launch_helper: {home_path / 'launch.sh'}",
         f"  launch_executable: {tool}",
         "  launch_home_selector:",
         f"    env_var: {home_env_var}",
-        f"    value: {tmp_path / 'home'}",
+        f"    value: {home_path}",
         "  launch_contract:",
         "    adapter_defaults:",
         "      args: []",
@@ -244,7 +248,7 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
     assert (
         mailbox.filesystem_root / "mailboxes" / mailbox.address
     ).resolve() == private_mailbox_dir
-    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(private_mailbox_dir)
+    assert "AGENTSYS_MAILBOX_FS_MAILBOX_DIR" not in controller.launch_plan.env
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["mailbox_kind"] == "symlink"
@@ -268,7 +272,7 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
     assert isinstance(resumed.launch_plan.mailbox, FilesystemMailboxResolvedConfig)
     assert resumed.launch_plan.mailbox.mailbox_kind == "symlink"
     assert resumed.launch_plan.mailbox.mailbox_path == private_mailbox_dir
-    assert resumed.launch_plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(private_mailbox_dir)
+    assert "AGENTSYS_MAILBOX_FS_MAILBOX_DIR" not in resumed.launch_plan.env
     assert isinstance(captured["launch_plan"].mailbox, FilesystemMailboxResolvedConfig)
     assert captured["launch_plan"].mailbox.mailbox_kind == "symlink"
     assert captured["launch_plan"].mailbox.mailbox_path == private_mailbox_dir
@@ -514,8 +518,8 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
         working_directory=tmp_path,
         home_env_var="CODEX_HOME",
         home_path=tmp_path / "home",
-        env=mailbox_env_bindings(old_mailbox),
-        env_var_names=sorted(mailbox_env_bindings(old_mailbox).keys()),
+        env={"OPENAI_API_KEY": "sk-secret"},
+        env_var_names=["OPENAI_API_KEY"],
         role_injection=RoleInjectionPlan(
             method="native_developer_instructions",
             role_name="r",
@@ -545,13 +549,8 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
 
     assert refreshed.filesystem_root == new_root.resolve()
     assert controller.launch_plan.mailbox == refreshed
-    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_ROOT"] == str(new_root.resolve())
-    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
-        new_root.resolve() / "mailboxes" / "AGENTSYS-research@agents.localhost"
-    )
-    assert controller.launch_plan.env["AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH"] == str(
-        new_root.resolve() / "mailboxes" / "AGENTSYS-research@agents.localhost" / "mailbox.sqlite"
-    )
+    assert controller.launch_plan.env == {"OPENAI_API_KEY": "sk-secret"}
+    assert "AGENTSYS_MAILBOX_FS_ROOT" not in controller.launch_plan.env
     assert captured["launch_plan"].mailbox == refreshed
     assert refreshed.bindings_version != old_mailbox.bindings_version
     assert (new_root / "protocol-version.txt").is_file()
@@ -569,8 +568,6 @@ def _controller_for_mailbox_mutation(
 ) -> tuple[RuntimeSessionController, dict[str, LaunchPlan]]:
     """Build one runtime controller suitable for mailbox mutation tests."""
 
-    env = mailbox_env_bindings(mailbox) if mailbox is not None else {}
-    env_var_names = sorted(env.keys())
     launch_plan = LaunchPlan(
         backend=backend,
         tool="codex",
@@ -579,8 +576,8 @@ def _controller_for_mailbox_mutation(
         working_directory=tmp_path,
         home_env_var="CODEX_HOME",
         home_path=tmp_path / "home",
-        env=env,
-        env_var_names=env_var_names,
+        env={"OPENAI_API_KEY": "sk-secret"},
+        env_var_names=["OPENAI_API_KEY"],
         role_injection=RoleInjectionPlan(
             method="native_developer_instructions",
             role_name="r",
@@ -610,35 +607,10 @@ def _controller_for_mailbox_mutation(
     return controller, captured
 
 
-def _install_fake_tmux_mailbox_projection(
-    monkeypatch: pytest.MonkeyPatch,
-) -> dict[str, dict[str, str]]:
-    session_envs: dict[str, dict[str, str]] = {}
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda *, session_name: SimpleNamespace(returncode=0 if session_name else 1),
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
-        lambda *, session_name, env_vars: session_envs.setdefault(session_name, {}).update(
-            env_vars
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
-        lambda *, session_name, variable_names: [
-            session_envs.setdefault(session_name, {}).pop(name, None) for name in variable_names
-        ],
-    )
-    return session_envs
-
-
 def test_register_filesystem_mailbox_updates_headless_launch_plan_and_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    session_envs = _install_fake_tmux_mailbox_projection(monkeypatch)
     controller, captured = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
         backend="codex_headless",
@@ -658,18 +630,15 @@ def test_register_filesystem_mailbox_updates_headless_launch_plan_and_manifest(
     assert controller.launch_plan.mailbox.filesystem_root == mailbox_root.resolve()
     assert controller.mailbox_activation_state() == "active"
     assert captured["launch_plan"].mailbox == result.mailbox
-    assert session_envs["AGENTSYS-research"]["AGENTSYS_MAILBOX_FS_ROOT"] == str(
-        mailbox_root.resolve()
-    )
+    assert "AGENTSYS_MAILBOX_FS_ROOT" not in controller.launch_plan.env
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(mailbox_root.resolve())
 
 
-def test_register_filesystem_mailbox_refreshes_local_interactive_live_projection(
+def test_register_filesystem_mailbox_marks_local_interactive_session_active(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    session_envs = _install_fake_tmux_mailbox_projection(monkeypatch)
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
         backend="local_interactive",
@@ -685,18 +654,11 @@ def test_register_filesystem_mailbox_refreshes_local_interactive_live_projection
     assert result.activation_state == "active"
     assert controller.launch_plan.mailbox is not None
     assert controller.mailbox_activation_state() == "active"
-    assert controller.launch_plan.metadata["mailbox_live_enabled"] is True
-    assert (
-        controller.launch_plan.metadata["mailbox_live_bindings_version"]
-        == controller.launch_plan.mailbox.bindings_version
-    )
-    assert (
-        session_envs["AGENTSYS-research"]["AGENTSYS_MAILBOX_BINDINGS_VERSION"]
-        == controller.launch_plan.mailbox.bindings_version
-    )
+    assert "mailbox_live_enabled" not in controller.launch_plan.metadata
+    assert "mailbox_live_bindings_version" not in controller.launch_plan.metadata
 
 
-def test_unregister_filesystem_mailbox_clears_local_interactive_live_projection(
+def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -714,8 +676,6 @@ def test_unregister_filesystem_mailbox_clears_local_interactive_live_projection(
             address=existing_mailbox.address,
         ),
     )
-    session_envs = _install_fake_tmux_mailbox_projection(monkeypatch)
-    session_envs["AGENTSYS-research"] = mailbox_env_bindings(existing_mailbox)
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
         backend="local_interactive",
@@ -727,12 +687,11 @@ def test_unregister_filesystem_mailbox_clears_local_interactive_live_projection(
     assert result.activation_state == "active"
     assert controller.launch_plan.mailbox is None
     assert controller.mailbox_activation_state() is None
-    assert controller.launch_plan.metadata["mailbox_live_enabled"] is False
+    assert "mailbox_live_enabled" not in controller.launch_plan.metadata
     assert "mailbox_live_bindings_version" not in controller.launch_plan.metadata
-    assert session_envs["AGENTSYS-research"] == {}
 
 
-def test_relaunch_syncs_pending_local_interactive_mailbox_activation(
+def test_relaunch_keeps_local_interactive_mailbox_active_without_live_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -780,11 +739,8 @@ def test_relaunch_syncs_pending_local_interactive_mailbox_activation(
 
     assert result.status == "ok"
     assert controller.mailbox_activation_state() == "active"
-    assert controller.launch_plan.metadata["mailbox_live_enabled"] is True
-    assert (
-        controller.launch_plan.metadata["mailbox_live_bindings_version"]
-        == existing_mailbox.bindings_version
-    )
+    assert "mailbox_live_enabled" not in controller.launch_plan.metadata
+    assert "mailbox_live_bindings_version" not in controller.launch_plan.metadata
 
 
 def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
@@ -853,7 +809,6 @@ def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_pos
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    session_envs = _install_fake_tmux_mailbox_projection(monkeypatch)
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
         backend="local_interactive",
@@ -877,10 +832,6 @@ def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_pos
     assert result.activation_state == "active"
     assert controller.mailbox_activation_state() == "active"
     assert controller.launch_plan.mailbox is not None
-    assert (
-        session_envs["AGENTSYS-research"]["AGENTSYS_MAILBOX_BINDINGS_VERSION"]
-        == controller.launch_plan.mailbox.bindings_version
-    )
     assert controller.agent_launch_authority is not None
     assert controller.agent_launch_authority.posture_kind == "unavailable"
 
@@ -903,8 +854,6 @@ def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_p
             address=existing_mailbox.address,
         ),
     )
-    session_envs = _install_fake_tmux_mailbox_projection(monkeypatch)
-    session_envs["AGENTSYS-research"] = mailbox_env_bindings(existing_mailbox)
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
         backend="local_interactive",
@@ -924,6 +873,5 @@ def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_p
     assert result.activation_state == "active"
     assert controller.launch_plan.mailbox is None
     assert controller.mailbox_activation_state() is None
-    assert session_envs["AGENTSYS-research"] == {}
     assert controller.agent_launch_authority is not None
     assert controller.agent_launch_authority.posture_kind == "unavailable"

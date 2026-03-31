@@ -1428,21 +1428,12 @@ class GatewayServiceRuntime:
         """Return durable mailbox config only when live notifier actionability is present."""
 
         mailbox = self._load_mailbox_config()
-        tmux_session_name = (self.m_attach_contract.tmux_session_name or "").strip()
-        if not tmux_session_name:
-            raise GatewayError(
-                "Gateway notifier requires a tmux-backed session identity, but the attach "
-                "contract is missing `tmux_session_name`."
-            )
         try:
-            resolve_live_mailbox_binding(
-                durable_mailbox=mailbox,
-                tmux_session_name=tmux_session_name,
-            )
+            resolve_live_mailbox_binding(durable_mailbox=mailbox)
         except ValueError as exc:
             raise GatewayError(
-                "Gateway notifier requires a live mailbox projection in tmux session "
-                f"`{tmux_session_name}`: {exc}"
+                "Gateway notifier requires an actionable manifest-backed mailbox binding: "
+                f"{exc}"
             ) from exc
         return mailbox
 
@@ -1717,10 +1708,10 @@ class GatewayServiceRuntime:
             (
                 "Resolve current mailbox bindings through the runtime-owned helper "
                 "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
-                "before any direct mailbox access. That helper prefers current process env, "
-                "falls back to the owning tmux session env, and returns the exact attached "
+                "before any direct mailbox access. That helper derives current mailbox state "
+                "from the persisted runtime-owned mailbox binding and returns the exact attached "
                 "`gateway.base_url` when a live gateway is available. Do not scrape tmux state "
-                "directly or trust stale inherited process env."
+                "directly."
             ),
             (
                 "Use the runtime-owned mailbox skill document for the current transport at "

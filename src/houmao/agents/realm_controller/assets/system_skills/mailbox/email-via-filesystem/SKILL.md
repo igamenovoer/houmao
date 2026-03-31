@@ -11,7 +11,7 @@ Use this skill when the resolved mailbox transport is `filesystem`.
 
 Treat `houmao-mgr agents mail ...` as the supported discovery and fallback surface for ordinary mailbox work:
 
-1. resolve current bindings through `pixi run houmao-mgr agents mail resolve-live --format json`
+1. resolve current bindings through `pixi run houmao-mgr agents mail resolve-live`
 2. if `gateway.base_url` is present, use the shared `/v1/mail/*` facade
 3. otherwise use `pixi run houmao-mgr agents mail check|send|reply|mark-read`
 
@@ -19,12 +19,12 @@ Do not treat `python -m houmao.agents.mailbox_runtime_support ...` or mailbox-ow
 
 ## References
 
-- Read [references/env-vars.md](references/env-vars.md) when validating mailbox bindings.
+- Read [references/env-vars.md](references/env-vars.md) when validating resolver fields.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) when you need exact mailbox directories, projection layout, or canonical message storage structure.
 
 ## Supported Workflow
 
-- Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live --format json` before mailbox work.
+- Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat the resolver output as the supported discovery contract for this turn. Do not scrape tmux state directly.
 - When the resolver returns a `gateway` object, use `gateway.base_url` for the live attached `/v1/mail/*` facade.
 - When the resolver returns `gateway: null`, use `pixi run houmao-mgr agents mail ...` as the fallback surface.
@@ -45,19 +45,19 @@ Do not treat `python -m houmao.agents.mailbox_runtime_support ...` or mailbox-ow
 
 ## Binding Checks
 
-- Require the common and filesystem-specific mailbox binding keys defined in [references/env-vars.md](references/env-vars.md).
+- Require the common and filesystem-specific resolver fields defined in [references/env-vars.md](references/env-vars.md).
 - When the resolver returns `gateway.base_url`, treat that value as the exact live shared-mailbox endpoint instead of guessing another loopback URL.
-- Refuse to use this skill when the resolved `AGENTSYS_MAILBOX_TRANSPORT` is not `filesystem`.
+- Refuse to use this skill when `mailbox.transport` is not `filesystem`.
 - Do not cache paths or addresses across turns. Re-resolve the current mailbox bindings before each mailbox action that needs fresh transport state.
-- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changes mid-task, discard cached mailbox assumptions and resolve the current bindings again before continuing.
+- If `bindings_version` changes mid-task, discard cached mailbox assumptions and resolve the current bindings again before continuing.
 
 ## Filesystem-Specific Guidance
 
-- Inspect the shared mailbox `rules/` directory under `AGENTSYS_MAILBOX_FS_ROOT` for mailbox-local policy guidance such as formatting, etiquette, or workflow hints.
+- Inspect the shared mailbox `rules/` directory under `mailbox.filesystem.root` for mailbox-local policy guidance such as formatting, etiquette, or workflow hints.
 - Treat that `rules/` content as policy guidance, not as the ordinary public execution protocol.
 - `rules/scripts/`, when present, is compatibility or implementation detail. Do not treat shared helper scripts as the first-choice surface for ordinary `check`, `send`, `reply`, or `mark-read` work.
-- Inspect unread state from `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` when transport-owned inspection is needed; treat that mailbox-local database as the source of truth for read or unread, starred, archived, deleted, and thread summary state for the current mailbox.
-- Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as shared structural catalog state, not as the mailbox-view authority for the current mailbox.
+- Inspect unread state from `mailbox.filesystem.local_sqlite_path` when transport-owned inspection is needed; treat that mailbox-local database as the source of truth for read or unread, starred, archived, deleted, and thread summary state for the current mailbox.
+- Treat `mailbox.filesystem.sqlite_path` as shared structural catalog state, not as the mailbox-view authority for the current mailbox.
 - Read message content by following inbox or sent symlink projections back to canonical Markdown message files under `messages/<YYYY-MM-DD>/...`.
 
 ## Guardrails

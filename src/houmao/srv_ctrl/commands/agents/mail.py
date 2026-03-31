@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-import shlex
 
 import click
 
@@ -146,31 +145,17 @@ def mark_read_mail_command(
 
 
 @mail_group.command(name="resolve-live")
-@click.option(
-    "--format",
-    "output_format",
-    type=click.Choice(("json", "shell"), case_sensitive=False),
-    default="json",
-    show_default=True,
-    help="Output format for live mailbox bindings.",
-)
 @pair_port_option()
 @managed_agent_selector_options
 def resolve_live_mail_command(
     port: int | None,
-    output_format: str,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
     """Resolve live mailbox bindings and optional gateway metadata for one managed agent."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    payload = mail_resolve_live(target)
-    if output_format == "json":
-        emit_json(payload)
-        return
-    for line in _shell_lines_for_resolve_live(payload):
-        click.echo(line)
+    emit_json(mail_resolve_live(target))
 
 
 def _resolve_attachment_uploads(attachments: Sequence[str]) -> list[GatewayMailAttachmentUploadV1]:
@@ -183,85 +168,3 @@ def _resolve_attachment_uploads(attachments: Sequence[str]) -> list[GatewayMailA
             raise click.ClickException(f"Attachment path does not exist: `{path}`.")
         uploads.append(GatewayMailAttachmentUploadV1(path=str(path)))
     return uploads
-
-
-def _shell_lines_for_resolve_live(payload: dict[str, object]) -> list[str]:
-    """Render `resolve-live` output as stable shell assignments."""
-
-    managed_agent = payload.get("managed_agent")
-    env_payload = payload.get("env")
-    gateway_payload = payload.get("gateway")
-
-    assignments: list[tuple[str, str]] = [
-        ("HOUMAO_MANAGED_AGENT_MODE", _shell_text_value(_mapping_value(managed_agent, "mode"))),
-        ("HOUMAO_MANAGED_AGENT_REF", _shell_text_value(_mapping_value(managed_agent, "agent_ref"))),
-        (
-            "HOUMAO_MANAGED_AGENT_NAME",
-            _shell_text_value(_mapping_value(managed_agent, "agent_name")),
-        ),
-        ("HOUMAO_MANAGED_AGENT_ID", _shell_text_value(_mapping_value(managed_agent, "agent_id"))),
-        (
-            "HOUMAO_MANAGED_AGENT_TMUX_SESSION_NAME",
-            _shell_text_value(_mapping_value(managed_agent, "tmux_session_name")),
-        ),
-        ("AGENTSYS_MAILBOX_BINDINGS_SOURCE", _shell_text_value(payload.get("source"))),
-    ]
-
-    if isinstance(env_payload, dict):
-        for key in sorted(env_payload):
-            value = env_payload.get(key)
-            if isinstance(key, str):
-                assignments.append((key, _shell_text_value(value)))
-
-    assignments.extend(
-        [
-            (
-                "AGENTSYS_MAILBOX_GATEWAY_AVAILABLE",
-                "1" if isinstance(gateway_payload, dict) else "0",
-            ),
-            (
-                "AGENTSYS_MAILBOX_GATEWAY_SOURCE",
-                _shell_text_value(_mapping_value(gateway_payload, "source")),
-            ),
-            (
-                "AGENTSYS_MAILBOX_GATEWAY_HOST",
-                _shell_text_value(_mapping_value(gateway_payload, "host")),
-            ),
-            (
-                "AGENTSYS_MAILBOX_GATEWAY_PORT",
-                _shell_text_value(_mapping_value(gateway_payload, "port")),
-            ),
-            (
-                "AGENTSYS_MAILBOX_GATEWAY_BASE_URL",
-                _shell_text_value(_mapping_value(gateway_payload, "base_url")),
-            ),
-            (
-                "AGENTSYS_MAILBOX_GATEWAY_PROTOCOL_VERSION",
-                _shell_text_value(_mapping_value(gateway_payload, "protocol_version")),
-            ),
-            (
-                "AGENTSYS_MAILBOX_GATEWAY_STATE_PATH",
-                _shell_text_value(_mapping_value(gateway_payload, "state_path")),
-            ),
-        ]
-    )
-
-    return [f"export {name}={shlex.quote(value)}" for name, value in assignments]
-
-
-def _mapping_value(payload: object, key: str) -> object | None:
-    """Return one optional mapping value without assuming exact payload shape."""
-
-    if not isinstance(payload, dict):
-        return None
-    return payload.get(key)
-
-
-def _shell_text_value(value: object) -> str:
-    """Normalize one JSON-compatible value into a shell-safe text payload."""
-
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "1" if value else "0"
-    return str(value)

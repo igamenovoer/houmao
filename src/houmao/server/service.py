@@ -57,6 +57,7 @@ from houmao.agents.realm_controller.errors import (
 )
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
@@ -1274,6 +1275,19 @@ class HoumaoServerService:
         client = self._require_live_managed_mail_gateway_client(agent_ref)
         response = self._invoke_live_gateway(client.mail_status)
         return HoumaoManagedAgentMailStatusResponse.model_validate(response.model_dump(mode="json"))
+
+    def managed_agent_mail_resolve_live(self, agent_ref: str) -> dict[str, object]:
+        """Return manifest-backed mailbox discovery for one managed agent."""
+
+        manifest_path = self._require_managed_agent_manifest_path(agent_ref)
+        try:
+            resolution = resolve_live_mailbox_binding_from_manifest_path(
+                manifest_path=manifest_path,
+                gateway_source="current_instance_record",
+            )
+        except (SessionManifestError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return resolution.payload()
 
     def check_managed_agent_mail(
         self,
@@ -3450,6 +3464,27 @@ class HoumaoServerService:
                 detail="No live gateway is attached for this managed agent.",
             )
         return client
+
+    def _require_managed_agent_manifest_path(self, agent_ref: str) -> Path:
+        """Return the runtime-owned manifest path for one managed agent."""
+
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        manifest_path_value: str | None
+        if resolved["transport"] == "tui":
+            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
+            manifest_path_value = tracker.current_state().tracked_session.manifest_path
+        else:
+            handle = self._require_headless_handle(resolved["tracked_agent_id"])
+            manifest_path_value = handle.authority.manifest_path
+        if manifest_path_value is None or not manifest_path_value.strip():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Managed-agent mailbox resolution is unavailable because the runtime-owned "
+                    "manifest path is missing."
+                ),
+            )
+        return Path(manifest_path_value).expanduser().resolve()
 
     def _require_live_managed_mail_gateway_client(self, agent_ref: str) -> GatewayClient:
         """Require pair-owned mailbox capability plus a live gateway client."""

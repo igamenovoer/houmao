@@ -45,6 +45,9 @@ def _manifest(
     env_records: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     adapter_path = "/tmp/tool-adapter.yaml"
+    home_path.mkdir(parents=True, exist_ok=True)
+    if tool == "codex":
+        (home_path / "auth.json").write_text('{"session_id":"test-session"}\n', encoding="utf-8")
     runtime: dict[str, Any] = {
         "runtime_root": str(home_path.parent),
         "home_id": "test-home",
@@ -263,7 +266,7 @@ def test_build_launch_plan_overlays_persistent_launch_env_records(tmp_path: Path
     assert "FEATURE_FLAG_X" in plan.redacted_payload()["env_var_names"]
 
 
-def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> None:
+def test_build_launch_plan_preserves_mailbox_without_env_projection(tmp_path: Path) -> None:
     env_file = tmp_path / "vars.env"
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     role_prompt_path = tmp_path / "repo/roles/test-role/system-prompt.md"
@@ -297,24 +300,8 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
     )
 
     assert plan.mailbox == mailbox
-    assert plan.env["AGENTSYS_MAILBOX_TRANSPORT"] == "filesystem"
-    assert plan.env["AGENTSYS_MAILBOX_FS_ROOT"] == str(mailbox.filesystem_root)
-    assert plan.env["AGENTSYS_MAILBOX_FS_SQLITE_PATH"] == str(
-        mailbox.filesystem_root / "index.sqlite"
-    )
-    assert plan.env["AGENTSYS_MAILBOX_FS_INBOX_DIR"] == str(
-        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost" / "inbox"
-    )
-    assert plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
-        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost"
-    )
-    assert plan.env["AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH"] == str(
-        mailbox.filesystem_root
-        / "mailboxes"
-        / "AGENTSYS-research@agents.localhost"
-        / "mailbox.sqlite"
-    )
-    assert "AGENTSYS_MAILBOX_FS_ROOT" in plan.env_var_names
+    assert plan.env == {"OPENAI_API_KEY": "sk-secret"}
+    assert all(not name.startswith("AGENTSYS_MAILBOX_") for name in plan.env_var_names)
     assert plan.redacted_payload()["mailbox"]["principal_id"] == "AGENTSYS-research"
 
 

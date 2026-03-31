@@ -64,7 +64,7 @@ The preferred local serverless mailbox workflow is:
 3. `houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
 4. `houmao-mgr agents mail ...`
 
-For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch. That remains true even when a joined session is controllable but non-relaunchable, as long as Houmao can still update the session manifest and the owning tmux live mailbox projection safely.
+For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` update the durable manifest-backed mailbox binding without requiring relaunch. That remains true even when a joined session is controllable but non-relaunchable, as long as Houmao can still update the session manifest and validate the resulting mailbox binding safely.
 
 ## See Also
 

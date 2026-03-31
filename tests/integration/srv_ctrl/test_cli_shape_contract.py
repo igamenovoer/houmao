@@ -787,7 +787,6 @@ def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_pro
     assert register_result.exit_code == 0, register_result.output
     register_payload = json.loads(register_result.output)
     assert register_payload["activation_state"] == "active"
-    assert register_payload["relaunch_required"] is False
 
     mailbox_status_result = runner.invoke(
         cli,
@@ -918,12 +917,12 @@ def test_houmao_mgr_agents_help_retires_history_command() -> None:
     assert "No such command 'history'" in history_result.output
 
 
-def test_houmao_mgr_agents_mail_resolve_live_supports_json_and_shell_output(
+def test_houmao_mgr_agents_mail_resolve_live_returns_structured_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
         "schema_version": 1,
-        "source": "tmux_session_env",
+        "source": "manifest_binding",
         "managed_agent": {
             "mode": "local",
             "agent_ref": "alpha",
@@ -935,16 +934,21 @@ def test_houmao_mgr_agents_mail_resolve_live_supports_json_and_shell_output(
         "principal_id": "AGENTSYS-alpha",
         "address": "AGENTSYS-alpha@agents.localhost",
         "bindings_version": "2026-03-29T15:00:00Z",
-        "mailbox": {"transport": "filesystem"},
-        "env": {
-            "AGENTSYS_MAILBOX_TRANSPORT": "filesystem",
-            "AGENTSYS_MAILBOX_PRINCIPAL_ID": "AGENTSYS-alpha",
-            "AGENTSYS_MAILBOX_ADDRESS": "AGENTSYS-alpha@agents.localhost",
-            "AGENTSYS_MAILBOX_BINDINGS_VERSION": "2026-03-29T15:00:00Z",
-            "AGENTSYS_MAILBOX_FS_ROOT": "/tmp/mailbox",
+        "mailbox": {
+            "transport": "filesystem",
+            "filesystem": {
+                "root": "/tmp/mailbox",
+                "mailbox_kind": "in_root",
+                "mailbox_path": "/tmp/mailbox/mailboxes/AGENTSYS-alpha@agents.localhost",
+                "inbox_path": "/tmp/mailbox/mailboxes/AGENTSYS-alpha@agents.localhost/inbox",
+                "sqlite_path": "/tmp/mailbox/index.sqlite",
+                "local_sqlite_path": (
+                    "/tmp/mailbox/mailboxes/AGENTSYS-alpha@agents.localhost/mailbox.sqlite"
+                ),
+            },
         },
         "gateway": {
-            "source": "tmux_session_env",
+            "source": "current_instance_record",
             "host": "127.0.0.1",
             "port": 43123,
             "base_url": "http://127.0.0.1:43123",
@@ -967,17 +971,12 @@ def test_houmao_mgr_agents_mail_resolve_live_supports_json_and_shell_output(
         cli,
         ["agents", "mail", "resolve-live", "--agent-name", "alpha"],
     )
-    shell_result = runner.invoke(
-        cli,
-        ["agents", "mail", "resolve-live", "--format", "shell", "--agent-name", "alpha"],
-    )
 
     assert json_result.exit_code == 0, json_result.output
-    assert json.loads(json_result.output)["gateway"]["base_url"] == "http://127.0.0.1:43123"
-    assert shell_result.exit_code == 0, shell_result.output
-    assert "export AGENTSYS_MAILBOX_TRANSPORT=filesystem" in shell_result.output
-    assert "export AGENTSYS_MAILBOX_GATEWAY_AVAILABLE=1" in shell_result.output
-    assert "export AGENTSYS_MAILBOX_GATEWAY_BASE_URL=http://127.0.0.1:43123" in shell_result.output
+    resolved = json.loads(json_result.output)
+    assert resolved["gateway"]["base_url"] == "http://127.0.0.1:43123"
+    assert resolved["mailbox"]["filesystem"]["root"] == "/tmp/mailbox"
+    assert "env" not in resolved
 
 
 def test_houmao_mgr_agents_mail_resolve_live_requires_selector_outside_tmux(

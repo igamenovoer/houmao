@@ -235,17 +235,14 @@ def ensure_mailbox_command_ready(
     mailbox = launch_plan.mailbox
     if mailbox is None:
         raise MailboxCommandError("Target session is not mailbox-enabled.")
-    if tmux_session_name is not None:
-        try:
-            mailbox = resolve_live_mailbox_binding(
-                durable_mailbox=mailbox,
-                tmux_session_name=tmux_session_name,
-            ).mailbox
-        except ValueError as exc:
-            raise MailboxCommandError(
-                "Target session mailbox binding is not live-actionable through the tmux-backed "
-                f"runtime projection: {exc}"
-            ) from exc
+    del tmux_session_name
+    try:
+        mailbox = resolve_live_mailbox_binding(durable_mailbox=mailbox).mailbox
+    except ValueError as exc:
+        raise MailboxCommandError(
+            "Target session mailbox binding is not actionable through the persisted runtime "
+            f"mailbox binding: {exc}"
+        ) from exc
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         paths = resolve_filesystem_mailbox_paths(mailbox.filesystem_root)
         required_files = (
@@ -286,13 +283,12 @@ def _mail_prompt_instruction_lines(
             "location from the current working directory."
         ),
         (
-            "Before any direct mailbox access, resolve current mailbox bindings through the "
-            "manager-owned helper `pixi run houmao-mgr agents mail resolve-live --format json`."
+            "Before any direct mailbox access, resolve current mailbox state through the "
+            "manager-owned helper `pixi run houmao-mgr agents mail resolve-live`."
         ),
         (
-            "Use only the targeted mailbox binding keys returned by that helper. Do not guess "
-            "sender identity or mailbox endpoints, do not trust stale inherited process env, "
-            "and do not scrape tmux state directly."
+            "Use only the structured fields returned by that helper. Do not guess sender "
+            "identity or mailbox endpoints, and do not scrape tmux state directly."
         ),
         "Only mark messages read after the message has actually been processed successfully.",
     ]
@@ -314,7 +310,7 @@ def _mail_prompt_instruction_lines(
     elif not prefer_live_gateway:
         lines.extend(
             [
-                "Use the runtime-managed email mailbox env vars for direct mailbox access when no live gateway mailbox facade is available.",
+                "Use the returned `mailbox.stalwart.*` fields for direct mailbox access when no live gateway mailbox facade is available.",
                 "Do not use filesystem mailbox `rules/`, SQLite paths, lock files, or projection assumptions for this transport.",
             ]
         )
@@ -337,7 +333,7 @@ def _filesystem_send_payload_template(args: dict[str, Any]) -> dict[str, Any] | 
     if not isinstance(attachments, list):
         attachments = []
     return {
-        "staged_message_path": "$AGENTSYS_MAILBOX_FS_ROOT/staging/<message-id>.md",
+        "staged_message_path": "<resolve-live.mailbox.filesystem.root>/staging/<message-id>.md",
         "message_id": "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>",
         "thread_id": "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>",
         "created_at_utc": "YYYY-MM-DDTHH:MM:SSZ",

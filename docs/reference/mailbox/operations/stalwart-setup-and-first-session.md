@@ -36,7 +36,7 @@ With the `stalwart` transport, Houmao stops acting like the mailbox storage engi
 | --- | --- | --- | --- |
 | mailbox binding in `manifest.json` | `<session-root>/manifest.json` | yes | durable runtime record used by resume, direct mailbox flows, and gateway adapter construction |
 | runtime-owned Stalwart credential store | `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | no | durable runtime-owned secret material keyed by `credential_ref` |
-| session-local Stalwart credential file | `<session-root>/mailbox-secrets/<credential-ref>.json` | no | per-session materialized secret file surfaced as `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` |
+| session-local Stalwart credential file | `<session-root>/mailbox-secrets/<credential-ref>.json` | no | per-session materialized secret file surfaced through `resolve-live.mailbox.stalwart.credential_file` |
 
 The manifest stores `credential_ref`, not the password itself. For the broader filesystem map and cleanup guidance, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
 

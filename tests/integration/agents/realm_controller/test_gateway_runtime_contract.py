@@ -60,31 +60,52 @@ def _write(path: Path, text: str) -> None:
 def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
     """Create a minimal codex brain manifest and role package."""
 
+    home_path = tmp_path / "home"
+    home_path.mkdir(parents=True, exist_ok=True)
+    (home_path / "auth.json").write_text('{"session_id":"test-session"}\n', encoding="utf-8")
     env_file = tmp_path / "vars.env"
     env_file.write_text("OPENAI_API_KEY=secret\n", encoding="utf-8")
     manifest_path = tmp_path / "brain.yaml"
     manifest_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "inputs:",
                 "  tool: codex",
+                "  skills: []",
+                "  setup: default",
+                "  auth: default",
+                "  adapter_path: /tmp/tool-adapter.yaml",
+                "  preset_path: null",
+                "launch_policy:",
+                "  operator_prompt_mode: as_is",
                 "runtime:",
+                f"  runtime_root: {tmp_path}",
+                "  home_id: test-home",
+                f"  home_path: {home_path}",
+                f"  launch_helper: {home_path / 'launch.sh'}",
                 "  launch_executable: codex",
                 "  launch_home_selector:",
                 "    env_var: CODEX_HOME",
-                f"    value: {tmp_path / 'home'}",
+                f"    value: {home_path}",
                 "  launch_contract:",
                 "    adapter_defaults:",
                 "      args: []",
                 "      tool_params: {}",
                 "    requested_overrides:",
-                "      recipe: null",
+                "      preset: null",
                 "      direct: null",
                 "    tool_metadata:",
                 "      tool_params: {}",
+                "    construction_provenance:",
+                "      adapter_path: /tmp/tool-adapter.yaml",
+                "      preset_path: null",
+                "      preset_overrides_present: false",
+                "      direct_overrides_present: false",
                 "  cao_parsing_mode: shadow_only",
                 "credentials:",
+                f"  auth_path: {tmp_path / 'auth'}",
+                "  projected_files: []",
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
