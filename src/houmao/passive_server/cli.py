@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import click
 import uvicorn
 
+from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
 from houmao.passive_server.app import create_app
 from houmao.passive_server.config import PassiveServerConfig
+from houmao.project.overlay import ensure_project_aware_local_roots
 
 
 @click.group(name="houmao-passive-server")
@@ -23,12 +26,17 @@ def cli() -> None:
     "--runtime-root",
     default=None,
     type=click.Path(path_type=Path),
-    help="Override the Houmao runtime root directory.",
+    help=(
+        "Override the Houmao runtime root directory. Defaults to "
+        "`HOUMAO_GLOBAL_RUNTIME_DIR` or the active project runtime root."
+    ),
 )
 def serve_command(host: str, port: int, runtime_root: Path | None) -> None:
     """Start the passive server."""
 
     api_base_url = f"http://{host}:{port}"
+    if runtime_root is None and not os.environ.get(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR):
+        ensure_project_aware_local_roots(cwd=Path.cwd().resolve())
     kwargs: dict[str, object] = {"api_base_url": api_base_url}
     if runtime_root is not None:
         kwargs["runtime_root"] = runtime_root

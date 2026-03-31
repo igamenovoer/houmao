@@ -29,6 +29,7 @@ For maintained local launch flows operating in project context, the runtime SHAL
 
 When an explicit jobs-root override exists, that explicit override SHALL win.
 When `HOUMAO_LOCAL_JOBS_DIR` is set and no stronger explicit jobs-root override exists, that env-var override SHALL win.
+Maintained local launch boundaries SHALL resolve the effective jobs root before session startup and pass an explicit jobs-root or already resolved job dir into that startup path rather than relying on the caller's working directory as the implicit jobs anchor.
 
 The runtime SHALL persist the resolved job dir in the session manifest and publish it to the launched session environment as `HOUMAO_JOB_DIR`.
 
@@ -45,3 +46,10 @@ The runtime SHALL persist the resolved job dir in the session manifest and publi
 - **AND WHEN** the runtime starts a session with generated session id `session-20260314-120000Z-abcd1234`
 - **THEN** the effective job dir is `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
 - **AND THEN** the overlay-local jobs default is not used for that session
+
+#### Scenario: Project-aware launch resolves jobs placement before session startup
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator starts a maintained local launch flow from working directory `/repo/subdir`
+- **AND WHEN** no stronger jobs-root override exists
+- **THEN** the launch boundary passes `/repo/.houmao/jobs` or the fully resolved `/repo/.houmao/jobs/<session-id>/` into session startup
+- **AND THEN** the session does not derive its default job dir from `/repo/subdir/.houmao/jobs`

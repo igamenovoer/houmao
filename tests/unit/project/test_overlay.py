@@ -6,10 +6,13 @@ import pytest
 
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.project.overlay import (
+    ProjectAwareLocalRoots,
     bootstrap_project_overlay,
     bootstrap_project_overlay_at_root,
     discover_project_overlay,
     PROJECT_OVERLAY_DIR_ENV_VAR,
+    resolve_project_aware_local_roots,
+    ensure_project_aware_local_roots,
     resolve_project_overlay,
     resolve_project_aware_agent_def_dir,
 )
@@ -188,3 +191,48 @@ def test_bootstrap_project_overlay_can_include_compatibility_profiles_for_custom
     assert (project_root / ".houmao" / "custom-agents" / "compatibility-profiles").is_dir()
     assert (project_root / ".houmao" / "custom-agents" / "tools").is_dir()
     assert not (project_root / ".houmao" / "agents").exists()
+
+
+def test_resolve_project_overlay_does_not_cross_nearest_git_boundary(tmp_path: Path) -> None:
+    parent_root = (tmp_path / "parent").resolve()
+    nested_repo_root = (parent_root / "nested-repo").resolve()
+    nested_dir = (nested_repo_root / "app").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(parent_root)
+    (nested_repo_root / ".git").write_text("gitdir: /tmp/fake-worktree\n", encoding="utf-8")
+
+    resolution = resolve_project_overlay(cwd=nested_dir)
+
+    assert resolution.project_overlay is None
+    assert resolution.source == "default"
+    assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
+
+
+def test_resolve_project_aware_local_roots_reports_overlay_local_defaults(tmp_path: Path) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = (repo_root / "nested" / "child").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+
+    roots = resolve_project_aware_local_roots(cwd=nested_dir)
+
+    assert isinstance(roots, ProjectAwareLocalRoots)
+    assert roots.overlay_root == (repo_root / ".houmao").resolve()
+    assert roots.runtime_root == (repo_root / ".houmao" / "runtime").resolve()
+    assert roots.jobs_root == (repo_root / ".houmao" / "jobs").resolve()
+    assert roots.mailbox_root == (repo_root / ".houmao" / "mailbox").resolve()
+    assert roots.easy_root == (repo_root / ".houmao" / "easy").resolve()
+    assert roots.created_overlay is False
+
+
+def test_ensure_project_aware_local_roots_bootstraps_missing_overlay(tmp_path: Path) -> None:
+    workdir = (tmp_path / "workspace").resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    roots = ensure_project_aware_local_roots(cwd=workdir)
+
+    assert roots.project_overlay is not None
+    assert roots.created_overlay is True
+    assert roots.overlay_root == (workdir / ".houmao").resolve()
+    assert (workdir / ".houmao" / "houmao-config.toml").is_file()
+    assert roots.runtime_root == (workdir / ".houmao" / "runtime").resolve()

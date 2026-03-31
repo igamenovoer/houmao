@@ -8,6 +8,7 @@ Project-aware command paths that need an effective local Houmao project overlay 
 3. nearest ancestor `.houmao/houmao-config.toml` within the current Git worktree boundary,
 4. bootstrap `<cwd>/.houmao` when no project overlay exists and the command requires local Houmao-owned state.
 
+The current Git worktree boundary SHALL be inferred by walking ancestors until the nearest directory containing a `.git` file or directory. When no ancestor contains `.git`, discovery MAY continue to the filesystem root.
 When `HOUMAO_PROJECT_OVERLAY_DIR` is set, it SHALL be an absolute path.
 When a project overlay is selected, the effective default agent-definition root SHALL be `<overlay-root>/agents` unless a discovered config resolves a different compatibility-projection path.
 When a project config is discovered, relative paths stored in that config SHALL resolve relative to the config file directory.
@@ -59,3 +60,16 @@ This change SHALL NOT remove `houmao-mgr project init`; the command remains the 
 - **AND WHEN** an operator runs a maintained local Houmao build or launch command that needs project-local state
 - **THEN** the command ensures the selected overlay exists before continuing
 - **AND THEN** the operator does not need to run `houmao-mgr project init` manually first
+
+### Requirement: `houmao-mgr project status` remains a read-only reporting surface
+`houmao-mgr project status` SHALL report the selected project overlay root and derived project-aware local roots without bootstrapping a missing overlay.
+
+When no overlay exists yet, the command SHALL report the would-bootstrap overlay root for the current invocation context rather than creating it.
+
+#### Scenario: Project status reports the would-bootstrap overlay without creating it
+- **WHEN** no explicit CLI overlay root is supplied
+- **AND WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
+- **AND WHEN** no ancestor `.houmao/houmao-config.toml` exists
+- **AND WHEN** an operator runs `houmao-mgr project status` from `/repo/app`
+- **THEN** the command reports `/repo/app/.houmao` as the selected or would-bootstrap overlay root
+- **AND THEN** it does not create `/repo/app/.houmao` during that status command

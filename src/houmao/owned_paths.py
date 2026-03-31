@@ -47,15 +47,17 @@ def resolve_registry_root(
     *,
     explicit_root: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    default_root: str | Path | None = None,
     base: Path | None = None,
 ) -> Path:
     """Resolve the effective shared-registry root."""
 
+    resolved_default_root = _resolve_optional_path(default_root, base=base)
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
         env_var_name=HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
-        default_root=resolve_houmao_home_root() / "registry",
+        default_root=resolved_default_root or (resolve_houmao_home_root() / "registry"),
         base=base,
     )
 
@@ -64,15 +66,17 @@ def resolve_runtime_root(
     *,
     explicit_root: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    default_root: str | Path | None = None,
     base: Path | None = None,
 ) -> Path:
     """Resolve the effective durable runtime root."""
 
+    resolved_default_root = _resolve_optional_path(default_root, base=base)
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
         env_var_name=HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
-        default_root=resolve_houmao_home_root() / "runtime",
+        default_root=resolved_default_root or (resolve_houmao_home_root() / "runtime"),
         base=base,
     )
 
@@ -81,15 +85,17 @@ def resolve_mailbox_root(
     *,
     explicit_root: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    default_root: str | Path | None = None,
     base: Path | None = None,
 ) -> Path:
     """Resolve the effective shared mailbox root."""
 
+    resolved_default_root = _resolve_optional_path(default_root, base=base)
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
         env_var_name=HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
-        default_root=resolve_houmao_home_root() / "mailbox",
+        default_root=resolved_default_root or (resolve_houmao_home_root() / "mailbox"),
         base=base,
     )
 
@@ -99,15 +105,17 @@ def resolve_local_jobs_root(
     working_directory: Path,
     explicit_root: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    default_root: str | Path | None = None,
     base: Path | None = None,
 ) -> Path:
     """Resolve the effective local jobs-root base directory."""
 
+    resolved_default_root = _resolve_optional_path(default_root, base=base)
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
         env_var_name=HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
-        default_root=working_directory.resolve() / _HOU_MAO_DIRNAME / "jobs",
+        default_root=resolved_default_root or (working_directory.resolve() / _HOU_MAO_DIRNAME / "jobs"),
         base=base,
     )
 
@@ -118,6 +126,7 @@ def resolve_session_job_dir(
     working_directory: Path,
     explicit_jobs_root: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    default_jobs_root: str | Path | None = None,
     base: Path | None = None,
 ) -> Path:
     """Resolve the concrete per-session job directory."""
@@ -127,6 +136,7 @@ def resolve_session_job_dir(
             working_directory=working_directory,
             explicit_root=explicit_jobs_root,
             env=env,
+            default_root=default_jobs_root,
             base=base,
         )
         / session_id

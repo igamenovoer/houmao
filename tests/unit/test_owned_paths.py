@@ -36,6 +36,21 @@ def test_runtime_root_uses_env_override_when_no_explicit_override(tmp_path: Path
     assert resolved == (tmp_path / "runtime-root").resolve()
 
 
+def test_runtime_root_uses_default_override_when_no_explicit_or_env(tmp_path: Path) -> None:
+    resolved = resolve_runtime_root(default_root=tmp_path / "project-runtime")
+
+    assert resolved == (tmp_path / "project-runtime").resolve()
+
+
+def test_runtime_env_override_still_wins_over_default_override(tmp_path: Path) -> None:
+    resolved = resolve_runtime_root(
+        env={HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR: str(tmp_path / "env-runtime")},
+        default_root=tmp_path / "project-runtime",
+    )
+
+    assert resolved == (tmp_path / "env-runtime").resolve()
+
+
 def test_registry_root_defaults_under_platformdirs_home_anchor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -78,6 +93,16 @@ def test_job_dir_uses_env_override_when_no_explicit_override(tmp_path: Path) -> 
     )
 
     assert resolved == (tmp_path / "custom-jobs" / "session-20260314-120000Z-abcd1234").resolve()
+
+
+def test_job_dir_uses_default_jobs_root_when_no_explicit_or_env(tmp_path: Path) -> None:
+    resolved = resolve_session_job_dir(
+        session_id="session-20260314-120000Z-abcd1234",
+        working_directory=tmp_path / "repo",
+        default_jobs_root=tmp_path / "project-jobs",
+    )
+
+    assert resolved == (tmp_path / "project-jobs" / "session-20260314-120000Z-abcd1234").resolve()
 
 
 def test_env_override_requires_absolute_path() -> None:

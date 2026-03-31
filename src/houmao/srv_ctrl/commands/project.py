@@ -33,12 +33,12 @@ from houmao.project.easy import (
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
     bootstrap_project_overlay_at_root,
+    ensure_project_aware_local_roots,
     ensure_project_agent_compatibility_tree,
     materialize_project_agent_catalog_projection,
     require_project_overlay,
     resolve_project_init_overlay_root,
-    resolve_project_overlay,
-    resolve_project_aware_agent_def_dir,
+    resolve_project_aware_local_roots,
 )
 
 from .agents.core import emit_local_launch_completion, launch_managed_agent_locally
@@ -99,6 +99,8 @@ def init_project_command(with_compatibility_profiles: bool) -> None:
             "catalog_path": str(result.project_overlay.catalog_path),
             "content_root": str(result.project_overlay.content_root),
             "agent_def_dir": str(result.project_overlay.agents_root),
+            "runtime_root": str(result.project_overlay.runtime_root),
+            "jobs_root": str(result.project_overlay.jobs_root),
             "mailbox_root": str(result.project_overlay.mailbox_root),
             "easy_root": str(result.project_overlay.easy_root),
             "created_directories": [str(path) for path in result.created_directories],
@@ -114,25 +116,39 @@ def project_status_command() -> None:
 
     cwd = Path.cwd().resolve()
     try:
-        overlay_resolution = resolve_project_overlay(cwd=cwd)
-        resolution = resolve_project_aware_agent_def_dir(cwd=cwd)
+        roots = resolve_project_aware_local_roots(cwd=cwd)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    overlay = overlay_resolution.project_overlay
+    overlay = roots.project_overlay
     emit(
         {
             "discovered": overlay is not None,
             "project_root": str(overlay.project_root) if overlay is not None else None,
-            "overlay_root": str(overlay_resolution.overlay_root),
-            "overlay_root_source": overlay_resolution.source,
+            "overlay_root": str(roots.overlay_root),
+            "overlay_root_source": roots.overlay_root_source,
             "config_path": str(overlay.config_path) if overlay is not None else None,
             "catalog_path": str(overlay.catalog_path) if overlay is not None else None,
-            "effective_agent_def_dir": str(resolution.agent_def_dir),
-            "effective_agent_def_dir_source": resolution.source,
-            "project_mailbox_root": str(overlay.mailbox_root) if overlay is not None else None,
-            "project_easy_root": str(overlay.easy_root) if overlay is not None else None,
+            "effective_agent_def_dir": str(roots.agent_def_dir),
+            "effective_agent_def_dir_source": roots.agent_def_dir_source,
+            "project_runtime_root": str(roots.runtime_root),
+            "project_jobs_root": str(roots.jobs_root),
+            "project_mailbox_root": str(roots.mailbox_root),
+            "project_easy_root": str(roots.easy_root),
+            "would_bootstrap_overlay": overlay is None,
         }
     )
+
+
+def _ensure_project_overlay() -> HoumaoProjectOverlay:
+    """Return the ensured project overlay or raise one operator-facing error."""
+
+    try:
+        roots = ensure_project_aware_local_roots(cwd=Path.cwd().resolve())
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if roots.project_overlay is None:
+        raise click.ClickException("Failed to ensure the active project overlay.")
+    return roots.project_overlay
 
 
 @project_group.group(name="agents")
@@ -1185,7 +1201,7 @@ def create_easy_specialist_command(
 ) -> None:
     """Create one project-local specialist and compile it into the canonical tree."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     specialist_name = _require_non_empty_name(name, field_name="--name")
     credential_name = (
         _require_non_empty_name(credential, field_name="--credential")
@@ -1403,7 +1419,7 @@ def launch_easy_instance_command(
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     specialist_metadata = _load_specialist_or_click(overlay=overlay, name=specialist)
     if specialist_metadata.tool == "gemini" and not headless:
         raise click.ClickException(
@@ -1728,7 +1744,7 @@ def _require_project_overlay() -> HoumaoProjectOverlay:
 def _project_mailbox_root() -> Path:
     """Return the current project's mailbox root."""
 
-    return _require_project_overlay().mailbox_root
+    return _ensure_project_overlay().mailbox_root
 
 
 def _emit_tool_get(*, tool: str) -> None:

@@ -16,10 +16,14 @@ from pathlib import Path
 from typing import Callable, Literal, cast
 
 from houmao.owned_paths import (
+    HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
     HOUMAO_JOB_DIR_ENV_VAR,
-    resolve_mailbox_root,
     resolve_runtime_root,
     resolve_session_job_dir,
+)
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_mailbox_root,
 )
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
@@ -534,7 +538,13 @@ class RuntimeSessionController:
             )
             or f"{effective_principal_id}@agents.localhost"
         )
-        effective_mailbox_root = resolve_mailbox_root(explicit_root=mailbox_root)
+        working_directory = self.launch_plan.working_directory.resolve()
+        if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):
+            ensure_project_aware_local_roots(cwd=working_directory)
+        effective_mailbox_root = resolve_project_aware_mailbox_root(
+            cwd=working_directory,
+            explicit_root=mailbox_root,
+        )
 
         bootstrap_filesystem_mailbox(effective_mailbox_root)
         mailbox_paths = resolve_filesystem_mailbox_paths(effective_mailbox_root)
@@ -926,6 +936,7 @@ def start_runtime_session(
     brain_manifest_path: Path,
     role_name: str | None,
     runtime_root: Path | None = None,
+    jobs_root: Path | None = None,
     backend: BackendKind | None = None,
     working_directory: Path | None = None,
     api_base_url: str = "http://localhost:9889",
@@ -1017,13 +1028,16 @@ def start_runtime_session(
             f"tmux-backed backends: {sorted(_TMUX_BACKED_BACKENDS)}."
         )
 
-    try:
-        job_dir = resolve_session_job_dir(
-            session_id=session_id,
-            working_directory=selected_workdir,
-        )
-    except ValueError as exc:
-        raise SessionManifestError(str(exc)) from exc
+    if jobs_root is not None:
+        job_dir = (jobs_root.resolve() / session_id).resolve()
+    else:
+        try:
+            job_dir = resolve_session_job_dir(
+                session_id=session_id,
+                working_directory=selected_workdir,
+            )
+        except ValueError as exc:
+            raise SessionManifestError(str(exc)) from exc
     job_dir.mkdir(parents=True, exist_ok=True)
 
     declared_mailbox = _declared_mailbox_from_manifest(

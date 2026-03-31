@@ -34,6 +34,23 @@ def _init_project_mailbox_repo(
     return runner, repo_root, repo_root / ".houmao" / "mailbox"
 
 
+def test_generic_mailbox_init_bootstraps_project_overlay_root_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(cli, ["--print-json", "mailbox", "init"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mailbox_root"] == str((repo_root / ".houmao" / "mailbox").resolve())
+    assert (repo_root / ".houmao" / "houmao-config.toml").exists()
+
+
 def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -593,7 +610,7 @@ def test_project_mailbox_uses_env_selected_overlay_root(
     ]
 
 
-def test_project_mailbox_env_selected_overlay_without_config_fails_clearly(
+def test_project_mailbox_env_selected_overlay_without_config_bootstraps_clearly(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -605,12 +622,14 @@ def test_project_mailbox_env_selected_overlay_without_config_fails_clearly(
 
     result = runner.invoke(
         cli,
-        ["project", "mailbox", "status"],
+        ["--print-json", "project", "mailbox", "status"],
         env={PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root)},
     )
 
-    assert result.exit_code != 0
-    assert str(overlay_root) in result.output
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mailbox_root"] == str((overlay_root / "mailbox").resolve())
+    assert (overlay_root / "houmao-config.toml").exists()
 
 
 def test_project_mailbox_register_yes_overwrites_without_tty(

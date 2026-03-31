@@ -24,6 +24,7 @@ from houmao.mailbox.managed import (
     register_mailbox,
 )
 from houmao.agents.realm_controller.registry_storage import RegistryCleanupAction
+from houmao.project.overlay import bootstrap_project_overlay
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -348,6 +349,25 @@ def test_runtime_build_cleanup_dry_run_reports_unreferenced_manifest_home_pair(
 
     planned_paths = {action["path"] for action in payload["planned_actions"]}
     assert planned_paths == {str(manifest_path), str(home_path)}
+
+
+def test_cleanup_runtime_builds_defaults_to_project_overlay_runtime_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    monkeypatch.chdir(repo_root)
+
+    payload = runtime_cleanup.cleanup_runtime_builds(
+        runtime_root=None,
+        older_than_seconds=0,
+        dry_run=True,
+    )
+
+    assert payload["scope"]["runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
+    assert (repo_root / ".houmao" / "houmao-config.toml").exists()
 
 
 def test_mailbox_cleanup_dry_run_reports_inactive_registration_and_preserves_messages(

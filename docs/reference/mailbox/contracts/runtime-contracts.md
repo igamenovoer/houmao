@@ -28,7 +28,7 @@ Current rules:
 - `filesystem` and `stalwart` are implemented in v1.
 - If `principal_id` is omitted, the runtime derives one from the tool, role, and optional agent identity.
 - If `address` is omitted, it defaults to `<principal_id>@agents.localhost`.
-- If `filesystem_root` is omitted, it defaults to `~/.houmao/mailbox` or the location selected by `HOUMAO_GLOBAL_MAILBOX_DIR`.
+- If `filesystem_root` is omitted in maintained project-aware flows, it defaults to `<active-overlay>/mailbox`, bootstrapping `<cwd>/.houmao/mailbox` when no overlay exists yet; `HOUMAO_GLOBAL_MAILBOX_DIR` or an explicit `filesystem_root` override still wins when supplied.
 - `stalwart` bindings resolve from either `base_url` or explicit `jmap_url` plus `management_url`.
 - Persisted `stalwart` bindings remain secret-free and store `credential_ref` instead of inline credentials.
 

@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from typing import Any
 
 import click
 
-from houmao.owned_paths import resolve_runtime_root
+from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_runtime_root,
+)
 from houmao.server.client import HoumaoServerClient
 from houmao.server.config import HoumaoServerConfig
 
@@ -31,8 +37,12 @@ def build_config(
 ) -> HoumaoServerConfig:
     """Build one validated server config from CLI inputs."""
 
-    resolved_runtime_root = (
-        resolve_runtime_root(explicit_root=runtime_root) if runtime_root else resolve_runtime_root()
+    cwd = Path.cwd().resolve()
+    if runtime_root is None and not os.environ.get(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR):
+        ensure_project_aware_local_roots(cwd=cwd)
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=cwd,
+        explicit_root=runtime_root,
     )
     if supported_tui_processes:
         return HoumaoServerConfig(
@@ -83,7 +93,10 @@ def echo_json(payload: dict[str, Any]) -> None:
 def path_option_help() -> str:
     """Return shared runtime-root help text."""
 
-    return "Optional runtime root override for Houmao-owned server artifacts."
+    return (
+        "Optional runtime root override for Houmao-owned server artifacts. Defaults to "
+        "`HOUMAO_GLOBAL_RUNTIME_DIR` or the active project runtime root."
+    )
 
 
 def _parse_supported_tui_processes(values: tuple[str, ...]) -> dict[str, tuple[str, ...]]:

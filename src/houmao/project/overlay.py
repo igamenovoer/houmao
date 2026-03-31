@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import resources
 from importlib.resources.abc import Traversable
 import os
@@ -11,12 +11,20 @@ import tomllib
 from typing import Literal, Mapping, cast
 
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.owned_paths import (
+    resolve_local_jobs_root,
+    resolve_mailbox_root,
+    resolve_runtime_root,
+    resolve_session_job_dir,
+)
 from houmao.project.catalog import PROJECT_CATALOG_FILENAME, PROJECT_CONTENT_DIRNAME, ProjectCatalog
 
 PROJECT_DIRNAME = ".houmao"
 PROJECT_CONFIG_FILENAME = "houmao-config.toml"
 PROJECT_GITIGNORE_FILENAME = ".gitignore"
 PROJECT_EASY_DIRNAME = "easy"
+PROJECT_RUNTIME_DIRNAME = "runtime"
+PROJECT_JOBS_DIRNAME = "jobs"
 PROJECT_MAILBOX_DIRNAME = "mailbox"
 PROJECT_OVERLAY_DIR_ENV_VAR = "HOUMAO_PROJECT_OVERLAY_DIR"
 DEFAULT_AGENT_DEF_DIR = Path(".houmao") / "agents"
@@ -54,6 +62,18 @@ class HoumaoProjectOverlay:
         """Return the project-local managed content root."""
 
         return (self.overlay_root / PROJECT_CONTENT_DIRNAME).resolve()
+
+    @property
+    def runtime_root(self) -> Path:
+        """Return the project-local runtime root."""
+
+        return (self.overlay_root / PROJECT_RUNTIME_DIRNAME).resolve()
+
+    @property
+    def jobs_root(self) -> Path:
+        """Return the project-local jobs root."""
+
+        return (self.overlay_root / PROJECT_JOBS_DIRNAME).resolve()
 
     @property
     def easy_root(self) -> Path:
@@ -100,6 +120,28 @@ class ProjectInitResult:
     created_directories: tuple[Path, ...]
     written_files: tuple[Path, ...]
     preserved_files: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
+class ProjectAwareLocalRoots:
+    """Resolved project-aware local-root defaults for one invocation context."""
+
+    overlay_root: Path
+    overlay_root_source: ProjectOverlaySource
+    project_overlay: HoumaoProjectOverlay | None
+    agent_def_dir: Path
+    agent_def_dir_source: AgentDefDirSource
+    runtime_root: Path
+    jobs_root: Path
+    mailbox_root: Path
+    easy_root: Path
+    bootstrap_result: ProjectInitResult | None = None
+
+    @property
+    def created_overlay(self) -> bool:
+        """Return whether this resolution bootstrapped the active overlay."""
+
+        return self.bootstrap_result is not None
 
 
 def project_overlay_root(project_root: Path) -> Path:
@@ -291,6 +333,154 @@ def resolve_materialized_project_aware_agent_def_dir(
     return resolution.agent_def_dir
 
 
+def resolve_project_aware_local_roots(
+    *,
+    cwd: Path,
+    cli_agent_def_dir: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> ProjectAwareLocalRoots:
+    """Resolve the project-aware local-root defaults for one invocation context."""
+
+    resolved_cwd = cwd.resolve()
+    env_mapping = dict(os.environ) if env is None else dict(env)
+    overlay_resolution = resolve_project_overlay(cwd=resolved_cwd, env=env_mapping)
+    agent_def_resolution = resolve_project_aware_agent_def_dir(
+        cwd=resolved_cwd,
+        cli_value=cli_agent_def_dir,
+        env=env_mapping,
+    )
+    project_overlay = overlay_resolution.project_overlay
+    overlay_root = overlay_resolution.overlay_root
+    return ProjectAwareLocalRoots(
+        overlay_root=overlay_root,
+        overlay_root_source=overlay_resolution.source,
+        project_overlay=project_overlay,
+        agent_def_dir=agent_def_resolution.agent_def_dir,
+        agent_def_dir_source=agent_def_resolution.source,
+        runtime_root=(
+            project_overlay.runtime_root if project_overlay is not None else overlay_root / PROJECT_RUNTIME_DIRNAME
+        ).resolve(),
+        jobs_root=(
+            project_overlay.jobs_root if project_overlay is not None else overlay_root / PROJECT_JOBS_DIRNAME
+        ).resolve(),
+        mailbox_root=(
+            project_overlay.mailbox_root if project_overlay is not None else overlay_root / PROJECT_MAILBOX_DIRNAME
+        ).resolve(),
+        easy_root=(
+            project_overlay.easy_root if project_overlay is not None else overlay_root / PROJECT_EASY_DIRNAME
+        ).resolve(),
+    )
+
+
+def ensure_project_aware_local_roots(
+    *,
+    cwd: Path,
+    cli_agent_def_dir: str | None = None,
+    env: Mapping[str, str] | None = None,
+    include_compatibility_profiles: bool = False,
+) -> ProjectAwareLocalRoots:
+    """Resolve project-aware local roots, bootstrapping the selected overlay when needed."""
+
+    resolved_cwd = cwd.resolve()
+    env_mapping = dict(os.environ) if env is None else dict(env)
+    roots = resolve_project_aware_local_roots(
+        cwd=resolved_cwd,
+        cli_agent_def_dir=cli_agent_def_dir,
+        env=env_mapping,
+    )
+    if roots.project_overlay is not None:
+        return roots
+
+    bootstrap_result = bootstrap_project_overlay_at_root(
+        roots.overlay_root,
+        include_compatibility_profiles=include_compatibility_profiles,
+    )
+    ensured_roots = resolve_project_aware_local_roots(
+        cwd=resolved_cwd,
+        cli_agent_def_dir=cli_agent_def_dir,
+        env=env_mapping,
+    )
+    return replace(ensured_roots, bootstrap_result=bootstrap_result)
+
+
+def resolve_project_aware_runtime_root(
+    *,
+    cwd: Path,
+    explicit_root: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    base: Path | None = None,
+) -> Path:
+    """Resolve the effective runtime root for project-aware maintained flows."""
+
+    roots = resolve_project_aware_local_roots(cwd=cwd, env=env)
+    return resolve_runtime_root(
+        explicit_root=explicit_root,
+        env=env,
+        default_root=roots.runtime_root,
+        base=base,
+    )
+
+
+def resolve_project_aware_mailbox_root(
+    *,
+    cwd: Path,
+    explicit_root: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    base: Path | None = None,
+) -> Path:
+    """Resolve the effective mailbox root for project-aware maintained flows."""
+
+    roots = resolve_project_aware_local_roots(cwd=cwd, env=env)
+    return resolve_mailbox_root(
+        explicit_root=explicit_root,
+        env=env,
+        default_root=roots.mailbox_root,
+        base=base,
+    )
+
+
+def resolve_project_aware_local_jobs_root(
+    *,
+    cwd: Path,
+    explicit_root: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    base: Path | None = None,
+) -> Path:
+    """Resolve the effective jobs-root base for project-aware maintained flows."""
+
+    resolved_cwd = cwd.resolve()
+    roots = resolve_project_aware_local_roots(cwd=resolved_cwd, env=env)
+    return resolve_local_jobs_root(
+        working_directory=resolved_cwd,
+        explicit_root=explicit_root,
+        env=env,
+        default_root=roots.jobs_root,
+        base=base,
+    )
+
+
+def resolve_project_aware_session_job_dir(
+    *,
+    cwd: Path,
+    session_id: str,
+    explicit_jobs_root: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    base: Path | None = None,
+) -> Path:
+    """Resolve the effective per-session job directory for project-aware flows."""
+
+    resolved_cwd = cwd.resolve()
+    roots = resolve_project_aware_local_roots(cwd=resolved_cwd, env=env)
+    return resolve_session_job_dir(
+        session_id=session_id,
+        working_directory=resolved_cwd,
+        explicit_jobs_root=explicit_jobs_root,
+        env=env,
+        default_jobs_root=roots.jobs_root,
+        base=base,
+    )
+
+
 def bootstrap_project_overlay(
     project_root: Path,
     *,
@@ -375,10 +565,23 @@ def _discover_nearest_project_overlay(start_directory: Path) -> HoumaoProjectOve
     """Return the nearest ancestor repo-local Houmao overlay when present."""
 
     resolved_start = start_directory.resolve()
+    git_boundary_root = _discover_git_boundary_root(resolved_start)
     for candidate_root in (resolved_start, *resolved_start.parents):
         candidate_config = overlay_config_path(candidate_root / PROJECT_DIRNAME)
         if candidate_config.is_file():
             return load_project_overlay(candidate_config)
+        if git_boundary_root is not None and candidate_root == git_boundary_root:
+            break
+    return None
+
+
+def _discover_git_boundary_root(start_directory: Path) -> Path | None:
+    """Return the nearest ancestor that contains a `.git` file or directory."""
+
+    resolved_start = start_directory.resolve()
+    for candidate_root in (resolved_start, *resolved_start.parents):
+        if (candidate_root / ".git").exists():
+            return candidate_root
     return None
 
 

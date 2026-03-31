@@ -18,7 +18,7 @@ houmao-mgr agents mailbox register [OPTIONS]
 
 | Option | Description |
 |---|---|
-| `--mailbox-root DIRECTORY` | Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` or the shared Houmao mailbox root. |
+| `--mailbox-root DIRECTORY` | Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` or the active project mailbox root. |
 | `--principal-id TEXT` | Optional mailbox principal id override. Defaults from the managed-agent identity. |
 | `--address TEXT` | Optional full mailbox address override. Defaults from the managed-agent identity. |
 | `--mode [safe\|force\|stash]` | Filesystem mailbox registration mode. Default: `safe`. |
@@ -59,10 +59,12 @@ houmao-mgr agents mailbox status [OPTIONS]
 
 The preferred local serverless mailbox workflow is:
 
-1. `houmao-mgr mailbox init --mailbox-root <path>`
+1. `houmao-mgr mailbox init`
 2. `houmao-mgr agents launch ...` or `houmao-mgr agents join ...`
-3. `houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
+3. `houmao-mgr agents mailbox register --agent-name <name>`
 4. `houmao-mgr agents mail ...`
+
+When you run that flow from a repo with an active `.houmao/` overlay, steps 1 and 3 now default to `<active-overlay>/mailbox`. Use `--mailbox-root` or `HOUMAO_GLOBAL_MAILBOX_DIR` only when you intentionally want a different mailbox authority.
 
 For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` update the durable manifest-backed mailbox binding without requiring relaunch. That remains true even when a joined session is controllable but non-relaunchable, as long as Houmao can still update the session manifest and validate the resulting mailbox binding safely.
 

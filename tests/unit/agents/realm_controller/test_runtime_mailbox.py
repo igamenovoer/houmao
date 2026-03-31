@@ -26,6 +26,7 @@ from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox.filesystem import MailboxBootstrapError
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.project.overlay import bootstrap_project_overlay
 
 
 def _write(path: Path, text: str) -> None:
@@ -656,6 +657,27 @@ def test_register_filesystem_mailbox_marks_local_interactive_session_active(
     assert controller.mailbox_activation_state() == "active"
     assert "mailbox_live_enabled" not in controller.launch_plan.metadata
     assert "mailbox_live_bindings_version" not in controller.launch_plan.metadata
+
+
+def test_register_filesystem_mailbox_defaults_to_project_overlay_root(
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=repo_root,
+        backend="codex_headless",
+        mailbox=None,
+    )
+
+    result = controller.register_filesystem_mailbox(
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
+    )
+
+    assert result.mailbox is not None
+    assert result.mailbox.filesystem_root == (repo_root / ".houmao" / "mailbox").resolve()
 
 
 def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(

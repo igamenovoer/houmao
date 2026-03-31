@@ -41,7 +41,7 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     default=None,
     help=(
         "Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` "
-        "or the shared Houmao mailbox root."
+        "or the active project mailbox root."
     ),
 )
 @click.option(

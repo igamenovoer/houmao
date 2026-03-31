@@ -12,7 +12,11 @@ from houmao.agents.brain_builder import (
     load_brain_recipe,
     load_launch_overrides_input,
 )
-from houmao.project.overlay import resolve_materialized_project_aware_agent_def_dir
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_materialized_project_aware_agent_def_dir,
+    resolve_project_aware_runtime_root,
+)
 
 from .output import emit
 
@@ -75,7 +79,13 @@ def build_brain_command(
     """Build one local brain home from `BuildRequest`-aligned inputs."""
 
     cwd = Path.cwd().resolve()
+    project_roots = ensure_project_aware_local_roots(cwd=cwd, cli_agent_def_dir=agent_def_dir)
     resolved_agent_def_dir = _resolve_agent_def_dir(agent_def_dir, cwd=cwd)
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=cwd,
+        explicit_root=runtime_root,
+        base=cwd,
+    )
     preset_path: Path | None = None
     preset_payload = None
     if preset is not None:
@@ -130,7 +140,7 @@ def build_brain_command(
                 preset_launch_overrides=(
                     preset_payload.launch_overrides if preset_payload is not None else None
                 ),
-                runtime_root=_optional_path(runtime_root, base=cwd),
+                runtime_root=resolved_runtime_root,
                 mailbox=preset_payload.mailbox if preset_payload is not None else None,
                 extra=preset_payload.extra if preset_payload is not None else None,
                 agent_name=agent_name,
@@ -155,6 +165,9 @@ def build_brain_command(
             "home_path": str(result.home_path),
             "launch_helper_path": str(result.launch_helper_path),
             "manifest_path": str(result.manifest_path),
+            "runtime_root": str(resolved_runtime_root),
+            "project_overlay_bootstrapped": project_roots.created_overlay,
+            "overlay_root": str(project_roots.overlay_root),
         }
     )
 

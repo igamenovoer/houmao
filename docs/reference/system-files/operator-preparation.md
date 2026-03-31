@@ -6,9 +6,9 @@ This page turns the filesystem reference into preparation guidance: what you can
 
 The safest preparation pattern is:
 
-1. choose where durable runtime and registry state should live,
-2. choose whether you want a repo-local `.houmao/` overlay via `houmao-mgr project init`,
-3. choose whether workspace-local jobs should stay in the repo worktree or move to a scratch filesystem,
+1. choose whether you want maintained local-state commands to use one repo-local `.houmao/` overlay,
+2. choose where durable registry state should live,
+3. choose whether overlay-local jobs should stay in the repo worktree or move to a scratch filesystem,
 4. choose whether the legacy launcher-managed CAO state should use an explicit `home_dir` (only relevant for `cao_rest` backend),
 5. pre-create any redirected parent directories with the right ownership and write permissions.
 
@@ -16,9 +16,9 @@ The safest preparation pattern is:
 
 | Path family | May pre-create parent directories? | Must be writable? | Durable or scratch? | Notes |
 | --- | --- | --- | --- | --- |
-| Runtime root and parents | yes | yes | Durable | Needed for generated homes, manifests, sessions, and launcher trees |
+| Runtime root and parents | yes | yes | Durable | Needed for generated homes, manifests, sessions, and launcher trees; defaults to the active project overlay in maintained command flows |
 | Registry root and parents | yes | yes | Durable | Needed for `live_agents/<agent-id>/record.json` publication and cleanup |
-| Workspace-local jobs root | yes | yes | Scratch | Best candidate for fast local scratch or redirected temp storage |
+| Overlay-local jobs root | yes | yes | Scratch | Best candidate for fast local scratch or redirected temp storage |
 | Explicit CAO `home_dir` | yes | yes | Tool-owned durable state | CAO writes under `HOME/.aws/cli-agent-orchestrator/` |
 | Derived launcher `home/` | no pre-create required, but allowed via parent | yes | Tool-owned durable state | Derived automatically when launcher config omits `home_dir` |
 
@@ -30,13 +30,14 @@ Current high-value redirection surfaces:
 
 | Surface | Current operator-facing override |
 | --- | --- |
-| Runtime root | `HOUMAO_GLOBAL_RUNTIME_DIR`, entrypoint-specific explicit `runtime_root` override |
+| Runtime root | active project overlay by default for maintained command surfaces; override with `HOUMAO_GLOBAL_RUNTIME_DIR` or entrypoint-specific explicit `runtime_root` |
 | Registry root | `HOUMAO_GLOBAL_REGISTRY_DIR` |
-| Local jobs root | `HOUMAO_LOCAL_JOBS_DIR` |
+| Local jobs root | active project overlay by default for maintained command surfaces; override with `HOUMAO_LOCAL_JOBS_DIR` |
+| Mailbox root | active project overlay by default for maintained mailbox surfaces; override with `HOUMAO_GLOBAL_MAILBOX_DIR` or explicit mailbox-root input |
 | CAO launcher runtime root | launcher config or CLI `runtime_root` override |
 | CAO `HOME` | launcher config or CLI `home_dir` override |
 
-Representative redirection setup:
+Representative redirection setup when you intentionally do not want overlay-local runtime or jobs:
 
 ```bash
 export HOUMAO_GLOBAL_RUNTIME_DIR=/data/$USER/houmao-runtime
@@ -58,9 +59,9 @@ Important rule: env-var root overrides must be absolute paths. Explicit CLI or c
 
 ## Ignore Rules
 
-If you use `houmao-mgr project init`, `.houmao/.gitignore` already ignores the whole repo-local `.houmao/` overlay, including any later `jobs/` scratch directories that land there when the repo root is the working directory.
+If you use `houmao-mgr project init`, `.houmao/.gitignore` already ignores the whole repo-local `.houmao/` overlay, including later `runtime/`, `jobs/`, or `mailbox/` state that maintained commands place there by default.
 
-Without a repo-local project overlay, the best default ignore rule target is the workspace-local jobs root:
+Without a repo-local project overlay, the best default ignore rule target is the fallback local jobs root:
 
 ```text
 .houmao/jobs/
@@ -72,7 +73,7 @@ If you intentionally redirect the runtime root or registry root into a repo-loca
 
 | Path family | Safe cleanup stance |
 | --- | --- |
-| `<working-directory>/.houmao/jobs/<session-id>/` | Usually safe to treat as scratch after the session is finished; `houmao-mgr agents cleanup session --include-job-dir` or `houmao-mgr admin cleanup runtime sessions --include-job-dir` can remove it together with a stopped session envelope |
+| `<active-overlay>/jobs/<session-id>/` or fallback `<cwd>/.houmao/jobs/<session-id>/` | Usually safe to treat as scratch after the session is finished; `houmao-mgr agents cleanup session --include-job-dir` or `houmao-mgr admin cleanup runtime sessions --include-job-dir` can remove it together with a stopped session envelope |
 | `<runtime-root>/sessions/<backend>/<session-id>/gateway/run/` and launcher/gateway log files | Ephemeral or log-style cleanup after verified stop is usually fine; use `houmao-mgr agents cleanup logs` or `houmao-mgr admin cleanup runtime logs` and do not treat stable gateway files such as `queue.sqlite`, `state.json`, or `events.jsonl` as log scratch |
 | `<runtime-root>/homes/<home-id>/` and `<runtime-root>/manifests/<home-id>.yaml` | Safe to delete and rebuild when no live session still depends on them; `houmao-mgr admin cleanup runtime builds` enforces that preserved session manifests keep their referenced manifest-home pairs |
 | `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | Treat as durable secret material until no preserved session manifest still references that `credential_ref`; `houmao-mgr admin cleanup runtime mailbox-credentials` handles that classification |
@@ -85,7 +86,7 @@ If you intentionally redirect the runtime root or registry root into a repo-loca
 ## Recommended Preparation Patterns
 
 - Put durable runtime and registry roots on stable storage with normal user write access.
-- Put workspace-local jobs on fast scratch storage when you want transient tool output away from the durable runtime root.
+- Put overlay-local jobs on fast scratch storage when you want transient tool output away from the durable runtime root.
 - Keep CAO `home_dir` on writable storage even if repos or worktrees are read-only.
 - Prefer explicit absolute overrides in CI or multi-disk setups so operators can see the chosen storage contract directly in config or environment.
 

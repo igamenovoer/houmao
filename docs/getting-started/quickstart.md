@@ -5,6 +5,8 @@ This guide shows the two supported local entry points:
 1. adopt an already-running provider session with `houmao-mgr agents join`
 2. build and launch from a repo-local `.houmao/` overlay created by `houmao-mgr project init`
 
+For maintained local-state command families such as `brains build`, `agents launch`, `mailbox`, `admin cleanup runtime`, and `server start`, Houmao now resolves runtime, jobs, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/jobs`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
+
 ## Prerequisites
 
 - Python 3.11+
@@ -147,6 +149,8 @@ Key options:
 
 Because the local project overlay was initialized first, `brains build` discovers `.houmao/houmao-config.toml`, resolves the project-local catalog, and materializes `.houmao/agents/` automatically when the compatibility projection is needed.
 
+Without `--runtime-root`, maintained build and launch flows now place generated homes and manifests under `.houmao/runtime`, and managed-session job dirs under `.houmao/jobs/<session-id>/`, for the same active overlay.
+
 If the selected preset omits `launch.prompt_mode`, current builders resolve that omission to the unattended default. Set `launch.prompt_mode: as_is` explicitly when you want provider startup posture left unchanged.
 
 If the selected preset includes `launch.env_records`, `brains build` treats those values as durable non-credential launch env. They are projected from the specialist config and persist across later relaunches, unlike one-off `project easy instance launch --env-set` input.
@@ -198,10 +202,12 @@ pixi run houmao-mgr project easy instance stop --name research
 
 ### Optional: Enable A Project-Local Mailbox Root
 
-Mailbox state is opt-in for project overlays. Initialize it only when you need repo-scoped mailbox work:
+Mailbox state is opt-in for project overlays. In project context, both `houmao-mgr mailbox ...` and `houmao-mgr project mailbox ...` now target `.houmao/mailbox` by default, so you no longer need an extra mailbox-root override just to keep one repo-local workflow self-contained.
+
+Initialize it only when you need repo-scoped mailbox work:
 
 ```bash
-pixi run houmao-mgr project mailbox init
+pixi run houmao-mgr mailbox init
 pixi run houmao-mgr project mailbox register \
   --address HOUMAO-research@agents.localhost \
   --principal-id HOUMAO-research
@@ -216,7 +222,6 @@ pixi run houmao-mgr project easy instance launch \
   --name research \
   --yolo \
   --mail-transport filesystem \
-  --mail-root ./.houmao/mailbox \
   --mail-account-dir /tmp/houmao-mailboxes/research
 ```
 

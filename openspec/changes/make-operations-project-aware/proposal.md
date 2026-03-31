@@ -10,7 +10,9 @@ We want one maintained local model: when a Houmao command runs in project contex
 - **BREAKING** keep only the shared registry under `~/.houmao/registry` by default, unless the existing registry env override redirects it.
 - **BREAKING** make local Houmao command flows project-aware by default through one common overlay-selection contract: explicit CLI override, `HOUMAO_PROJECT_OVERLAY_DIR`, nearest discovered project overlay within the current Git worktree boundary, then auto-bootstrap when no overlay exists.
 - **BREAKING** remove the requirement that operators run `houmao-mgr project init` before local project-aware launch, build, mailbox, runtime-maintenance, or server-management workflows can create local Houmao state.
+- Use convention-derived overlay subpaths for `runtime/`, `jobs/`, `mailbox/`, and `easy/`; per-project path-schema expansion for those roots stays out of scope for this change.
 - Extend project-aware defaulting beyond `project ...` commands so generic local command families such as `brains`, `agents launch`, mailbox administration, runtime cleanup, and server lifecycle align with the same overlay-local root contract.
+- Scope the first cut to maintained `houmao-mgr` and `houmao-server` surfaces; deprecated compatibility entrypoints keep their current behavior in this change.
 - Preserve shared-registry discovery semantics so global `agents ...` resolution still works across projects via absolute registry pointers into overlay-local manifests.
 
 ## Capabilities

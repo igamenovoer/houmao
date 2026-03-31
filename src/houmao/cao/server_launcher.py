@@ -18,7 +18,6 @@ from typing import Any, Mapping
 from urllib import error, request
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
-from houmao.owned_paths import resolve_runtime_root
 
 from .no_proxy import (
     SUPPORTED_LOOPBACK_CAO_BASE_URLS,
@@ -349,7 +348,10 @@ def load_cao_server_launcher_config(
         ) from exc
 
     try:
-        runtime_root = resolve_runtime_root(
+        from houmao.project.overlay import resolve_project_aware_runtime_root
+
+        runtime_root = resolve_project_aware_runtime_root(
+            cwd=resolved_config_path.parent,
             explicit_root=parsed.runtime_root,
             base=resolved_config_path.parent,
         )

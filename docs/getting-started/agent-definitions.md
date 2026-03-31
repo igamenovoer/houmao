@@ -28,6 +28,8 @@ Commands that need an agent-definition root resolve it with this precedence:
 
 `HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path. If it points at an overlay that already contains `houmao-config.toml`, that selected overlay becomes the discovery anchor. If it points at an overlay directory without config yet, project-aware fallback paths come from `<overlay-root>/agents` until you initialize it.
 
+Maintained project-aware local-state commands reuse that same active overlay for other defaults too: runtime state lands under `<active-overlay>/runtime`, managed-session jobs land under `<active-overlay>/jobs/<session-id>/`, and filesystem mailbox state lands under `<active-overlay>/mailbox` unless an explicit CLI or env override wins first.
+
 ## Directory Layout
 
 ```text
@@ -136,7 +138,7 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 | `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata, not created by default |
 | `.houmao/mailbox/` | ❌ No | Optional project-local mailbox root |
 
-Generated runtime homes and manifests are also disposable. If the runtime later creates `.houmao/jobs/` under the repo root, that scratch subtree is still runtime-local scratch, not tracked project source.
+Generated runtime homes, manifests, mailbox state, and jobs are also local-only operator state. When maintained build and launch flows place runtime artifacts under `.houmao/runtime`, mailbox state under `.houmao/mailbox`, and scratch jobs under `.houmao/jobs/`, those subtrees remain overlay-local runtime state rather than tracked project source.
 
 ## How The Pieces Connect
 

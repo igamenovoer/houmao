@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 
 import click
 
-from houmao.owned_paths import resolve_mailbox_root
+from houmao.owned_paths import HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_mailbox_root,
+)
 
 from .cleanup_support import emit_cleanup_payload
 from .common import build_destructive_confirmation_callback, overwrite_confirm_option
@@ -26,6 +31,15 @@ from .mailbox_support import (
 )
 
 
+def _resolve_effective_mailbox_root(mailbox_root: Path | None) -> Path:
+    """Resolve one mailbox root using the project-aware maintained-command contract."""
+
+    cwd = Path.cwd().resolve()
+    if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):
+        ensure_project_aware_local_roots(cwd=cwd)
+    return resolve_project_aware_mailbox_root(cwd=cwd, explicit_root=mailbox_root)
+
+
 def _mailbox_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
     """Attach the shared filesystem mailbox root option."""
 
@@ -35,7 +49,7 @@ def _mailbox_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
         default=None,
         help=(
             "Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` "
-            "or the shared Houmao mailbox root."
+            "or the active project mailbox root."
         ),
     )(function)
 
@@ -50,7 +64,7 @@ def mailbox_group() -> None:
 def init_mailbox_command(mailbox_root: Path | None) -> None:
     """Bootstrap or validate one filesystem mailbox root."""
 
-    emit(init_mailbox_root(resolve_mailbox_root(explicit_root=mailbox_root)))
+    emit(init_mailbox_root(_resolve_effective_mailbox_root(mailbox_root)))
 
 
 @mailbox_group.command(name="status")
@@ -58,7 +72,7 @@ def init_mailbox_command(mailbox_root: Path | None) -> None:
 def status_mailbox_command(mailbox_root: Path | None) -> None:
     """Inspect one filesystem mailbox root and return a structured summary."""
 
-    emit(mailbox_root_status_payload(resolve_mailbox_root(explicit_root=mailbox_root)))
+    emit(mailbox_root_status_payload(_resolve_effective_mailbox_root(mailbox_root)))
 
 
 @mailbox_group.command(name="register")
@@ -88,7 +102,7 @@ def register_mailbox_command(
 
     emit(
         register_mailbox_at_root(
-            mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
             principal_id=principal_id,
             mode=mode,
@@ -123,7 +137,7 @@ def unregister_mailbox_command(mailbox_root: Path | None, address: str, mode: st
 
     emit(
         unregister_mailbox_at_root(
-            mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
             mode=mode,
         )
@@ -153,7 +167,7 @@ def repair_mailbox_command(
 
     emit(
         repair_mailbox_root(
-            mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             cleanup_staging=cleanup_staging,
             quarantine_staging=quarantine_staging,
         )
@@ -191,7 +205,7 @@ def cleanup_mailbox_command(
 
     emit_cleanup_payload(
         cleanup_mailbox_root(
-            mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             inactive_older_than_seconds=inactive_older_than_seconds,
             stashed_older_than_seconds=stashed_older_than_seconds,
             dry_run=dry_run,
@@ -209,7 +223,7 @@ def mailbox_accounts_group() -> None:
 def list_mailbox_accounts_command(mailbox_root: Path | None) -> None:
     """List mailbox registrations as operator-facing accounts."""
 
-    emit(list_mailbox_accounts(mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root)))
+    emit(list_mailbox_accounts(mailbox_root=_resolve_effective_mailbox_root(mailbox_root)))
 
 
 @mailbox_accounts_group.command(name="get")
@@ -220,7 +234,7 @@ def get_mailbox_account_command(mailbox_root: Path | None, address: str) -> None
 
     try:
         payload = get_mailbox_account(
-            mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
         )
     except FileNotFoundError as exc:
@@ -241,7 +255,7 @@ def list_mailbox_messages_command(mailbox_root: Path | None, address: str) -> No
 
     try:
         payload = list_mailbox_messages(
-            mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
         )
     except FileNotFoundError as exc:
@@ -262,7 +276,7 @@ def get_mailbox_message_command(
 
     try:
         payload = get_mailbox_message(
-            mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
             message_id=message_id,
         )

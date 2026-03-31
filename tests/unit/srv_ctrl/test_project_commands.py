@@ -192,6 +192,10 @@ def test_project_status_reports_discovered_overlay_from_nested_directory(
     assert payload["effective_agent_def_dir"] == str((repo_root / ".houmao" / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_config"
     assert payload["project_mailbox_root"] == str((repo_root / ".houmao" / "mailbox").resolve())
+    assert payload["project_runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
+    assert payload["project_jobs_root"] == str((repo_root / ".houmao" / "jobs").resolve())
+    assert payload["project_easy_root"] == str((repo_root / ".houmao" / "easy").resolve())
+    assert payload["would_bootstrap_overlay"] is False
 
 
 def test_project_status_reports_env_selected_overlay(
@@ -248,7 +252,36 @@ def test_project_status_reports_missing_env_selected_overlay_clearly(
     assert payload["config_path"] is None
     assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_overlay_env"
-    assert payload["project_mailbox_root"] is None
+    assert payload["project_runtime_root"] == str((overlay_root / "runtime").resolve())
+    assert payload["project_jobs_root"] == str((overlay_root / "jobs").resolve())
+    assert payload["project_mailbox_root"] == str((overlay_root / "mailbox").resolve())
+    assert payload["project_easy_root"] == str((overlay_root / "easy").resolve())
+    assert payload["would_bootstrap_overlay"] is True
+
+
+def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = (repo_root / "app").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(nested_dir)
+
+    result = runner.invoke(cli, ["project", "status"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    expected_overlay_root = (nested_dir / ".houmao").resolve()
+    assert payload["discovered"] is False
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert payload["project_runtime_root"] == str((expected_overlay_root / "runtime").resolve())
+    assert payload["project_jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["project_mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
+    assert payload["project_easy_root"] == str((expected_overlay_root / "easy").resolve())
+    assert payload["would_bootstrap_overlay"] is True
+    assert not expected_overlay_root.exists()
 
 
 def test_project_agents_tools_auth_get_and_setups_flow(

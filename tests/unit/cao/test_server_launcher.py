@@ -23,6 +23,7 @@ from houmao.cao.server_launcher import (
     write_cao_server_ownership,
     write_cao_server_pid,
 )
+from houmao.project.overlay import bootstrap_project_overlay
 
 
 class _FakeResponse:
@@ -188,6 +189,30 @@ def test_config_validation_accepts_omitted_home_dir_as_derived_default(tmp_path:
     artifacts = resolve_cao_server_runtime_artifacts(config)
 
     assert artifacts.home_dir == (artifacts.server_root / "home").resolve()
+
+
+def test_config_validation_defaults_runtime_root_project_aware_when_omitted(
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    config_path = repo_root / "launcher.toml"
+    config_path.write_text(
+        '\n'.join(
+            (
+                'base_url = "http://127.0.0.1:9889"',
+                'proxy_policy = "clear"',
+                "startup_timeout_seconds = 15.0",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_cao_server_launcher_config(config_path)
+
+    assert config.runtime_root == (repo_root / ".houmao" / "runtime").resolve()
 
 
 def test_checked_in_local_launcher_config_uses_portable_blank_home_dir() -> None:

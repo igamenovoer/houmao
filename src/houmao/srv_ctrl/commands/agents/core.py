@@ -24,6 +24,12 @@ from houmao.agents.realm_controller.errors import (
     SessionManifestError,
 )
 from houmao.agents.realm_controller.models import HeadlessResumeSelection, JoinedLaunchEnvBinding
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_local_jobs_root,
+    resolve_project_aware_mailbox_root,
+    resolve_project_aware_runtime_root,
+)
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
@@ -150,6 +156,15 @@ def launch_managed_agent_locally(
 ):
     """Resolve, build, and start one managed agent locally."""
 
+    ensure_project_aware_local_roots(cwd=working_directory)
+    resolved_runtime_root = resolve_project_aware_runtime_root(cwd=working_directory)
+    resolved_jobs_root = resolve_project_aware_local_jobs_root(cwd=working_directory)
+    resolved_mailbox_root = (
+        mailbox_root.resolve()
+        if mailbox_root is not None
+        else resolve_project_aware_mailbox_root(cwd=working_directory)
+    )
+
     _confirm_workspace_access(
         provider=provider,
         working_directory=working_directory,
@@ -166,7 +181,7 @@ def launch_managed_agent_locally(
         build_result = build_brain_home(
             BuildRequest(
                 agent_def_dir=target.agent_def_dir,
-                runtime_root=None,
+                runtime_root=resolved_runtime_root,
                 tool=target.preset.tool,
                 skills=target.preset.skills,
                 setup=target.preset.setup,
@@ -190,6 +205,8 @@ def launch_managed_agent_locally(
             agent_def_dir=target.agent_def_dir,
             brain_manifest_path=build_result.manifest_path.resolve(),
             role_name=target.role_name,
+            runtime_root=resolved_runtime_root,
+            jobs_root=resolved_jobs_root,
             backend=resolved_backend,
             working_directory=working_directory,
             agent_name=agent_name,
@@ -197,7 +214,7 @@ def launch_managed_agent_locally(
             tmux_session_name=session_name,
             launch_env_overrides=launch_env_overrides,
             mailbox_transport=mailbox_transport,
-            mailbox_root=mailbox_root,
+            mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,
         )
     except LaunchPolicyResolutionError as exc:

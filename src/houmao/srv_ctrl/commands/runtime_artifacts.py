@@ -12,10 +12,11 @@ from pathlib import Path
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.mailbox_runtime_support import install_runtime_mailbox_system_skills_for_tool
 from houmao.agents.native_launch_resolver import resolve_native_launch_target, tool_for_provider
-from houmao.owned_paths import (
-    HOUMAO_JOB_DIR_ENV_VAR,
-    resolve_runtime_root,
-    resolve_session_job_dir,
+from houmao.owned_paths import HOUMAO_JOB_DIR_ENV_VAR
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_runtime_root,
+    resolve_project_aware_session_job_dir,
 )
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
@@ -116,7 +117,12 @@ def materialize_joined_launch(
 ) -> JoinedSessionArtifacts:
     """Materialize a manifest-first runtime envelope for one joined tmux session."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    if runtime_root is None:
+        ensure_project_aware_local_roots(cwd=working_directory)
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=working_directory,
+        explicit_root=runtime_root,
+    )
     normalized_agent_name = normalize_user_managed_agent_name(agent_name)
     resolved_agent_id = (
         normalize_managed_agent_id(agent_id) if agent_id is not None else None
@@ -172,9 +178,9 @@ def materialize_joined_launch(
             headless=headless,
             tmux_window_name=tmux_window_name,
         )
-        job_dir = resolve_session_job_dir(
+        job_dir = resolve_project_aware_session_job_dir(
+            cwd=working_directory,
             session_id=session_id,
-            working_directory=working_directory.resolve(),
         )
         job_dir.mkdir(parents=True, exist_ok=True)
         launch_plan = replace(
@@ -329,7 +335,12 @@ def materialize_delegated_launch(
 ) -> tuple[Path, Path, str, str]:
     """Materialize Houmao-owned manifest/session-root artifacts for one server-backed launch."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    if runtime_root is None:
+        ensure_project_aware_local_roots(cwd=working_directory)
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=working_directory,
+        explicit_root=runtime_root,
+    )
     session_root = (
         default_manifest_path(
             resolved_runtime_root,
@@ -422,9 +433,9 @@ def materialize_delegated_launch(
         )
     )
 
-    job_dir = resolve_session_job_dir(
+    job_dir = resolve_project_aware_session_job_dir(
+        cwd=working_directory,
         session_id=session_name,
-        working_directory=working_directory.resolve(),
     )
     job_dir.mkdir(parents=True, exist_ok=True)
     launch_plan = replace(
@@ -553,15 +564,21 @@ def materialize_headless_launch_request(
     """Resolve pair convenience inputs into a native headless launch request."""
 
     resolved_workdir = working_directory.resolve()
+    if runtime_root is None:
+        ensure_project_aware_local_roots(cwd=resolved_workdir)
     target = resolve_native_launch_target(
         selector=agent_profile,
         provider=provider,
         working_directory=resolved_workdir,
     )
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=resolved_workdir,
+        explicit_root=runtime_root,
+    )
     build_result = build_brain_home(
         BuildRequest(
             agent_def_dir=target.agent_def_dir,
-            runtime_root=runtime_root,
+            runtime_root=resolved_runtime_root,
             tool=target.preset.tool,
             skills=target.preset.skills,
             setup=target.preset.setup,
