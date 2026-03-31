@@ -7,6 +7,8 @@ gateway instance.
 
 from __future__ import annotations
 
+import math
+from datetime import UTC, datetime
 from typing import Literal, TypeAlias
 
 from pydantic import (
@@ -26,6 +28,8 @@ GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
 GatewayRequestKind = Literal["submit_prompt", "interrupt"]
 GatewayStoredRequestKind = Literal["submit_prompt", "interrupt", "mail_notifier_prompt"]
+GatewayWakeupMode = Literal["one_off", "repeat"]
+GatewayWakeupState = Literal["scheduled", "overdue", "executing"]
 GatewayHealthState = Literal["healthy", "not_attached"]
 GatewayConnectivityState = Literal["connected", "unavailable"]
 GatewayRecoveryState = Literal["idle", "awaiting_rebind", "reconciliation_required"]
@@ -57,6 +61,7 @@ GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION = 1
 GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
 GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 1
+GATEWAY_WAKEUP_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
 
@@ -109,6 +114,18 @@ def _validate_gateway_backend_metadata_shape(
             )
         return
     raise ValueError(f"backend={backend!r} is not gateway-capable in v1")
+
+
+def _parse_gateway_datetime(value: str) -> datetime:
+    """Parse one gateway-protocol timestamp into a UTC datetime."""
+
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 class _StrictGatewayModel(BaseModel):
@@ -689,6 +706,171 @@ class GatewayAcceptedRequestV1(_StrictGatewayModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+
+class GatewayWakeupCreateV1(_StrictGatewayModel):
+    """`POST /v1/wakeups` request body."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    mode: GatewayWakeupMode
+    prompt: str
+    after_seconds: int | float | None = None
+    deliver_at_utc: str | None = None
+    interval_seconds: int | float | None = None
+
+    @field_validator("prompt", "deliver_at_utc")
+    @classmethod
+    def _optional_not_blank_text(cls, value: str | None) -> str | None:
+        """Validate non-empty prompt and timestamp text fields."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("deliver_at_utc")
+    @classmethod
+    def _validate_deliver_at_utc(cls, value: str | None) -> str | None:
+        """Validate the optional absolute delivery timestamp."""
+
+        if value is None:
+            return None
+        _parse_gateway_datetime(value)
+        return value
+
+    @field_validator("after_seconds", "interval_seconds")
+    @classmethod
+    def _positive_finite_seconds(cls, value: int | float | None) -> int | float | None:
+        """Validate one optional positive finite seconds value."""
+
+        if value is None:
+            return None
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            raise ValueError("must be finite")
+        if numeric_value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "GatewayWakeupCreateV1":
+        """Validate wakeup scheduling shape and mode-specific fields."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        if (self.after_seconds is None) == (self.deliver_at_utc is None):
+            raise ValueError("exactly one of after_seconds or deliver_at_utc must be set")
+        if self.mode == "repeat" and self.interval_seconds is None:
+            raise ValueError("repeat wakeups require interval_seconds")
+        if self.mode == "one_off" and self.interval_seconds is not None:
+            raise ValueError("one_off wakeups must not include interval_seconds")
+        return self
+
+
+class GatewayWakeupJobV1(_StrictGatewayModel):
+    """One live wakeup job returned by gateway wakeup routes."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    job_id: str
+    mode: GatewayWakeupMode
+    prompt: str
+    state: GatewayWakeupState
+    created_at_utc: str
+    next_due_at_utc: str
+    interval_seconds: int | float | None = None
+    last_started_at_utc: str | None = None
+    cancel_requested: bool = False
+
+    @field_validator("job_id", "prompt", "created_at_utc", "next_due_at_utc", "last_started_at_utc")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate required and optional text fields."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("created_at_utc", "next_due_at_utc", "last_started_at_utc")
+    @classmethod
+    def _optional_valid_timestamp(cls, value: str | None) -> str | None:
+        """Validate response timestamps."""
+
+        if value is None:
+            return None
+        _parse_gateway_datetime(value)
+        return value
+
+    @field_validator("interval_seconds")
+    @classmethod
+    def _optional_positive_interval(cls, value: int | float | None) -> int | float | None:
+        """Validate the optional repeat interval."""
+
+        if value is None:
+            return None
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            raise ValueError("must be finite")
+        if numeric_value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_job_shape(self) -> "GatewayWakeupJobV1":
+        """Validate mode-specific job response invariants."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        if self.mode == "repeat" and self.interval_seconds is None:
+            raise ValueError("repeat wakeups require interval_seconds")
+        if self.mode == "one_off" and self.interval_seconds is not None:
+            raise ValueError("one_off wakeups must not include interval_seconds")
+        return self
+
+
+class GatewayWakeupListV1(_StrictGatewayModel):
+    """`GET /v1/wakeups` response body."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    jobs: list[GatewayWakeupJobV1]
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayWakeupListV1":
+        """Validate the wakeup list schema version."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayWakeupCancelResultV1(_StrictGatewayModel):
+    """`DELETE /v1/wakeups/{job_id}` response body."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    status: Literal["ok"] = "ok"
+    action: Literal["cancel_wakeup"] = "cancel_wakeup"
+    job_id: str
+    canceled: Literal[True] = True
+    detail: str
+
+    @field_validator("job_id", "detail")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Validate non-empty cancellation response fields."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayWakeupCancelResultV1":
+        """Validate the wakeup cancellation schema version."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        return self
 
 
 class GatewayMailNotifierPutV1(_StrictGatewayModel):

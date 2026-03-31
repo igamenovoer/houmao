@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -41,6 +42,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
+    GatewayWakeupCreateV1,
 )
 from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
@@ -119,6 +121,20 @@ from houmao.server.models import (
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout_seconds: float = 5.0,
+    interval_seconds: float = 0.05,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(interval_seconds)
+    raise AssertionError("Timed out waiting for condition.")
 
 
 def _sample_headless_plan(tmp_path: Path) -> LaunchPlan:
@@ -2853,6 +2869,243 @@ def test_gateway_request_model_rejects_invalid_submit_prompt_payload() -> None:
             kind="submit_prompt",
             payload=GatewayRequestPayloadSubmitPromptV1(prompt=""),
         )
+
+
+def test_gateway_wakeup_model_validates_schedule_and_repeat_shape() -> None:
+    with pytest.raises(ValidationError, match="exactly one of after_seconds or deliver_at_utc"):
+        GatewayWakeupCreateV1(
+            mode="one_off",
+            prompt="wake up",
+            after_seconds=10,
+            deliver_at_utc="2026-03-31T00:00:00+00:00",
+        )
+
+    with pytest.raises(ValidationError, match="repeat wakeups require interval_seconds"):
+        GatewayWakeupCreateV1(
+            mode="repeat",
+            prompt="wake up",
+            after_seconds=10,
+        )
+
+    with pytest.raises(ValidationError, match="one_off wakeups must not include interval_seconds"):
+        GatewayWakeupCreateV1(
+            mode="one_off",
+            prompt="wake up",
+            after_seconds=10,
+            interval_seconds=30,
+        )
+
+
+def test_gateway_wakeup_routes_register_list_and_cancel_scheduled_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    create_response = client.post(
+        "/v1/wakeups",
+        json=GatewayWakeupCreateV1(
+            mode="one_off",
+            prompt="scheduled wakeup",
+            after_seconds=60,
+        ).model_dump(mode="json"),
+    )
+
+    assert create_response.status_code == 200
+    wakeup_payload = create_response.json()
+    assert wakeup_payload["mode"] == "one_off"
+    assert wakeup_payload["state"] == "scheduled"
+    job_id = str(wakeup_payload["job_id"])
+
+    list_response = client.get("/v1/wakeups")
+    assert list_response.status_code == 200
+    assert [job["job_id"] for job in list_response.json()["jobs"]] == [job_id]
+
+    get_response = client.get(f"/v1/wakeups/{job_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["prompt"] == "scheduled wakeup"
+
+    cancel_response = client.delete(f"/v1/wakeups/{job_id}")
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["action"] == "cancel_wakeup"
+    assert cancel_response.json()["job_id"] == job_id
+
+    assert client.get(f"/v1/wakeups/{job_id}").status_code == 404
+    assert client.delete(f"/v1/wakeups/{job_id}").status_code == 404
+    assert runtime.status().queue_depth == 0
+
+
+def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _BlockingRepeatFakeCaoRestClient(_FakeCaoRestClient):
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            super().__init__(base_url=base_url, timeout_seconds=timeout_seconds)
+            self.first_repeat_started = threading.Event()
+            self.release_first_repeat = threading.Event()
+            self.repeat_prompt_count = 0
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_prompts.append((terminal_id, message))
+            if message == "repeat wakeup":
+                self.repeat_prompt_count += 1
+                if self.repeat_prompt_count == 1:
+                    self.first_repeat_started.set()
+                    assert self.release_first_repeat.wait(timeout=5.0)
+            return CaoSuccessResponse(success=True)
+
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    fake_client = _BlockingRepeatFakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        wakeup = runtime.create_wakeup(
+            GatewayWakeupCreateV1(
+                mode="repeat",
+                prompt="repeat wakeup",
+                after_seconds=0.05,
+                interval_seconds=0.05,
+            )
+        )
+
+        _wait_until(lambda: fake_client.first_repeat_started.is_set())
+        time.sleep(0.16)
+        fake_client.release_first_repeat.set()
+
+        _wait_until(lambda: fake_client.repeat_prompt_count >= 2)
+        time.sleep(0.02)
+        assert fake_client.repeat_prompt_count == 2
+
+        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
+        assert live_job.mode == "repeat"
+        assert live_job.state in {"scheduled", "overdue"}
+        assert live_job.cancel_requested is False
+    finally:
+        runtime.delete_wakeup(job_id=wakeup.job_id)
+        runtime.shutdown()
+
+
+def test_gateway_wakeup_defers_while_busy_and_cancel_records_active_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _BlockingBusyFakeCaoRestClient(_FakeCaoRestClient):
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            super().__init__(base_url=base_url, timeout_seconds=timeout_seconds)
+            self.busy_prompt_started = threading.Event()
+            self.release_busy_prompt = threading.Event()
+            self.wakeup_prompt_started = threading.Event()
+            self.release_wakeup_prompt = threading.Event()
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_prompts.append((terminal_id, message))
+            if message == "busy-work":
+                self.busy_prompt_started.set()
+                assert self.release_busy_prompt.wait(timeout=5.0)
+            if message == "repeat wakeup":
+                self.wakeup_prompt_started.set()
+                assert self.release_wakeup_prompt.wait(timeout=5.0)
+            return CaoSuccessResponse(success=True)
+
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    fake_client = _BlockingBusyFakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    paths = gateway_paths_from_manifest_path(
+        default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    )
+    assert paths is not None
+
+    runtime.start()
+    try:
+        runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(prompt="busy-work"),
+            )
+        )
+        _wait_until(lambda: fake_client.busy_prompt_started.is_set())
+
+        wakeup = runtime.create_wakeup(
+            GatewayWakeupCreateV1(
+                mode="repeat",
+                prompt="repeat wakeup",
+                after_seconds=0.01,
+                interval_seconds=1,
+            )
+        )
+
+        _wait_until(lambda: runtime.get_wakeup(job_id=wakeup.job_id).state == "overdue")
+        log_deadline = time.monotonic() + 5.0
+        while time.monotonic() < log_deadline:
+            if (
+                paths.log_path.is_file()
+                and "wakeup deferred because the gateway is busy"
+                in paths.log_path.read_text(encoding="utf-8")
+            ):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("Expected wakeup deferral log line.")
+
+        fake_client.release_busy_prompt.set()
+        _wait_until(lambda: fake_client.wakeup_prompt_started.is_set())
+
+        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
+        assert live_job.state == "executing"
+        assert live_job.cancel_requested is False
+
+        cancel_result = runtime.delete_wakeup(job_id=wakeup.job_id)
+        assert cancel_result.canceled is True
+        assert "already-started prompt delivery" in cancel_result.detail
+
+        canceled_job = runtime.get_wakeup(job_id=wakeup.job_id)
+        assert canceled_job.state == "executing"
+        assert canceled_job.cancel_requested is True
+
+        fake_client.release_wakeup_prompt.set()
+        _wait_until(
+            lambda: (
+                [message for _, message in fake_client.submitted_prompts].count("repeat wakeup")
+                == 1
+            )
+        )
+        time.sleep(1.1)
+        assert [message for _, message in fake_client.submitted_prompts].count("repeat wakeup") == 1
+
+        with pytest.raises(HTTPException, match="Unknown wakeup job"):
+            runtime.get_wakeup(job_id=wakeup.job_id)
+    finally:
+        fake_client.release_busy_prompt.set()
+        fake_client.release_wakeup_prompt.set()
+        runtime.shutdown()
 
 
 def test_gateway_service_accepts_requests_and_separates_health(

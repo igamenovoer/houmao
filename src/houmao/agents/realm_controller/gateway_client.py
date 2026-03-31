@@ -33,6 +33,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
     GatewayStatusV1,
+    GatewayWakeupCancelResultV1,
+    GatewayWakeupCreateV1,
+    GatewayWakeupJobV1,
+    GatewayWakeupListV1,
 )
 from houmao.server.models import (
     HoumaoTerminalSnapshotHistoryResponse,
@@ -138,6 +142,35 @@ class GatewayClient:
             "/v1/requests",
             GatewayAcceptedRequestV1,
             body=payload.model_dump(mode="json"),
+        )
+
+    def create_wakeup(self, payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
+        """Call `POST /v1/wakeups`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/wakeups",
+            GatewayWakeupJobV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def list_wakeups(self) -> GatewayWakeupListV1:
+        """Call `GET /v1/wakeups`."""
+
+        return self._request_model("GET", "/v1/wakeups", GatewayWakeupListV1)
+
+    def get_wakeup(self, *, job_id: str) -> GatewayWakeupJobV1:
+        """Call `GET /v1/wakeups/{job_id}`."""
+
+        return self._request_model("GET", f"/v1/wakeups/{job_id}", GatewayWakeupJobV1)
+
+    def delete_wakeup(self, *, job_id: str) -> GatewayWakeupCancelResultV1:
+        """Call `DELETE /v1/wakeups/{job_id}`."""
+
+        return self._request_model(
+            "DELETE",
+            f"/v1/wakeups/{job_id}",
+            GatewayWakeupCancelResultV1,
         )
 
     def control_prompt(

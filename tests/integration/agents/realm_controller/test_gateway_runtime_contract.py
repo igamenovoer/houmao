@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Callable, cast
+from urllib import request
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -41,6 +42,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayDesiredConfigV1,
     GatewayMailNotifierPutV1,
     GatewayMailStateRequestV1,
+    GatewayWakeupCreateV1,
 )
 from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
@@ -895,6 +897,7 @@ def _assert_raw_cao_start_session_is_retired(
     assert payload == {}
     assert "Standalone backend='cao_rest' operator workflows are retired" in err
 
+
 def test_start_session_rejects_retired_raw_cao_backend_even_with_gateway_auto_attach_args(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
@@ -1310,6 +1313,125 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
             log_text = paths.log_path.read_text(encoding="utf-8")
             assert "mail notifier enabled interval_seconds=60" in log_text
             assert "mail notifier disabled" in log_text
+        finally:
+            _best_effort_cleanup_gateway(manifest_path)
+
+
+def test_gateway_http_wakeup_routes_are_ephemeral_and_do_not_expand_request_kinds(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Live gateway wakeups should stay in memory and not extend `/v1/requests` kinds."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+
+    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
+        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
+        tmux_env = _FakeTmuxEnv()
+        _install_gateway_runtime_fakes(
+            monkeypatch=monkeypatch,
+            registry=registry,
+            tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
+        )
+
+        start_exit, start_payload, start_err = _run_cli_json(
+            capsys,
+            [
+                "start-session",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(runtime_root),
+                "--brain-manifest",
+                str(brain_manifest_path),
+                "--role",
+                "r",
+                "--backend",
+                "houmao_server_rest",
+                "--workdir",
+                str(tmp_path),
+                "--houmao-base-url",
+                fake_cao.base_url,
+            ],
+        )
+        assert start_exit == 0
+        assert start_err == ""
+
+        manifest_path = Path(str(start_payload["session_manifest"]))
+        _force_detached_gateway_execution(manifest_path)
+        try:
+            attach_exit, attach_payload, attach_err = _run_cli_json(
+                capsys,
+                [
+                    "attach-gateway",
+                    "--agent-def-dir",
+                    str(agent_def_dir),
+                    "--agent-identity",
+                    str(manifest_path),
+                    "--gateway-host",
+                    "127.0.0.1",
+                ],
+            )
+            assert attach_exit == 0
+            assert attach_err == ""
+
+            endpoint = GatewayEndpoint(
+                host="127.0.0.1",
+                port=int(attach_payload["gateway_port"]),
+            )
+            client = GatewayClient(endpoint=endpoint)
+
+            scheduled_job = client.create_wakeup(
+                GatewayWakeupCreateV1(
+                    mode="one_off",
+                    prompt="integration scheduled wakeup",
+                    after_seconds=60,
+                )
+            )
+            assert client.get_wakeup(job_id=scheduled_job.job_id).job_id == scheduled_job.job_id
+            assert [job.job_id for job in client.list_wakeups().jobs] == [scheduled_job.job_id]
+
+            cancel_result = client.delete_wakeup(job_id=scheduled_job.job_id)
+            assert cancel_result.canceled is True
+            assert client.list_wakeups().jobs == []
+
+            delivered_job = client.create_wakeup(
+                GatewayWakeupCreateV1(
+                    mode="one_off",
+                    prompt="integration delivered wakeup",
+                    after_seconds=0.1,
+                )
+            )
+
+            _wait_until(
+                lambda: any(
+                    message == "integration delivered wakeup" for _, message in fake_cao.messages()
+                ),
+                timeout_seconds=5.0,
+            )
+            assert client.list_wakeups().jobs == []
+
+            invalid_request = request.Request(
+                url=f"http://{endpoint.host}:{endpoint.port}/v1/requests",
+                method="POST",
+                headers={"Content-Type": "application/json"},
+                data=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "kind": "wakeup_prompt",
+                        "payload": {"prompt": "should fail"},
+                    }
+                ).encode("utf-8"),
+            )
+            with pytest.raises(Exception) as exc_info:
+                request.urlopen(invalid_request, timeout=5.0)
+            error = exc_info.value
+            assert getattr(error, "code", None) == 422
+            assert delivered_job.job_id not in {job.job_id for job in client.list_wakeups().jobs}
         finally:
             _best_effort_cleanup_gateway(manifest_path)
 

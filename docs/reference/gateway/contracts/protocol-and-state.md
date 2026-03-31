@@ -127,6 +127,10 @@ Current v1 routes:
 - `POST /v1/control/send-keys`
 - `GET /v1/control/headless/state`
 - `POST /v1/requests`
+- `POST /v1/wakeups`
+- `GET /v1/wakeups`
+- `GET /v1/wakeups/{job_id}`
+- `DELETE /v1/wakeups/{job_id}`
 - `GET /v1/mail/status`
 - `POST /v1/mail/check`
 - `POST /v1/mail/send`
@@ -243,7 +247,9 @@ Current public request kinds:
 - `submit_prompt`
 - `interrupt`
 
-The notifier reminder path does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
+The wakeup timer path does not add a new public request kind. Wakeup jobs are registered and inspected only through `/v1/wakeups`, and due wakeups execute as gateway-owned in-memory behavior instead of becoming another public `POST /v1/requests` kind.
+
+The notifier reminder path also does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
 
 `POST /v1/requests` stays the semantic queued prompt surface. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
 
@@ -279,6 +285,65 @@ Observable current error semantics:
 - unavailable managed-agent admission returns HTTP `503`.
 
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
+
+### `/v1/wakeups`
+
+This route family manages direct gateway-owned wakeups without going through the durable request queue.
+
+Supported routes:
+
+- `POST /v1/wakeups`
+- `GET /v1/wakeups`
+- `GET /v1/wakeups/{job_id}`
+- `DELETE /v1/wakeups/{job_id}`
+
+Wakeup jobs are process-local in-memory state:
+
+- pending wakeups are lost when the gateway stops or restarts
+- due-but-not-yet-delivered wakeups are also lost on restart
+- wakeups do not create rows in `queue.sqlite` until or unless some other gateway feature persists its own internal work
+- `GET /v1/wakeups` reports only the current live gateway process state
+
+Representative create request:
+
+```json
+{
+  "schema_version": 1,
+  "mode": "repeat",
+  "prompt": "Review the inbox again.",
+  "after_seconds": 300,
+  "interval_seconds": 300
+}
+```
+
+Representative job response:
+
+```json
+{
+  "schema_version": 1,
+  "job_id": "gwakeup-deadbeefcafe",
+  "mode": "repeat",
+  "prompt": "Review the inbox again.",
+  "state": "scheduled",
+  "created_at_utc": "2026-03-31T00:00:00+00:00",
+  "next_due_at_utc": "2026-03-31T00:05:00+00:00",
+  "interval_seconds": 300.0,
+  "last_started_at_utc": null,
+  "cancel_requested": false
+}
+```
+
+Current behavior:
+
+- wakeups support `one_off` and `repeat` modes
+- callers must set exactly one of `after_seconds` or `deliver_at_utc`
+- repeating wakeups require `interval_seconds`
+- due wakeups run only when `request_admission=open`, `active_execution=idle`, and durable queue depth is zero
+- when the gateway is busy, due wakeups stay pending and show `state = "overdue"`
+- repeating wakeups keep anchored cadence and do not backfill missed intervals as an immediate burst
+- deleting a scheduled or overdue wakeup removes it immediately
+- deleting an executing wakeup only stops future occurrences; the already-started prompt continues until completion
+- unknown wakeup ids return HTTP `404`
 
 ### `POST /v1/control/prompt`
 

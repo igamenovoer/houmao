@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import math
 import os
 import socket
 import sqlite3
@@ -68,6 +69,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewaySurfaceEligibilityState,
     GatewayStoredRequestKind,
     GatewayStatusV1,
+    GatewayWakeupCancelResultV1,
+    GatewayWakeupCreateV1,
+    GatewayWakeupJobV1,
+    GatewayWakeupListV1,
+    GatewayWakeupMode,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayNotifierAuditUnreadMessage,
@@ -116,6 +122,7 @@ from houmao.server.pair_client import (
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
+_WAKEUP_BUSY_RETRY_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _GatewayRequestTerminalState = Literal["completed", "failed"]
@@ -157,6 +164,23 @@ class _UnreadMailboxMessage:
     sender_address: str
     sender_display_name: str | None
     subject: str
+
+
+@dataclass
+class _GatewayWakeupJobRecord:
+    """One in-memory wakeup job owned by the live gateway runtime."""
+
+    job_id: str
+    mode: GatewayWakeupMode
+    prompt: str
+    created_at: datetime
+    next_due_at: datetime
+    anchor_due_at: datetime
+    interval_seconds: float | None
+    last_started_at: datetime | None = None
+    executing: bool = False
+    cancel_requested: bool = False
+    deferred_signature: str | None = None
 
 
 @dataclass(frozen=True)
@@ -678,9 +702,11 @@ class GatewayServiceRuntime:
             attach_contract=self.m_attach_contract
         )
         self.m_lock = threading.Lock()
+        self.m_wakeup_condition = threading.Condition(self.m_lock)
         self.m_log_lock = threading.Lock()
         self.m_stop_event = threading.Event()
         self.m_worker_thread: threading.Thread | None = None
+        self.m_wakeup_thread: threading.Thread | None = None
         self.m_notifier_thread: threading.Thread | None = None
         self.m_current_epoch = 1
         self.m_current_instance_id: str | None = None
@@ -694,6 +720,8 @@ class GatewayServiceRuntime:
         self.m_tui_tracking: SingleSessionTrackingRuntime | None = None
         self.m_direct_prompt_thread: threading.Thread | None = None
         self.m_direct_prompt_turn_id: str | None = None
+        self.m_wakeup_jobs: dict[str, _GatewayWakeupJobRecord] = {}
+        self.m_active_wakeup_job_id: str | None = None
 
     @classmethod
     def from_gateway_root(
@@ -751,6 +779,12 @@ class GatewayServiceRuntime:
             daemon=True,
         )
         self.m_worker_thread.start()
+        self.m_wakeup_thread = threading.Thread(
+            target=self._wakeup_loop,
+            name="gateway-wakeup-scheduler",
+            daemon=True,
+        )
+        self.m_wakeup_thread.start()
         self.m_notifier_thread = threading.Thread(
             target=self._notifier_loop,
             name="gateway-mail-notifier",
@@ -770,11 +804,16 @@ class GatewayServiceRuntime:
         """Stop the queue worker and remove ephemeral run metadata."""
 
         self.m_stop_event.set()
+        with self.m_wakeup_condition:
+            self.m_wakeup_condition.notify_all()
         if self.m_worker_thread is not None:
             self.m_worker_thread.join(timeout=2.0)
+        if self.m_wakeup_thread is not None:
+            self.m_wakeup_thread.join(timeout=2.0)
         if self.m_notifier_thread is not None:
             self.m_notifier_thread.join(timeout=2.0)
         with self.m_lock:
+            self._drop_pending_wakeups_locked()
             if self.m_tui_tracking is not None:
                 self.m_tui_tracking.stop()
                 self.m_tui_tracking = None
@@ -924,6 +963,166 @@ class GatewayServiceRuntime:
                 queue_depth=status.queue_depth,
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
+
+    def create_wakeup(self, request_payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
+        """Register one in-memory wakeup job."""
+
+        with self.m_wakeup_condition:
+            created_at = datetime.now(UTC)
+            if request_payload.after_seconds is not None:
+                due_at = created_at + timedelta(seconds=float(request_payload.after_seconds))
+            else:
+                assert request_payload.deliver_at_utc is not None
+                due_at = _parse_gateway_timestamp(request_payload.deliver_at_utc)
+            job = _GatewayWakeupJobRecord(
+                job_id=self._generate_wakeup_job_id_locked(),
+                mode=request_payload.mode,
+                prompt=request_payload.prompt,
+                created_at=created_at,
+                next_due_at=due_at,
+                anchor_due_at=due_at,
+                interval_seconds=(
+                    float(request_payload.interval_seconds)
+                    if request_payload.interval_seconds is not None
+                    else None
+                ),
+            )
+            self.m_wakeup_jobs[job.job_id] = job
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "wakeup_registered",
+                    "job_id": job.job_id,
+                    "mode": job.mode,
+                    "created_at_utc": self._gateway_datetime_iso(job.created_at),
+                    "next_due_at_utc": self._gateway_datetime_iso(job.next_due_at),
+                    "interval_seconds": job.interval_seconds,
+                },
+            )
+            self._log(
+                f"registered wakeup job_id={job.job_id} mode={job.mode} next_due_at_utc={self._gateway_datetime_iso(job.next_due_at)}"
+            )
+            self.m_wakeup_condition.notify_all()
+            return self._build_wakeup_job_model_locked(job)
+
+    def list_wakeups(self) -> GatewayWakeupListV1:
+        """Return live in-memory wakeup inspection state."""
+
+        with self.m_lock:
+            jobs = sorted(
+                self.m_wakeup_jobs.values(),
+                key=lambda job: (job.next_due_at, job.created_at, job.job_id),
+            )
+            return GatewayWakeupListV1(
+                jobs=[self._build_wakeup_job_model_locked(job) for job in jobs]
+            )
+
+    def get_wakeup(self, *, job_id: str) -> GatewayWakeupJobV1:
+        """Return one live wakeup job by identifier."""
+
+        with self.m_lock:
+            job = self.m_wakeup_jobs.get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail=f"Unknown wakeup job `{job_id}`.")
+            return self._build_wakeup_job_model_locked(job)
+
+    def delete_wakeup(self, *, job_id: str) -> GatewayWakeupCancelResultV1:
+        """Cancel one wakeup job or future repetitions for an active execution."""
+
+        with self.m_wakeup_condition:
+            job = self.m_wakeup_jobs.get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail=f"Unknown wakeup job `{job_id}`.")
+            if job.executing:
+                job.cancel_requested = True
+                detail = (
+                    "Wakeup cancellation recorded; the already-started prompt delivery will "
+                    "continue until completion."
+                )
+            else:
+                del self.m_wakeup_jobs[job_id]
+                detail = "Wakeup canceled."
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "wakeup_canceled",
+                    "job_id": job_id,
+                    "executing": job.executing,
+                    "cancel_requested": True,
+                    "detail": detail,
+                },
+            )
+            self._log(f"canceled wakeup job_id={job_id} executing={job.executing}")
+            self.m_wakeup_condition.notify_all()
+            return GatewayWakeupCancelResultV1(job_id=job_id, detail=detail)
+
+    def _generate_wakeup_job_id_locked(self) -> str:
+        """Return one stable opaque identifier for a live wakeup job."""
+
+        seed = f"{self.m_attach_contract.attach_identity}:{time.time()}:{len(self.m_wakeup_jobs)}"
+        return f"gwakeup-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:12]}"
+
+    def _build_wakeup_job_model_locked(
+        self,
+        job: _GatewayWakeupJobRecord,
+    ) -> GatewayWakeupJobV1:
+        """Build one public inspection model for an in-memory wakeup job."""
+
+        return GatewayWakeupJobV1(
+            job_id=job.job_id,
+            mode=job.mode,
+            prompt=job.prompt,
+            state=self._wakeup_state_locked(job),
+            created_at_utc=self._gateway_datetime_iso(job.created_at),
+            next_due_at_utc=self._gateway_datetime_iso(job.next_due_at),
+            interval_seconds=job.interval_seconds,
+            last_started_at_utc=(
+                self._gateway_datetime_iso(job.last_started_at)
+                if job.last_started_at is not None
+                else None
+            ),
+            cancel_requested=job.cancel_requested,
+        )
+
+    def _wakeup_state_locked(
+        self,
+        job: _GatewayWakeupJobRecord,
+    ) -> Literal["scheduled", "overdue", "executing"]:
+        """Return the public state for one live wakeup job."""
+
+        if job.executing:
+            return "executing"
+        if job.next_due_at <= datetime.now(UTC):
+            return "overdue"
+        return "scheduled"
+
+    def _gateway_datetime_iso(self, value: datetime) -> str:
+        """Render one UTC datetime for the gateway HTTP surface."""
+
+        return value.astimezone(UTC).isoformat()
+
+    def _drop_pending_wakeups_locked(self) -> None:
+        """Log and clear wakeups that vanish with gateway shutdown."""
+
+        if not self.m_wakeup_jobs:
+            return
+        for job in list(self.m_wakeup_jobs.values()):
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "wakeup_lost_on_restart",
+                    "job_id": job.job_id,
+                    "mode": job.mode,
+                    "state": self._wakeup_state_locked(job),
+                    "next_due_at_utc": self._gateway_datetime_iso(job.next_due_at),
+                    "cancel_requested": job.cancel_requested,
+                },
+            )
+            self._log(
+                f"lost in-memory wakeup job_id={job.job_id} state={self._wakeup_state_locked(job)}"
+            )
+        self.m_wakeup_jobs.clear()
+        self.m_active_wakeup_job_id = None
 
     def control_prompt(
         self,
@@ -1224,6 +1423,7 @@ class GatewayServiceRuntime:
                     self.m_direct_prompt_turn_id = None
                 self.m_direct_prompt_thread = None
                 self._refresh_status_snapshot(active_execution=self._active_execution_state())
+                self.m_wakeup_condition.notify_all()
 
     def _raise_prompt_control_http_error(
         self,
@@ -1432,8 +1632,7 @@ class GatewayServiceRuntime:
             resolve_live_mailbox_binding(durable_mailbox=mailbox)
         except ValueError as exc:
             raise GatewayError(
-                "Gateway notifier requires an actionable manifest-backed mailbox binding: "
-                f"{exc}"
+                f"Gateway notifier requires an actionable manifest-backed mailbox binding: {exc}"
             ) from exc
         return mailbox
 
@@ -1708,8 +1907,9 @@ class GatewayServiceRuntime:
             (
                 "Resolve current mailbox bindings through the runtime-owned helper "
                 "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
-                "before any direct mailbox access. That helper derives current mailbox state "
-                "from the persisted runtime-owned mailbox binding and returns the exact attached "
+                "before any direct mailbox access. That helper prefers current process env, "
+                "falls back to the owning tmux session env, derives current mailbox state from "
+                "the persisted runtime-owned mailbox binding, and returns the exact attached "
                 "`gateway.base_url` when a live gateway is available. Do not scrape tmux state "
                 "directly."
             ),
@@ -1844,6 +2044,202 @@ class GatewayServiceRuntime:
             detail=detail,
         )
 
+    def _wakeup_loop(self) -> None:
+        """Deliver due in-memory wakeups when the gateway becomes idle."""
+
+        while not self.m_stop_event.is_set():
+            wakeup_job: _GatewayWakeupJobRecord | None = None
+            with self.m_wakeup_condition:
+                if self.m_stop_event.is_set():
+                    return
+                wakeup_job = self._due_wakeup_job_locked()
+                if wakeup_job is None:
+                    self.m_wakeup_condition.wait(timeout=self._next_wakeup_wait_seconds_locked())
+                    continue
+                status = self._refresh_status_snapshot(
+                    active_execution=self._active_execution_state()
+                )
+                if (
+                    status.request_admission != "open"
+                    or status.active_execution != "idle"
+                    or status.queue_depth > 0
+                ):
+                    self._record_wakeup_deferral_locked(wakeup_job, status=status)
+                    self.m_wakeup_condition.wait(timeout=_WAKEUP_BUSY_RETRY_INTERVAL_SECONDS)
+                    continue
+
+                wakeup_job.executing = True
+                wakeup_job.last_started_at = datetime.now(UTC)
+                wakeup_job.deferred_signature = None
+                self.m_active_wakeup_job_id = wakeup_job.job_id
+                self._refresh_status_snapshot(active_execution="running")
+                append_gateway_event(
+                    self.m_paths,
+                    {
+                        "kind": "wakeup_started",
+                        "job_id": wakeup_job.job_id,
+                        "mode": wakeup_job.mode,
+                        "started_at_utc": self._gateway_datetime_iso(wakeup_job.last_started_at),
+                        "cancel_requested": wakeup_job.cancel_requested,
+                    },
+                )
+                self._log(f"executing wakeup job_id={wakeup_job.job_id} mode={wakeup_job.mode}")
+
+            error_detail: str | None = None
+            assert wakeup_job is not None
+            try:
+                self._submit_prompt_via_adapter(
+                    prompt=wakeup_job.prompt,
+                    turn_id=None,
+                    note_prompt_submission=False,
+                )
+            except (GatewayError, CaoApiError, ValidationError) as exc:
+                error_detail = str(exc)
+            self._finish_wakeup_execution(job_id=wakeup_job.job_id, error_detail=error_detail)
+
+    def _due_wakeup_job_locked(self) -> _GatewayWakeupJobRecord | None:
+        """Return the earliest currently due wakeup job."""
+
+        now = datetime.now(UTC)
+        due_jobs = [
+            job
+            for job in self.m_wakeup_jobs.values()
+            if not job.executing and not job.cancel_requested and job.next_due_at <= now
+        ]
+        if not due_jobs:
+            return None
+        return min(due_jobs, key=lambda job: (job.next_due_at, job.created_at, job.job_id))
+
+    def _next_wakeup_wait_seconds_locked(self) -> float | None:
+        """Return the next condition-wait timeout for the wakeup scheduler."""
+
+        future_due_times = [
+            job.next_due_at
+            for job in self.m_wakeup_jobs.values()
+            if not job.executing and not job.cancel_requested
+        ]
+        if not future_due_times:
+            return None
+        now = datetime.now(UTC)
+        earliest_due_at = min(future_due_times)
+        return max(0.0, (earliest_due_at - now).total_seconds())
+
+    def _record_wakeup_deferral_locked(
+        self,
+        wakeup_job: _GatewayWakeupJobRecord,
+        *,
+        status: GatewayStatusV1,
+    ) -> None:
+        """Emit one deferral record when a due wakeup cannot execute yet."""
+
+        signature = f"{status.request_admission}:{status.active_execution}:{status.queue_depth}"
+        if wakeup_job.deferred_signature == signature:
+            return
+        wakeup_job.deferred_signature = signature
+        detail = (
+            "wakeup deferred because the gateway is busy "
+            f"(admission={status.request_admission}, "
+            f"active_execution={status.active_execution}, "
+            f"queue_depth={status.queue_depth})"
+        )
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "wakeup_deferred",
+                "job_id": wakeup_job.job_id,
+                "mode": wakeup_job.mode,
+                "detail": detail,
+                "next_due_at_utc": self._gateway_datetime_iso(wakeup_job.next_due_at),
+            },
+        )
+        self._log_rate_limited(f"wakeup_deferred:{wakeup_job.job_id}", detail)
+
+    def _finish_wakeup_execution(self, *, job_id: str, error_detail: str | None) -> None:
+        """Finalize one wakeup execution attempt and reschedule if needed."""
+
+        with self.m_wakeup_condition:
+            finished_at = datetime.now(UTC)
+            wakeup_job = self.m_wakeup_jobs.get(job_id)
+            next_due_at_utc: str | None = None
+            if wakeup_job is not None:
+                wakeup_job.executing = False
+                wakeup_job.deferred_signature = None
+                if (
+                    wakeup_job.mode == "repeat"
+                    and wakeup_job.interval_seconds is not None
+                    and not wakeup_job.cancel_requested
+                ):
+                    wakeup_job.next_due_at = self._next_repeat_due_at(
+                        anchor_due_at=wakeup_job.anchor_due_at,
+                        interval_seconds=wakeup_job.interval_seconds,
+                        reference_time=finished_at,
+                    )
+                    next_due_at_utc = self._gateway_datetime_iso(wakeup_job.next_due_at)
+                else:
+                    del self.m_wakeup_jobs[job_id]
+            if self.m_active_wakeup_job_id == job_id:
+                self.m_active_wakeup_job_id = None
+
+            if error_detail is None:
+                append_gateway_event(
+                    self.m_paths,
+                    {
+                        "kind": "wakeup_completed",
+                        "job_id": job_id,
+                        "finished_at_utc": self._gateway_datetime_iso(finished_at),
+                        "next_due_at_utc": next_due_at_utc,
+                    },
+                )
+                if next_due_at_utc is None:
+                    self._log(f"completed wakeup job_id={job_id}")
+                else:
+                    self._log(f"completed wakeup job_id={job_id} next_due_at_utc={next_due_at_utc}")
+            else:
+                append_gateway_event(
+                    self.m_paths,
+                    {
+                        "kind": "wakeup_failed",
+                        "job_id": job_id,
+                        "error_detail": error_detail,
+                        "finished_at_utc": self._gateway_datetime_iso(finished_at),
+                        "next_due_at_utc": next_due_at_utc,
+                    },
+                )
+                if next_due_at_utc is None:
+                    self._log(f"failed wakeup job_id={job_id} detail={error_detail}")
+                else:
+                    self._log(
+                        f"failed wakeup job_id={job_id} detail={error_detail} next_due_at_utc={next_due_at_utc}"
+                    )
+            self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            self.m_wakeup_condition.notify_all()
+
+    def _next_repeat_due_at(
+        self,
+        *,
+        anchor_due_at: datetime,
+        interval_seconds: float,
+        reference_time: datetime,
+    ) -> datetime:
+        """Return the next anchored repeat boundary strictly after the reference time."""
+
+        elapsed_seconds = max(0.0, (reference_time - anchor_due_at).total_seconds())
+        interval_steps = max(1, math.floor(elapsed_seconds / interval_seconds) + 1)
+        return anchor_due_at + timedelta(seconds=interval_seconds * interval_steps)
+
+    def _submit_prompt_via_adapter(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None,
+        note_prompt_submission: bool,
+    ) -> None:
+        """Submit one prompt through the shared gateway execution adapter."""
+
+        self.m_adapter.submit_prompt(prompt=prompt, turn_id=turn_id)
+        if note_prompt_submission and self.m_tui_tracking is not None:
+            self.m_tui_tracking.note_prompt_submission(message=prompt)
+
     def _worker_loop(self) -> None:
         """Process accepted requests serially until shutdown."""
 
@@ -1941,9 +2337,11 @@ class GatewayServiceRuntime:
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
-                self.m_adapter.submit_prompt(prompt=payload.prompt, turn_id=payload.turn_id)
-                if self.m_tui_tracking is not None and request_kind == "submit_prompt":
-                    self.m_tui_tracking.note_prompt_submission(message=payload.prompt)
+                self._submit_prompt_via_adapter(
+                    prompt=payload.prompt,
+                    turn_id=payload.turn_id,
+                    note_prompt_submission=request_kind == "submit_prompt",
+                )
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
                 self.m_adapter.interrupt()
@@ -2007,6 +2405,7 @@ class GatewayServiceRuntime:
                     f"failed gateway request request_id={request_id} detail={error_detail or 'unknown error'}"
                 )
             self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            self.m_wakeup_condition.notify_all()
 
     def _mark_running_requests_failed(self) -> None:
         """Mark requests left running by a prior gateway process as failed."""
@@ -2133,6 +2532,8 @@ class GatewayServiceRuntime:
 
         direct_prompt_thread = self.m_direct_prompt_thread
         if direct_prompt_thread is not None and direct_prompt_thread.is_alive():
+            return "running"
+        if self.m_active_wakeup_job_id is not None:
             return "running"
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             row = connection.execute(
@@ -2379,6 +2780,30 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Accept one gateway-managed request."""
 
         return runtime.create_request(request_payload)
+
+    @app.post("/v1/wakeups", response_model=GatewayWakeupJobV1)
+    def _create_wakeup(request_payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
+        """Register one gateway-owned in-memory wakeup job."""
+
+        return runtime.create_wakeup(request_payload)
+
+    @app.get("/v1/wakeups", response_model=GatewayWakeupListV1)
+    def _list_wakeups() -> GatewayWakeupListV1:
+        """Serve live wakeup inspection state."""
+
+        return runtime.list_wakeups()
+
+    @app.get("/v1/wakeups/{job_id}", response_model=GatewayWakeupJobV1)
+    def _get_wakeup(job_id: str) -> GatewayWakeupJobV1:
+        """Serve one wakeup job by identifier."""
+
+        return runtime.get_wakeup(job_id=job_id)
+
+    @app.delete("/v1/wakeups/{job_id}", response_model=GatewayWakeupCancelResultV1)
+    def _delete_wakeup(job_id: str) -> GatewayWakeupCancelResultV1:
+        """Cancel one wakeup job or future wakeup repetitions."""
+
+        return runtime.delete_wakeup(job_id=job_id)
 
     @app.get("/v1/mail/status", response_model=GatewayMailStatusV1)
     def _mail_status() -> GatewayMailStatusV1:
