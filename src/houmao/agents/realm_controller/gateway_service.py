@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import UTC, datetime, timedelta
 import hashlib
+from importlib import resources
 import json
 import math
 import os
@@ -21,7 +22,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_support import (
+    mailbox_gateway_skill_document_path,
+    mailbox_gateway_skill_name,
+    mailbox_gateway_skill_reference,
+    mailbox_skill_reference,
+    mailbox_skill_name,
+    mailbox_skills_destination_for_tool,
     mailbox_skill_document_path,
+    projected_mailbox_skill_document_path,
     resolve_live_mailbox_binding,
     resolved_mailbox_config_from_payload,
 )
@@ -130,6 +138,7 @@ _GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
 _GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
+_MAIL_NOTIFIER_TEMPLATE_RESOURCE = "system_prompts/mailbox/mail-notifier.md"
 
 
 @dataclass(frozen=True)
@@ -224,6 +233,64 @@ def _optional_env_string(variable_name: str) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _render_mail_notifier_curl_examples(base_url: str) -> str:
+    """Return one markdown block with curl-first gateway mailbox examples."""
+
+    return "\n".join(
+        [
+            "```bash",
+            f"curl -sS -X POST \"{base_url}/v1/mail/check\" \\",
+            "  -H 'content-type: application/json' \\",
+            "  --data '{\"schema_version\":1,\"unread_only\":true,\"limit\":10}'",
+            "",
+            f"curl -sS -X POST \"{base_url}/v1/mail/send\" \\",
+            "  -H 'content-type: application/json' \\",
+            "  --data '{\"schema_version\":1,\"to\":[\"recipient@agents.localhost\"],\"subject\":\"...\",\"body_content\":\"...\",\"attachments\":[]}'",
+            "",
+            f"curl -sS -X POST \"{base_url}/v1/mail/reply\" \\",
+            "  -H 'content-type: application/json' \\",
+            "  --data '{\"schema_version\":1,\"message_ref\":\"<opaque message_ref>\",\"body_content\":\"...\",\"attachments\":[]}'",
+            "",
+            f"curl -sS -X POST \"{base_url}/v1/mail/state\" \\",
+            "  -H 'content-type: application/json' \\",
+            "  --data '{\"schema_version\":1,\"message_ref\":\"<opaque message_ref>\",\"read\":true}'",
+            "```",
+        ]
+    )
+
+
+def _render_unread_headers_block(unread_messages: list[_UnreadMailboxMessage]) -> str:
+    """Return one markdown summary block for all unread headers."""
+
+    lines: list[str] = []
+    for message in unread_messages:
+        sender_label = (
+            f"{message.sender_display_name} <{message.sender_address}>"
+            if message.sender_display_name is not None
+            else message.sender_address
+        )
+        lines.append(f"- message_ref: {message.message_ref}")
+        if message.thread_ref is not None:
+            lines.append(f"  thread_ref: {message.thread_ref}")
+        lines.extend(
+            [
+                f"  from: {sender_label}",
+                f"  subject: {message.subject}",
+                f"  created_at_utc: {message.created_at_utc}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip()
+
+
+def _load_mail_notifier_template() -> str:
+    """Load the packaged markdown notifier prompt template."""
+
+    return (
+        resources.files("houmao.agents.realm_controller.assets") / _MAIL_NOTIFIER_TEMPLATE_RESOURCE
+    ).read_text(encoding="utf-8")
 
 
 class GatewayExecutionAdapter(Protocol):
@@ -1639,6 +1706,25 @@ class GatewayServiceRuntime:
     def _load_mailbox_config(self) -> MailboxResolvedConfig:
         """Load the manifest-backed mailbox config required by mailbox routes."""
 
+        payload = self._load_manifest_payload_for_mailbox_support()
+        try:
+            mailbox = resolved_mailbox_config_from_payload(
+                payload.launch_plan.mailbox,
+                manifest_path=self.m_manifest_path or Path("<unknown>"),
+            )
+        except ValueError as exc:
+            raise GatewayError(
+                f"Runtime-owned session manifest has an invalid mailbox binding: {exc}"
+            ) from exc
+        if mailbox is None:
+            raise GatewayError(
+                "Runtime-owned session manifest launch plan has no mailbox binding; mailbox support is unavailable."
+            )
+        return mailbox
+
+    def _load_manifest_payload_for_mailbox_support(self):
+        """Load and parse the runtime-owned manifest payload required by mailbox routes."""
+
         manifest_path = self.m_attach_contract.manifest_path
         if manifest_path is None:
             raise GatewayError(
@@ -1651,21 +1737,56 @@ class GatewayServiceRuntime:
             raise GatewayError(
                 f"Runtime-owned session manifest is unreadable for mailbox support: {exc}"
             ) from exc
+        self.m_manifest_path = handle.path.resolve()
+        return payload
 
-        try:
-            mailbox = resolved_mailbox_config_from_payload(
-                payload.launch_plan.mailbox,
-                manifest_path=handle.path,
+    def _mail_notifier_skill_usage_block(self, *, mailbox: MailboxResolvedConfig) -> str:
+        """Return prompt guidance about installed Houmao mailbox skills for this session."""
+
+        payload = self._load_manifest_payload_for_mailbox_support()
+        tool = payload.launch_plan.tool
+        home_path = Path(payload.launch_plan.home_selector.home_path).resolve()
+        skills_destination = mailbox_skills_destination_for_tool(tool)
+        gateway_relative_path = mailbox_gateway_skill_document_path(
+            skills_destination=skills_destination
+        )
+        transport_relative_path = mailbox_skill_document_path(
+            mailbox,
+            skills_destination=skills_destination,
+        )
+        gateway_path = projected_mailbox_skill_document_path(
+            tool=tool,
+            home_path=home_path,
+            skill_reference=mailbox_gateway_skill_reference(),
+        )
+        transport_path = projected_mailbox_skill_document_path(
+            tool=tool,
+            home_path=home_path,
+            skill_reference=mailbox_skill_reference(mailbox),
+        )
+
+        if not gateway_path.is_file():
+            return "\n".join(
+                [
+                    "Houmao mailbox skills are not installed for this session.",
+                    "Use the resolver and curl contract below directly for this turn.",
+                ]
             )
-        except ValueError as exc:
-            raise GatewayError(
-                f"Runtime-owned session manifest has an invalid mailbox binding: {exc}"
-            ) from exc
-        if mailbox is None:
-            raise GatewayError(
-                "Runtime-owned session manifest launch plan has no mailbox binding; mailbox support is unavailable."
+
+        lines = [
+            (
+                "Use the installed Houmao mailbox gateway skill "
+                f"`{mailbox_gateway_skill_name()}` for this turn."
+            ),
+            f"Open `{gateway_relative_path}` directly instead of searching for it.",
+        ]
+        if transport_path.is_file():
+            lines.append(
+                "Use the transport-specific Houmao mailbox skill "
+                f"`{mailbox_skill_name(mailbox)}` at `{transport_relative_path}` only for "
+                "transport-local context and no-gateway fallback."
             )
-        return mailbox
+        return "\n".join(lines)
 
     def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:
         """Return the cached mailbox adapter while the runtime lock is held."""
@@ -1895,78 +2016,18 @@ class GatewayServiceRuntime:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         mailbox = self._load_mailbox_config()
-        nominated = unread_messages[0]
-        remaining_unread_count = len(unread_messages) - 1
-        sender_label = (
-            f"{nominated.sender_display_name} <{nominated.sender_address}>"
-            if nominated.sender_display_name is not None
-            else nominated.sender_address
-        )
-        lines = [
-            "You have one bounded shared-mailbox task to process.",
-            (
-                "Resolve current mailbox bindings through the runtime-owned helper "
-                "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
-                "before any direct mailbox access. That helper prefers current process env, "
-                "falls back to the owning tmux session env, derives current mailbox state from "
-                "the persisted runtime-owned mailbox binding, and returns the exact attached "
-                "`gateway.base_url` when a live gateway is available. Do not scrape tmux state "
-                "directly."
-            ),
-            (
-                "Use the runtime-owned mailbox skill document for the current transport at "
-                f"`{mailbox_skill_document_path(mailbox)}` and open it directly instead of "
-                "searching with `rg`, `find`, or slash-skill lookup."
-            ),
-            (
-                "Use shared mailbox operations through the live gateway facade for this turn: "
-                "`POST /v1/mail/check`, `POST /v1/mail/send` or `POST /v1/mail/reply`, and "
-                "`POST /v1/mail/state`."
-            ),
-            (
-                "Use the exact live gateway base URL for this turn: "
-                f"`http://{self.m_host}:{self.m_port}`. This matches the resolver's "
-                "`gateway.base_url`; do not guess another host or port."
-            ),
-            (
-                "Do not inspect repo docs or OpenAPI to rediscover those routine request "
-                "shapes during this turn."
-            ),
-            ('`POST /v1/mail/check` -> `{"schema_version":1,"unread_only":true,"limit":10}`'),
-            (
-                "`POST /v1/mail/send` -> "
-                '`{"schema_version":1,"to":["recipient@agents.localhost"],'
-                '"subject":"...","body_content":"...","attachments":[]}`'
-            ),
-            (
-                "`POST /v1/mail/reply` -> "
-                '`{"schema_version":1,"message_ref":"<opaque message_ref>",'
-                '"body_content":"...","attachments":[]}`'
-            ),
-            (
-                "`POST /v1/mail/state` -> "
-                '`{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`'
-            ),
-            "Process only the nominated target in this turn.",
-            "Mark the target read only after the mailbox action succeeds.",
-            "",
-            "Nominated unread target:",
-            f"- message_ref: {nominated.message_ref}",
-        ]
-        if nominated.thread_ref is not None:
-            lines.append(f"- thread_ref: {nominated.thread_ref}")
-        lines.extend(
-            [
-                f"- from: {sender_label}",
-                f"- subject: {nominated.subject}",
-                f"- created_at_utc: {nominated.created_at_utc}",
-                "",
-                f"Remaining unread after this target: {remaining_unread_count}.",
-            ]
-        )
-        if remaining_unread_count > 0:
-            lines.append("Leave the remaining unread messages queued for later turns.")
-        return "\n".join(lines)
+        base_url = f"http://{self.m_host}:{self.m_port}"
+        rendered = _load_mail_notifier_template()
+        replacements = {
+            "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
+            "{{RESOLVE_LIVE_COMMAND}}": "pixi run houmao-mgr agents mail resolve-live",
+            "{{GATEWAY_BASE_URL}}": base_url,
+            "{{CURL_EXAMPLES_BLOCK}}": _render_mail_notifier_curl_examples(base_url),
+            "{{UNREAD_HEADERS_BLOCK}}": _render_unread_headers_block(unread_messages),
+        }
+        for placeholder, replacement in replacements.items():
+            rendered = rendered.replace(placeholder, replacement)
+        return rendered.rstrip()
 
     def _enqueue_internal_prompt(self, *, prompt: str) -> str:
         """Insert one internal notifier prompt into durable queue storage."""

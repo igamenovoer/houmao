@@ -2,6 +2,8 @@
 
 Resolve the current binding set through `pixi run houmao-mgr agents mail resolve-live` before mailbox work. For current-session managed use, that manager-owned helper resolves the current agent from the owning tmux session when selectors are omitted, returns the current actionable mailbox payload, and includes a `gateway` object with the exact `base_url`, `host`, `port`, `protocol_version`, and `state_path` for the shared `/v1/mail/*` facade when a valid attached gateway is live.
 
+When `gateway.base_url` is present, use the installed Houmao gateway skill `houmao-email-via-agent-gateway` for shared `/v1/mail/*` operations.
+
 Common fields:
 
 - `transport`

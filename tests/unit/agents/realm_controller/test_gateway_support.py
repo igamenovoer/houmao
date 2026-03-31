@@ -18,8 +18,11 @@ from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
     StalwartMailboxResolvedConfig,
 )
-from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
-from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
+from houmao.agents.mailbox_runtime_support import (
+    install_runtime_mailbox_system_skills_for_tool,
+    mailbox_env_bindings,
+    resolved_mailbox_config_from_payload,
+)
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -3969,7 +3972,7 @@ def test_gateway_mail_notifier_deduplicates_even_if_prompt_rendering_changes(
         runtime.shutdown()
 
 
-def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt(
+def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway_skill(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3978,6 +3981,7 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
     _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
+    install_runtime_mailbox_system_skills_for_tool(tool="codex", home_path=tmp_path / "home")
     first_message_id = _deliver_unread_mailbox_message(
         tmp_path,
         message_id="msg-20260316T090000Z-11111111111111111111111111111111",
@@ -4012,20 +4016,28 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
         assert first_message_id in prompt
-        assert second_message_id not in prompt
+        assert second_message_id in prompt
         assert "thread_ref: filesystem:" in prompt
         assert "from: AGENTSYS-sender@agents.localhost" in prompt
         assert "subject: Gateway unread reminder one" in prompt
-        assert "Remaining unread after this target: 1." in prompt
-        assert "resolve-live" in prompt
+        assert "subject: Gateway unread reminder two" in prompt
+        assert "Nominated unread target" not in prompt
+        assert "Remaining unread after this target" not in prompt
+        assert "Use the installed Houmao mailbox gateway skill `houmao-email-via-agent-gateway`" in prompt
+        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" in prompt
+        assert "houmao-email-via-filesystem" in prompt
+        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" in prompt
+        assert "pixi run houmao-mgr agents mail resolve-live" in prompt
         assert "gateway.base_url" in prompt
-        assert "prefers current process env, falls back to the owning tmux session env" in prompt
-        assert "email-via-filesystem" in prompt
-        assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt
-        assert "Do not inspect repo docs or OpenAPI" in prompt
+        assert "http://127.0.0.1:43123" in prompt
         assert "This matches the resolver's `gateway.base_url`" in prompt
+        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/check"' in prompt
+        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/send"' in prompt
+        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/reply"' in prompt
+        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/state"' in prompt
         assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in prompt
-        assert "POST /v1/mail/state" in prompt
+        assert "Houmao mailbox skills are not installed for this session." not in prompt
+        assert "python -m houmao.agents.mailbox_runtime_support" not in prompt
         assert "deliver_message.py" not in prompt
         assert "update_mailbox_state.py" not in prompt
     finally:
@@ -4040,6 +4052,44 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
         f"filesystem:{first_message_id}",
         f"filesystem:{second_message_id}",
     ]
+
+
+def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not fake_client.submitted_prompts:
+            time.sleep(0.05)
+
+        assert len(fake_client.submitted_prompts) == 1
+        prompt = fake_client.submitted_prompts[0][1]
+        assert "Houmao mailbox skills are not installed for this session." in prompt
+        assert "Use the resolver and curl contract below directly for this turn." in prompt
+        assert "pixi run houmao-mgr agents mail resolve-live" in prompt
+        assert "http://127.0.0.1:43123" in prompt
+        assert "houmao-email-via-agent-gateway" not in prompt
+    finally:
+        runtime.shutdown()
 
 
 def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates(
@@ -4129,7 +4179,7 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
         assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
         assert len(fake_client.submitted_prompts) == 2
         assert "stalwart:mail-1" in fake_client.submitted_prompts[1][1]
-        assert "POST /v1/mail/state" in fake_client.submitted_prompts[1][1]
+        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/state"' in fake_client.submitted_prompts[1][1]
     finally:
         runtime.shutdown()
 

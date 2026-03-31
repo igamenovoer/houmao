@@ -1,47 +1,39 @@
 ---
-name: email-via-filesystem
-description: Operate the filesystem-backed async mailbox transport for agents using manager-owned live mailbox discovery, the shared gateway mailbox facade when available, and `houmao-mgr agents mail ...` fallback when it is not.
+name: houmao-email-via-filesystem
+description: Use Houmao's filesystem mailbox transport guidance for transport-specific validation, layout, and no-gateway fallback while delegating shared gateway mailbox operations to `houmao-email-via-agent-gateway`.
 ---
 
-# Email Via Filesystem
+# Houmao Email Via Filesystem
 
 ## Overview
 
-Use this skill when the resolved mailbox transport is `filesystem`.
+Use this Houmao skill when the resolved mailbox transport is `filesystem`.
 
-Treat `houmao-mgr agents mail ...` as the supported discovery and fallback surface for ordinary mailbox work:
+For shared mailbox gateway work, use the installed Houmao gateway skill `houmao-email-via-agent-gateway`.
 
-1. resolve current bindings through `pixi run houmao-mgr agents mail resolve-live`
-2. if `gateway.base_url` is present, use the shared `/v1/mail/*` facade
-3. otherwise use `pixi run houmao-mgr agents mail check|send|reply|mark-read`
+Use this transport-specific skill for:
+- validating that the resolved transport is `filesystem`,
+- understanding filesystem mailbox layout and local policy guidance,
+- deciding how to fall back when `gateway: null`,
+- transport-specific read-state verification or inspection.
 
-Do not treat `python -m houmao.agents.mailbox_runtime_support ...` or mailbox-owned scripts as the ordinary workflow contract.
+Use the manager-owned discovery command `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
 
 ## References
 
 - Read [references/env-vars.md](references/env-vars.md) when validating resolver fields.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) when you need exact mailbox directories, projection layout, or canonical message storage structure.
+- Read `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` when `gateway.base_url` is present and the task is ordinary shared mailbox work.
 
 ## Supported Workflow
 
 - Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat the resolver output as the supported discovery contract for this turn. Do not scrape tmux state directly.
-- When the resolver returns a `gateway` object, use `gateway.base_url` for the live attached `/v1/mail/*` facade.
+- When the resolver returns a `gateway` object, use the installed Houmao skill `houmao-email-via-agent-gateway` for the live attached `/v1/mail/*` facade.
 - When the resolver returns `gateway: null`, use `pixi run houmao-mgr agents mail ...` as the fallback surface.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive filesystem `message_id`, thread ancestry, or path structure from the visible prefix.
-- After you successfully process one nominated unread message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `pixi run houmao-mgr agents mail mark-read --message-ref ...` when it is not.
+- After you successfully process one message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `pixi run houmao-mgr agents mail mark-read --message-ref ...` when it is not.
 - If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `pixi run houmao-mgr agents mail check`, `pixi run houmao-mgr agents mail status`, or transport-owned mailbox state before assuming the mutation completed.
-
-## Shared Gateway Route Quick Reference
-
-- `POST /v1/mail/check`
-  `{"schema_version":1,"unread_only":true,"limit":10}`
-- `POST /v1/mail/send`
-  `{"schema_version":1,"to":["recipient@agents.localhost"],"subject":"...","body_content":"...","attachments":[]}`
-- `POST /v1/mail/reply`
-  `{"schema_version":1,"message_ref":"<opaque message_ref>","body_content":"...","attachments":[]}`
-- `POST /v1/mail/state`
-  `{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`
 
 ## Binding Checks
 
@@ -71,3 +63,4 @@ Do not treat `python -m houmao.agents.mailbox_runtime_support ...` or mailbox-ow
 - Do not bypass locking when creating or updating mailbox projections.
 - Do not copy delivered canonical message bodies into `inbox/` or `sent/`; those mailbox entries should be symlink projections to the canonical file.
 - Do not present `deliver_message.py` or `update_mailbox_state.py` as the ordinary workflow contract for this skill.
+- Do not restate the shared gateway curl contract here; use `houmao-email-via-agent-gateway` for that operational surface.

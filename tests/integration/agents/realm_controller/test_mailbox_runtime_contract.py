@@ -44,6 +44,7 @@ from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
 )
+from houmao.agents.launch_policy.models import LaunchPolicyResult
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.cao.models import (
     CaoHealthResponse,
@@ -162,9 +163,15 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         )
     )
 
-    visible_skill = build_result.home_path / "skills/mailbox/email-via-filesystem/SKILL.md"
+    visible_gateway_skill = (
+        build_result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+    )
+    visible_skill = build_result.home_path / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    assert visible_gateway_skill.is_file()
     assert visible_skill.is_file()
-    assert not (build_result.home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").exists()
+    assert not (
+        build_result.home_path / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md"
+    ).exists()
 
     class _FakeStartBackend:
         def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
@@ -173,6 +180,15 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeStartBackend(),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.launch_plan.apply_launch_policy",
+        lambda request: LaunchPolicyResult(
+            executable=request.executable,
+            args=request.base_args,
+            provenance=None,
+            strategy=None,
+        ),
     )
 
     controller = start_runtime_session(
@@ -562,6 +578,6 @@ def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
 
     assert exit_code == 0
     assert resolved["mailbox"]["transport"] == "filesystem"
-    assert resolved["gateway"]["source"] == "tmux_session_env"
+    assert resolved["gateway"]["source"] == "current_instance_record"
     assert resolved["gateway"]["base_url"] == "http://127.0.0.1:43123"
     assert resolved["gateway"]["state_path"] == str(paths.state_path)

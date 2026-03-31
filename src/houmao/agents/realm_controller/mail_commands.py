@@ -16,7 +16,11 @@ from typing import Any, Callable, Literal, cast
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
+    mailbox_gateway_skill_name,
     mailbox_skill_name,
+    projected_mailbox_skill_document_path,
+    mailbox_gateway_skill_reference,
+    mailbox_skill_reference,
     resolve_live_mailbox_binding,
 )
 from houmao.mailbox import resolve_filesystem_mailbox_paths
@@ -185,6 +189,7 @@ def prepare_mail_prompt(
         },
     }
     prompt_lines = _mail_prompt_instruction_lines(
+        launch_plan=launch_plan,
         mailbox=mailbox,
         operation=operation,
         args=args,
@@ -269,19 +274,48 @@ def ensure_mailbox_command_ready(
 
 def _mail_prompt_instruction_lines(
     *,
+    launch_plan: LaunchPlan,
     mailbox: MailboxResolvedConfig,
     operation: MailOperation,
     args: dict[str, Any],
     prefer_live_gateway: bool,
 ) -> list[str]:
     skill_name = mailbox_skill_name(mailbox)
+    gateway_skill_name = mailbox_gateway_skill_name()
+    gateway_skill_path = projected_mailbox_skill_document_path(
+        tool=launch_plan.tool,
+        home_path=launch_plan.home_path,
+        skill_reference=mailbox_gateway_skill_reference(),
+    )
+    transport_skill_path = projected_mailbox_skill_document_path(
+        tool=launch_plan.tool,
+        home_path=launch_plan.home_path,
+        skill_reference=mailbox_skill_reference(mailbox),
+    )
+    installed_skill_lines: list[str]
+    if gateway_skill_path.is_file() and transport_skill_path.is_file():
+        installed_skill_lines = [
+            (
+                f"Use the installed Houmao mailbox gateway skill `{gateway_skill_name}` for "
+                "this mailbox operation."
+            ),
+            (
+                "Use the installed runtime-owned Houmao mailbox skills directly. Do not search "
+                "the repository for a `skills/.../SKILL.md` path and do not infer any skill "
+                "install location from the current working directory."
+            ),
+            (
+                f"Use the transport-specific Houmao mailbox skill `{skill_name}` only for "
+                "transport-local context and no-gateway fallback."
+            ),
+        ]
+    else:
+        installed_skill_lines = [
+            "Houmao mailbox skills are not installed for this session.",
+            "Use the resolver and the supported mailbox contract directly for this operation.",
+        ]
     lines = [
-        (f"Use the runtime-owned mailbox skill `{skill_name}` for this mailbox operation."),
-        (
-            "Use the installed runtime-owned mailbox skill directly. Do not search the "
-            "repository for a `skills/.../SKILL.md` path and do not infer any skill install "
-            "location from the current working directory."
-        ),
+        *installed_skill_lines,
         (
             "Before any direct mailbox access, resolve current mailbox state through the "
             "manager-owned helper `pixi run houmao-mgr agents mail resolve-live`."

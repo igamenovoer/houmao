@@ -11,7 +11,9 @@ from houmao.agents.mailbox_runtime_models import (
     StalwartMailboxResolvedConfig,
 )
 from houmao.agents.mailbox_runtime_support import (
+    install_runtime_mailbox_system_skills_for_tool,
     mailbox_env_bindings,
+    mailbox_skills_destination_for_tool,
     publish_tmux_live_mailbox_projection,
     resolve_live_mailbox_binding_from_agent_identity,
     resolve_live_mailbox_binding_from_manifest_path,
@@ -372,3 +374,38 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
     assert resolution.gateway.base_url == "http://127.0.0.1:43124"
     assert resolution.gateway.state_path == state_path.resolve()
     assert endpoint_log == ["http://127.0.0.1:43124"]
+
+
+def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_transport_docs(
+    tmp_path: Path,
+) -> None:
+    home_path = tmp_path / "codex-home"
+
+    references = install_runtime_mailbox_system_skills_for_tool(tool="codex", home_path=home_path)
+
+    mailbox_root = home_path / mailbox_skills_destination_for_tool("codex") / "mailbox"
+    assert set(references) == {
+        "mailbox/houmao-email-via-agent-gateway",
+        "mailbox/houmao-email-via-filesystem",
+        "mailbox/houmao-email-via-stalwart",
+    }
+    assert (mailbox_root / "houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (mailbox_root / "houmao-email-via-agent-gateway/actions/check.md").is_file()
+    assert (mailbox_root / "houmao-email-via-agent-gateway/actions/reply.md").is_file()
+    assert (mailbox_root / "houmao-email-via-agent-gateway/references/curl-examples.md").is_file()
+    assert (mailbox_root / "houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (mailbox_root / "houmao-email-via-stalwart/SKILL.md").is_file()
+
+
+def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_destination(
+    tmp_path: Path,
+) -> None:
+    home_path = tmp_path / "gemini-home"
+
+    install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=home_path)
+
+    assert (
+        home_path
+        / mailbox_skills_destination_for_tool("gemini")
+        / "mailbox/houmao-email-via-agent-gateway/SKILL.md"
+    ).is_file()

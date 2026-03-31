@@ -548,15 +548,27 @@ def _build_kickoff_prompt(
     return "\n".join(
         [
             (
-                "Use the runtime-owned mailbox skill document `email-via-filesystem` for all "
-                "mailbox actions in this demo."
+                "Use the runtime-owned Houmao mailbox gateway skill "
+                "`houmao-email-via-agent-gateway` for shared mailbox actions in this demo."
             ),
             (
-                "Open and follow the exact mailbox skill file "
-                "`skills/mailbox/email-via-filesystem/SKILL.md` from the project worktree."
+                "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` "
+                "only for transport-local context and no-gateway fallback."
             ),
-            ("Do not search for that file with `rg`, `find`, or slash-skill lookup first."),
-            ("Treat it as a runtime-owned skill document, not as a registered slash skill."),
+            (
+                "Open and follow the exact shared gateway skill file "
+                "`skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` from the project worktree."
+            ),
+            (
+                "Open and follow the exact transport skill file "
+                "`skills/mailbox/houmao-email-via-filesystem/SKILL.md` from the project worktree "
+                "only when transport-local guidance is needed."
+            ),
+            ("Do not search for those files with `rg`, `find`, or slash-skill lookup first."),
+            (
+                "Treat them as runtime-owned Houmao skill documents, not as registered slash "
+                "skills."
+            ),
             (
                 "When a live loopback gateway mailbox facade is attached, keep routine mailbox "
                 "work on the shared gateway mailbox operations instead of reconstructing "

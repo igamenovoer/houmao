@@ -17,7 +17,7 @@ Mailbox support spans build time, start time, resume time, and control time.
 
 `build_brain_home()` always projects the runtime-owned mailbox skills into the selected skills destination. For current adapters, that means:
 
-- primary visible skill docs at `skills/mailbox/email-via-filesystem/SKILL.md` and `skills/mailbox/email-via-stalwart/SKILL.md`
+- primary visible skill docs at `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `skills/mailbox/houmao-email-via-stalwart/SKILL.md`
 
 That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent, and Codex-safe prompt construction can point directly at the visible mailbox skill files.
 

@@ -29,11 +29,16 @@ from houmao.agents.realm_controller.models import (
     SessionEvent,
 )
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
-from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
+from houmao.agents.mailbox_runtime_support import (
+    install_runtime_mailbox_system_skills_for_tool,
+    mailbox_env_bindings,
+)
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 
 
 def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> LaunchPlan:
+    home_path = tmp_path / "home"
+    install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=home_path)
     mailbox_root = tmp_path / "mailbox"
     principal_id = "AGENTSYS-research"
     address = "AGENTSYS-research@agents.localhost"
@@ -57,7 +62,7 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
         args=["-p"],
         working_directory=tmp_path,
         home_env_var="CLAUDE_CONFIG_DIR",
-        home_path=tmp_path / "home",
+        home_path=home_path,
         env=mailbox_env_bindings(mailbox),
         env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
         role_injection=RoleInjectionPlan(
@@ -82,10 +87,11 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     )
 
     assert prompt_request.operation == "check"
-    assert "`email-via-filesystem`" in prompt_request.prompt
+    assert "`houmao-email-via-agent-gateway`" in prompt_request.prompt
+    assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt_request.prompt
     assert "skills/mailbox/email-via-filesystem/SKILL.md" not in prompt_request.prompt
     assert "Do not search the repository for a `skills/.../SKILL.md` path" in prompt_request.prompt
-    assert "resolve-live" in prompt_request.prompt
+    assert "pixi run houmao-mgr agents mail resolve-live" in prompt_request.prompt
     assert "gateway.base_url" in prompt_request.prompt
     assert "attached gateway env vars" not in prompt_request.prompt
     assert "AGENTSYS_MAIL_RESULT_BEGIN" in prompt_request.prompt
@@ -728,8 +734,9 @@ def _build_prompt_echo_surface() -> str:
     no actual standalone sentinel-delimited result block.
     """
     return (
-        "Use the runtime-owned mailbox skill `email-via-filesystem` for this mailbox operation.\n"
-        "Open the primary mailbox skill document at `skills/mailbox/email-via-filesystem/SKILL.md`.\n"
+        "Use the installed Houmao mailbox gateway skill `houmao-email-via-agent-gateway` for this mailbox operation.\n"
+        "Use the installed runtime-owned Houmao mailbox skills directly. Do not search the repository for a `skills/.../SKILL.md` path and do not infer any skill install location from the current working directory.\n"
+        "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` only for transport-local context and no-gateway fallback.\n"
         "Return exactly one JSON result between "
         f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"
         "\n"

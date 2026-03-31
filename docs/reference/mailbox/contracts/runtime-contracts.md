@@ -104,10 +104,11 @@ The filesystem transport splits durable state between a shared catalog and mailb
 
 ## Projected Skill Contract
 
-The runtime projects one transport-specific mailbox skill into the brain home during brain build. For current adapters whose active skill destination is `skills`, the primary discoverable mailbox skill surface is:
+The runtime projects one shared Houmao gateway skill plus one transport-specific mailbox skill into the brain home during brain build. For current adapters whose active skill destination is `skills`, the primary discoverable mailbox skill surface is:
 
-- `skills/mailbox/email-via-filesystem/SKILL.md`
-- `skills/mailbox/email-via-stalwart/SKILL.md`
+- `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`
+- `skills/mailbox/houmao-email-via-filesystem/SKILL.md`
+- `skills/mailbox/houmao-email-via-stalwart/SKILL.md`
 
 Shared runtime rules:
 
@@ -210,7 +211,8 @@ When the runtime does recover a preview payload, it still validates that preview
 - [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/brain_builder.py`](../../../../src/houmao/agents/brain_builder.py)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/references/env-vars.md)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/references/env-vars.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/references/env-vars.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/references/env-vars.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/references/env-vars.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/references/env-vars.md`](../../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/references/env-vars.md)

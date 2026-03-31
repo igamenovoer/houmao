@@ -196,8 +196,9 @@ Important details:
 
 `houmao-mgr agents mail ...` prefers manager-owned direct execution and gateway-backed execution. Only the local live-TUI fallback submits a mailbox prompt into the session.
 
-- Filesystem sessions use `skills/mailbox/email-via-filesystem/SKILL.md` as the mailbox skill document.
-- Stalwart sessions use `skills/mailbox/email-via-stalwart/SKILL.md` as the mailbox skill document.
+- Shared gateway sessions use `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` as the primary Houmao mailbox skill document.
+- Filesystem sessions use `skills/mailbox/houmao-email-via-filesystem/SKILL.md` for transport-specific mailbox context and no-gateway fallback.
+- Stalwart sessions use `skills/mailbox/houmao-email-via-stalwart/SKILL.md` for transport-specific mailbox context and no-gateway fallback.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
 - In TUI fallback mode, exact sentinel-delimited result recovery is optional preview data, not the correctness boundary for the command result.
@@ -238,5 +239,6 @@ sequenceDiagram
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../src/houmao/agents/realm_controller/runtime.py)
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-filesystem/SKILL.md)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/email-via-stalwart/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md)
+- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md)

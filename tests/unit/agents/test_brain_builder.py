@@ -165,9 +165,11 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
-    visible_mailbox_skill = home / "skills/mailbox/email-via-filesystem/SKILL.md"
+    visible_gateway_skill = home / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+    visible_mailbox_skill = home / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    assert visible_gateway_skill.is_file()
     assert visible_mailbox_skill.is_file()
-    assert not (home / "skills/.system/mailbox/email-via-filesystem/SKILL.md").exists()
+    assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
 
     # Credential file projection and env contract setup.
@@ -310,32 +312,31 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
         )
     )
 
-    filesystem_skill = (
-        result.home_path / "skills/mailbox/email-via-filesystem/SKILL.md"
+    gateway_skill = (
+        result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
-    stalwart_skill = (result.home_path / "skills/mailbox/email-via-stalwart/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    filesystem_skill = (
+        result.home_path / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    ).read_text(encoding="utf-8")
+    stalwart_skill = (
+        result.home_path / "skills/mailbox/houmao-email-via-stalwart/SKILL.md"
+    ).read_text(encoding="utf-8")
+    curl_reference = (
+        result.home_path
+        / "skills/mailbox/houmao-email-via-agent-gateway/references/curl-examples.md"
+    ).read_text(encoding="utf-8")
 
-    assert "## Routine Actions With A Live Gateway Facade" in filesystem_skill
-    assert (
-        "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
-        in filesystem_skill
-    )
-    assert "## Shared Gateway Route Quick Reference" in filesystem_skill
-    assert (
-        '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in filesystem_skill
-    )
-    assert "## Direct Filesystem Fallback Actions" in filesystem_skill
+    assert "houmao-email-via-agent-gateway" in gateway_skill
+    assert "pixi run houmao-mgr agents mail resolve-live" in gateway_skill
+    assert "The trigger word `houmao` is intentional." in gateway_skill
+    assert '"schema_version":1,"message_ref":"<opaque message_ref>","read":true' in curl_reference
 
-    assert "## Routine Actions With A Live Gateway Facade" in stalwart_skill
-    assert (
-        "`POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`"
-        in stalwart_skill
-    )
-    assert "## Shared Gateway Route Quick Reference" in stalwart_skill
-    assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in stalwart_skill
-    assert "## Direct Stalwart Fallback Actions" in stalwart_skill
+    assert "houmao-email-via-agent-gateway" in filesystem_skill
+    assert "gateway: null" in filesystem_skill
+    assert "houmao-email-via-filesystem" in filesystem_skill
+    assert "houmao-email-via-agent-gateway" in stalwart_skill
+    assert "gateway: null" in stalwart_skill
+    assert "houmao-email-via-stalwart" in stalwart_skill
 
 
 def test_load_brain_recipe_accepts_default_agent_name(tmp_path: Path) -> None:

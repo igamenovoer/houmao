@@ -65,16 +65,24 @@ MAILBOX_TRANSPORT_NONE = "none"
 MAILBOX_TRANSPORT_FILESYSTEM = "filesystem"
 MAILBOX_TRANSPORT_STALWART = "stalwart"
 MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
-MAILBOX_FILESYSTEM_SKILL_NAME = "email-via-filesystem"
-MAILBOX_STALWART_SKILL_NAME = "email-via-stalwart"
+MAILBOX_GATEWAY_SKILL_NAME = "houmao-email-via-agent-gateway"
+MAILBOX_FILESYSTEM_SKILL_NAME = "houmao-email-via-filesystem"
+MAILBOX_STALWART_SKILL_NAME = "houmao-email-via-stalwart"
+MAILBOX_GATEWAY_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_GATEWAY_SKILL_NAME}"
 MAILBOX_FILESYSTEM_SKILL_REFERENCE = (
     f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_FILESYSTEM_SKILL_NAME}"
 )
 MAILBOX_STALWART_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_STALWART_SKILL_NAME}"
 MAILBOX_PRIMARY_SKILL_REFERENCES = (
+    MAILBOX_GATEWAY_SKILL_REFERENCE,
     MAILBOX_FILESYSTEM_SKILL_REFERENCE,
     MAILBOX_STALWART_SKILL_REFERENCE,
 )
+_TOOL_SKILLS_DESTINATION = {
+    "claude": "skills",
+    "codex": "skills",
+    "gemini": ".gemini/skills",
+}
 
 _MAILBOX_COMMON_ENV_VARS = (
     "AGENTSYS_MAILBOX_TRANSPORT",
@@ -845,6 +853,18 @@ def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
     return MAILBOX_STALWART_SKILL_NAME
 
 
+def mailbox_gateway_skill_reference() -> str:
+    """Return the primary projected shared-gateway mailbox skill reference."""
+
+    return MAILBOX_GATEWAY_SKILL_REFERENCE
+
+
+def mailbox_gateway_skill_name() -> str:
+    """Return the stable shared-gateway mailbox skill name."""
+
+    return MAILBOX_GATEWAY_SKILL_NAME
+
+
 def mailbox_skill_document_path(
     config: MailboxResolvedConfig,
     *,
@@ -853,6 +873,41 @@ def mailbox_skill_document_path(
     """Return the primary mailbox skill document path for the active skill destination."""
 
     return f"{skills_destination}/{mailbox_skill_reference(config)}/SKILL.md"
+
+
+def mailbox_gateway_skill_document_path(*, skills_destination: str = "skills") -> str:
+    """Return the primary gateway mailbox skill document path."""
+
+    return f"{skills_destination}/{mailbox_gateway_skill_reference()}/SKILL.md"
+
+
+def mailbox_skills_destination_for_tool(tool: str) -> str:
+    """Return the active runtime-owned skill destination for one supported tool."""
+
+    destination = _TOOL_SKILLS_DESTINATION.get(tool)
+    if destination is None:
+        raise ValueError(f"Unsupported tool `{tool}` for mailbox skill projection.")
+    return destination
+
+
+def projected_mailbox_skill_document_path(
+    *,
+    tool: str,
+    home_path: Path,
+    skill_reference: str,
+) -> Path:
+    """Return one installed mailbox skill document path for a specific tool home."""
+
+    return (
+        home_path.resolve() / mailbox_skills_destination_for_tool(tool) / skill_reference / "SKILL.md"
+    ).resolve()
+
+
+def install_runtime_mailbox_system_skills_for_tool(*, tool: str, home_path: Path) -> tuple[str, ...]:
+    """Project runtime-owned mailbox skills into one concrete tool home."""
+
+    destination_root = (home_path.resolve() / mailbox_skills_destination_for_tool(tool)).resolve()
+    return project_runtime_mailbox_system_skills(destination_root)
 
 
 def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, ...]:

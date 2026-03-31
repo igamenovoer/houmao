@@ -320,6 +320,11 @@ def launch_agents_command(
     default=None,
     help="Optional headless resume selector: omitted, `last`, or an exact provider session id.",
 )
+@click.option(
+    "--no-install-houmao-skills",
+    is_flag=True,
+    help="Skip default Houmao-owned mailbox skill installation into the adopted tool home.",
+)
 def join_agents_command(
     agent_name: str,
     agent_id: str | None,
@@ -329,6 +334,7 @@ def join_agents_command(
     launch_env: tuple[str, ...],
     working_directory: Path | None,
     resume_id: str | None,
+    no_install_houmao_skills: bool,
 ) -> None:
     """Adopt an existing tmux-backed TUI or headless session into Houmao control."""
 
@@ -377,6 +383,7 @@ def join_agents_command(
             working_directory=(working_directory or pane_current_path).resolve(),
             launch_args=launch_args,
             launch_env=launch_env_bindings,
+            install_houmao_skills=not no_install_houmao_skills,
             resume_selection=resolved_resume_selection,
         )
     except (

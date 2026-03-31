@@ -1133,6 +1133,7 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "codex"
     assert captured["headless"] is False
+    assert captured["install_houmao_skills"] is True
     assert captured["tmux_session_name"] == "join-sess"
     assert captured["tmux_window_name"] == "manual"
     assert captured["working_directory"] == Path("/tmp/project")
@@ -1186,10 +1187,47 @@ def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyP
     assert result.exit_code == 0, result.output
     assert captured["headless"] is True
     assert captured["provider"] == "codex"
+    assert captured["install_houmao_skills"] is True
     assert captured["launch_args"] == ("exec", "--json")
     resume_selection = captured["resume_selection"]
     assert isinstance(resume_selection, agents_core.HeadlessResumeSelection)
     assert resume_selection.kind == "last"
+
+
+def test_houmao_mgr_agents_join_can_opt_out_of_houmao_skill_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
+    monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
+    monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: "codex")
+    monkeypatch.setattr(
+        agents_core.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
+        ),
+    )
+
+    def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
+        captured.update(kwargs)
+        return agents_core.JoinedSessionArtifacts(
+            manifest_path=Path("/tmp/runtime/manifest.json"),
+            session_root=Path("/tmp/runtime"),
+            agent_name="coder",
+            agent_id="agent-1",
+        )
+
+    monkeypatch.setattr(agents_core, "materialize_joined_launch", fake_materialize_joined_launch)
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "join", "--agent-name", "coder", "--no-install-houmao-skills"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["install_houmao_skills"] is False
 
 
 def test_houmao_mgr_agents_join_rejects_provider_mismatch(
