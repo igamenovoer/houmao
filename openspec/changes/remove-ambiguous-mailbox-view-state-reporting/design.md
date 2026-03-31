@@ -16,6 +16,7 @@ The relevant operator distinction is:
 - Remove ambiguous participant-local mutable view-state fields from mailbox admin and project mailbox message payloads.
 - Preserve useful structural inspection data for one selected address, including canonical message identity and address-scoped projection metadata.
 - Keep the top-level mailbox and project mailbox wrappers aligned on the same payload contract so operators do not get different semantics depending on entrypoint.
+- Move workflow-completion verification language in docs and testcases onto actor-scoped mail surfaces such as `houmao-mgr agents mail ...`.
 
 **Non-Goals:**
 
@@ -41,7 +42,15 @@ Alternative considered: remove `folder` together with `read`. Rejected because `
 
 The design does not create a new mailbox-root state-reporting contract. Operators who need read or unread follow-up state should continue to use `houmao-mgr agents mail ...`, which already resolves one managed agent and exposes mailbox follow-up semantics for that actor.
 
+This applies to verification guidance as well. End-to-end docs and testcases should treat mailbox admin or project mailbox commands as corroborating structural inspection only. Completion checks such as "the processed message is no longer actionable unread mail" belong on actor-scoped commands like `houmao-mgr agents mail check --unread-only`.
+
 Alternative considered: add a new mailbox-root command that explicitly asks for per-address state. Rejected for this change because the immediate requirement is to stop ambiguous reporting, not to define a second participant-local state contract.
+
+### Keep project mailbox wrappers explicitly aligned with the root-level structural contract
+
+The repository already has a dedicated `houmao-mgr project mailbox` spec surface. This change should state explicitly that `project mailbox messages list|get` reuses the same structural-only contract as `houmao-mgr mailbox messages list|get` and must not reintroduce participant-local view-state fields just because the mailbox root is project-scoped.
+
+Alternative considered: rely only on the umbrella native CLI spec. Rejected because the project wrapper is a first-class operator surface and the ambiguity has already leaked into project-scoped testcases and expectations.
 
 ## Risks / Trade-offs
 
@@ -53,7 +62,7 @@ Alternative considered: add a new mailbox-root command that explicitly asks for 
 
 1. Remove mutable view-state fields from the shared mailbox-support payload builders.
 2. Update tests for both root-level and project-local mailbox message commands.
-3. Refresh mailbox docs to clarify that admin and project mailbox inspection is structural, while read-state follow-up lives on actor-scoped mail commands.
+3. Refresh mailbox docs and testcase narratives to clarify that admin and project mailbox inspection is structural, while read-state follow-up lives on actor-scoped mail commands.
 
 No data migration is required because the change only removes ambiguous fields from CLI payloads.
 

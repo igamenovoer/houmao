@@ -112,11 +112,13 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 | `register` | Create or reuse one filesystem mailbox registration for a full mailbox address. |
 | `unregister` | Deactivate or purge one filesystem mailbox registration. |
 | `accounts list|get` | Inspect mailbox registrations as operator-facing mailbox accounts. |
-| `messages list|get` | Inspect mailbox-visible messages for one registered mailbox address. |
+| `messages list|get` | Inspect structural message projections for one registered mailbox address. |
 | `repair` | Rebuild one filesystem mailbox root's shared index state locally. |
 | `cleanup` | Remove inactive or stashed mailbox registrations while preserving active registrations and canonical `messages/` history. |
 
 `mailbox register` keeps the existing `safe`, `force`, and `stash` mode vocabulary. When a requested registration would replace existing durable mailbox state or an occupying mailbox entry artifact, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
+
+`mailbox messages list|get` is structural inspection over canonical message metadata plus address-scoped projection metadata. Participant-local mutable state such as `read`, `starred`, `archived`, and `deleted` belongs on actor-scoped `houmao-mgr agents mail ...` workflows rather than this operator/admin surface.
 
 ### `brains` — Local brain-construction commands
 
@@ -261,9 +263,11 @@ Project overlay notes:
 |---|---|
 | `init`, `status`, `register`, `unregister`, `repair`, `cleanup` | Perform mailbox-root lifecycle operations against `.houmao/mailbox`. |
 | `accounts list|get` | Inspect mailbox registrations under the project mailbox root. |
-| `messages list|get` | Inspect mailbox-visible messages under the project mailbox root. |
+| `messages list|get` | Inspect structural message projections under the project mailbox root. |
 
 `project mailbox register` mirrors the generic mailbox overwrite-confirmation contract, including interactive overwrite prompts and `--yes` for non-interactive replacement.
+
+`project mailbox messages list|get` follows the same structural-only contract as `houmao-mgr mailbox messages list|get`; use `houmao-mgr agents mail ...` when the workflow needs actor-scoped unread/read follow-up state.
 
 ### `server` — Server lifecycle management
 

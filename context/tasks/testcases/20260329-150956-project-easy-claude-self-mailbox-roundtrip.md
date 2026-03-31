@@ -70,7 +70,7 @@ Verify a clean-start project can create a Claude Code specialist, provision a fi
 4. Launched a TUI instance for `claude-self-050155`.
 5. Bound the running instance to the project mailbox account.
 6. Sent a self-addressed message with `houmao-mgr agents mail send`.
-7. Verified delivery with both `houmao-mgr agents mail check` and `houmao-mgr project mailbox messages list/get`.
+7. Verified actor-scoped delivery with `houmao-mgr agents mail check` and confirmed structural message projection with `houmao-mgr project mailbox messages list/get`.
 8. Stopped the temporary instance after verification.
 
 ### Delivery Evidence

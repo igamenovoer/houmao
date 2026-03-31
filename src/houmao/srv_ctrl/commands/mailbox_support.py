@@ -287,7 +287,7 @@ def get_mailbox_account(*, mailbox_root: Path, address: str) -> dict[str, object
 
 
 def list_mailbox_messages(*, mailbox_root: Path, address: str) -> dict[str, object]:
-    """Return direct message summaries for one registered mailbox address."""
+    """Return structural message summaries for one registered mailbox address."""
 
     resolved_root = mailbox_root.resolve()
     with _connect_index(resolved_root) as connection:
@@ -303,19 +303,9 @@ def list_mailbox_messages(*, mailbox_root: Path, address: str) -> dict[str, obje
                 message.sender_principal_id,
                 projection.folder_name,
                 projection.projection_path,
-                message.canonical_path,
-                COALESCE(
-                    state.is_read,
-                    CASE WHEN projection.folder_name = 'sent' THEN 1 ELSE 0 END
-                ) AS is_read,
-                COALESCE(state.is_starred, 0) AS is_starred,
-                COALESCE(state.is_archived, 0) AS is_archived,
-                COALESCE(state.is_deleted, 0) AS is_deleted
+                message.canonical_path
             FROM mailbox_projections AS projection
             JOIN messages AS message ON message.message_id = projection.message_id
-            LEFT JOIN mailbox_state AS state
-              ON state.registration_id = projection.registration_id
-             AND state.message_id = projection.message_id
             WHERE projection.registration_id = ?
             ORDER BY message.created_at_utc DESC, projection.message_id DESC
             """,
@@ -332,10 +322,6 @@ def list_mailbox_messages(*, mailbox_root: Path, address: str) -> dict[str, obje
             "folder": str(row[6]),
             "projection_path": str(row[7]),
             "canonical_path": str(row[8]),
-            "read": bool(row[9]),
-            "starred": bool(row[10]),
-            "archived": bool(row[11]),
-            "deleted": bool(row[12]),
         }
         for row in rows
     ]
@@ -354,7 +340,7 @@ def get_mailbox_message(
     address: str,
     message_id: str,
 ) -> dict[str, object]:
-    """Return one mailbox-visible message plus its metadata for one address."""
+    """Return one structurally projected message plus its metadata for one address."""
 
     resolved_root = mailbox_root.resolve()
     with _connect_index(resolved_root) as connection:
@@ -376,19 +362,9 @@ def get_mailbox_message(
                 message.sender_principal_id,
                 message.sender_display_name,
                 message.sender_manifest_path_hint,
-                message.sender_role,
-                COALESCE(
-                    state.is_read,
-                    CASE WHEN projection.folder_name = 'sent' THEN 1 ELSE 0 END
-                ) AS is_read,
-                COALESCE(state.is_starred, 0) AS is_starred,
-                COALESCE(state.is_archived, 0) AS is_archived,
-                COALESCE(state.is_deleted, 0) AS is_deleted
+                message.sender_role
             FROM mailbox_projections AS projection
             JOIN messages AS message ON message.message_id = projection.message_id
-            LEFT JOIN mailbox_state AS state
-              ON state.registration_id = projection.registration_id
-             AND state.message_id = projection.message_id
             WHERE projection.registration_id = ? AND projection.message_id = ?
             LIMIT 1
             """,
@@ -448,10 +424,6 @@ def get_mailbox_message(
                 "manifest_path_hint": None if row[13] is None else str(row[13]),
                 "role": None if row[14] is None else str(row[14]),
             },
-            "read": bool(row[15]),
-            "starred": bool(row[16]),
-            "archived": bool(row[17]),
-            "deleted": bool(row[18]),
             "recipients": [
                 {
                     "kind": str(recipient_row[0]),
