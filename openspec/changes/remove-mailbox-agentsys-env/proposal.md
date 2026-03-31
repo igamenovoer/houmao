@@ -2,16 +2,16 @@
 
 Mailbox association and mailbox actionability are currently described through too many overlapping surfaces: the session manifest, registry copies, `AGENTSYS_MAILBOX_*` launch env, tmux-published live mailbox env, and transport-owned state such as filesystem paths or session-local Stalwart credential files. That makes it unclear which layer is authoritative and forces mailbox behavior, status, and docs to reason about a mailbox-specific env projection that is no longer needed.
 
-This change simplifies the contract by making the manifest-backed mailbox binding the single durable authority for a managed session and by removing mailbox-specific `AGENTSYS_*` env publication as a mailbox runtime requirement.
+This change simplifies the contract by making the manifest-backed mailbox binding the single durable authority for a managed session and by removing mailbox-specific `AGENTSYS_*` env publication as a mailbox runtime requirement. The current codebase has already partially collapsed mailbox activation to `active`, so the remaining work is now mostly cleanup of residual env-driven discovery, stale live-mailbox metadata, and public payload or docs surfaces that still describe the older projection model.
 
 ## What Changes
 
 - **BREAKING** Remove mailbox-specific `AGENTSYS_MAILBOX_*` runtime env publication from managed-session mailbox behavior and stop treating tmux mailbox env as live mailbox authority.
 - Make the persisted session mailbox binding the only authoritative mailbox association record for a managed session, with resolver output and transport-local prerequisites derived from that binding.
-- Update `houmao-mgr agents mail resolve-live` to be the supported structured discovery surface for current mailbox work without requiring mailbox shell exports.
-- Simplify managed-agent mailbox activation semantics so late mailbox registration and mailbox status no longer rely on `pending_relaunch` or tmux mailbox projection refresh.
+- Update `houmao-mgr agents mail resolve-live` to be the supported structured discovery surface for current mailbox work without mailbox shell exports or mailbox `env` payloads.
+- Remove obsolete mailbox live-state cleanup paths, including residual `pending_relaunch`, `relaunch_required`, and mailbox-live metadata that only existed to model tmux mailbox projection drift.
 - Update gateway notifier readiness to validate actionable mailbox state from the manifest-backed binding and transport-local checks instead of tmux mailbox env.
-- Update mailbox and CLI reference docs to describe the manifest-first, resolver-first mailbox contract and remove mailbox-env-specific operator guidance.
+- Update mailbox, gateway, system-files, and CLI reference docs to describe the manifest-first, resolver-first mailbox contract and remove mailbox-env-specific operator guidance.
 
 ## Capabilities
 
@@ -30,5 +30,5 @@ This change simplifies the contract by making the manifest-backed mailbox bindin
 ## Impact
 
 - Affected code includes mailbox runtime helpers, session launch-plan assembly, managed-agent mailbox status/reporting, gateway notifier readiness, mailbox system skills, and `houmao-mgr agents mail` output shaping.
-- Affected operator/documentation surfaces include mailbox contract docs, mailbox operations docs, and CLI reference coverage for `agents mail resolve-live`.
+- Affected operator/documentation surfaces include mailbox contract docs, mailbox operations docs, gateway and system-files reference pages that currently mention mailbox env, and CLI reference coverage for `agents mail resolve-live`.
 - Existing tests that assert mailbox env bindings, tmux mailbox projection refresh, or shell-export output will need to be replaced with manifest-backed and resolver-backed assertions.
