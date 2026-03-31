@@ -15,7 +15,10 @@ from houmao.agents.brain_builder import (
     load_launch_overrides_input,
 )
 from houmao.mailbox.protocol import mailbox_address_path_segment
-from houmao.project.overlay import resolve_materialized_project_aware_agent_def_dir
+from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+    resolve_materialized_project_aware_agent_def_dir,
+)
 
 from .agent_identity import is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
@@ -38,12 +41,14 @@ from .runtime import (
 
 _AMBIENT_AGENT_DEF_DIR_HELP = (
     "Agent definition directory root (contains tools/, skills/, and roles/). "
-    "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > nearest ancestor "
+    "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > "
+    f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
     ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
 )
 _CONTROL_AGENT_DEF_DIR_HELP = (
     "Agent definition directory root (contains tools/, skills/, and roles/). "
-    "For manifest-path control: CLI > AGENTSYS_AGENT_DEF_DIR > nearest ancestor "
+    "For manifest-path control: CLI > AGENTSYS_AGENT_DEF_DIR > "
+    f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
     ".houmao/houmao-config.toml > <pwd>/.houmao/agents. "
     "For name-based tmux control: explicit CLI override or the addressed session's "
     "AGENTSYS_AGENT_DEF_DIR."
@@ -952,7 +957,12 @@ def _resolve_explicit_agent_def_dir_override(cli_value: str | None, *, cwd: Path
 
 
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
-    return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    """Resolve the ambient agent-definition root for deprecated runtime entrypoints."""
+
+    try:
+        return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    except ValueError as exc:
+        raise BrainLaunchRuntimeError(str(exc)) from exc
 
 
 def _add_mail_common_args(parser: argparse.ArgumentParser) -> None:

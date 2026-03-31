@@ -16,12 +16,17 @@ For repo-local workflows, the supported path is `houmao-mgr project init`, which
 
 The whole `.houmao/` overlay is local-only by default because `.houmao/.gitignore` contains `*`.
 
+CI or controlled automation can bypass the default `<cwd>/.houmao` location by setting `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path`. When that env var is set, Houmao treats `/abs/path` itself as the overlay root and resolves `houmao-config.toml`, `catalog.sqlite`, `agents/`, and `mailbox/` directly under that directory.
+
 Commands that need an agent-definition root resolve it with this precedence:
 
 1. explicit CLI `--agent-def-dir`
 2. `AGENTSYS_AGENT_DEF_DIR`
-3. nearest ancestor `.houmao/houmao-config.toml`
-4. default `<pwd>/.houmao/agents`
+3. `HOUMAO_PROJECT_OVERLAY_DIR`
+4. nearest ancestor `.houmao/houmao-config.toml`
+5. default `<pwd>/.houmao/agents`
+
+`HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path. If it points at an overlay that already contains `houmao-config.toml`, that selected overlay becomes the discovery anchor. If it points at an overlay directory without config yet, project-aware fallback paths come from `<overlay-root>/agents` until you initialize it.
 
 ## Directory Layout
 

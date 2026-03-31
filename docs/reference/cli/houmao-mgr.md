@@ -157,10 +157,11 @@ houmao-mgr brains build [OPTIONS]
 
 1. `--agent-def-dir`
 2. `AGENTSYS_AGENT_DEF_DIR`
-3. nearest ancestor `.houmao/houmao-config.toml`
-4. default `<pwd>/.houmao/agents`
+3. `HOUMAO_PROJECT_OVERLAY_DIR`
+4. nearest ancestor `.houmao/houmao-config.toml`
+5. default `<pwd>/.houmao/agents`
 
-When project discovery wins, `.houmao/houmao-config.toml` is the overlay discovery anchor and `.houmao/agents/` is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
+`HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly for CI or controlled automation. When env selection or discovery wins, `houmao-config.toml` inside that overlay is the discovery anchor and `agents/` under the same overlay is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
 
 When `--preset` resolves to a recipe that carries `launch.env_records`, `brains build` projects those records as durable non-credential launch env alongside the selected auth bundle. Those env records come from specialist launch config, not from one-off instance launch input.
 
@@ -170,7 +171,7 @@ When `--preset` resolves to a recipe that carries `launch.env_records`, `brains 
 houmao-mgr project [OPTIONS] COMMAND [ARGS]...
 ```
 
-Local operator workflow for bootstrapping and inspecting one repo-local `.houmao/` overlay.
+Local operator workflow for bootstrapping and inspecting one repo-local overlay. By default the overlay root is `<pwd>/.houmao`. Set `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` to target a different overlay directory directly.
 
 Command shape:
 
@@ -193,32 +194,33 @@ houmao-mgr project
 
 | Subcommand | Description |
 |---|---|
-| `init` | Create or validate `.houmao/`, write `.houmao/houmao-config.toml`, write `.houmao/.gitignore`, create `.houmao/catalog.sqlite`, and create managed `.houmao/content/` roots. |
-| `status` | Report whether a project overlay was discovered from the current directory, which catalog was found, and which agent-definition root is effective. |
+| `init` | Create or validate the selected overlay root, default `<pwd>/.houmao`, write `houmao-config.toml`, write `.gitignore`, create `catalog.sqlite`, and create managed `content/` roots. |
+| `status` | Report whether a project overlay was discovered under the selected overlay root, which catalog was found, and which agent-definition root is effective. |
 | `agents` | Low-level filesystem-oriented management for the `.houmao/agents/` compatibility projection. |
 | `easy` | Higher-level specialist and instance workflow persisted in `.houmao/catalog.sqlite` with file-backed payloads under `.houmao/content/`. |
-| `mailbox` | Project-scoped wrapper over the generic mailbox-root CLI targeting `.houmao/mailbox`. |
+| `mailbox` | Project-scoped wrapper over the generic mailbox-root CLI targeting `mailbox/` under the active overlay root. |
 
 Project overlay notes:
 
-- `project init` targets the current working directory in v1.
-- `.houmao/.gitignore` contains `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
-- `project status` uses nearest-ancestor discovery for `.houmao/houmao-config.toml`.
-- `project init` creates `.houmao/catalog.sqlite` plus managed `.houmao/content/prompts/`, `.houmao/content/auth/`, `.houmao/content/skills/`, and `.houmao/content/setups/`.
-- `project init` does not create `.houmao/agents/`, `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` by default.
-- `project init --with-compatibility-profiles` opts into pre-creating `.houmao/agents/compatibility-profiles/`.
+- `project init` bootstraps `<pwd>/.houmao` by default.
+- `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` selects `/abs/path` as the overlay root directly and must be absolute.
+- The selected overlay root gets a local `.gitignore` containing `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
+- `project status` resolves the active overlay root from `HOUMAO_PROJECT_OVERLAY_DIR` first, then nearest-ancestor `.houmao/houmao-config.toml` discovery.
+- `project init` creates `catalog.sqlite` plus managed `content/prompts/`, `content/auth/`, `content/skills/`, and `content/setups/` under the selected overlay root.
+- `project init` does not create `agents/`, `agents/compatibility-profiles/`, `mailbox/`, or `easy/` under the selected overlay root by default.
+- `project init --with-compatibility-profiles` opts into pre-creating `agents/compatibility-profiles/` under the selected overlay root.
 
 #### `project agents`
 
-`project agents` is the low-level maintenance surface for the compatibility projection tree under `.houmao/agents/`.
+`project agents` is the low-level maintenance surface for the compatibility projection tree under `agents/` in the active overlay root.
 
 | Subcommand | Description |
 |---|---|
-| `roles list|get|init|scaffold|remove` | Inspect, create, scaffold, or delete role roots under `.houmao/agents/roles/`. |
-| `roles presets list|get|add|remove` | Manage canonical preset files under `roles/<role>/presets/<tool>/<setup>.yaml`. |
+| `roles list|get|init|scaffold|remove` | Inspect, create, scaffold, or delete role roots under `agents/roles/`. |
+| `roles presets list|get|add|remove` | Manage canonical preset files under `agents/roles/<role>/presets/<tool>/<setup>.yaml`. |
 | `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
-| `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `.houmao/agents/tools/<tool>/setups/`. |
-| `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `.houmao/agents/tools/<tool>/auth/<name>/`. |
+| `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
+| `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `agents/tools/<tool>/auth/<name>/`. |
 
 #### `project easy`
 
@@ -226,7 +228,7 @@ Project overlay notes:
 
 | Subcommand | Description |
 |---|---|
-| `specialist create` | Persist one specialist in `.houmao/catalog.sqlite`, snapshot prompt/auth/skill payloads into `.houmao/content/`, and materialize the needed `.houmao/agents/` compatibility projection. |
+| `specialist create` | Persist one specialist in `catalog.sqlite`, snapshot prompt/auth/skill payloads into `content/`, and materialize the needed `agents/` compatibility projection under the active overlay root. |
 | `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection; `get` reports stored launch config such as `launch.prompt_mode` and `launch.env_records`. |
 | `instance launch` | Launch one managed agent from a compiled specialist with required `--specialist` and `--name` inputs. |
 | `instance stop` | Stop one managed agent through the project-aware easy instance surface. |
@@ -243,7 +245,7 @@ Project overlay notes:
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
 - maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset.
 - specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
-- The project-local catalog is the source of truth; `.houmao/agents/` is a compatibility projection that is materialized as needed.
+- The project-local catalog is the source of truth; `agents/` under the active overlay root is a compatibility projection that is materialized as needed.
 
 `project easy instance launch` notes:
 
@@ -257,7 +259,7 @@ Project overlay notes:
 
 #### `project mailbox`
 
-`project mailbox` mirrors the generic mailbox-root CLI, but automatically targets the discovered project's `.houmao/mailbox` root.
+`project mailbox` mirrors the generic mailbox-root CLI, but automatically targets `mailbox/` under the active overlay root selected by `HOUMAO_PROJECT_OVERLAY_DIR` or nearest-ancestor discovery.
 
 | Subcommand | Description |
 |---|---|

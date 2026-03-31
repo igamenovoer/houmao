@@ -9,7 +9,11 @@ from click.testing import CliRunner
 import pytest
 import yaml
 
-from houmao.project.overlay import bootstrap_project_overlay
+from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+    bootstrap_project_overlay,
+    bootstrap_project_overlay_at_root,
+)
 from houmao.server.models import HoumaoManagedAgentIdentity, HoumaoManagedAgentListResponse
 from houmao.srv_ctrl.commands.main import cli
 
@@ -103,6 +107,53 @@ def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
     assert not (repo_root / ".houmao" / "easy").exists()
 
 
+def test_project_init_uses_overlay_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    root_gitignore = repo_root / ".gitignore"
+    root_gitignore.write_text("existing-entry\n", encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(
+        cli,
+        ["project", "init"],
+        env={PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root)},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["overlay_root"] == str(overlay_root)
+    assert root_gitignore.read_text(encoding="utf-8") == "existing-entry\n"
+    assert (overlay_root / ".gitignore").read_text(encoding="utf-8") == "*\n"
+    assert (overlay_root / "houmao-config.toml").is_file()
+    assert (overlay_root / "catalog.sqlite").is_file()
+    assert (overlay_root / "content" / "prompts").is_dir()
+
+
+def test_project_init_rejects_relative_overlay_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(
+        cli,
+        ["project", "init"],
+        env={PROJECT_OVERLAY_DIR_ENV_VAR: "relative/overlay"},
+    )
+
+    assert result.exit_code != 0
+    assert "HOUMAO_PROJECT_OVERLAY_DIR" in result.output
+
+
 def test_project_init_can_opt_into_compatibility_profiles(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -135,10 +186,69 @@ def test_project_status_reports_discovered_overlay_from_nested_directory(
     payload = json.loads(result.output)
     assert payload["discovered"] is True
     assert payload["project_root"] == str(repo_root)
+    assert payload["overlay_root"] == str((repo_root / ".houmao").resolve())
+    assert payload["overlay_root_source"] == "discovered"
     assert payload["config_path"] == str((repo_root / ".houmao" / "houmao-config.toml").resolve())
     assert payload["effective_agent_def_dir"] == str((repo_root / ".houmao" / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_config"
     assert payload["project_mailbox_root"] == str((repo_root / ".houmao" / "mailbox").resolve())
+
+
+def test_project_status_reports_env_selected_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    nested_dir = repo_root / "nested" / "child"
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay_at_root(overlay_root)
+    monkeypatch.chdir(nested_dir)
+
+    result = runner.invoke(
+        cli,
+        ["project", "status"],
+        env={PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root)},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["discovered"] is True
+    assert payload["overlay_root"] == str(overlay_root)
+    assert payload["overlay_root_source"] == "env"
+    assert payload["config_path"] == str((overlay_root / "houmao-config.toml").resolve())
+    assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
+    assert payload["effective_agent_def_dir_source"] == "project_config"
+    assert payload["project_mailbox_root"] == str((overlay_root / "mailbox").resolve())
+
+
+def test_project_status_reports_missing_env_selected_overlay_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(
+        cli,
+        ["project", "status"],
+        env={PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root)},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["discovered"] is False
+    assert payload["project_root"] is None
+    assert payload["overlay_root"] == str(overlay_root)
+    assert payload["overlay_root_source"] == "env"
+    assert payload["config_path"] is None
+    assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
+    assert payload["effective_agent_def_dir_source"] == "project_overlay_env"
+    assert payload["project_mailbox_root"] is None
 
 
 def test_project_agents_tools_auth_get_and_setups_flow(

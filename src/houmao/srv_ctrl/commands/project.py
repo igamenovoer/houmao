@@ -32,10 +32,12 @@ from houmao.project.easy import (
 )
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
-    bootstrap_project_overlay,
+    bootstrap_project_overlay_at_root,
     ensure_project_agent_compatibility_tree,
     materialize_project_agent_catalog_projection,
     require_project_overlay,
+    resolve_project_init_overlay_root,
+    resolve_project_overlay,
     resolve_project_aware_agent_def_dir,
 )
 
@@ -76,12 +78,13 @@ def project_group() -> None:
     help="Also create the optional `.houmao/agents/compatibility-profiles/` subtree.",
 )
 def init_project_command(with_compatibility_profiles: bool) -> None:
-    """Create or validate the local `.houmao/` project overlay in the current directory."""
+    """Create or validate the active project overlay, defaulting to `<cwd>/.houmao`."""
 
     cwd = Path.cwd().resolve()
     try:
-        result = bootstrap_project_overlay(
-            cwd,
+        overlay_root = resolve_project_init_overlay_root(cwd=cwd)
+        result = bootstrap_project_overlay_at_root(
+            overlay_root,
             include_compatibility_profiles=with_compatibility_profiles,
         )
     except ValueError as exc:
@@ -109,13 +112,18 @@ def project_status_command() -> None:
     """Report the discovered repo-local Houmao project-overlay state."""
 
     cwd = Path.cwd().resolve()
-    resolution = resolve_project_aware_agent_def_dir(cwd=cwd)
-    overlay = resolution.project_overlay
+    try:
+        overlay_resolution = resolve_project_overlay(cwd=cwd)
+        resolution = resolve_project_aware_agent_def_dir(cwd=cwd)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    overlay = overlay_resolution.project_overlay
     emit_json(
         {
             "discovered": overlay is not None,
             "project_root": str(overlay.project_root) if overlay is not None else None,
-            "overlay_root": str(overlay.overlay_root) if overlay is not None else None,
+            "overlay_root": str(overlay_resolution.overlay_root),
+            "overlay_root_source": overlay_resolution.source,
             "config_path": str(overlay.config_path) if overlay is not None else None,
             "catalog_path": str(overlay.catalog_path) if overlay is not None else None,
             "effective_agent_def_dir": str(resolution.agent_def_dir),
