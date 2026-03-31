@@ -38,8 +38,8 @@ MailExecutionPath = Literal["manager_direct", "gateway_backed", "tui_submission"
 MailSubmissionStatus = Literal["submitted", "rejected", "busy", "interrupted", "tui_error"]
 
 MAIL_REQUEST_VERSION = 1
-MAIL_RESULT_BEGIN_SENTINEL = "AGENTSYS_MAIL_RESULT_BEGIN"
-MAIL_RESULT_END_SENTINEL = "AGENTSYS_MAIL_RESULT_END"
+MAIL_RESULT_BEGIN_SENTINEL = "HOUMAO_MAIL_RESULT_BEGIN"
+MAIL_RESULT_END_SENTINEL = "HOUMAO_MAIL_RESULT_END"
 MAIL_RESULT_SURFACES_PAYLOAD_KEY = "mail_result_surfaces"
 
 
@@ -216,7 +216,7 @@ def prepare_mail_prompt(
                 f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`."
             ),
             "",
-            "AGENTSYS_MAIL_REQUEST:",
+            "HOUMAO_MAIL_REQUEST:",
             "```json",
             json.dumps(request_payload, indent=2, sort_keys=True),
             "```",

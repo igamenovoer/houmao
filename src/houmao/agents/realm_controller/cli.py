@@ -41,17 +41,17 @@ from .runtime import (
 
 _AMBIENT_AGENT_DEF_DIR_HELP = (
     "Agent definition directory root (contains tools/, skills/, and roles/). "
-    "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > "
+    "Precedence: CLI > HOUMAO_AGENT_DEF_DIR > "
     f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
     ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
 )
 _CONTROL_AGENT_DEF_DIR_HELP = (
     "Agent definition directory root (contains tools/, skills/, and roles/). "
-    "For manifest-path control: CLI > AGENTSYS_AGENT_DEF_DIR > "
+    "For manifest-path control: CLI > HOUMAO_AGENT_DEF_DIR > "
     f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
     ".houmao/houmao-config.toml > <pwd>/.houmao/agents. "
     "For name-based tmux control: explicit CLI override or the addressed session's "
-    "AGENTSYS_AGENT_DEF_DIR."
+    "HOUMAO_AGENT_DEF_DIR."
 )
 _DEPRECATED_CAO_RUNTIME_GUIDANCE = (
     "Standalone backend='cao_rest' operator workflows are retired. "

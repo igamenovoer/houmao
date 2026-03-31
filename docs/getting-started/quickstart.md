@@ -203,8 +203,8 @@ Mailbox state is opt-in for project overlays. Initialize it only when you need r
 ```bash
 pixi run houmao-mgr project mailbox init
 pixi run houmao-mgr project mailbox register \
-  --address AGENTSYS-research@agents.localhost \
-  --principal-id AGENTSYS-research
+  --address HOUMAO-research@agents.localhost \
+  --principal-id HOUMAO-research
 pixi run houmao-mgr project mailbox accounts list
 ```
 

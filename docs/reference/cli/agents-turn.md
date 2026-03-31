@@ -23,7 +23,7 @@ houmao-mgr agents turn submit [OPTIONS]
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
 | `--port INTEGER` | Houmao pair authority port to use. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 ### `status`
 

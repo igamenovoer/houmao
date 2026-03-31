@@ -29,7 +29,7 @@ When attached shared-mailbox work needs the exact live `/v1/mail/*` endpoint, us
 
 For local serverless usage, prefer `houmao-mgr` late registration instead of launch-time mailbox flags. In v1, the implemented transports are `filesystem` and `stalwart`, but the native `houmao-mgr mailbox ...` and `houmao-mgr agents mailbox ...` workflow targets the filesystem transport only.
 
-Implicit filesystem mailbox state defaults to `~/.houmao/mailbox`, independently from the runtime root. `AGENTSYS_GLOBAL_MAILBOX_DIR` relocates that shared mailbox area for CI or controlled environments, and an explicit `--mailbox-root` override still wins for one command.
+Implicit filesystem mailbox state defaults to `~/.houmao/mailbox`, independently from the runtime root. `HOUMAO_GLOBAL_MAILBOX_DIR` relocates that shared mailbox area for CI or controlled environments, and an explicit `--mailbox-root` override still wins for one command.
 
 1. Bootstrap or validate the shared mailbox root.
 
@@ -67,9 +67,9 @@ Typical status output after a successful headless registration:
 ```json
 {
   "activation_state": "active",
-  "address": "AGENTSYS-research@agents.localhost",
+  "address": "HOUMAO-research@agents.localhost",
   "mailbox_root": "/abs/path/tmp/shared-mail",
-  "principal_id": "AGENTSYS-research",
+  "principal_id": "HOUMAO-research",
   "registered": true,
   "runtime_mailbox_enabled": true,
   "transport": "filesystem"
@@ -126,11 +126,11 @@ Typical stdout is a verified manager result when Houmao owns the mailbox executi
 
 ```json
 {
-  "address": "AGENTSYS-research@agents.localhost",
+  "address": "HOUMAO-research@agents.localhost",
   "authoritative": true,
   "execution_path": "manager_direct",
   "operation": "check",
-  "principal_id": "AGENTSYS-research",
+  "principal_id": "HOUMAO-research",
   "schema_version": 1,
   "status": "verified",
   "transport": "filesystem",
@@ -143,7 +143,7 @@ Typical stdout is a verified manager result when Houmao owns the mailbox executi
 ```bash
 pixi run houmao-mgr agents mail send \
   --agent-name research \
-  --to AGENTSYS-orchestrator@agents.localhost \
+  --to HOUMAO-orchestrator@agents.localhost \
   --subject "Investigate parser drift" \
   --body-file body.md \
   --attach notes.txt
@@ -153,7 +153,7 @@ Important details:
 
 - `--to` is required and may be repeated.
 - `--cc` is optional and may be repeated.
-- Recipients must be full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
+- Recipients must be full mailbox addresses such as `HOUMAO-orchestrator@agents.localhost`.
 - Exactly one of `--body-file` or `--body-content` must be supplied.
 - `--attach` paths are validated by the CLI before they are surfaced to the session.
 - When Houmao can execute through pair-owned, gateway-backed, or manager-owned direct authority, the result is authoritative.

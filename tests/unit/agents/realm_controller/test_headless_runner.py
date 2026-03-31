@@ -147,7 +147,7 @@ def test_headless_runner_tmux_persists_process_metadata(
         cwd=tmp_path,
         turn_index=1,
         output_format="stream-json",
-        tmux_session_name="AGENTSYS-headless-test",
+        tmux_session_name="HOUMAO-headless-test",
         turn_artifacts_root=tmp_path / "turn-artifacts",
     )
 
@@ -162,9 +162,9 @@ def test_headless_runner_tmux_persists_process_metadata(
     assert persisted["runner_pid"] == result.process_metadata.runner_pid
     assert persisted["child_pid"] == result.process_metadata.child_pid
     assert persisted["launched_at_utc"]
-    assert prepared_sessions == ["AGENTSYS-headless-test"]
+    assert prepared_sessions == ["HOUMAO-headless-test"]
     assert any(
-        call[:4] == ["respawn-pane", "-k", "-t", "AGENTSYS-headless-test:0.0"]
+        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-test:0.0"]
         for call in tmux_calls
     )
     assert not any(call[:1] == ["new-window"] for call in tmux_calls)
@@ -229,7 +229,7 @@ def test_headless_runner_tmux_mirrors_output_to_console_and_files(
         cwd=tmp_path,
         turn_index=1,
         output_format="stream-json",
-        tmux_session_name="AGENTSYS-headless-visible-output",
+        tmux_session_name="HOUMAO-headless-visible-output",
         turn_artifacts_root=tmp_path / "turn-artifacts",
     )
 
@@ -241,9 +241,9 @@ def test_headless_runner_tmux_mirrors_output_to_console_and_files(
     assert "visible-stderr" in result.stderr_path.read_text(encoding="utf-8")
     assert "visible-stdout" in captured["stdout"]
     assert "visible-stderr" in captured["stderr"]
-    assert prepared_sessions == ["AGENTSYS-headless-visible-output"]
+    assert prepared_sessions == ["HOUMAO-headless-visible-output"]
     assert any(
-        call[:4] == ["respawn-pane", "-k", "-t", "AGENTSYS-headless-visible-output:0.0"]
+        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-visible-output:0.0"]
         for call in tmux_calls
     )
     assert not any(call[:1] == ["new-window"] for call in tmux_calls)
@@ -297,18 +297,18 @@ def test_headless_runner_tmux_reuses_stable_agent_pane_across_turns(
             cwd=tmp_path,
             turn_index=turn_index,
             output_format="stream-json",
-            tmux_session_name="AGENTSYS-headless-reuse",
+            tmux_session_name="HOUMAO-headless-reuse",
             turn_artifacts_root=tmp_path / "turn-artifacts",
         )
         assert result.returncode == 0
 
     assert respawn_targets == [
-        "AGENTSYS-headless-reuse:0.0",
-        "AGENTSYS-headless-reuse:0.0",
+        "HOUMAO-headless-reuse:0.0",
+        "HOUMAO-headless-reuse:0.0",
     ]
     assert prepared_sessions == [
-        "AGENTSYS-headless-reuse",
-        "AGENTSYS-headless-reuse",
+        "HOUMAO-headless-reuse",
+        "HOUMAO-headless-reuse",
     ]
 
 
@@ -324,12 +324,12 @@ def test_headless_runner_interrupt_fallback_uses_stable_agent_pane(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
 
     runner = HeadlessCliRunner()
-    runner._active_tmux_pane_target = "AGENTSYS-headless-test:0.0"  # type: ignore[attr-defined]
+    runner._active_tmux_pane_target = "HOUMAO-headless-test:0.0"  # type: ignore[attr-defined]
 
     result = runner.interrupt()
 
     assert result.status == "ok"
-    assert tmux_calls == [["send-keys", "-t", "AGENTSYS-headless-test:0.0", "C-c"]]
+    assert tmux_calls == [["send-keys", "-t", "HOUMAO-headless-test:0.0", "C-c"]]
 
 
 def test_headless_runner_terminate_fallback_uses_stable_agent_pane(
@@ -344,9 +344,9 @@ def test_headless_runner_terminate_fallback_uses_stable_agent_pane(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
 
     runner = HeadlessCliRunner()
-    runner._active_tmux_pane_target = "AGENTSYS-headless-test:0.0"  # type: ignore[attr-defined]
+    runner._active_tmux_pane_target = "HOUMAO-headless-test:0.0"  # type: ignore[attr-defined]
 
     result = runner.terminate()
 
     assert result.status == "ok"
-    assert tmux_calls == [["send-keys", "-t", "AGENTSYS-headless-test:0.0", "C-c"]]
+    assert tmux_calls == [["send-keys", "-t", "HOUMAO-headless-test:0.0", "C-c"]]

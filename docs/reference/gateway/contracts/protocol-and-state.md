@@ -18,8 +18,8 @@ Those layers are kept separate so a session can stay gateway-capable even when n
 Stable attachability is published through the manifest-first contract:
 
 - tmux discovery env:
-  - `AGENTSYS_MANIFEST_PATH`
-  - `AGENTSYS_AGENT_ID`
+  - `HOUMAO_MANIFEST_PATH`
+  - `HOUMAO_AGENT_ID`
 - runtime-owned manifest authority:
   - `<session-root>/manifest.json`
 - derived outward-facing gateway bookkeeping:
@@ -38,7 +38,7 @@ Representative internal bootstrap payload for a `cao_rest` session:
   "schema_version": 1,
   "attach_identity": "cao-rest-1",
   "backend": "cao_rest",
-  "tmux_session_name": "AGENTSYS-gpu",
+  "tmux_session_name": "HOUMAO-gpu",
   "working_directory": "/abs/path/repo",
   "backend_metadata": {
     "api_base_url": "http://localhost:9889",
@@ -89,8 +89,8 @@ Current v1 scope:
 
 Pair-managed current-session attach rules:
 
-- tmux-published `AGENTSYS_MANIFEST_PATH` is the preferred current-session manifest locator
-- when `AGENTSYS_MANIFEST_PATH` is missing or stale, `AGENTSYS_AGENT_ID` plus the shared registry must resolve exactly one fresh `runtime.manifest_path`
+- tmux-published `HOUMAO_MANIFEST_PATH` is the preferred current-session manifest locator
+- when `HOUMAO_MANIFEST_PATH` is missing or stale, `HOUMAO_AGENT_ID` plus the shared registry must resolve exactly one fresh `runtime.manifest_path`
 - the resolved manifest must belong to the current tmux session
 - the resolved manifest must use `backend = "houmao_server_rest"`
 - manifest-declared pair attach authority is authoritative for current-session pair attach
@@ -102,10 +102,10 @@ Live bindings exist only while a gateway process is running.
 
 Published tmux env vars:
 
-- `AGENTSYS_AGENT_GATEWAY_HOST`
-- `AGENTSYS_AGENT_GATEWAY_PORT`
-- `AGENTSYS_GATEWAY_STATE_PATH`
-- `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
+- `HOUMAO_AGENT_GATEWAY_HOST`
+- `HOUMAO_AGENT_GATEWAY_PORT`
+- `HOUMAO_GATEWAY_STATE_PATH`
+- `HOUMAO_GATEWAY_PROTOCOL_VERSION`
 
 Important rules:
 
@@ -165,7 +165,7 @@ Representative live status:
   "protocol_version": "v1",
   "attach_identity": "cao-rest-1",
   "backend": "cao_rest",
-  "tmux_session_name": "AGENTSYS-gpu",
+  "tmux_session_name": "HOUMAO-gpu",
   "gateway_health": "healthy",
   "managed_agent_connectivity": "connected",
   "managed_agent_recovery": "idle",
@@ -192,7 +192,7 @@ Representative seeded offline status:
   "protocol_version": "v1",
   "attach_identity": "cao-rest-1",
   "backend": "cao_rest",
-  "tmux_session_name": "AGENTSYS-gpu",
+  "tmux_session_name": "HOUMAO-gpu",
   "gateway_health": "not_attached",
   "managed_agent_connectivity": "unavailable",
   "managed_agent_recovery": "idle",
@@ -472,8 +472,8 @@ Representative response:
 {
   "schema_version": 1,
   "transport": "filesystem",
-  "principal_id": "AGENTSYS-gpu",
-  "address": "AGENTSYS-gpu@agents.localhost",
+  "principal_id": "HOUMAO-gpu",
+  "address": "HOUMAO-gpu@agents.localhost",
   "bindings_version": "2026-03-19T08:00:00.000001Z"
 }
 ```
@@ -498,8 +498,8 @@ Representative response:
 {
   "schema_version": 1,
   "transport": "filesystem",
-  "principal_id": "AGENTSYS-gpu",
-  "address": "AGENTSYS-gpu@agents.localhost",
+  "principal_id": "HOUMAO-gpu",
+  "address": "HOUMAO-gpu@agents.localhost",
   "unread_only": true,
   "message_count": 1,
   "unread_count": 1,
@@ -512,11 +512,11 @@ Representative response:
       "unread": true,
       "body_preview": "Hello from the shared mailbox surface",
       "sender": {
-        "address": "AGENTSYS-sender@agents.localhost"
+        "address": "HOUMAO-sender@agents.localhost"
       },
       "to": [
         {
-          "address": "AGENTSYS-gpu@agents.localhost"
+          "address": "HOUMAO-gpu@agents.localhost"
         }
       ],
       "cc": [],
@@ -542,7 +542,7 @@ Representative request:
 ```json
 {
   "schema_version": 1,
-  "to": ["AGENTSYS-orchestrator@agents.localhost"],
+  "to": ["HOUMAO-orchestrator@agents.localhost"],
   "cc": [],
   "subject": "Investigate parser drift",
   "body_content": "Hello from the gateway facade",
@@ -585,8 +585,8 @@ Representative response:
 {
   "schema_version": 1,
   "transport": "filesystem",
-  "principal_id": "AGENTSYS-gpu",
-  "address": "AGENTSYS-gpu@agents.localhost",
+  "principal_id": "HOUMAO-gpu",
+  "address": "HOUMAO-gpu@agents.localhost",
   "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
   "read": true
 }

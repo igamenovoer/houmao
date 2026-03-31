@@ -199,7 +199,7 @@ houmao-mgr agents join --headless \
 Operational behavior after a successful join:
 
 - Houmao creates the normal runtime envelope: session root, `manifest.json`, placeholder artifacts, `gateway/`, and workspace-local `job_dir`
-- the tmux session publishes the same discovery pointers as a native launch: `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR`
+- the tmux session publishes the same discovery pointers as a native launch: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, and `HOUMAO_JOB_DIR`
 - the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
 
 Relaunch posture is explicit:
@@ -220,7 +220,7 @@ Supported modes:
 
 Current-session mode is intentionally strict:
 
-- the tmux session must publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`
+- the tmux session must publish `HOUMAO_MANIFEST_PATH` or, failing that, `HOUMAO_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`
 - the resolved manifest must belong to the current tmux session
 - the resolved manifest must use `backend = "houmao_server_rest"`
 - manifest-declared attach authority is authoritative
@@ -229,7 +229,7 @@ Current-session mode is intentionally strict:
 The matching relaunch surface is `houmao-mgr agents relaunch`.
 
 - explicit relaunch resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract first
-- current-session relaunch runs inside the owning tmux session, resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID`, and refreshes the tmux-backed runtime surface without rebuilding the managed-agent home
+- current-session relaunch runs inside the owning tmux session, resolves the manifest through `HOUMAO_MANIFEST_PATH` or shared-registry fallback from `HOUMAO_AGENT_ID`, and refreshes the tmux-backed runtime surface without rebuilding the managed-agent home
 
 Pair-managed tmux topology is intentionally narrow:
 

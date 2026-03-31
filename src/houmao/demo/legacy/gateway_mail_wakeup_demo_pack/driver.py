@@ -195,7 +195,7 @@ def _load_parameters(args: argparse.Namespace, *, repo_root: Path) -> DemoParame
 def _resolve_agent_def_dir(*, parameters: DemoParameters, repo_root: Path) -> Path:
     """Resolve the agent-definition root with env override support."""
 
-    override = os.environ.get("AGENT_DEF_DIR") or os.environ.get("AGENTSYS_AGENT_DEF_DIR")
+    override = os.environ.get("AGENT_DEF_DIR") or os.environ.get("HOUMAO_AGENT_DEF_DIR")
     return resolve_repo_relative_path(
         override if override is not None else parameters.agent_def_dir,
         repo_root=repo_root,

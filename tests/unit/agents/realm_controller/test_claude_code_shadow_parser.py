@@ -30,7 +30,7 @@ def test_claude_shadow_preset_resolution_prefers_env_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parser = ClaudeCodeShadowParser()
-    monkeypatch.setenv("AGENTSYS_CAO_CLAUDE_CODE_VERSION", "2.1.62")
+    monkeypatch.setenv("HOUMAO_CAO_CLAUDE_CODE_VERSION", "2.1.62")
 
     version = parser.resolve_preset_version("Claude Code v0.0.0\n> ")
     snapshot = parser.parse_snapshot(_fixture("exact_preset_match.txt"), baseline_pos=0)

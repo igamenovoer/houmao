@@ -747,7 +747,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help=(
             "Agent definition directory root (contains tools/, skills/, and roles/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > "
+            "Precedence: CLI > HOUMAO_AGENT_DEF_DIR > "
             f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
             ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
         ),

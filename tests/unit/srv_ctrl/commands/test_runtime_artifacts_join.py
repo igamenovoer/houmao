@@ -76,8 +76,8 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
     published_at = datetime.fromisoformat(record.published_at)
     lease_expires_at = datetime.fromisoformat(record.lease_expires_at)
     assert lease_expires_at - published_at == JOINED_REGISTRY_SENTINEL_LEASE_TTL
-    assert published_env["AGENTSYS_MANIFEST_PATH"] == str(result.manifest_path)
-    assert published_env["AGENTSYS_AGENT_ID"] == result.agent_id
+    assert published_env["HOUMAO_MANIFEST_PATH"] == str(result.manifest_path)
+    assert published_env["HOUMAO_AGENT_ID"] == result.agent_id
 
 
 @pytest.mark.parametrize(

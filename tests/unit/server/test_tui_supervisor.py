@@ -55,12 +55,12 @@ def _record(tmp_path: Path) -> KnownSessionRecord:
         session_name="cao-gpu",
         tool="codex",
         terminal_id="abcd1234",
-        tmux_session_name="AGENTSYS-gpu",
+        tmux_session_name="HOUMAO-gpu",
         tmux_window_name="developer-1",
         manifest_path=(tmp_path / "manifest.json").resolve(),
         session_root=(tmp_path / "session-root").resolve(),
-        agent_name="AGENTSYS-gpu",
-        agent_id="AGENTSYS-gpu",
+        agent_name="HOUMAO-gpu",
+        agent_id="HOUMAO-gpu",
     )
 
 

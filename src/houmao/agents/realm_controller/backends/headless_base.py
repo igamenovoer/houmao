@@ -394,9 +394,9 @@ class HeadlessInteractiveSession:
         launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
         if self._agent_def_dir is not None:
             launch_env[AGENT_DEF_DIR_ENV_VAR] = str(self._agent_def_dir)
-        launch_env["AGENTSYS_TOOL"] = self._plan.tool
+        launch_env["HOUMAO_TOOL"] = self._plan.tool
         if self._state.session_id:
-            launch_env["AGENTSYS_RESUME_ID"] = self._state.session_id
+            launch_env["HOUMAO_RESUME_ID"] = self._state.session_id
 
         try:
             set_tmux_session_environment_shared(

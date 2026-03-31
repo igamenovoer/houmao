@@ -40,8 +40,8 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
     home_path = tmp_path / "home"
     install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=home_path)
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "AGENTSYS-research"
-    address = "AGENTSYS-research@agents.localhost"
+    principal_id = "HOUMAO-research"
+    address = "HOUMAO-research@agents.localhost"
     if bootstrap_mailbox:
         bootstrap_filesystem_mailbox(
             mailbox_root,
@@ -94,7 +94,7 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     assert "pixi run houmao-mgr agents mail resolve-live" in prompt_request.prompt
     assert "gateway.base_url" in prompt_request.prompt
     assert "attached gateway env vars" not in prompt_request.prompt
-    assert "AGENTSYS_MAIL_RESULT_BEGIN" in prompt_request.prompt
+    assert "HOUMAO_MAIL_RESULT_BEGIN" in prompt_request.prompt
     assert '"operation": "check"' in prompt_request.prompt
 
 
@@ -109,12 +109,12 @@ def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) ->
                 SessionEvent(
                     kind="assistant",
                     message=(
-                        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                        "HOUMAO_MAIL_RESULT_BEGIN\n"
                         '{"request_id":"r1","operation":"check"}\n'
-                        "AGENTSYS_MAIL_RESULT_END\n"
-                        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                        "HOUMAO_MAIL_RESULT_END\n"
+                        "HOUMAO_MAIL_RESULT_BEGIN\n"
                         '{"request_id":"r1","operation":"check"}\n'
-                        "AGENTSYS_MAIL_RESULT_END"
+                        "HOUMAO_MAIL_RESULT_END"
                     ),
                     turn_index=1,
                 )
@@ -140,9 +140,9 @@ def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -
             SessionEvent(
                 kind="done",
                 message=(
-                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
-                    '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":1}\n'
-                    "AGENTSYS_MAIL_RESULT_END"
+                    "HOUMAO_MAIL_RESULT_BEGIN\n"
+                    '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":1}\n'
+                    "HOUMAO_MAIL_RESULT_END"
                 ),
                 turn_index=1,
             ),
@@ -175,9 +175,9 @@ def test_parse_mail_result_accepts_shadow_only_dialog_projection_payload(tmp_pat
                 payload={
                     "dialog_projection": {
                         "dialog_text": (
-                            "AGENTSYS_MAIL_RESULT_BEGIN\n"
-                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":3}\n'
-                            "AGENTSYS_MAIL_RESULT_END"
+                            "HOUMAO_MAIL_RESULT_BEGIN\n"
+                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":3}\n'
+                            "HOUMAO_MAIL_RESULT_END"
                         )
                     }
                 },
@@ -208,9 +208,9 @@ def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payloa
                 payload={
                     "dialog_projection": {
                         "normalized_text": (
-                            "AGENTSYS_MAIL_RESULT_BEGIN\n"
-                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":7}\n'
-                            "AGENTSYS_MAIL_RESULT_END"
+                            "HOUMAO_MAIL_RESULT_BEGIN\n"
+                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":7}\n'
+                            "HOUMAO_MAIL_RESULT_END"
                         ),
                         "dialog_text": "messy tui chrome without sentinels",
                     }
@@ -242,9 +242,9 @@ def test_parse_mail_result_prefers_scoped_mail_result_surfaces(tmp_path: Path) -
                         {
                             "surface_id": "shadow_post_submit.raw_text",
                             "text": (
-                                "AGENTSYS_MAIL_RESULT_BEGIN\n"
-                                '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"AGENTSYS-research","unread_count":9}\n'
-                                "AGENTSYS_MAIL_RESULT_END"
+                                "HOUMAO_MAIL_RESULT_BEGIN\n"
+                                '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":9}\n'
+                                "HOUMAO_MAIL_RESULT_END"
                             ),
                         }
                     ],
@@ -346,18 +346,18 @@ def test_mail_check_cli_prints_structured_result(
                 SessionEvent(
                     kind="assistant",
                     message=(
-                        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                        "HOUMAO_MAIL_RESULT_BEGIN\n"
                         + json.dumps(
                             {
                                 "ok": True,
                                 "request_id": request_id,
                                 "operation": "check",
                                 "transport": "filesystem",
-                                "principal_id": "AGENTSYS-research",
+                                "principal_id": "HOUMAO-research",
                                 "unread_count": 2,
                             }
                         )
-                        + "\nAGENTSYS_MAIL_RESULT_END"
+                        + "\nHOUMAO_MAIL_RESULT_END"
                     ),
                     turn_index=1,
                 )
@@ -381,7 +381,7 @@ def test_mail_check_cli_prints_structured_result(
             "mail",
             "check",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--unread-only",
             "--limit",
             "5",
@@ -420,18 +420,18 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
                 SessionEvent(
                     kind="assistant",
                     message=(
-                        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                        "HOUMAO_MAIL_RESULT_BEGIN\n"
                         + json.dumps(
                             {
                                 "ok": True,
                                 "request_id": request_id,
                                 "operation": "send",
                                 "transport": "filesystem",
-                                "principal_id": "AGENTSYS-research",
+                                "principal_id": "HOUMAO-research",
                                 "message_ref": "filesystem:msg-20260312T050000Z-abc",
                             }
                         )
-                        + "\nAGENTSYS_MAIL_RESULT_END"
+                        + "\nHOUMAO_MAIL_RESULT_END"
                     ),
                     turn_index=1,
                 )
@@ -455,9 +455,9 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
             "mail",
             "send",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--to",
-            "AGENTSYS-orchestrator@agents.localhost",
+            "HOUMAO-orchestrator@agents.localhost",
             "--subject",
             "Investigate parser drift",
             "--body-file",
@@ -507,7 +507,7 @@ def test_mail_send_cli_rejects_short_recipient_names(
             "mail",
             "send",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--to",
             "bob",
             "--subject",
@@ -555,7 +555,7 @@ def test_mail_command_errors_for_missing_bootstrap_assets(
             "mail",
             "check",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
         ]
     )
 
@@ -596,7 +596,7 @@ def test_mail_command_errors_for_busy_session(
             "mail",
             "check",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
         ]
     )
 
@@ -640,7 +640,7 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
             "mail",
             "check",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
         ]
     )
 
@@ -659,9 +659,9 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
 def test_extract_sentinel_blocks_finds_standalone_block() -> None:
     text = (
         "Some preamble\n"
-        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        "HOUMAO_MAIL_RESULT_BEGIN\n"
         '{"ok": true}\n'
-        "AGENTSYS_MAIL_RESULT_END\n"
+        "HOUMAO_MAIL_RESULT_END\n"
         "trailing text"
     )
     blocks = extract_sentinel_blocks(text)
@@ -675,9 +675,9 @@ def test_extract_sentinel_blocks_ignores_inline_sentinel_mentions() -> None:
     """Sentinel names inside prose or JSON values are NOT standalone blocks."""
     text = (
         "Return exactly one JSON result between "
-        "`AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END`.\n"
-        '{"sentinel_begin": "AGENTSYS_MAIL_RESULT_BEGIN", '
-        '"sentinel_end": "AGENTSYS_MAIL_RESULT_END"}\n'
+        "`HOUMAO_MAIL_RESULT_BEGIN` and `HOUMAO_MAIL_RESULT_END`.\n"
+        '{"sentinel_begin": "HOUMAO_MAIL_RESULT_BEGIN", '
+        '"sentinel_end": "HOUMAO_MAIL_RESULT_END"}\n'
     )
     blocks = extract_sentinel_blocks(text)
     assert blocks == []
@@ -687,16 +687,16 @@ def test_extract_sentinel_blocks_ignores_prompt_echo_finds_real_block() -> None:
     """Prompt echo with inline sentinel names followed by a real standalone block."""
     text = (
         "Return exactly one JSON result between "
-        "`AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END`.\n"
+        "`HOUMAO_MAIL_RESULT_BEGIN` and `HOUMAO_MAIL_RESULT_END`.\n"
         "\n"
-        "AGENTSYS_MAIL_REQUEST:\n```json\n"
-        '{"response_contract": {"sentinel_begin": "AGENTSYS_MAIL_RESULT_BEGIN", '
-        '"sentinel_end": "AGENTSYS_MAIL_RESULT_END"}}\n'
+        "HOUMAO_MAIL_REQUEST:\n```json\n"
+        '{"response_contract": {"sentinel_begin": "HOUMAO_MAIL_RESULT_BEGIN", '
+        '"sentinel_end": "HOUMAO_MAIL_RESULT_END"}}\n'
         "```\n"
         "\n"
-        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        "HOUMAO_MAIL_RESULT_BEGIN\n"
         '{"ok": true, "request_id": "r1", "operation": "check"}\n'
-        "AGENTSYS_MAIL_RESULT_END\n"
+        "HOUMAO_MAIL_RESULT_END\n"
     )
     blocks = extract_sentinel_blocks(text)
     assert len(blocks) == 1
@@ -705,19 +705,19 @@ def test_extract_sentinel_blocks_ignores_prompt_echo_finds_real_block() -> None:
 
 def test_extract_sentinel_blocks_returns_multiple_blocks() -> None:
     text = (
-        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        "HOUMAO_MAIL_RESULT_BEGIN\n"
         '{"a": 1}\n'
-        "AGENTSYS_MAIL_RESULT_END\n"
-        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        "HOUMAO_MAIL_RESULT_END\n"
+        "HOUMAO_MAIL_RESULT_BEGIN\n"
         '{"b": 2}\n'
-        "AGENTSYS_MAIL_RESULT_END\n"
+        "HOUMAO_MAIL_RESULT_END\n"
     )
     blocks = extract_sentinel_blocks(text)
     assert len(blocks) == 2
 
 
 def test_extract_sentinel_blocks_begin_without_end() -> None:
-    text = 'AGENTSYS_MAIL_RESULT_BEGIN\n{"ok": true}\n'
+    text = 'HOUMAO_MAIL_RESULT_BEGIN\n{"ok": true}\n'
     blocks = extract_sentinel_blocks(text)
     assert blocks == []
 
@@ -740,7 +740,7 @@ def _build_prompt_echo_surface() -> str:
         "Return exactly one JSON result between "
         f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"
         "\n"
-        "AGENTSYS_MAIL_REQUEST:\n"
+        "HOUMAO_MAIL_REQUEST:\n"
         "```json\n"
         + json.dumps(
             {
@@ -772,9 +772,9 @@ def test_shadow_contract_reached_when_real_block_follows_echo() -> None:
     text = (
         _build_prompt_echo_surface()
         + "\n"
-        + "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        + "HOUMAO_MAIL_RESULT_BEGIN\n"
         + '{"ok": true, "request_id": "r1", "operation": "check"}\n'
-        + "AGENTSYS_MAIL_RESULT_END\n"
+        + "HOUMAO_MAIL_RESULT_END\n"
     )
     surface_payloads = ({"surface_id": "shadow_post_submit.normalized_text", "text": text},)
     assert shadow_mail_result_contract_reached(surface_payloads) is True
@@ -785,9 +785,9 @@ def test_shadow_contract_for_request_requires_active_request_match(tmp_path: Pat
     mailbox = _build_launch_plan(tmp_path).mailbox
     assert mailbox is not None
     text = (
-        "AGENTSYS_MAIL_RESULT_BEGIN\n"
-        + '{"ok": true, "request_id": "old", "operation": "send", "transport": "filesystem", "principal_id": "AGENTSYS-research", "message_id": "msg-old"}\n'
-        + "AGENTSYS_MAIL_RESULT_END\n"
+        "HOUMAO_MAIL_RESULT_BEGIN\n"
+        + '{"ok": true, "request_id": "old", "operation": "send", "transport": "filesystem", "principal_id": "HOUMAO-research", "message_id": "msg-old"}\n'
+        + "HOUMAO_MAIL_RESULT_END\n"
     )
     surface_payloads = ({"surface_id": "shadow_post_submit.raw_text", "text": text},)
 
@@ -819,14 +819,14 @@ def test_parse_mail_result_succeeds_with_prompt_echo_plus_real_block(tmp_path: P
             "request_id": "r1",
             "operation": "check",
             "transport": "filesystem",
-            "principal_id": "AGENTSYS-research",
+            "principal_id": "HOUMAO-research",
             "unread_count": 5,
         }
     )
     text = (
         _build_prompt_echo_surface()
         + "\n"
-        + f"AGENTSYS_MAIL_RESULT_BEGIN\n{result_json}\nAGENTSYS_MAIL_RESULT_END\n"
+        + f"HOUMAO_MAIL_RESULT_BEGIN\n{result_json}\nHOUMAO_MAIL_RESULT_END\n"
     )
 
     payload = parse_mail_result(
@@ -860,7 +860,7 @@ def test_parse_mail_result_still_rejects_malformed_standalone_block(tmp_path: Pa
     mailbox = launch_plan.mailbox
     assert mailbox is not None
 
-    text = "AGENTSYS_MAIL_RESULT_BEGIN\nnot valid json\nAGENTSYS_MAIL_RESULT_END\n"
+    text = "HOUMAO_MAIL_RESULT_BEGIN\nnot valid json\nHOUMAO_MAIL_RESULT_END\n"
     with pytest.raises(MailboxResultParseError, match="not valid JSON"):
         parse_mail_result(
             [SessionEvent(kind="assistant", message=text, turn_index=1)],

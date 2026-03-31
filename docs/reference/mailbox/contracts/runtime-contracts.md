@@ -28,7 +28,7 @@ Current rules:
 - `filesystem` and `stalwart` are implemented in v1.
 - If `principal_id` is omitted, the runtime derives one from the tool, role, and optional agent identity.
 - If `address` is omitted, it defaults to `<principal_id>@agents.localhost`.
-- If `filesystem_root` is omitted, it defaults to `~/.houmao/mailbox` or the location selected by `AGENTSYS_GLOBAL_MAILBOX_DIR`.
+- If `filesystem_root` is omitted, it defaults to `~/.houmao/mailbox` or the location selected by `HOUMAO_GLOBAL_MAILBOX_DIR`.
 - `stalwart` bindings resolve from either `base_url` or explicit `jmap_url` plus `management_url`.
 - Persisted `stalwart` bindings remain secret-free and store `credential_ref` instead of inline credentials.
 
@@ -37,8 +37,8 @@ Representative resolved payload:
 ```json
 {
   "transport": "filesystem",
-  "principal_id": "AGENTSYS-research",
-  "address": "AGENTSYS-research@agents.localhost",
+  "principal_id": "HOUMAO-research",
+  "address": "HOUMAO-research@agents.localhost",
   "filesystem_root": "/abs/path/tmp/shared-mail",
   "bindings_version": "2026-03-13T09:15:30.123456Z"
 }
@@ -144,7 +144,7 @@ Public subcommands:
 Selector rules:
 
 - explicit `--agent-id` or `--agent-name` wins,
-- inside the owning managed tmux session, omitted selectors resolve the current session through `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` fallback second,
+- inside the owning managed tmux session, omitted selectors resolve the current session through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` fallback second,
 - outside tmux without selectors, the command fails explicitly,
 - `--port` is only supported with an explicit selector.
 
@@ -189,12 +189,12 @@ Representative submission result:
 
 ```json
 {
-  "address": "AGENTSYS-research@agents.localhost",
+  "address": "HOUMAO-research@agents.localhost",
   "authoritative": false,
   "execution_path": "tui_submission",
   "operation": "send",
   "request_id": "mailreq-20260313T091530Z-3c9f1e6ab2",
-  "principal_id": "AGENTSYS-research",
+  "principal_id": "HOUMAO-research",
   "schema_version": 1,
   "status": "submitted",
   "transport": "filesystem",

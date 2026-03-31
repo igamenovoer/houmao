@@ -1169,7 +1169,7 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
         return SimpleNamespace(
             agent_identity=kwargs["agent_name"],
             agent_id="agent-123",
-            tmux_session_name="AGENTSYS-repo-research-1",
+            tmux_session_name="HOUMAO-repo-research-1",
             manifest_path=manifest_path,
         )
 
@@ -1320,7 +1320,7 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
         return SimpleNamespace(
             agent_identity=kwargs["agent_name"],
             agent_id="agent-123",
-            tmux_session_name="AGENTSYS-repo-research-1",
+            tmux_session_name="HOUMAO-repo-research-1",
             manifest_path=manifest_path,
         )
 
@@ -1415,7 +1415,7 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
         return SimpleNamespace(
             agent_identity=kwargs["agent_name"],
             agent_id="agent-123",
-            tmux_session_name="AGENTSYS-repo-research-1",
+            tmux_session_name="HOUMAO-repo-research-1",
             manifest_path=manifest_path,
         )
 
@@ -1593,7 +1593,7 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
             or SimpleNamespace(
                 agent_identity=kwargs["agent_name"],
                 agent_id="agent-123",
-                tmux_session_name="AGENTSYS-repo-research-1",
+                tmux_session_name="HOUMAO-repo-research-1",
                 manifest_path=(tmp_path / "manifest.json").resolve(),
             )
         ),
@@ -1797,8 +1797,8 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
         "launch_plan": {
             "mailbox": {
                 "transport": "filesystem",
-                "principal_id": "AGENTSYS-repo-research-1",
-                "address": "AGENTSYS-repo-research-1@agents.localhost",
+                "principal_id": "HOUMAO-repo-research-1",
+                "address": "HOUMAO-repo-research-1@agents.localhost",
                 "filesystem_root": str((tmp_path / "mail-root").resolve()),
                 "mailbox_kind": "symlink",
                 "mailbox_path": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
@@ -1831,8 +1831,8 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert list_payload["instances"][0]["tool"] == "codex"
     assert list_payload["instances"][0]["mailbox"] == {
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-repo-research-1",
-        "address": "AGENTSYS-repo-research-1@agents.localhost",
+        "principal_id": "HOUMAO-repo-research-1",
+        "address": "HOUMAO-repo-research-1@agents.localhost",
         "mailbox_root": str((tmp_path / "mail-root").resolve()),
         "mailbox_kind": "symlink",
         "mailbox_dir": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
@@ -1849,8 +1849,8 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert get_payload["manifest_path"] == str(manifest_path)
     assert get_payload["mailbox"] == {
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-repo-research-1",
-        "address": "AGENTSYS-repo-research-1@agents.localhost",
+        "principal_id": "HOUMAO-repo-research-1",
+        "address": "HOUMAO-repo-research-1@agents.localhost",
         "mailbox_root": str((tmp_path / "mail-root").resolve()),
         "mailbox_kind": "symlink",
         "mailbox_dir": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),

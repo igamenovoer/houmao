@@ -126,8 +126,8 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
         mailbox_block="\n".join(
             [
                 "  transport: filesystem",
-                "  principal_id: AGENTSYS-research",
-                "  address: AGENTSYS-research@agents.localhost",
+                "  principal_id: HOUMAO-research",
+                "  address: HOUMAO-research@agents.localhost",
                 "  filesystem_root: shared-mail",
             ]
         ),
@@ -153,16 +153,16 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
     assert (mailbox.filesystem_root / "protocol-version.txt").is_file()
     assert (mailbox.filesystem_root / "index.sqlite").is_file()
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
-    assert (mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/inbox").is_dir()
+    assert (mailbox.filesystem_root / "mailboxes/HOUMAO-research@agents.localhost/inbox").is_dir()
     assert (
         mailbox.filesystem_root
         / "mailboxes"
-        / "AGENTSYS-research@agents.localhost"
+        / "HOUMAO-research@agents.localhost"
         / "mailbox.sqlite"
     ).is_file()
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
-    assert persisted["launch_plan"]["mailbox"]["principal_id"] == "AGENTSYS-research"
+    assert persisted["launch_plan"]["mailbox"]["principal_id"] == "HOUMAO-research"
     assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(mailbox.filesystem_root)
 
 
@@ -175,8 +175,8 @@ def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path:
         mailbox_block="\n".join(
             [
                 "  transport: filesystem",
-                "  principal_id: AGENTSYS-research",
-                "  address: AGENTSYS-research@agents.localhost",
+                "  principal_id: HOUMAO-research",
+                "  address: HOUMAO-research@agents.localhost",
                 "  filesystem_root: shared-mail",
             ]
         ),
@@ -216,8 +216,8 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
         mailbox_block="\n".join(
             [
                 "  transport: filesystem",
-                "  principal_id: AGENTSYS-research",
-                "  address: AGENTSYS-research@agents.localhost",
+                "  principal_id: HOUMAO-research",
+                "  address: HOUMAO-research@agents.localhost",
                 "  filesystem_root: shared-mail",
             ]
         ),
@@ -248,7 +248,7 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
     assert (
         mailbox.filesystem_root / "mailboxes" / mailbox.address
     ).resolve() == private_mailbox_dir
-    assert "AGENTSYS_MAILBOX_FS_MAILBOX_DIR" not in controller.launch_plan.env
+    assert "HOUMAO_MAILBOX_FS_MAILBOX_DIR" not in controller.launch_plan.env
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["mailbox_kind"] == "symlink"
@@ -272,7 +272,7 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
     assert isinstance(resumed.launch_plan.mailbox, FilesystemMailboxResolvedConfig)
     assert resumed.launch_plan.mailbox.mailbox_kind == "symlink"
     assert resumed.launch_plan.mailbox.mailbox_path == private_mailbox_dir
-    assert "AGENTSYS_MAILBOX_FS_MAILBOX_DIR" not in resumed.launch_plan.env
+    assert "HOUMAO_MAILBOX_FS_MAILBOX_DIR" not in resumed.launch_plan.env
     assert isinstance(captured["launch_plan"].mailbox, FilesystemMailboxResolvedConfig)
     assert captured["launch_plan"].mailbox.mailbox_kind == "symlink"
     assert captured["launch_plan"].mailbox.mailbox_path == private_mailbox_dir
@@ -290,8 +290,8 @@ def test_start_runtime_session_rejects_private_mailbox_inside_shared_root(
         mailbox_block="\n".join(
             [
                 "  transport: filesystem",
-                "  principal_id: AGENTSYS-research",
-                "  address: AGENTSYS-research@agents.localhost",
+                "  principal_id: HOUMAO-research",
+                "  address: HOUMAO-research@agents.localhost",
                 "  filesystem_root: shared-mail",
             ]
         ),
@@ -332,8 +332,8 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
         mailbox_block="\n".join(
             [
                 "  transport: filesystem",
-                "  principal_id: AGENTSYS-mailbox-sender",
-                "  address: AGENTSYS-mailbox-sender@agents.localhost",
+                "  principal_id: HOUMAO-mailbox-sender",
+                "  address: HOUMAO-mailbox-sender@agents.localhost",
                 f"  filesystem_root: {shared_root}",
             ]
         ),
@@ -343,8 +343,8 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
         mailbox_block="\n".join(
             [
                 "  transport: filesystem",
-                "  principal_id: AGENTSYS-mailbox-receiver",
-                "  address: AGENTSYS-mailbox-receiver@agents.localhost",
+                "  principal_id: HOUMAO-mailbox-receiver",
+                "  address: HOUMAO-mailbox-receiver@agents.localhost",
                 f"  filesystem_root: {shared_root}",
             ]
         ),
@@ -377,10 +377,10 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
     assert sender.launch_plan.mailbox.filesystem_root == shared_root.resolve()
     assert receiver.launch_plan.mailbox.filesystem_root == shared_root.resolve()
     assert (
-        shared_root / "mailboxes" / "AGENTSYS-mailbox-sender@agents.localhost" / "inbox"
+        shared_root / "mailboxes" / "HOUMAO-mailbox-sender@agents.localhost" / "inbox"
     ).is_dir()
     assert (
-        shared_root / "mailboxes" / "AGENTSYS-mailbox-receiver@agents.localhost" / "inbox"
+        shared_root / "mailboxes" / "HOUMAO-mailbox-receiver@agents.localhost" / "inbox"
     ).is_dir()
 
 
@@ -403,8 +403,8 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
             working_directory=tmp_path,
             mailbox=FilesystemMailboxResolvedConfig(
                 transport="filesystem",
-                principal_id="AGENTSYS-research",
-                address="AGENTSYS-research@agents.localhost",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
                 filesystem_root=persisted_root.resolve(),
                 bindings_version="2026-03-12T05:00:00.000001Z",
             ),
@@ -415,15 +415,15 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
             launch_plan=launch_plan,
             role_name="r",
             brain_manifest_path=brain_manifest_path,
-            agent_name="AGENTSYS-research",
-            agent_id=derive_agent_id_from_name("AGENTSYS-research"),
-            tmux_session_name="AGENTSYS-research",
+            agent_name="HOUMAO-research",
+            agent_id=derive_agent_id_from_name("HOUMAO-research"),
+            tmux_session_name="HOUMAO-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": "AGENTSYS-research",
+                "tmux_session_name": "HOUMAO-research",
             },
         )
     )
@@ -464,8 +464,8 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
         mailbox_block="\n".join(
             [
                 "  transport: filesystem",
-                "  principal_id: AGENTSYS-mailbox-sender",
-                "  address: AGENTSYS-mailbox-sender@agents.localhost",
+                "  principal_id: HOUMAO-mailbox-sender",
+                "  address: HOUMAO-mailbox-sender@agents.localhost",
                 f"  filesystem_root: {shared_root}",
             ]
         ),
@@ -492,8 +492,8 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
         mailbox_env_bindings(
             FilesystemMailboxResolvedConfig(
                 transport="filesystem",
-                principal_id="AGENTSYS-mailbox-receiver",
-                address="AGENTSYS-mailbox-receiver@agents.localhost",
+                principal_id="HOUMAO-mailbox-receiver",
+                address="HOUMAO-mailbox-receiver@agents.localhost",
                 filesystem_root=shared_root.resolve(),
                 bindings_version="2026-03-16T12:00:00Z",
             )
@@ -505,8 +505,8 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
     new_root = tmp_path / "mail-new"
     old_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=old_root.resolve(),
         bindings_version="2026-03-12T05:00:00.000001Z",
     )
@@ -550,7 +550,7 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
     assert refreshed.filesystem_root == new_root.resolve()
     assert controller.launch_plan.mailbox == refreshed
     assert controller.launch_plan.env == {"OPENAI_API_KEY": "sk-secret"}
-    assert "AGENTSYS_MAILBOX_FS_ROOT" not in controller.launch_plan.env
+    assert "HOUMAO_MAILBOX_FS_ROOT" not in controller.launch_plan.env
     assert captured["launch_plan"].mailbox == refreshed
     assert refreshed.bindings_version != old_mailbox.bindings_version
     assert (new_root / "protocol-version.txt").is_file()
@@ -599,9 +599,9 @@ def _controller_for_mailbox_mutation(
         brain_manifest_path=tmp_path / "brain.yaml",
         manifest_path=manifest_path,
         backend_session=_FakeBackend(),  # type: ignore[arg-type]
-        agent_identity="AGENTSYS-research",
-        agent_id=derive_agent_id_from_name("AGENTSYS-research"),
-        tmux_session_name="AGENTSYS-research",
+        agent_identity="HOUMAO-research",
+        agent_id=derive_agent_id_from_name("HOUMAO-research"),
+        tmux_session_name="HOUMAO-research",
     )
     controller.persist_manifest()
     return controller, captured
@@ -620,8 +620,8 @@ def test_register_filesystem_mailbox_updates_headless_launch_plan_and_manifest(
 
     result = controller.register_filesystem_mailbox(
         mailbox_root=mailbox_root,
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
     )
 
     assert result.activation_state == "active"
@@ -630,7 +630,7 @@ def test_register_filesystem_mailbox_updates_headless_launch_plan_and_manifest(
     assert controller.launch_plan.mailbox.filesystem_root == mailbox_root.resolve()
     assert controller.mailbox_activation_state() == "active"
     assert captured["launch_plan"].mailbox == result.mailbox
-    assert "AGENTSYS_MAILBOX_FS_ROOT" not in controller.launch_plan.env
+    assert "HOUMAO_MAILBOX_FS_ROOT" not in controller.launch_plan.env
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(mailbox_root.resolve())
 
@@ -647,8 +647,8 @@ def test_register_filesystem_mailbox_marks_local_interactive_session_active(
 
     result = controller.register_filesystem_mailbox(
         mailbox_root=tmp_path / "shared-mail",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
     )
 
     assert result.activation_state == "active"
@@ -664,8 +664,8 @@ def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(
 ) -> None:
     existing_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=(tmp_path / "shared-mail").resolve(),
         bindings_version="2026-03-26T00:00:00.000001Z",
     )
@@ -697,8 +697,8 @@ def test_relaunch_keeps_local_interactive_mailbox_active_without_live_metadata(
 ) -> None:
     existing_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=(tmp_path / "shared-mail").resolve(),
         bindings_version="2026-03-26T00:00:00.000001Z",
     )
@@ -767,13 +767,13 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
         runtime_root=runtime_root,
         backend="local_interactive",
         working_directory=tmp_path,
-        tmux_session_name="AGENTSYS-research",
+        tmux_session_name="HOUMAO-research",
         launch_env_overrides={
             "FEATURE_FLAG_X": "2",
             "SESSION_ONLY": "2",
         },
     )
-    controller.tmux_session_name = "AGENTSYS-research"
+    controller.tmux_session_name = "HOUMAO-research"
     controller.persist_manifest(refresh_registry=False)
 
     assert controller.launch_plan.env["FEATURE_FLAG_X"] == "2"
@@ -817,7 +817,7 @@ def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_pos
     controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
         backend="local_interactive",
         tool="codex",
-        tmux_session_name="AGENTSYS-research",
+        tmux_session_name="HOUMAO-research",
         working_directory=str(tmp_path),
         session_origin="joined_tmux",
         posture_kind="unavailable",
@@ -825,8 +825,8 @@ def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_pos
 
     result = controller.register_filesystem_mailbox(
         mailbox_root=tmp_path / "shared-mail",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
     )
 
     assert result.activation_state == "active"
@@ -842,8 +842,8 @@ def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_p
 ) -> None:
     existing_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=(tmp_path / "shared-mail").resolve(),
         bindings_version="2026-03-26T00:00:00.000001Z",
     )
@@ -862,7 +862,7 @@ def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_p
     controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
         backend="local_interactive",
         tool="codex",
-        tmux_session_name="AGENTSYS-research",
+        tmux_session_name="HOUMAO-research",
         working_directory=str(tmp_path),
         session_origin="joined_tmux",
         posture_kind="unavailable",

@@ -18,7 +18,7 @@ That keeps cross-process coordination simple and avoids central hot files such a
 
 The runtime resolves the shared-registry root in this order:
 
-1. `AGENTSYS_GLOBAL_REGISTRY_DIR` when it is set to a non-empty absolute path,
+1. `HOUMAO_GLOBAL_REGISTRY_DIR` when it is set to a non-empty absolute path,
 2. otherwise `<resolved-user-home>/.houmao/registry`.
 
 Current implementation notes:
@@ -59,7 +59,7 @@ Representative record with optional gateway and mailbox metadata present:
 ```json
 {
   "schema_version": 2,
-  "agent_name": "AGENTSYS-gpu",
+  "agent_name": "HOUMAO-gpu",
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
   "generation_id": "98cc9a0d-d1fd-4c56-b49c-871274e28f98",
   "published_at": "2026-03-13T12:00:00+00:00",
@@ -75,7 +75,7 @@ Representative record with optional gateway and mailbox metadata present:
   },
   "terminal": {
     "kind": "tmux",
-    "session_name": "AGENTSYS-gpu"
+    "session_name": "HOUMAO-gpu"
   },
   "gateway": {
     "host": "127.0.0.1",
@@ -85,8 +85,8 @@ Representative record with optional gateway and mailbox metadata present:
   },
   "mailbox": {
     "transport": "filesystem",
-    "principal_id": "AGENTSYS-research",
-    "address": "AGENTSYS-research@agents.localhost",
+    "principal_id": "HOUMAO-research",
+    "address": "HOUMAO-research@agents.localhost",
     "filesystem_root": "/abs/path/shared-mail",
     "bindings_version": "2026-03-13T12:00:00.123456+00:00"
   }
@@ -154,7 +154,7 @@ That boundary is the main reason the registry can stay small and safe to inspect
 ## Current Implementation Notes
 
 - `published_at` and `lease_expires_at` must be timezone-aware ISO-8601 timestamps.
-- `agent_name` must already be in canonical `AGENTSYS-...` form inside the stored record.
+- `agent_name` must already be in canonical `HOUMAO-...` form inside the stored record.
 - `agent_id` must be a non-empty path-safe identifier and is the on-disk directory key.
 - Runtime-managed publish and refresh flows validate serialized payloads against the packaged schema before atomically replacing `record.json`.
 - Cross-field invariants such as canonical-name enforcement, lease ordering, and complete live gateway field grouping remain model-enforced rather than schema-only.

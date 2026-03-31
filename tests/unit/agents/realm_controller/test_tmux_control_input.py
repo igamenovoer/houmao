@@ -66,8 +66,8 @@ def _sample_local_interactive_plan(tmp_path: Path) -> LaunchPlan:
 
 def _sample_local_interactive_mailbox_plan(tmp_path: Path) -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "AGENTSYS-research"
-    address = "AGENTSYS-research@agents.localhost"
+    principal_id = "HOUMAO-research"
+    address = "HOUMAO-research@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
@@ -108,7 +108,7 @@ def _make_local_interactive_session(tmp_path: Path) -> LocalInteractiveSession:
         turn_index=0,
         role_bootstrap_applied=False,
         working_directory=str(tmp_path),
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
     )
     return session
 
@@ -270,12 +270,12 @@ def test_local_interactive_send_prompt_uses_paste_buffer_and_separate_submit(
     buffer_name, prompt_text = loaded_buffers[0]
     assert buffer_name.startswith("houmao-submit-prompt-")
     assert prompt_text == "reply with <[Enter]> literally"
-    assert pasted_buffers == [("AGENTSYS-local:0.0", buffer_name, True)]
+    assert pasted_buffers == [("HOUMAO-local:0.0", buffer_name, True)]
     assert parse_calls == [("<[Enter]>", False)]
-    assert sent_segments == [("AGENTSYS-local:0.0", enter_segments)]
+    assert sent_segments == [("HOUMAO-local:0.0", enter_segments)]
     assert session.state.turn_index == 1
     assert events[0].kind == "submitted"
-    assert events[0].payload == {"tmux_session_name": "AGENTSYS-local"}
+    assert events[0].payload == {"tmux_session_name": "HOUMAO-local"}
 
 
 def test_local_interactive_send_mail_prompt_observes_sentinel_result(
@@ -289,7 +289,7 @@ def test_local_interactive_send_mail_prompt_observes_sentinel_result(
         turn_index=0,
         role_bootstrap_applied=False,
         working_directory=str(tmp_path),
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
     )
     session._process_inspector = SimpleNamespace(
         inspect=lambda *, tool, pane_pid: SimpleNamespace(process_state="tui_up")
@@ -300,16 +300,16 @@ def test_local_interactive_send_mail_prompt_observes_sentinel_result(
         "request_id": "mailreq-1",
         "operation": "send",
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-research",
+        "principal_id": "HOUMAO-research",
         "message_ref": "filesystem:msg-1",
     }
     baseline_output = "Claude Code v1.0.0\n❯ \n"
     current_output = (
         "Claude Code v1.0.0\n"
         "assistant> sending message\n"
-        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        "HOUMAO_MAIL_RESULT_BEGIN\n"
         f"{json.dumps(payload)}\n"
-        "AGENTSYS_MAIL_RESULT_END\n"
+        "HOUMAO_MAIL_RESULT_END\n"
         "❯ \n"
     )
     captures = iter([baseline_output, current_output])
@@ -392,7 +392,7 @@ def test_local_interactive_send_mail_prompt_checks_one_final_capture_after_timeo
         turn_index=0,
         role_bootstrap_applied=False,
         working_directory=str(tmp_path),
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
     )
     session._process_inspector = SimpleNamespace(
         inspect=lambda *, tool, pane_pid: SimpleNamespace(process_state="tui_up")
@@ -403,16 +403,16 @@ def test_local_interactive_send_mail_prompt_checks_one_final_capture_after_timeo
         "request_id": "mailreq-1",
         "operation": "send",
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-research",
+        "principal_id": "HOUMAO-research",
         "message_ref": "filesystem:msg-1",
     }
     baseline_output = "Claude Code v1.0.0\n❯ \n"
     current_output = (
         "Claude Code v1.0.0\n"
         "assistant> sending message\n"
-        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+        "HOUMAO_MAIL_RESULT_BEGIN\n"
         f"{json.dumps(payload)}\n"
-        "AGENTSYS_MAIL_RESULT_END\n"
+        "HOUMAO_MAIL_RESULT_END\n"
         "❯ \n"
     )
     captures = iter([baseline_output, current_output])
@@ -501,7 +501,7 @@ def test_local_interactive_send_mail_prompt_returns_submitted_without_sentinel(
         turn_index=0,
         role_bootstrap_applied=False,
         working_directory=str(tmp_path),
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
     )
     session._process_inspector = SimpleNamespace(
         inspect=lambda *, tool, pane_pid: SimpleNamespace(process_state="tui_up")
@@ -598,7 +598,7 @@ def test_local_interactive_send_input_ex_keeps_raw_sequence_unmodified(
     result = session.send_input_ex("hello world")
 
     assert parse_calls == [("hello world", False)]
-    assert sent_segments == [("AGENTSYS-local:0.0", raw_segments)]
+    assert sent_segments == [("HOUMAO-local:0.0", raw_segments)]
     assert result.status == "ok"
     assert result.action == "control_input"
 

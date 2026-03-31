@@ -296,7 +296,7 @@ class HeadlessCliRunner:
         status_tmp_path = turn_dir / f".exitcode-{uuid.uuid4().hex}.tmp"
         stdout_pipe_path = turn_dir / f".stdout-{uuid.uuid4().hex}.pipe"
         stderr_pipe_path = turn_dir / f".stderr-{uuid.uuid4().hex}.pipe"
-        wait_signal = f"agentsys-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
+        wait_signal = f"houmao-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
         pane_target = headless_agent_pane_target_shared(session_name=tmux_session_name)
 
         command_text = shlex.join(command)

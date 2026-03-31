@@ -190,7 +190,7 @@ def managed_agent_selector_options(function: _FC) -> _FC:
         default=None,
         help=(
             "Raw creation-time friendly managed-agent name. Do not include the "
-            "`AGENTSYS-` prefix."
+            "`HOUMAO-` prefix."
         ),
     )(function)
     function = click.option(

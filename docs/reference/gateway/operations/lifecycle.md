@@ -73,7 +73,7 @@ houmao-mgr agents gateway mail-notifier status
 
 Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent route:
 
-- `AGENTSYS_MANIFEST_PATH` points to a readable runtime-owned `manifest.json`, or `AGENTSYS_AGENT_ID` resolves a fresh shared-registry `runtime.manifest_path`
+- `HOUMAO_MANIFEST_PATH` points to a readable runtime-owned `manifest.json`, or `HOUMAO_AGENT_ID` resolves a fresh shared-registry `runtime.manifest_path`
 - the resolved manifest belongs to the current tmux session
 - the resolved manifest uses `backend == "houmao_server_rest"`
 - manifest-declared attach authority becomes the authoritative managed-agent attach target
@@ -99,7 +99,7 @@ houmao-mgr agents gateway status --agent-name local
 Foreground attach rules:
 
 - tmux window `0` remains the contractual agent surface
-- when launch omitted `--session-name`, the runtime-owned tmux handle uses `AGENTSYS-<agent_name>-<epoch-ms>`
+- when launch omitted `--session-name`, the runtime-owned tmux handle uses `HOUMAO-<agent_name>-<epoch-ms>`
 - the gateway runs in an auxiliary tmux window whose recorded index is `>=1`
 - `gateway status` reports `execution_mode` plus the authoritative `gateway_tmux_window_index` and `gateway_tmux_window_id` for the live gateway surface
 - later attach or restart flows reuse the persisted desired execution mode instead of silently falling back to detached execution
@@ -136,7 +136,7 @@ Use `attach-gateway` when the session is already running and only needs the side
 
 ```bash
 pixi run python -m houmao.agents.realm_controller attach-gateway \
-  --agent-identity AGENTSYS-gpu
+  --agent-identity HOUMAO-gpu
 ```
 
 Listener resolution rules in the current implementation:
@@ -194,7 +194,7 @@ Detach keeps the session gateway-capable while removing the live sidecar.
 
 ```bash
 pixi run python -m houmao.agents.realm_controller detach-gateway \
-  --agent-identity AGENTSYS-gpu
+  --agent-identity HOUMAO-gpu
 ```
 
 Effects:

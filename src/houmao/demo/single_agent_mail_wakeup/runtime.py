@@ -32,9 +32,9 @@ from houmao.demo.legacy.mail_ping_pong_gateway_demo_pack.agents import (
     expose_runtime_skills_in_project,
 )
 from houmao.owned_paths import (
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
-    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.project.catalog import PROJECT_CATALOG_FILENAME
 from houmao.project.overlay import (
@@ -94,7 +94,7 @@ def _temporary_environment(env: Mapping[str, str]) -> Iterator[None]:
 def manager_cli_command(args: list[str]) -> list[str]:
     """Build a `houmao-mgr` subprocess command."""
 
-    return ["pixi", "run", "houmao-mgr", *args]
+    return ["pixi", "run", "houmao-mgr", "--print-json", *args]
 
 
 def build_demo_environment(
@@ -105,9 +105,9 @@ def build_demo_environment(
     """Return the demo-owned environment for demo command invocations."""
 
     env = dict(os.environ if base_env is None else base_env)
-    env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
-    env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
+    env[HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
+    env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
+    env[HOUMAO_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
     env[PROJECT_OVERLAY_DIR_ENV_VAR] = str(paths.overlay_dir)
     env[AGENT_DEF_DIR_ENV_VAR] = str((paths.overlay_dir / "agents").resolve())
     return env
@@ -595,15 +595,32 @@ def launch_instance(
 
 
 def parse_launch_output(stdout: str) -> dict[str, Any]:
-    """Parse the plain-text local launch result payload."""
+    """Parse the local launch result payload from modern JSON or legacy plain text."""
 
     payload: dict[str, Any] = {"raw_stdout": stdout}
-    for line in stdout.splitlines():
-        stripped = line.strip()
-        if "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        payload[key] = value
+    decoder = json.JSONDecoder()
+    index = 0
+    decoded_any = False
+    while index < len(stdout):
+        while index < len(stdout) and stdout[index].isspace():
+            index += 1
+        if index >= len(stdout):
+            break
+        try:
+            parsed, next_index = decoder.raw_decode(stdout, index)
+        except json.JSONDecodeError:
+            break
+        if isinstance(parsed, dict):
+            payload.update(parsed)
+            decoded_any = True
+        index = next_index
+    if not decoded_any:
+        for line in stdout.splitlines():
+            stripped = line.strip()
+            if "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            payload[key] = value
     if "manifest_path" not in payload:
         raise DemoRuntimeError(
             "unable to parse local launch output for `manifest_path`"

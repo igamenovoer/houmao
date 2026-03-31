@@ -35,9 +35,9 @@ from houmao.agents.realm_controller.agent_identity import (
 from houmao.agents.realm_controller.loaders import parse_env_file
 from houmao.demo.legacy.launch_support import resolve_demo_preset_launch
 from houmao.owned_paths import (
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
-    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
@@ -696,9 +696,9 @@ def _start_suite_server(
     api_base_url = f"http://127.0.0.1:{_choose_port(config.port)}"
     server_env = dict(os.environ)
     server_env["HOME"] = str(paths.home_dir)
-    server_env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
-    server_env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    server_env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
+    server_env[HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
+    server_env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
+    server_env[HOUMAO_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
     server_env[AGENT_DEF_DIR_ENV_VAR] = str(fixtures.agent_def_dir)
     for name, value in credential_env.items():
         server_env[name] = value

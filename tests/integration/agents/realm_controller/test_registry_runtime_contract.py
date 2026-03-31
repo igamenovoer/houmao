@@ -29,10 +29,21 @@ def _seed_brain_manifest(tmp_path: Path) -> Path:
     manifest_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "inputs:",
                 "  tool: claude",
+                "  skills: []",
+                "  setup: default",
+                "  auth: default",
+                "  adapter_path: /tmp/tool-adapter.yaml",
+                "  preset_path: null",
+                "launch_policy:",
+                "  operator_prompt_mode: as_is",
                 "runtime:",
+                f"  runtime_root: {tmp_path}",
+                "  home_id: test-home",
+                f"  home_path: {tmp_path / 'home'}",
+                f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
                 "  launch_executable: claude",
                 "  launch_home_selector:",
                 "    env_var: CLAUDE_CONFIG_DIR",
@@ -42,11 +53,18 @@ def _seed_brain_manifest(tmp_path: Path) -> Path:
                 "      args: []",
                 "      tool_params: {}",
                 "    requested_overrides:",
-                "      recipe: null",
+                "      preset: null",
                 "      direct: null",
                 "    tool_metadata:",
                 "      tool_params: {}",
+                "    construction_provenance:",
+                "      adapter_path: /tmp/tool-adapter.yaml",
+                "      preset_path: null",
+                "      preset_overrides_present: false",
+                "      direct_overrides_present: false",
                 "credentials:",
+                f"  auth_path: {tmp_path / 'auth'}",
+                "  projected_files: []",
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
@@ -106,7 +124,7 @@ def test_cli_runtime_registry_contract_start_send_and_stop(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -149,7 +167,7 @@ def test_cli_runtime_registry_contract_start_send_and_stop(
     manifest_path = Path(start_payload["session_manifest"])
 
     assert start_exit == 0
-    started_record = resolve_live_agent_record("gpu")
+    started_record = resolve_live_agent_record("HOUMAO-gpu")
     assert started_record is not None
     generation_id = started_record.generation_id
 
@@ -167,7 +185,7 @@ def test_cli_runtime_registry_contract_start_send_and_stop(
     capsys.readouterr()
 
     assert prompt_exit == 0
-    refreshed_record = resolve_live_agent_record("AGENTSYS-gpu")
+    refreshed_record = resolve_live_agent_record("HOUMAO-gpu")
     assert refreshed_record is not None
     assert refreshed_record.generation_id == generation_id
 
@@ -183,7 +201,7 @@ def test_cli_runtime_registry_contract_start_send_and_stop(
     capsys.readouterr()
 
     assert stop_exit == 0
-    assert resolve_live_agent_record("gpu") is None
+    assert resolve_live_agent_record("HOUMAO-gpu") is None
 
 
 def test_cli_runtime_registry_contract_surfaces_nonfatal_registry_warnings(
@@ -196,7 +214,7 @@ def test_cli_runtime_registry_contract_surfaces_nonfatal_registry_warnings(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,

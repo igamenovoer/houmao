@@ -155,7 +155,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -234,7 +234,7 @@ def test_start_runtime_session_seeds_gateway_defaults_from_manifest_extra(
         gateway_extra={"host": "127.0.0.1", "port": 43123},
     )
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -288,7 +288,7 @@ def test_external_launch_authority_defers_runtime_publish_but_stop_clears_regist
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -356,7 +356,7 @@ def test_send_prompt_preserves_success_when_registry_refresh_fails(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -364,7 +364,7 @@ def test_send_prompt_preserves_success_when_registry_refresh_fails(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )
@@ -413,7 +413,7 @@ def test_stop_preserves_success_when_registry_cleanup_fails(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -421,7 +421,7 @@ def test_stop_preserves_success_when_registry_cleanup_fails(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )
@@ -470,7 +470,7 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -478,7 +478,7 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )
@@ -505,8 +505,8 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
         agent_identity="gpu",
         mailbox_transport="filesystem",
         mailbox_root=tmp_path / "mail-old",
-        mailbox_principal_id="AGENTSYS-research",
-        mailbox_address="AGENTSYS-research@agents.localhost",
+        mailbox_principal_id="HOUMAO-research",
+        mailbox_address="HOUMAO-research@agents.localhost",
     )
     monkeypatch.setattr(
         controller,
@@ -531,7 +531,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -539,7 +539,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )

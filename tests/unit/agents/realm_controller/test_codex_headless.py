@@ -76,7 +76,7 @@ def test_codex_headless_builds_new_turn_command(tmp_path: Path) -> None:
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-codex",
+            tmux_session_name="HOUMAO-codex",
         ),
     )
     captured: dict[str, object] = {}
@@ -117,7 +117,7 @@ def test_codex_headless_builds_new_turn_command(tmp_path: Path) -> None:
     assert session.state.session_id == "thread-1"
     assert events[-1].payload == {
         "session_id": "thread-1",
-        "tmux_session_name": "AGENTSYS-codex",
+        "tmux_session_name": "HOUMAO-codex",
         "stdout_path": None,
         "stderr_path": None,
         "completion_source": "direct_process",
@@ -134,7 +134,7 @@ def test_codex_headless_builds_resume_turn_command(tmp_path: Path) -> None:
             turn_index=1,
             role_bootstrap_applied=True,
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-codex",
+            tmux_session_name="HOUMAO-codex",
         ),
     )
     captured: dict[str, object] = {}
@@ -182,7 +182,7 @@ def test_codex_headless_skips_empty_developer_instructions(tmp_path: Path) -> No
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-codex",
+            tmux_session_name="HOUMAO-codex",
         ),
     )
     captured: dict[str, object] = {}

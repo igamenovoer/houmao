@@ -78,7 +78,7 @@ For dedicated coverage of complex nested command families, see:
 Gateway targeting rules:
 
 - Outside tmux, gateway commands require an explicit `--agent-id` or `--agent-name`.
-- Inside a managed tmux session, omitting the selector resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus shared registry when needed.
+- Inside a managed tmux session, omitting the selector resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus shared registry when needed.
 - `--current-session` forces same-session resolution and cannot be combined with `--agent-id`, `--agent-name`, or `--port`.
 - `--port` is only supported with an explicit selector, because current-session mode uses the manifest-declared pair authority instead of retargeting another server.
 
@@ -91,7 +91,7 @@ Gateway TUI notes:
 Mail targeting rules:
 
 - Outside tmux, `agents mail` requires an explicit `--agent-id` or `--agent-name`.
-- Inside a managed tmux session, omitting those selectors resolves the current session from `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus shared-registry metadata second.
+- Inside a managed tmux session, omitting those selectors resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus shared-registry metadata second.
 - `--port` on `agents mail` is only supported with an explicit selector.
 
 The preferred local serverless mailbox workflow is:
@@ -108,7 +108,7 @@ If `agents mailbox register` would replace existing shared mailbox state, the co
 Cleanup targeting rules:
 
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
-- Inside the target tmux session, omitting those options resolves the current session from `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus fresh shared-registry metadata second.
+- Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus fresh shared-registry metadata second.
 - Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
 
 ### `mailbox` — Local filesystem mailbox administration
@@ -172,7 +172,7 @@ houmao-mgr brains build [OPTIONS]
 `brains build` resolves the effective agent-definition root with this precedence:
 
 1. `--agent-def-dir`
-2. `AGENTSYS_AGENT_DEF_DIR`
+2. `HOUMAO_AGENT_DEF_DIR`
 3. `HOUMAO_PROJECT_OVERLAY_DIR`
 4. nearest ancestor `.houmao/houmao-config.toml`
 5. default `<pwd>/.houmao/agents`

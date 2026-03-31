@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 import os
 
 
-_HOUMAO_RESERVED_ENV_PREFIXES: tuple[str, ...] = ("AGENTSYS_", "HOUMAO_")
+_HOUMAO_RESERVED_ENV_PREFIXES: tuple[str, ...] = ("HOUMAO_",)
 
 
 def parse_persistent_env_record_specs(

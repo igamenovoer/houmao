@@ -182,8 +182,8 @@ cleanup_agent_on_error() {
     set +e
     (
         cd "${REPO_ROOT}" || exit 1
-        export AGENTSYS_AGENT_DEF_DIR="${generated_agent_def_dir}"
-        export AGENTSYS_GLOBAL_RUNTIME_DIR="${runtime_root}"
+        export HOUMAO_AGENT_DEF_DIR="${generated_agent_def_dir}"
+        export HOUMAO_GLOBAL_RUNTIME_DIR="${runtime_root}"
         pixi run houmao-mgr agents stop --agent-name "${agent_name}"
     ) >"${logs_dir}/stop-on-error.log" 2>&1
 }
@@ -209,8 +209,8 @@ mkdir -p \
     "${generated_agent_def_dir}/tools/codex/auth"
 ln -s "${fixture_auth_source}" "${generated_agent_def_dir}/tools/${tool}/auth/default"
 
-export AGENTSYS_AGENT_DEF_DIR="${generated_agent_def_dir}"
-export AGENTSYS_GLOBAL_RUNTIME_DIR="${runtime_root}"
+export HOUMAO_AGENT_DEF_DIR="${generated_agent_def_dir}"
+export HOUMAO_GLOBAL_RUNTIME_DIR="${runtime_root}"
 
 (
     cd "${REPO_ROOT}"

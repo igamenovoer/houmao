@@ -122,7 +122,7 @@ def _build_session_payload(
     backend: BackendKind,
     backend_state: dict[str, Any],
     cao_parsing_mode: str | None = None,
-    operator_prompt_mode: str | None = None,
+    operator_prompt_mode: str | None = "as_is",
 ) -> tuple[Path, dict[str, Any]]:
     brain_manifest_path = _seed_manifest(
         agent_def_dir,
@@ -180,15 +180,15 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
             launch_plan=launch_plan,
             role_name="r",
             brain_manifest_path=brain_manifest_path,
-            agent_name="AGENTSYS-r",
-            agent_id=derive_agent_id_from_name("AGENTSYS-r"),
-            tmux_session_name="AGENTSYS-r",
+            agent_name="HOUMAO-r",
+            agent_id=derive_agent_id_from_name("HOUMAO-r"),
+            tmux_session_name="HOUMAO-r",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 0,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": "AGENTSYS-r",
+                "tmux_session_name": "HOUMAO-r",
             },
         )
     )
@@ -219,7 +219,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
             "turn_index": 2,
             "role_bootstrap_applied": True,
             "working_directory": str(tmp_path),
-            "tmux_session_name": "AGENTSYS-r",
+            "tmux_session_name": "HOUMAO-r",
             "tmux_window_name": "manual",
         },
     )
@@ -231,7 +231,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
     class _FakeLocalInteractiveSession:
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
-            self.state = type("State", (), {"tmux_session_name": "AGENTSYS-r"})()
+            self.state = type("State", (), {"tmux_session_name": "HOUMAO-r"})()
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
@@ -248,7 +248,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
     )
 
     assert captured["state"].turn_index == 2
-    assert captured["state"].tmux_session_name == "AGENTSYS-r"
+    assert captured["state"].tmux_session_name == "HOUMAO-r"
     assert captured["state"].tmux_window_name == "manual"
     assert controller.launch_plan.backend == "local_interactive"
 
@@ -268,7 +268,7 @@ def test_resume_local_interactive_restores_join_launch_window_name_when_manifest
             "turn_index": 2,
             "role_bootstrap_applied": True,
             "working_directory": str(tmp_path),
-            "tmux_session_name": "AGENTSYS-r",
+            "tmux_session_name": "HOUMAO-r",
         },
     )
     session_payload["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
@@ -276,7 +276,7 @@ def test_resume_local_interactive_restores_join_launch_window_name_when_manifest
     session_payload["agent_launch_authority"] = {
         "backend": "local_interactive",
         "tool": "claude",
-        "tmux_session_name": "AGENTSYS-r",
+        "tmux_session_name": "HOUMAO-r",
         "primary_window_index": "0",
         "working_directory": str(tmp_path),
         "posture_kind": "unavailable",
@@ -351,7 +351,7 @@ def test_resume_unattended_local_interactive_uses_resume_control_intent_without_
             "turn_index": 2,
             "role_bootstrap_applied": True,
             "working_directory": str(tmp_path),
-            "tmux_session_name": "AGENTSYS-r",
+            "tmux_session_name": "HOUMAO-r",
         },
         operator_prompt_mode="unattended",
     )
@@ -370,7 +370,7 @@ def test_resume_unattended_local_interactive_uses_resume_control_intent_without_
     class _FakeLocalInteractiveSession:
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
-            self.state = type("State", (), {"tmux_session_name": "AGENTSYS-r"})()
+            self.state = type("State", (), {"tmux_session_name": "HOUMAO-r"})()
 
     def _capture_build_launch_plan(request: LaunchPlanRequest):
         intents.append(request.intent)

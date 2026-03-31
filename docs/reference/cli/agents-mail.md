@@ -9,7 +9,7 @@ houmao-mgr agents mail [OPTIONS] COMMAND [ARGS]...
 ## Targeting Rules
 
 - `--agent-id` or `--agent-name` explicitly selects one managed agent.
-- Inside the owning managed tmux session, omitting both selectors resolves the current session through `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus shared-registry metadata second.
+- Inside the owning managed tmux session, omitting both selectors resolves the current session through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus shared-registry metadata second.
 - Outside tmux, omitting both selectors fails explicitly instead of guessing from cwd or ambient shell state.
 - `--port` is only supported with an explicit `--agent-id` or `--agent-name` target.
 
@@ -27,7 +27,7 @@ houmao-mgr agents mail resolve-live [OPTIONS]
 |---|---|
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 JSON output includes the resolved mailbox binding, a `managed_agent` summary, `gateway_available`, and optional `gateway` metadata including `base_url` when a live shared `/v1/mail/*` facade is available. The transport-specific mailbox details live under `mailbox.filesystem.*` or `mailbox.stalwart.*`. Mailbox-specific shell export is not part of the supported `resolve-live` contract.
 
@@ -43,7 +43,7 @@ houmao-mgr agents mail status [OPTIONS]
 |---|---|
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 ### `check`
 

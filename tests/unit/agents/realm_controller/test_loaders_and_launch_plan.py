@@ -284,8 +284,8 @@ def test_build_launch_plan_preserves_mailbox_without_env_projection(tmp_path: Pa
     role = load_role_package(tmp_path / "repo", "test-role")
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=(tmp_path / "shared-mail").resolve(),
         bindings_version="2026-03-12T05:00:00.000001Z",
     )
@@ -301,8 +301,8 @@ def test_build_launch_plan_preserves_mailbox_without_env_projection(tmp_path: Pa
 
     assert plan.mailbox == mailbox
     assert plan.env == {"OPENAI_API_KEY": "sk-secret"}
-    assert all(not name.startswith("AGENTSYS_MAILBOX_") for name in plan.env_var_names)
-    assert plan.redacted_payload()["mailbox"]["principal_id"] == "AGENTSYS-research"
+    assert all(not name.startswith("HOUMAO_MAILBOX_") for name in plan.env_var_names)
+    assert plan.redacted_payload()["mailbox"]["principal_id"] == "HOUMAO-research"
 
 
 def test_build_launch_plan_resolves_launch_policy_provenance(

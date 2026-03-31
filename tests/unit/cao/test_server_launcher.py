@@ -430,7 +430,7 @@ def test_status_cao_server_preserve_mode_leaves_no_proxy_untouched(
         _write_config(tmp_path, base_url="http://127.0.0.1:9991")
     )
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
-    monkeypatch.setenv("AGENTSYS_PRESERVE_NO_PROXY_ENV", "1")
+    monkeypatch.setenv("HOUMAO_PRESERVE_NO_PROXY_ENV", "1")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
 

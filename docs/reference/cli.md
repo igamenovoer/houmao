@@ -95,14 +95,14 @@ Useful pair runtime controls:
 
 Detached startup results include `success`, `running`, `mode`, `api_base_url`, `detail`, and server identity fields when available. On failed detached startup, inspect the owned log files under `<runtime-root>/houmao_servers/<host>-<port>/logs/`.
 
-Managed-agent launch prints distinct identity fields for follow-up control: `agent_name`, `agent_id`, `tmux_session_name`, and `manifest_path`. Use `--agent-id` for exact automation or disambiguation, and use the same raw creation-time `--agent-name` value for normal operator-facing targeting. When `--session-name` is omitted on tmux-backed managed launches, runtime generates `AGENTSYS-<agent_name>-<epoch-ms>` and fails explicitly if that handle is already occupied.
+Managed-agent launch prints distinct identity fields for follow-up control: `agent_name`, `agent_id`, `tmux_session_name`, and `manifest_path`. Use `--agent-id` for exact automation or disambiguation, and use the same raw creation-time `--agent-name` value for normal operator-facing targeting. When `--session-name` is omitted on tmux-backed managed launches, runtime generates `HOUMAO-<agent_name>-<epoch-ms>` and fails explicitly if that handle is already occupied.
 
 For non-headless tmux-backed managed launches, immediate terminal handoff is now TTY-aware. Interactive callers are handed off through the repo-owned libtmux integration, while non-interactive callers skip attach, still succeed after provider readiness is confirmed, and print `terminal_handoff=skipped_non_interactive` plus `attach_command=tmux attach-session -t <tmux_session_name>` for later manual follow-up.
 
 Joined-session notes:
 
 - `houmao-mgr agents join` must be run from inside the target tmux session and, in v1, always adopts tmux window `0`, pane `0` as the canonical managed surface.
-- Successful join publishes the same stable tmux discovery variables used by native launches: `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR`.
+- Successful join publishes the same stable tmux discovery variables used by native launches: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, and `HOUMAO_JOB_DIR`.
 - Joined sessions publish a shared-registry record immediately using a long sentinel lease instead of relying on a background lease-renewal daemon. Later runtime control can refresh that same record opportunistically.
 - Joined TUI sessions without recorded `--launch-args` and `--launch-env` remain controllable while live but fail explicitly on later `agents relaunch` because restart posture is unavailable by design.
 - `--launch-env` follows Docker `--env` style: `NAME=value` stores a literal secret-free binding, while `NAME` means the relaunch resolves that variable from the tmux session environment at relaunch time.
@@ -121,10 +121,10 @@ Targeting rules for `houmao-mgr agents gateway ...`:
 
 - inside tmux, omitting `--agent-id` and `--agent-name` implies current-session resolution
 - `--current-session` makes that same-session intent explicit
-- current-session resolution prefers `AGENTSYS_MANIFEST_PATH` and falls back to `AGENTSYS_AGENT_ID` plus a fresh shared-registry record
+- current-session resolution prefers `HOUMAO_MANIFEST_PATH` and falls back to `HOUMAO_AGENT_ID` plus a fresh shared-registry record
 - `--port` is only valid with an explicit `--agent-id` or `--agent-name`; current-session mode always follows manifest-declared pair authority
 
-Current-session attach requires the target tmux session to publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. `AGENTSYS_GATEWAY_ATTACH_PATH` and `AGENTSYS_GATEWAY_ROOT` are retired from the supported discovery contract. Current-session attach becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
+Current-session attach requires the target tmux session to publish `HOUMAO_MANIFEST_PATH` or, failing that, `HOUMAO_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. `HOUMAO_GATEWAY_ATTACH_PATH` and `HOUMAO_GATEWAY_ROOT` are retired from the supported discovery contract. Current-session attach becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
 
 When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` report `execution_mode` plus the authoritative `gateway_tmux_window_index` for the live gateway surface. Treat that reported non-zero window index as the discovery contract; tmux window names and ordering remain non-contractual.
 
@@ -134,7 +134,7 @@ For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --a
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project easy ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 
-All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. Plain and fancy modes print populated cleanup actions line by line, while `--print-json` preserves the machine-readable output. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus a fresh shared-registry record when needed.
+All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. Plain and fancy modes print populated cleanup actions line by line, while `--print-json` preserves the machine-readable output. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus a fresh shared-registry record when needed.
 
 During Step 7 side-by-side validation, keep the old `houmao-server` on `9889` and run `houmao-passive-server` on `9891`. The same `houmao-mgr` surface can then compare both pair authorities directly:
 
@@ -156,7 +156,7 @@ When `start-session` is used with `--json`, unattended sessions may also return:
 
 Command reminders:
 
-- `mail send` recipients must use full mailbox addresses such as `AGENTSYS-orchestrator@agents.localhost`.
+- `mail send` recipients must use full mailbox addresses such as `HOUMAO-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require body content via `--body-file` or `--body-content`.
 - `send-keys` is the low-level control-input surface for resumed legacy `cao_rest` sessions; new standalone `backend="cao_rest"` operator workflows are deprecated in favor of `houmao-server` with `houmao-mgr`.
 - Managed-agent routes and `agents ...` commands are the preferred pair seam. The legacy compatibility namespace is no longer part of the supported operator workflow.
@@ -167,8 +167,8 @@ For the dedicated mailbox quickstart, contracts, and operational guidance, see [
 
 Runtime commands use two agent-definition-directory resolution models:
 
-1. Build/start and manifest-path control: `--agent-def-dir`, then `AGENTSYS_AGENT_DEF_DIR`, then `HOUMAO_PROJECT_OVERLAY_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then `<pwd>/.houmao/agents`.
-2. Name-based tmux-backed `send-prompt`, `send-keys`, `mail`, and `stop-session`: explicit `--agent-def-dir` override first, otherwise the addressed session's published `AGENTSYS_AGENT_DEF_DIR`.
+1. Build/start and manifest-path control: `--agent-def-dir`, then `HOUMAO_AGENT_DEF_DIR`, then `HOUMAO_PROJECT_OVERLAY_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then `<pwd>/.houmao/agents`.
+2. Name-based tmux-backed `send-prompt`, `send-keys`, `mail`, and `stop-session`: explicit `--agent-def-dir` override first, otherwise the addressed session's published `HOUMAO_AGENT_DEF_DIR`.
 
 `HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly. When that env var or nearest-ancestor discovery finds `houmao-config.toml`, the selected overlay directory becomes the project-overlay discovery anchor, and relative paths in that config resolve from the overlay directory itself. For current pair-native build and launch flows, Houmao materializes `agents/` under the selected catalog-backed overlay as the compatibility projection that file-tree consumers read.
 

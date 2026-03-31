@@ -53,7 +53,7 @@ def _launch_request(
     *,
     tool: str = "claude",
     role_name: str | None = "gpu-kernel-coder",
-    agent_name: str | None = "AGENTSYS-alpha",
+    agent_name: str | None = "HOUMAO-alpha",
     agent_id: str | None = "published-alpha",
     mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None,
 ) -> PassiveHeadlessLaunchRequest:
@@ -105,8 +105,8 @@ class _FakeRuntimeController:
         self,
         *,
         manifest_path: Path,
-        tmux_session_name: str = "AGENTSYS-alpha",
-        agent_identity: str = "AGENTSYS-alpha",
+        tmux_session_name: str = "HOUMAO-alpha",
+        agent_identity: str = "HOUMAO-alpha",
         agent_id: str = "published-alpha",
         backend_session: HeadlessInteractiveSession | None = None,
         registry_record: object | None = None,
@@ -136,7 +136,7 @@ def _seed_managed_handle(
     svc: PassiveServerService,
     *,
     tracked_agent_id: str = "tracked-alpha",
-    agent_name: str = "AGENTSYS-alpha",
+    agent_name: str = "HOUMAO-alpha",
     agent_id: str = "published-alpha",
     controller: _FakeRuntimeController | None = None,
 ) -> ManagedHeadlessAuthorityRecord:
@@ -209,7 +209,7 @@ class TestHeadlessLaunch:
         runtime_manifest_path.parent.mkdir(parents=True, exist_ok=True)
         controller = _FakeRuntimeController(
             manifest_path=runtime_manifest_path,
-            agent_identity="AGENTSYS-alpha",
+            agent_identity="HOUMAO-alpha",
             agent_id="published-alpha",
             registry_record=SimpleNamespace(agent_id="published-alpha"),
         )
@@ -235,7 +235,7 @@ class TestHeadlessLaunch:
         response = svc.m_headless.launch(request)
 
         assert response.status == "ok"
-        assert response.agent_name == "AGENTSYS-alpha"
+        assert response.agent_name == "HOUMAO-alpha"
         assert published == [controller.m_registry_record]
         authority = svc.m_headless.m_store.read_authority(
             tracked_agent_id=response.tracked_agent_id
@@ -426,13 +426,13 @@ class TestManagedHeadlessRouting:
         _seed_managed_handle(
             svc,
             tracked_agent_id="tracked-alpha",
-            agent_name="AGENTSYS-alpha",
+            agent_name="HOUMAO-alpha",
             agent_id="published-custom",
         )
         _populate_discovery(
             svc,
             agent_id="published-custom",
-            agent_name="AGENTSYS-alpha",
+            agent_name="HOUMAO-alpha",
         )
         svc.m_headless.submit_turn = MagicMock(
             return_value=PassiveHeadlessTurnAcceptedResponse(
@@ -460,13 +460,13 @@ class TestManagedHeadlessRouting:
         _seed_managed_handle(
             svc,
             tracked_agent_id="tracked-alpha",
-            agent_name="AGENTSYS-alpha",
+            agent_name="HOUMAO-alpha",
             agent_id="published-custom",
         )
         _populate_discovery(
             svc,
             agent_id="published-custom",
-            agent_name="AGENTSYS-alpha",
+            agent_name="HOUMAO-alpha",
         )
         svc.m_headless.interrupt_managed = MagicMock(
             return_value=PassiveAgentActionResponse(
@@ -534,7 +534,7 @@ class TestRestartResume:
 
         controller = _FakeRuntimeController(
             manifest_path=manifest_path,
-            agent_identity="AGENTSYS-alpha",
+            agent_identity="HOUMAO-alpha",
             agent_id="published-custom",
             backend_session=_FakeHeadlessBackendSession(send_prompt_callback=_send_prompt),
         )
@@ -546,9 +546,9 @@ class TestRestartResume:
                 tool="claude",
                 manifest_path=str(manifest_path),
                 session_root=str(manifest_path.parent),
-                tmux_session_name="AGENTSYS-alpha",
+                tmux_session_name="HOUMAO-alpha",
                 agent_def_dir=str(agent_def_dir),
-                agent_name="AGENTSYS-alpha",
+                agent_name="HOUMAO-alpha",
                 agent_id="published-custom",
                 created_at_utc="2026-03-20T09:00:00+00:00",
                 updated_at_utc="2026-03-20T09:00:00+00:00",
@@ -593,9 +593,9 @@ class TestRestartResume:
                 tool="claude",
                 manifest_path=str(manifest_path),
                 session_root=str(manifest_path.parent),
-                tmux_session_name="AGENTSYS-alpha",
+                tmux_session_name="HOUMAO-alpha",
                 agent_def_dir=str(agent_def_dir),
-                agent_name="AGENTSYS-alpha",
+                agent_name="HOUMAO-alpha",
                 agent_id="published-custom",
                 created_at_utc="2026-03-20T09:00:00+00:00",
                 updated_at_utc="2026-03-20T09:00:00+00:00",
@@ -662,7 +662,7 @@ class TestTurnFinalization:
         authority = _seed_managed_handle(
             svc,
             tracked_agent_id="tracked-alpha",
-            agent_name="AGENTSYS-alpha",
+            agent_name="HOUMAO-alpha",
             agent_id="published-alpha",
             controller=_FakeRuntimeController(
                 manifest_path=tmp_path / "runtime" / "tracked-alpha" / "manifest.json",

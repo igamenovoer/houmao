@@ -54,9 +54,9 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
                 "mailbox",
                 "register",
                 "--address",
-                "AGENTSYS-alice@agents.localhost",
+                "HOUMAO-alice@agents.localhost",
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -69,9 +69,9 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
                 "mailbox",
                 "register",
                 "--address",
-                "AGENTSYS-bob@agents.localhost",
+                "HOUMAO-bob@agents.localhost",
                 "--principal-id",
-                "AGENTSYS-bob",
+                "HOUMAO-bob",
             ],
         ).exit_code
         == 0
@@ -84,7 +84,7 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
                 "mailbox",
                 "unregister",
                 "--address",
-                "AGENTSYS-bob@agents.localhost",
+                "HOUMAO-bob@agents.localhost",
             ],
         ).exit_code
         == 0
@@ -119,7 +119,7 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
             "--mailbox-root",
             str(mailbox_root),
             "--address",
-            "AGENTSYS-alice@agents.localhost",
+            "HOUMAO-alice@agents.localhost",
         ],
     )
     project_get_result = runner.invoke(
@@ -130,7 +130,7 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
             "accounts",
             "get",
             "--address",
-            "AGENTSYS-alice@agents.localhost",
+            "HOUMAO-alice@agents.localhost",
         ],
     )
 
@@ -138,11 +138,11 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
     assert project_get_result.exit_code == 0, project_get_result.output
     assert (
         json.loads(generic_get_result.output)["account"]["address"]
-        == "AGENTSYS-alice@agents.localhost"
+        == "HOUMAO-alice@agents.localhost"
     )
     assert (
         json.loads(project_get_result.output)["account"]["address"]
-        == "AGENTSYS-alice@agents.localhost"
+        == "HOUMAO-alice@agents.localhost"
     )
 
 
@@ -166,9 +166,9 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
                 "mailbox",
                 "register",
                 "--address",
-                "AGENTSYS-alice@agents.localhost",
+                "HOUMAO-alice@agents.localhost",
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -181,9 +181,9 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
                 "mailbox",
                 "register",
                 "--address",
-                "AGENTSYS-bob@agents.localhost",
+                "HOUMAO-bob@agents.localhost",
                 "--principal-id",
-                "AGENTSYS-bob",
+                "HOUMAO-bob",
             ],
         ).exit_code
         == 0
@@ -202,13 +202,13 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
             thread_id=message_id,
             created_at_utc="2026-03-28T12:00:00Z",
             sender=ManagedPrincipal(
-                principal_id="AGENTSYS-bob",
-                address="AGENTSYS-bob@agents.localhost",
+                principal_id="HOUMAO-bob",
+                address="HOUMAO-bob@agents.localhost",
             ),
             to=(
                 ManagedPrincipal(
-                    principal_id="AGENTSYS-alice",
-                    address="AGENTSYS-alice@agents.localhost",
+                    principal_id="HOUMAO-alice",
+                    address="HOUMAO-alice@agents.localhost",
                 ),
             ),
             subject="Hello Alice",
@@ -224,7 +224,7 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
             "--mailbox-root",
             str(mailbox_root),
             "--address",
-            "AGENTSYS-alice@agents.localhost",
+            "HOUMAO-alice@agents.localhost",
         ],
     )
     project_list_result = runner.invoke(
@@ -235,7 +235,7 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
             "messages",
             "list",
             "--address",
-            "AGENTSYS-alice@agents.localhost",
+            "HOUMAO-alice@agents.localhost",
         ],
     )
 
@@ -257,7 +257,7 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
             "--mailbox-root",
             str(mailbox_root),
             "--address",
-            "AGENTSYS-alice@agents.localhost",
+            "HOUMAO-alice@agents.localhost",
             "--message-id",
             message_id,
         ],
@@ -270,7 +270,7 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
             "messages",
             "get",
             "--address",
-            "AGENTSYS-alice@agents.localhost",
+            "HOUMAO-alice@agents.localhost",
             "--message-id",
             message_id,
         ],
@@ -293,7 +293,7 @@ def test_mailbox_register_prompts_before_overwriting_active_registration(
 ) -> None:
     runner = CliRunner()
     mailbox_root = (tmp_path / "mailbox").resolve()
-    address = "AGENTSYS-alice@agents.localhost"
+    address = "HOUMAO-alice@agents.localhost"
 
     assert (
         runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
@@ -309,7 +309,7 @@ def test_mailbox_register_prompts_before_overwriting_active_registration(
                 "--address",
                 address,
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -329,14 +329,14 @@ def test_mailbox_register_prompts_before_overwriting_active_registration(
             "--address",
             address,
             "--principal-id",
-            "AGENTSYS-bob",
+            "HOUMAO-bob",
         ],
         input="y\n",
     )
 
     assert result.exit_code == 0, result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "AGENTSYS-bob"
+    assert registration.owner_principal_id == "HOUMAO-bob"
 
 
 def test_mailbox_register_decline_keeps_existing_registration(
@@ -345,7 +345,7 @@ def test_mailbox_register_decline_keeps_existing_registration(
 ) -> None:
     runner = CliRunner()
     mailbox_root = (tmp_path / "mailbox").resolve()
-    address = "AGENTSYS-alice@agents.localhost"
+    address = "HOUMAO-alice@agents.localhost"
 
     assert (
         runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
@@ -361,7 +361,7 @@ def test_mailbox_register_decline_keeps_existing_registration(
                 "--address",
                 address,
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -381,7 +381,7 @@ def test_mailbox_register_decline_keeps_existing_registration(
             "--address",
             address,
             "--principal-id",
-            "AGENTSYS-bob",
+            "HOUMAO-bob",
         ],
         input="n\n",
     )
@@ -389,7 +389,7 @@ def test_mailbox_register_decline_keeps_existing_registration(
     assert result.exit_code != 0
     assert "Mailbox registration cancelled" in result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "AGENTSYS-alice"
+    assert registration.owner_principal_id == "HOUMAO-alice"
 
 
 def test_mailbox_register_noninteractive_conflict_requires_yes(
@@ -398,7 +398,7 @@ def test_mailbox_register_noninteractive_conflict_requires_yes(
 ) -> None:
     runner = CliRunner()
     mailbox_root = (tmp_path / "mailbox").resolve()
-    address = "AGENTSYS-alice@agents.localhost"
+    address = "HOUMAO-alice@agents.localhost"
 
     assert (
         runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
@@ -414,7 +414,7 @@ def test_mailbox_register_noninteractive_conflict_requires_yes(
                 "--address",
                 address,
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -434,14 +434,14 @@ def test_mailbox_register_noninteractive_conflict_requires_yes(
             "--address",
             address,
             "--principal-id",
-            "AGENTSYS-bob",
+            "HOUMAO-bob",
         ],
     )
 
     assert result.exit_code != 0
     assert "Rerun with `--yes`" in result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "AGENTSYS-alice"
+    assert registration.owner_principal_id == "HOUMAO-alice"
 
 
 def test_mailbox_register_yes_overwrites_without_tty(
@@ -450,7 +450,7 @@ def test_mailbox_register_yes_overwrites_without_tty(
 ) -> None:
     runner = CliRunner()
     mailbox_root = (tmp_path / "mailbox").resolve()
-    address = "AGENTSYS-alice@agents.localhost"
+    address = "HOUMAO-alice@agents.localhost"
 
     assert (
         runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
@@ -466,7 +466,7 @@ def test_mailbox_register_yes_overwrites_without_tty(
                 "--address",
                 address,
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -486,14 +486,14 @@ def test_mailbox_register_yes_overwrites_without_tty(
             "--address",
             address,
             "--principal-id",
-            "AGENTSYS-bob",
+            "HOUMAO-bob",
             "--yes",
         ],
     )
 
     assert result.exit_code == 0, result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "AGENTSYS-bob"
+    assert registration.owner_principal_id == "HOUMAO-bob"
 
 
 def test_project_mailbox_register_prompts_before_overwrite(
@@ -501,7 +501,7 @@ def test_project_mailbox_register_prompts_before_overwrite(
     tmp_path: Path,
 ) -> None:
     runner, _repo_root, mailbox_root = _init_project_mailbox_repo(monkeypatch, tmp_path)
-    address = "AGENTSYS-alice@agents.localhost"
+    address = "HOUMAO-alice@agents.localhost"
 
     assert (
         runner.invoke(
@@ -513,7 +513,7 @@ def test_project_mailbox_register_prompts_before_overwrite(
                 "--address",
                 address,
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -532,14 +532,14 @@ def test_project_mailbox_register_prompts_before_overwrite(
             "--address",
             address,
             "--principal-id",
-            "AGENTSYS-bob",
+            "HOUMAO-bob",
         ],
         input="y\n",
     )
 
     assert result.exit_code == 0, result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "AGENTSYS-bob"
+    assert registration.owner_principal_id == "HOUMAO-bob"
 
 
 def test_project_mailbox_uses_env_selected_overlay_root(
@@ -563,9 +563,9 @@ def test_project_mailbox_uses_env_selected_overlay_root(
                 "mailbox",
                 "register",
                 "--address",
-                "AGENTSYS-alice@agents.localhost",
+                "HOUMAO-alice@agents.localhost",
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
             env=env,
         ).exit_code
@@ -618,7 +618,7 @@ def test_project_mailbox_register_yes_overwrites_without_tty(
     tmp_path: Path,
 ) -> None:
     runner, _repo_root, mailbox_root = _init_project_mailbox_repo(monkeypatch, tmp_path)
-    address = "AGENTSYS-alice@agents.localhost"
+    address = "HOUMAO-alice@agents.localhost"
 
     assert (
         runner.invoke(
@@ -630,7 +630,7 @@ def test_project_mailbox_register_yes_overwrites_without_tty(
                 "--address",
                 address,
                 "--principal-id",
-                "AGENTSYS-alice",
+                "HOUMAO-alice",
             ],
         ).exit_code
         == 0
@@ -649,11 +649,11 @@ def test_project_mailbox_register_yes_overwrites_without_tty(
             "--address",
             address,
             "--principal-id",
-            "AGENTSYS-bob",
+            "HOUMAO-bob",
             "--yes",
         ],
     )
 
     assert result.exit_code == 0, result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "AGENTSYS-bob"
+    assert registration.owner_principal_id == "HOUMAO-bob"

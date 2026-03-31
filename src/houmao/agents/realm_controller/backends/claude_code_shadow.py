@@ -55,7 +55,7 @@ _DISCONNECTED_RE: Final[re.Pattern[str]] = re.compile(
 
 _DEFAULT_STATUS_TAIL_LINES: Final[int] = 100
 _DEFAULT_PROJECTION_SLICE_LINES: Final[int] = 12
-_ENV_PRESET_OVERRIDE: Final[str] = "AGENTSYS_CAO_CLAUDE_CODE_VERSION"
+_ENV_PRESET_OVERRIDE: Final[str] = "HOUMAO_CAO_CLAUDE_CODE_VERSION"
 
 _OUTPUT_VARIANT_PROMPT_IDLE_V1: Final[str] = "claude_prompt_idle_v1"
 _OUTPUT_VARIANT_RESPONSE_MARKER_V1: Final[str] = "claude_response_marker_v1"

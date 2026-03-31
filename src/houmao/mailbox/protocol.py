@@ -243,7 +243,7 @@ def validate_mailbox_address(value: str) -> str:
     if match is None:
         raise MailboxProtocolError(
             "mailbox addresses must be full-form email-like values such as "
-            "`AGENTSYS-research@agents.localhost`"
+            "`HOUMAO-research@agents.localhost`"
         )
 
     local_part = match.group("local")

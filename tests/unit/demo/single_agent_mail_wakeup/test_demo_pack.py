@@ -25,10 +25,10 @@ def test_build_demo_environment_exports_overlay_runtime_registry_and_jobs(tmp_pa
     env = runtime.build_demo_environment(paths=paths, base_env={})
 
     assert env["HOUMAO_PROJECT_OVERLAY_DIR"] == str(paths.overlay_dir)
-    assert env["AGENTSYS_AGENT_DEF_DIR"] == str((paths.overlay_dir / "agents").resolve())
-    assert env["AGENTSYS_GLOBAL_RUNTIME_DIR"] == str(paths.runtime_root)
-    assert env["AGENTSYS_GLOBAL_REGISTRY_DIR"] == str(paths.registry_root)
-    assert env["AGENTSYS_LOCAL_JOBS_DIR"] == str(paths.jobs_root)
+    assert env["HOUMAO_AGENT_DEF_DIR"] == str((paths.overlay_dir / "agents").resolve())
+    assert env["HOUMAO_GLOBAL_RUNTIME_DIR"] == str(paths.runtime_root)
+    assert env["HOUMAO_GLOBAL_REGISTRY_DIR"] == str(paths.registry_root)
+    assert env["HOUMAO_LOCAL_JOBS_DIR"] == str(paths.jobs_root)
 
 
 def test_import_project_auth_from_fixture_shapes_claude_command(
@@ -73,10 +73,11 @@ def test_import_project_auth_from_fixture_shapes_claude_command(
     )
 
     command = captured["command"]
-    assert command[:8] == [
+    assert command[:9] == [
         "pixi",
         "run",
         "houmao-mgr",
+        "--print-json",
         "project",
         "agents",
         "tools",
@@ -186,8 +187,8 @@ def test_import_project_auth_from_fixture_reuses_existing_bundle_with_set(
     )
 
     command = captured["command"]
-    assert command[7] == "auth"
-    assert command[8] == "set"
+    assert command[8] == "auth"
+    assert command[9] == "set"
 
 
 def test_driver_parser_accepts_supported_command_surface() -> None:
@@ -244,6 +245,7 @@ def test_attach_gateway_can_request_foreground_window(
         "pixi",
         "run",
         "houmao-mgr",
+        "--print-json",
         "agents",
         "gateway",
         "attach",

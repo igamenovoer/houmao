@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable, Literal, cast
 
 from houmao.owned_paths import (
-    AGENTSYS_JOB_DIR_ENV_VAR,
+    HOUMAO_JOB_DIR_ENV_VAR,
     resolve_mailbox_root,
     resolve_runtime_root,
     resolve_session_job_dir,
@@ -226,10 +226,10 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
 )
 _PRIMARY_AGENT_WINDOW_INDEX = "0"
 _GATEWAY_AUXILIARY_WINDOW_NAME = "gateway"
-_GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
-_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
-_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
-_GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
+_GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
+_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
+_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
+_GATEWAY_TMUX_PANE_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_PANE_ID"
 _BRAIN_ONLY_ROLE_NAME = "brain-only"
 _JOINED_SESSION_ORIGIN = "joined_tmux"
 _LOGGER = logging.getLogger(__name__)
@@ -2272,11 +2272,11 @@ def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> Laun
     """Return a launch plan with the runtime-owned job-dir binding injected."""
 
     updated_env = dict(launch_plan.env)
-    updated_env[AGENTSYS_JOB_DIR_ENV_VAR] = str(job_dir.resolve())
+    updated_env[HOUMAO_JOB_DIR_ENV_VAR] = str(job_dir.resolve())
     return replace(
         launch_plan,
         env=updated_env,
-        env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+        env_var_names=sorted({*launch_plan.env_var_names, HOUMAO_JOB_DIR_ENV_VAR}),
     )
 
 

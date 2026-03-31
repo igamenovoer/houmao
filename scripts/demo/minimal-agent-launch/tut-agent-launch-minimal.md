@@ -82,8 +82,8 @@ if [[ "${headless}" == "true" ]]; then
   launch_args+=(--headless)
 fi
 
-AGENTSYS_AGENT_DEF_DIR="$PWD/${generated_agent_def_dir}" \
-AGENTSYS_GLOBAL_RUNTIME_DIR="$PWD/${run_root}/runtime" \
+HOUMAO_AGENT_DEF_DIR="$PWD/${generated_agent_def_dir}" \
+HOUMAO_GLOBAL_RUNTIME_DIR="$PWD/${run_root}/runtime" \
 "${launch_args[@]}"
 ```
 
@@ -196,7 +196,7 @@ Representative observed non-interactive TUI handoff:
 
 ```text
 terminal_handoff=skipped_non_interactive
-attach_command=tmux attach-session -t AGENTSYS-minimal-launch-demo-claude-1774696208764
+attach_command=tmux attach-session -t HOUMAO-minimal-launch-demo-claude-1774696208764
 ```
 
 ## Verification
@@ -212,9 +212,9 @@ Observed verification results on 2026-03-28:
 
 | Lane | Output root | Observed launch/state evidence |
 |---|---|---|
-| Claude TUI | `outputs/claude_code/` | `agent_name=minimal-launch-demo-claude`, `tool=claude`, `transport=tui`, `turn.phase=ready`, `terminal_handoff=skipped_non_interactive`, `attach_command=tmux attach-session -t AGENTSYS-minimal-launch-demo-claude-1774696208764` |
+| Claude TUI | `outputs/claude_code/` | `agent_name=minimal-launch-demo-claude`, `tool=claude`, `transport=tui`, `turn.phase=ready`, `terminal_handoff=skipped_non_interactive`, `attach_command=tmux attach-session -t HOUMAO-minimal-launch-demo-claude-1774696208764` |
 | Claude headless | `outputs/claude_code-headless/` | `agent_name=minimal-launch-demo-claude-headless`, `tool=claude`, `transport=headless`, `last_turn.result=success`, `logs/stop.log` reported `"success": true` |
-| Codex TUI | `outputs/codex/` | `agent_name=minimal-launch-demo-codex`, `tool=codex`, `transport=tui`, `turn.phase=ready`, `terminal_handoff=skipped_non_interactive`, `attach_command=tmux attach-session -t AGENTSYS-minimal-launch-demo-codex-1774696235259` |
+| Codex TUI | `outputs/codex/` | `agent_name=minimal-launch-demo-codex`, `tool=codex`, `transport=tui`, `turn.phase=ready`, `terminal_handoff=skipped_non_interactive`, `attach_command=tmux attach-session -t HOUMAO-minimal-launch-demo-codex-1774696235259` |
 | Codex headless | `outputs/codex-headless/` | `agent_name=minimal-launch-demo-codex-headless`, `tool=codex`, `transport=headless`, `last_turn.result=success`, `logs/stop.log` reported `"success": true` |
 
 What to confirm after a run:

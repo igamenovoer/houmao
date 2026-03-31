@@ -104,17 +104,17 @@ def test_start_session_forwards_mailbox_overrides(monkeypatch, tmp_path: Path) -
             "--mailbox-root",
             str(mailbox_root),
             "--mailbox-principal-id",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--mailbox-address",
-            "AGENTSYS-research@agents.localhost",
+            "HOUMAO-research@agents.localhost",
         ]
     )
 
     assert exit_code == 0
     assert captured_kwargs["mailbox_transport"] == "filesystem"
     assert captured_kwargs["mailbox_root"] == mailbox_root.resolve()
-    assert captured_kwargs["mailbox_principal_id"] == "AGENTSYS-research"
-    assert captured_kwargs["mailbox_address"] == "AGENTSYS-research@agents.localhost"
+    assert captured_kwargs["mailbox_principal_id"] == "HOUMAO-research"
+    assert captured_kwargs["mailbox_address"] == "HOUMAO-research@agents.localhost"
 
 
 def test_stop_session_forwards_force_cleanup(
@@ -150,7 +150,7 @@ def test_stop_session_forwards_force_cleanup(
         [
             "stop-session",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--force-cleanup",
         ]
     )
@@ -198,7 +198,7 @@ def test_stop_session_forwards_cao_parsing_mode_override(
         [
             "stop-session",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--cao-parsing-mode",
             "cao_only",
         ]
@@ -257,7 +257,7 @@ def test_mail_command_forwards_cao_parsing_mode_override(
             "mail",
             "check",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--cao-parsing-mode",
             "cao_only",
         ]
@@ -275,7 +275,7 @@ def test_start_session_prefers_cli_agent_def_dir_over_env(
     manifest_path = tmp_path / "session.json"
     manifest_path.write_text("{}", encoding="utf-8")
 
-    monkeypatch.setenv("AGENTSYS_AGENT_DEF_DIR", str(tmp_path / "env-agent-def"))
+    monkeypatch.setenv("HOUMAO_AGENT_DEF_DIR", str(tmp_path / "env-agent-def"))
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
         captured_kwargs.update(kwargs)
@@ -318,7 +318,7 @@ def test_start_session_uses_env_agent_def_dir_when_cli_flag_missing(
     manifest_path.write_text("{}", encoding="utf-8")
 
     env_agent_def_dir = tmp_path / "env-agent-def"
-    monkeypatch.setenv("AGENTSYS_AGENT_DEF_DIR", str(env_agent_def_dir))
+    monkeypatch.setenv("HOUMAO_AGENT_DEF_DIR", str(env_agent_def_dir))
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
         captured_kwargs.update(kwargs)
@@ -359,7 +359,7 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
     manifest_path.write_text("{}", encoding="utf-8")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("AGENTSYS_AGENT_DEF_DIR", raising=False)
+    monkeypatch.delenv("HOUMAO_AGENT_DEF_DIR", raising=False)
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
         captured_kwargs.update(kwargs)
@@ -404,7 +404,7 @@ def test_start_session_uses_discovered_project_overlay_when_present(
     manifest_path.write_text("{}", encoding="utf-8")
     bootstrap_project_overlay(repo_root)
     monkeypatch.chdir(nested_dir)
-    monkeypatch.delenv("AGENTSYS_AGENT_DEF_DIR", raising=False)
+    monkeypatch.delenv("HOUMAO_AGENT_DEF_DIR", raising=False)
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
         captured_kwargs.update(kwargs)
@@ -452,7 +452,7 @@ def test_start_session_uses_overlay_env_before_discovered_project(
     bootstrap_project_overlay(repo_root)
     bootstrap_project_overlay_at_root(overlay_root)
     monkeypatch.chdir(nested_dir)
-    monkeypatch.delenv("AGENTSYS_AGENT_DEF_DIR", raising=False)
+    monkeypatch.delenv("HOUMAO_AGENT_DEF_DIR", raising=False)
     monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
@@ -513,7 +513,7 @@ def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
 ) -> None:
     env_agent_def_dir = tmp_path / "env-agent-def"
     tmux_agent_def_dir = tmp_path / "tmux-agent-def"
-    monkeypatch.setenv("AGENTSYS_AGENT_DEF_DIR", str(env_agent_def_dir))
+    monkeypatch.setenv("HOUMAO_AGENT_DEF_DIR", str(env_agent_def_dir))
     captured_resume_kwargs: dict[str, object] = {}
 
     class _FakeController:
@@ -538,7 +538,7 @@ def test_send_prompt_name_based_uses_tmux_resolved_agent_def_dir(
         [
             "send-prompt",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--prompt",
             "hello",
         ]
@@ -578,7 +578,7 @@ def test_send_prompt_prints_controller_operation_warnings(
         [
             "send-prompt",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--prompt",
             "hello",
         ]
@@ -594,7 +594,7 @@ def test_send_prompt_manifest_path_keeps_ambient_agent_def_dir_resolution(
     tmp_path: Path,
 ) -> None:
     env_agent_def_dir = tmp_path / "env-agent-def"
-    monkeypatch.setenv("AGENTSYS_AGENT_DEF_DIR", str(env_agent_def_dir))
+    monkeypatch.setenv("HOUMAO_AGENT_DEF_DIR", str(env_agent_def_dir))
     monkeypatch.chdir(tmp_path)
     captured_resolve_kwargs: dict[str, object] = {}
     captured_resume_kwargs: dict[str, object] = {}
@@ -677,7 +677,7 @@ def test_stop_session_name_based_forwards_explicit_agent_def_dir_override(
         [
             "stop-session",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--agent-def-dir",
             str(override_agent_def_dir),
         ]
@@ -724,7 +724,7 @@ def test_stop_session_prints_controller_operation_warnings(
         [
             "stop-session",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
         ]
     )
 
@@ -772,7 +772,7 @@ def test_send_keys_forwards_sequence_and_escape_mode(
         [
             "send-keys",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--sequence",
             "/model<[Enter]>",
             "--escape-special-keys",
@@ -822,7 +822,7 @@ def test_send_keys_returns_error_exit_code_on_control_input_failure(
         [
             "send-keys",
             "--agent-identity",
-            "AGENTSYS-gpu",
+            "HOUMAO-gpu",
             "--sequence",
             "<[Escape]>",
         ]

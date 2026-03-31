@@ -148,7 +148,7 @@ Runtime-managed sessions also derive a per-session workspace-local job directory
 | --- | --- | --- | --- | --- | --- |
 | `<working-directory>/.houmao/jobs/<session-id>/` or relocated equivalent | start/resume runtime flow | the launched session and tool-side work | Per-session scratch and job-local outputs for the selected working directory | Stable path family | Usually the safest directory family to treat as scratch |
 
-The runtime persists this resolved path in the session manifest as `job_dir` and publishes it into the launched session environment as `AGENTSYS_JOB_DIR`.
+The runtime persists this resolved path in the session manifest as `job_dir` and publishes it into the launched session environment as `HOUMAO_JOB_DIR`.
 
 If the selected working directory is also a repo root initialized with `houmao-mgr project init`, this scratch path family lands under the same hidden `.houmao/` overlay as `.houmao/houmao-config.toml` and `.houmao/agents/`. The overlap is only about path anchoring; `jobs/` remains scratch/runtime state rather than project source.
 

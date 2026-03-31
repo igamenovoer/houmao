@@ -49,7 +49,7 @@ from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
-from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
 def _write(path: Path, text: str) -> None:
@@ -216,8 +216,8 @@ def _deliver_unread_mailbox_message(
     """Deliver one unread filesystem mailbox message for gateway notifier tests."""
 
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
 
@@ -319,7 +319,7 @@ class _FakeCaoSessionRegistry:
     def __init__(self, *, api_base_url: str, terminal_id: str) -> None:
         self.m_api_base_url = api_base_url
         self.m_terminal_id = terminal_id
-        self.m_session_name = "AGENTSYS-gateway"
+        self.m_session_name = "HOUMAO-gateway"
         self.m_profile_name = "runtime-profile"
         self.m_profile_path = str(Path("/tmp/runtime-profile.md"))
         self.m_direct_prompts: list[str] = []
@@ -686,7 +686,7 @@ class _FakeCaoRequestHandler(BaseHTTPRequestHandler):
                     "id": terminal_id,
                     "name": "developer-1",
                     "provider": "codex",
-                    "session_name": "AGENTSYS-gateway",
+                    "session_name": "HOUMAO-gateway",
                     "agent_profile": "runtime-profile",
                     "status": "idle",
                 },
@@ -797,7 +797,7 @@ def _install_gateway_runtime_fakes(
 ) -> None:
     """Install fake CAO session and tmux environment hooks."""
 
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root.resolve()))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root.resolve()))
     if registry is not None:
         _FakeCaoRestSession.m_registry = registry
         monkeypatch.setattr(
@@ -935,7 +935,7 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
     runtime_root = tmp_path / "runtime"
     brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
     blueprint_path = _seed_gateway_defaults_blueprint(agent_def_dir, port=43123)
-    headless_registry = _FakeHeadlessSessionRegistry(session_name="AGENTSYS-headless")
+    headless_registry = _FakeHeadlessSessionRegistry(session_name="HOUMAO-headless")
     tmux_env = _FakeTmuxEnv()
     _install_gateway_runtime_fakes(
         monkeypatch=monkeypatch,
@@ -1016,7 +1016,7 @@ def test_runtime_owned_headless_between_turn_attach_rebuilds_internal_attach_con
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
     brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
-    headless_registry = _FakeHeadlessSessionRegistry(session_name="AGENTSYS-headless")
+    headless_registry = _FakeHeadlessSessionRegistry(session_name="HOUMAO-headless")
     tmux_env = _FakeTmuxEnv()
     _install_gateway_runtime_fakes(
         monkeypatch=monkeypatch,
@@ -1120,7 +1120,7 @@ def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
     runtime_root = tmp_path / "runtime"
     brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
     blueprint_path = _seed_gateway_defaults_blueprint(agent_def_dir, port=43123)
-    local_registry = _FakeHeadlessSessionRegistry(session_name="AGENTSYS-local")
+    local_registry = _FakeHeadlessSessionRegistry(session_name="HOUMAO-local")
     tmux_env = _FakeTmuxEnv()
     _install_gateway_runtime_fakes(
         monkeypatch=monkeypatch,
@@ -1262,7 +1262,7 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
                 "--mailbox-root",
                 str(mailbox_root),
                 "--mailbox-address",
-                "AGENTSYS-gateway@agents.localhost",
+                "HOUMAO-gateway@agents.localhost",
             ],
         )
         assert start_exit == 0
@@ -1481,7 +1481,7 @@ def test_gateway_http_mail_state_route_marks_message_read_through_live_gateway(
                 "--mailbox-root",
                 str(mailbox_root),
                 "--mailbox-address",
-                "AGENTSYS-gateway@agents.localhost",
+                "HOUMAO-gateway@agents.localhost",
             ],
         )
         assert start_exit == 0
@@ -1588,7 +1588,7 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
                 "--mailbox-root",
                 str(mailbox_root),
                 "--mailbox-address",
-                "AGENTSYS-gateway@agents.localhost",
+                "HOUMAO-gateway@agents.localhost",
             ],
         )
         assert start_exit == 0

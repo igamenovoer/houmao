@@ -222,7 +222,7 @@ class _AppServiceDouble:
                 tracked_session_id="cao-gpu",
                 session_name="cao-gpu",
                 tool="codex",
-                tmux_session_name="AGENTSYS-gpu",
+                tmux_session_name="HOUMAO-gpu",
                 terminal_aliases=[terminal_id],
             ),
             diagnostics=HoumaoTrackedDiagnostics(
@@ -311,10 +311,10 @@ class _AppServiceDouble:
             transport="headless",
             tool="claude",
             runtime_session_id="claude-headless-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             manifest_path="/tmp/manifest.json",
             session_root="/tmp/session-root",
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
 
@@ -497,7 +497,7 @@ class _AppServiceDouble:
         return GatewayStatusV1(
             attach_identity="claude-headless-1",
             backend="claude_headless",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             gateway_health="not_attached",
             managed_agent_connectivity="connected",
             managed_agent_recovery="idle",
@@ -1026,7 +1026,7 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
         session_name="cao-gpu",
         tool="codex",
         terminal_id="abcd1234",
-        agent_name="AGENTSYS-gpu",
+        agent_name="HOUMAO-gpu",
     )
     state_response = state_route.endpoint(terminal_id="abcd1234")
     history_response = history_route.endpoint(terminal_id="abcd1234", limit=3)
@@ -1039,7 +1039,7 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     assert register_response.success is True
     assert service.m_register_requests[0].session_name == "cao-gpu"
     assert service.m_register_requests[0].tool == "codex"
-    assert service.m_register_requests[0].agent_name == "AGENTSYS-gpu"
+    assert service.m_register_requests[0].agent_name == "HOUMAO-gpu"
     assert state_response.terminal_id == "abcd1234"
     assert history_response.entries[0].summary == "limit=3"
     assert service.m_history_calls == [("abcd1234", 3)]
@@ -1204,7 +1204,7 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
             agent_def_dir="/tmp/agents",
             brain_manifest_path="/tmp/brain.yaml",
             role_name="gpu-kernel-coder",
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id=None,
         )
     )

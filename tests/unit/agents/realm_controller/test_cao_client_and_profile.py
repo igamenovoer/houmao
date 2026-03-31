@@ -128,8 +128,8 @@ def _sample_launch_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
 def _sample_mailbox_launch_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
     plan = _sample_launch_plan(tmp_path, tool=tool)
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "AGENTSYS-research"
-    address = "AGENTSYS-research@agents.localhost"
+    principal_id = "HOUMAO-research"
+    address = "HOUMAO-research@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
@@ -227,7 +227,7 @@ def test_compose_tmux_launch_env_preserve_mode_leaves_no_proxy_untouched(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
-    monkeypatch.setenv("AGENTSYS_PRESERVE_NO_PROXY_ENV", "1")
+    monkeypatch.setenv("HOUMAO_PRESERVE_NO_PROXY_ENV", "1")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
 
@@ -543,7 +543,7 @@ def test_cao_rest_client_preserve_mode_leaves_no_proxy_untouched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
-    monkeypatch.setenv("AGENTSYS_PRESERVE_NO_PROXY_ENV", "1")
+    monkeypatch.setenv("HOUMAO_PRESERVE_NO_PROXY_ENV", "1")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
 
@@ -845,7 +845,7 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
     )
 
     assert captured_tmux["available"] is True
-    assert str(captured_tmux["session_name"]).startswith("AGENTSYS-")
+    assert str(captured_tmux["session_name"]).startswith("HOUMAO-")
     assert captured_tmux["working_directory"] == tmp_path
     assert captured_tmux["env_session_name"] == captured_tmux["session_name"]
     env_vars = captured_tmux["env_vars"]
@@ -913,7 +913,7 @@ def test_cao_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
         agent_def_dir=agent_def_dir,
         existing_state=CaoSessionState(
             api_base_url="http://localhost:9889",
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             terminal_id="term-123",
             profile_name="runtime-profile",
             profile_path=str(tmp_path / "runtime-profile.md"),
@@ -923,7 +923,7 @@ def test_cao_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
         ),
     )
 
-    assert captured_tmux_env["session_name"] == "AGENTSYS-gpu"
+    assert captured_tmux_env["session_name"] == "HOUMAO-gpu"
     env_vars = captured_tmux_env["env_vars"]
     assert isinstance(env_vars, dict)
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
@@ -1333,7 +1333,7 @@ def test_houmao_server_control_input_targets_reserved_window_zero(
 ) -> None:
     fake_session = object.__new__(CaoRestSession)
     fake_session.backend = "houmao_server_rest"
-    fake_session._session_name = "AGENTSYS-gpu"
+    fake_session._session_name = "HOUMAO-gpu"
     fake_session._tmux_window_name = "developer-1"
 
     monkeypatch.setattr(
@@ -2075,7 +2075,7 @@ def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
         launch_plan=launch_plan,
         operation="send",
         args={
-            "to": ["AGENTSYS-orchestrator@agents.localhost"],
+            "to": ["HOUMAO-orchestrator@agents.localhost"],
             "cc": [],
             "subject": "Investigate parser drift",
             "body_content": "Hello from shadow mode",
@@ -2131,7 +2131,7 @@ def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
                     "request_id": self.submitted_request_id,
                     "operation": "send",
                     "transport": "filesystem",
-                    "principal_id": "AGENTSYS-research",
+                    "principal_id": "HOUMAO-research",
                     "message_ref": "filesystem:msg-20260318T120000Z-shadow",
                 }
             )
@@ -2142,9 +2142,9 @@ def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
                     "Codex CLI v0.1.0\n"
                     "> mail send request\n"
                     "assistant> drafting message\n"
-                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    "HOUMAO_MAIL_RESULT_BEGIN\n"
                     f"{payload}\n"
-                    "AGENTSYS_MAIL_RESULT_END\n"
+                    "HOUMAO_MAIL_RESULT_END\n"
                     "> \n"
                 ),
             ]
@@ -2223,7 +2223,7 @@ def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
         launch_plan=launch_plan,
         operation="send",
         args={
-            "to": ["AGENTSYS-orchestrator@agents.localhost"],
+            "to": ["HOUMAO-orchestrator@agents.localhost"],
             "cc": [],
             "subject": "Investigate parser drift",
             "body_content": "Hello from shadow mode",
@@ -2279,7 +2279,7 @@ def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
                     "request_id": self.submitted_request_id,
                     "operation": "send",
                     "transport": "filesystem",
-                    "principal_id": "AGENTSYS-research",
+                    "principal_id": "HOUMAO-research",
                     "message_ref": "filesystem:msg-20260318T120000Z-shadow",
                 }
             )
@@ -2290,9 +2290,9 @@ def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
                     "Codex CLI v0.1.0\n"
                     "processing send request\n"
                     "assistant> drafting message\n"
-                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    "HOUMAO_MAIL_RESULT_BEGIN\n"
                     f"{payload}\n"
-                    "AGENTSYS_MAIL_RESULT_END\n"
+                    "HOUMAO_MAIL_RESULT_END\n"
                     "> \n"
                 ),
             ]
@@ -3019,13 +3019,13 @@ def test_cao_only_failure_does_not_fallback_to_mode_full(
 
 
 def test_generate_cao_session_name_adds_conflict_suffix() -> None:
-    occupied = {"AGENTSYS-codex-gpu-kernel-coder"}
+    occupied = {"HOUMAO-codex-gpu-kernel-coder"}
     generated = generate_cao_session_name(
         tool="codex",
         role_name="gpu-kernel-coder",
         existing_sessions=occupied,
     )
-    assert generated.startswith("AGENTSYS-codex-gpu-kernel-coder-")
+    assert generated.startswith("HOUMAO-codex-gpu-kernel-coder-")
     assert generated not in occupied
 
 
@@ -3038,7 +3038,7 @@ def test_cao_backend_rejects_conflicting_explicit_agent_identity(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.cao_rest._list_tmux_sessions",
-        lambda: {"AGENTSYS-gpu"},
+        lambda: {"HOUMAO-gpu"},
     )
 
     with pytest.raises(BackendExecutionError, match="already in use"):

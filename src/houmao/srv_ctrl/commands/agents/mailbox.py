@@ -40,7 +40,7 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
     default=None,
     help=(
-        "Filesystem mailbox root override. Defaults to `AGENTSYS_GLOBAL_MAILBOX_DIR` "
+        "Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` "
         "or the shared Houmao mailbox root."
     ),
 )

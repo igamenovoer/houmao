@@ -4,7 +4,7 @@ This page covers the current operator-facing failure modes for pair-managed `hou
 
 ## `houmao-mgr agents gateway attach` Reports Missing Manifest Tmux Metadata
 
-If current-session attach says the tmux session does not publish `AGENTSYS_MANIFEST_PATH` or a usable `AGENTSYS_AGENT_ID`, the command is not running against a session that has published supported managed-agent discovery metadata yet.
+If current-session attach says the tmux session does not publish `HOUMAO_MANIFEST_PATH` or a usable `HOUMAO_AGENT_ID`, the command is not running against a session that has published supported managed-agent discovery metadata yet.
 
 Check:
 

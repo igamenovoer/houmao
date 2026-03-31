@@ -32,12 +32,12 @@ There are now three different `.houmao` anchors to keep straight:
 | Surface | Default path | Current override surfaces | Ownership | Contract level |
 | --- | --- | --- | --- | --- |
 | Houmao home anchor | `~/.houmao` | none as a first-class operator surface | Houmao-owned | Stable anchor derived from a platformdirs-aware home lookup |
-| Project-local overlay | `<project-root>/.houmao` when initialized | nearest-ancestor `.houmao/houmao-config.toml`; explicit `--agent-def-dir` and `AGENTSYS_AGENT_DEF_DIR` still outrank discovery for agent-definition resolution | Repo-local project overlay | Stable local operator workflow |
-| Runtime root | `~/.houmao/runtime` | explicit CLI/API/config override where supported, then `AGENTSYS_GLOBAL_RUNTIME_DIR` | Houmao-owned | Stable root family |
-| Registry root | `~/.houmao/registry` | current operator-facing override `AGENTSYS_GLOBAL_REGISTRY_DIR` | Houmao-owned | Stable root family |
-| Local jobs root | `<working-directory>/.houmao/jobs` | `AGENTSYS_LOCAL_JOBS_DIR` before default derivation | Workspace-local scratch | Stable root family |
+| Project-local overlay | `<project-root>/.houmao` when initialized | nearest-ancestor `.houmao/houmao-config.toml`; explicit `--agent-def-dir` and `HOUMAO_AGENT_DEF_DIR` still outrank discovery for agent-definition resolution | Repo-local project overlay | Stable local operator workflow |
+| Runtime root | `~/.houmao/runtime` | explicit CLI/API/config override where supported, then `HOUMAO_GLOBAL_RUNTIME_DIR` | Houmao-owned | Stable root family |
+| Registry root | `~/.houmao/registry` | current operator-facing override `HOUMAO_GLOBAL_REGISTRY_DIR` | Houmao-owned | Stable root family |
+| Local jobs root | `<working-directory>/.houmao/jobs` | `HOUMAO_LOCAL_JOBS_DIR` before default derivation | Workspace-local scratch | Stable root family |
 | Launcher-selected CAO home | `<runtime-root>/cao_servers/<host>-<port>/home/` when `home_dir` is omitted | explicit launcher config or CLI `home_dir` override | Houmao-selected | Stable placement, opaque CAO-owned contents |
-| Mailbox root | `~/.houmao/mailbox` | `AGENTSYS_GLOBAL_MAILBOX_DIR` or explicit mailbox-root override | Separate mailbox subsystem | Out of scope for this subtree |
+| Mailbox root | `~/.houmao/mailbox` | `HOUMAO_GLOBAL_MAILBOX_DIR` or explicit mailbox-root override | Separate mailbox subsystem | Out of scope for this subtree |
 
 ## Root-Resolution Notes
 
@@ -52,11 +52,11 @@ The runtime root is where Houmao stores generated homes, generated manifests, ru
 - `houmao-mgr brains build` exposes `--runtime-root`,
 - launcher config exposes `runtime_root`,
 - programmatic calls expose `runtime_root=...`,
-- otherwise the runtime falls back to `AGENTSYS_GLOBAL_RUNTIME_DIR` and then `~/.houmao/runtime`.
+- otherwise the runtime falls back to `HOUMAO_GLOBAL_RUNTIME_DIR` and then `~/.houmao/runtime`.
 
 ### Registry root
 
-Current operator-facing registry relocation happens through `AGENTSYS_GLOBAL_REGISTRY_DIR`. The internal shared-path helper also supports explicit roots, but the main operational contract today is the env-var override and the default `~/.houmao/registry`.
+Current operator-facing registry relocation happens through `HOUMAO_GLOBAL_REGISTRY_DIR`. The internal shared-path helper also supports explicit roots, but the main operational contract today is the env-var override and the default `~/.houmao/registry`.
 
 ### Local jobs root
 
@@ -66,7 +66,7 @@ The local jobs root is derived from the selected working directory, not from the
 <working-directory>/.houmao/jobs/<session-id>/
 ```
 
-`AGENTSYS_LOCAL_JOBS_DIR` relocates that scratch area to an absolute path. When the runtime starts or resumes a managed session, it also publishes the concrete per-session directory to the launched environment as `AGENTSYS_JOB_DIR`.
+`HOUMAO_LOCAL_JOBS_DIR` relocates that scratch area to an absolute path. When the runtime starts or resumes a managed session, it also publishes the concrete per-session directory to the launched environment as `HOUMAO_JOB_DIR`.
 
 If the selected working directory is also a project root initialized with `houmao-mgr project init`, the default jobs root becomes `<project-root>/.houmao/jobs/`. That path family is still scratch/runtime state, even though it lives under the same hidden repo-local overlay as `.houmao/houmao-config.toml` and `.houmao/agents/`.
 

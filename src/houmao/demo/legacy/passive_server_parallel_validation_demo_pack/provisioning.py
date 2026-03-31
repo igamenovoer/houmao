@@ -48,9 +48,9 @@ from houmao.demo.legacy.passive_server_parallel_validation_demo_pack.models impo
     tool_for_provider,
 )
 from houmao.owned_paths import (
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
-    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.passive_server.client import PassiveServerClient
 from houmao.passive_server.models import PassiveHeadlessLaunchRequest
@@ -370,9 +370,9 @@ def start_old_server(
     api_base_url = f"http://127.0.0.1:{config.old_server_port}"
     server_env = dict(os.environ)
     server_env["HOME"] = str(paths.old_server_home_dir)
-    server_env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.shared_runtime_root)
-    server_env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    server_env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
+    server_env[HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.shared_runtime_root)
+    server_env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
+    server_env[HOUMAO_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
     server_env[AGENT_DEF_DIR_ENV_VAR] = str(fixtures.agent_def_dir)
     for name, value in credential_env.items():
         server_env[name] = value
@@ -442,9 +442,9 @@ def start_passive_server(
 
     api_base_url = f"http://127.0.0.1:{config.passive_server_port}"
     server_env = dict(os.environ)
-    server_env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.shared_runtime_root)
-    server_env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    server_env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
+    server_env[HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.shared_runtime_root)
+    server_env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
+    server_env[HOUMAO_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
     server_env[AGENT_DEF_DIR_ENV_VAR] = str(fixtures.agent_def_dir)
     for name, value in credential_env.items():
         server_env[name] = value
@@ -1127,9 +1127,9 @@ def _shared_environment(*, paths: SuitePaths, agent_def_dir: Path) -> dict[str, 
     """Return the run-local environment used for registry and runtime ownership."""
 
     return {
-        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(paths.shared_runtime_root.resolve()),
-        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: str(paths.registry_root.resolve()),
-        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: str(paths.jobs_root.resolve()),
+        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR: str(paths.shared_runtime_root.resolve()),
+        HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(paths.registry_root.resolve()),
+        HOUMAO_LOCAL_JOBS_DIR_ENV_VAR: str(paths.jobs_root.resolve()),
         AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir.resolve()),
     }
 
@@ -1139,11 +1139,11 @@ def _shared_environment_from_state(state: Mapping[str, Any]) -> dict[str, str]:
 
     config = _mapping(dict(state.get("config", {})).get("roots", {}), context="state.config.roots")
     return {
-        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(
+        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR: str(
             Path(str(config["shared_runtime_root"])).resolve()
         ),
-        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: str(Path(str(config["registry_root"])).resolve()),
-        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: str(Path(str(config["jobs_root"])).resolve()),
+        HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(Path(str(config["registry_root"])).resolve()),
+        HOUMAO_LOCAL_JOBS_DIR_ENV_VAR: str(Path(str(config["jobs_root"])).resolve()),
         AGENT_DEF_DIR_ENV_VAR: str(Path(str(state["agent_def_dir"])).resolve()),
     }
 

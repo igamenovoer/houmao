@@ -463,7 +463,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     _install_fake_tmux_runtime(monkeypatch)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
         lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
@@ -531,7 +531,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
     _install_fake_tmux_runtime(monkeypatch)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
         lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
@@ -560,8 +560,8 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
 
     assert launch_result.exit_code == 0, launch_result.output
     assert "Managed agent launch complete:" in launch_result.output
-    assert "terminal_handoff=skipped_non_interactive" in launch_result.output
-    assert "attach_command=tmux attach-session -t AGENTSYS-gpu-" in launch_result.output
+    assert "terminal_handoff  skipped_non_interactive" in launch_result.output
+    assert "attach_command    tmux attach-session -t HOUMAO-gpu-" in launch_result.output
     record = resolve_live_agent_record("gpu")
     assert record is not None
     assert record.identity.backend == "local_interactive"
@@ -594,7 +594,7 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
     _FakeHeadlessSession.m_relaunch_calls = []
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
         lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
@@ -646,7 +646,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     _install_fake_tmux_runtime(monkeypatch)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
         lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
@@ -695,7 +695,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     assert register_result.exit_code == 0, register_result.output
     register_payload = json.loads(register_result.output)
     assert register_payload["activation_state"] == "active"
-    assert register_payload["address"] == "AGENTSYS-gpu@agents.localhost"
+    assert register_payload["address"] == "HOUMAO-gpu@agents.localhost"
     assert register_payload["mailbox_root"] == str(mailbox_root)
 
     status_result = runner.invoke(cli, ["--print-json", "agents", "mailbox", "status", "--agent-name", "gpu"])
@@ -708,7 +708,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     record = resolve_live_agent_record("gpu")
     assert record is not None
     assert record.mailbox is not None
-    assert record.mailbox.address == "AGENTSYS-gpu@agents.localhost"
+    assert record.mailbox.address == "HOUMAO-gpu@agents.localhost"
 
     mail_status_result = runner.invoke(cli, ["--print-json", "agents", "mail", "status", "--agent-name", "gpu"])
     assert mail_status_result.exit_code == 0, mail_status_result.output
@@ -746,7 +746,7 @@ def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_pro
     _install_fake_tmux_runtime(monkeypatch)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
         lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
@@ -819,9 +819,9 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
             launch_plan=_sample_houmao_server_plan(tmp_path),
             role_name="r",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-pair",
+            agent_name="HOUMAO-pair",
             agent_id="agent-pair-1",
-            tmux_session_name="AGENTSYS-pair",
+            tmux_session_name="HOUMAO-pair",
             session_id="pair-session-1",
             agent_def_dir=agent_def_dir,
             backend_state={
@@ -842,7 +842,7 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout="AGENTSYS-pair\n",
+            stdout="HOUMAO-pair\n",
             stderr="",
         ),
     )
@@ -850,7 +850,7 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
         "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
         lambda *, session_name, variable_name: (
             str(manifest_path)
-            if session_name == "AGENTSYS-pair" and variable_name == AGENT_MANIFEST_PATH_ENV_VAR
+            if session_name == "HOUMAO-pair" and variable_name == AGENT_MANIFEST_PATH_ENV_VAR
             else None
         ),
     )
@@ -881,7 +881,7 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
         lambda client, agent_ref: SimpleNamespace(
             transport="tui",
             session_name=agent_ref,
-            agent_name="AGENTSYS-pair",
+            agent_name="HOUMAO-pair",
             agent_id="agent-pair-1",
         ),
     )
@@ -928,24 +928,24 @@ def test_houmao_mgr_agents_mail_resolve_live_returns_structured_json(
         "managed_agent": {
             "mode": "local",
             "agent_ref": "alpha",
-            "agent_name": "AGENTSYS-alpha",
+            "agent_name": "HOUMAO-alpha",
             "agent_id": "agent-alpha",
-            "tmux_session_name": "AGENTSYS-alpha",
+            "tmux_session_name": "HOUMAO-alpha",
         },
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-alpha",
-        "address": "AGENTSYS-alpha@agents.localhost",
+        "principal_id": "HOUMAO-alpha",
+        "address": "HOUMAO-alpha@agents.localhost",
         "bindings_version": "2026-03-29T15:00:00Z",
         "mailbox": {
             "transport": "filesystem",
             "filesystem": {
                 "root": "/tmp/mailbox",
                 "mailbox_kind": "in_root",
-                "mailbox_path": "/tmp/mailbox/mailboxes/AGENTSYS-alpha@agents.localhost",
-                "inbox_path": "/tmp/mailbox/mailboxes/AGENTSYS-alpha@agents.localhost/inbox",
+                "mailbox_path": "/tmp/mailbox/mailboxes/HOUMAO-alpha@agents.localhost",
+                "inbox_path": "/tmp/mailbox/mailboxes/HOUMAO-alpha@agents.localhost/inbox",
                 "sqlite_path": "/tmp/mailbox/index.sqlite",
                 "local_sqlite_path": (
-                    "/tmp/mailbox/mailboxes/AGENTSYS-alpha@agents.localhost/mailbox.sqlite"
+                    "/tmp/mailbox/mailboxes/HOUMAO-alpha@agents.localhost/mailbox.sqlite"
                 ),
             },
         },
@@ -1139,8 +1139,8 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
     assert captured["tmux_session_name"] == "join-sess"
     assert captured["tmux_window_name"] == "manual"
     assert captured["working_directory"] == Path("/tmp/project")
-    assert "Managed agent join complete:" in result.output
-    assert "provider=codex" in result.output
+    assert "Managed agent join complete" in result.output
+    assert "provider           codex" in result.output
 
 
 def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyPatch) -> None:

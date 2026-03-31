@@ -31,7 +31,7 @@ Each participant is a `MailboxPrincipal` with:
 - optional `manifest_path_hint`
 - optional `role`
 
-Addresses are full-form email-like strings such as `AGENTSYS-research@agents.localhost`. Whitespace, blank values, invalid domains, and unsafe literal path-segment values are rejected.
+Addresses are full-form email-like strings such as `HOUMAO-research@agents.localhost`. Whitespace, blank values, invalid domains, and unsafe literal path-segment values are rejected.
 
 ### Threading
 
@@ -70,11 +70,11 @@ in_reply_to: null
 references: []
 created_at_utc: 2026-03-13T09:15:30Z
 from:
-  principal_id: AGENTSYS-research
-  address: AGENTSYS-research@agents.localhost
+  principal_id: HOUMAO-research
+  address: HOUMAO-research@agents.localhost
 to:
-  - principal_id: AGENTSYS-orchestrator
-    address: AGENTSYS-orchestrator@agents.localhost
+  - principal_id: HOUMAO-orchestrator
+    address: HOUMAO-orchestrator@agents.localhost
 cc: []
 reply_to: []
 subject: Investigate parser drift

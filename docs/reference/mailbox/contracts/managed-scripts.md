@@ -80,7 +80,7 @@ Representative failure:
 ```json
 {
   "ok": false,
-  "error": "delivery payload: $.to[0].address: mailbox addresses must be full-form email-like values such as `AGENTSYS-research@agents.localhost`"
+  "error": "delivery payload: $.to[0].address: mailbox addresses must be full-form email-like values such as `HOUMAO-research@agents.localhost`"
 }
 ```
 

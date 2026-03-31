@@ -84,7 +84,7 @@ def test_gemini_headless_surfaces_stderr_on_failure(tmp_path: Path) -> None:
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-gemini",
+            tmux_session_name="HOUMAO-gemini",
         ),
     )
 
@@ -124,7 +124,7 @@ def test_claude_headless_uses_launch_plan_environment(
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-claude",
+            tmux_session_name="HOUMAO-claude",
         ),
     )
 
@@ -165,7 +165,7 @@ def test_claude_headless_adds_verbose_for_stream_json_output(tmp_path: Path) -> 
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-claude",
+            tmux_session_name="HOUMAO-claude",
         ),
     )
 
@@ -215,7 +215,7 @@ def test_claude_headless_skips_verbose_for_json_output(tmp_path: Path) -> None:
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-claude",
+            tmux_session_name="HOUMAO-claude",
         ),
         output_format="json",
     )
@@ -266,7 +266,7 @@ def test_claude_headless_omits_empty_appended_system_prompt(tmp_path: Path) -> N
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-claude",
+            tmux_session_name="HOUMAO-claude",
         ),
     )
 
@@ -331,12 +331,12 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
         agent_def_dir=agent_def_dir,
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-gemini",
+            tmux_session_name="HOUMAO-gemini",
         ),
     )
 
-    assert captured_tmux_env["session_name"] == "AGENTSYS-gemini"
-    assert prepared_sessions == ["AGENTSYS-gemini"]
+    assert captured_tmux_env["session_name"] == "HOUMAO-gemini"
+    assert prepared_sessions == ["HOUMAO-gemini"]
     env_vars = captured_tmux_env["env_vars"]
     assert isinstance(env_vars, dict)
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
@@ -356,7 +356,7 @@ def test_headless_env_injects_loopback_no_proxy_by_default(
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-gemini",
+            tmux_session_name="HOUMAO-gemini",
         ),
     )
     captured_env: dict[str, str] = {}
@@ -399,7 +399,7 @@ def test_headless_env_preserve_mode_leaves_no_proxy_untouched(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
-    monkeypatch.setenv("AGENTSYS_PRESERVE_NO_PROXY_ENV", "1")
+    monkeypatch.setenv("HOUMAO_PRESERVE_NO_PROXY_ENV", "1")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
     session = GeminiHeadlessSession(
@@ -408,7 +408,7 @@ def test_headless_env_preserve_mode_leaves_no_proxy_untouched(
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-gemini",
+            tmux_session_name="HOUMAO-gemini",
         ),
     )
     captured_env: dict[str, str] = {}
@@ -458,7 +458,7 @@ def test_headless_preflight_fails_when_tool_executable_missing(
             session_manifest_path=tmp_path / "session.json",
             state=HeadlessSessionState(
                 working_directory=str(tmp_path),
-                tmux_session_name="AGENTSYS-gemini",
+                tmux_session_name="HOUMAO-gemini",
             ),
         )
 

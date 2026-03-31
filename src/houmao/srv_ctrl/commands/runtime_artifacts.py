@@ -13,7 +13,7 @@ from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.mailbox_runtime_support import install_runtime_mailbox_system_skills_for_tool
 from houmao.agents.native_launch_resolver import resolve_native_launch_target, tool_for_provider
 from houmao.owned_paths import (
-    AGENTSYS_JOB_DIR_ENV_VAR,
+    HOUMAO_JOB_DIR_ENV_VAR,
     resolve_runtime_root,
     resolve_session_job_dir,
 )
@@ -179,8 +179,8 @@ def materialize_joined_launch(
         job_dir.mkdir(parents=True, exist_ok=True)
         launch_plan = replace(
             launch_plan,
-            env={**launch_plan.env, AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
-            env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+            env={**launch_plan.env, HOUMAO_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
+            env_var_names=sorted({*launch_plan.env_var_names, HOUMAO_JOB_DIR_ENV_VAR}),
         )
         manifest_payload = build_session_manifest_payload(
             SessionManifestRequest(
@@ -247,7 +247,7 @@ def materialize_joined_launch(
                 AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
                 AGENT_ID_ENV_VAR: resolved_agent_id,
                 AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
-                AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
+                HOUMAO_JOB_DIR_ENV_VAR: str(job_dir),
             },
         )
         published_tmux_env = True
@@ -295,7 +295,7 @@ def materialize_joined_launch(
                                 AGENT_MANIFEST_PATH_ENV_VAR,
                                 AGENT_ID_ENV_VAR,
                                 AGENT_DEF_DIR_ENV_VAR,
-                                AGENTSYS_JOB_DIR_ENV_VAR,
+                                HOUMAO_JOB_DIR_ENV_VAR,
                             ]
                             if published_tmux_env
                             else []
@@ -370,6 +370,7 @@ def materialize_delegated_launch(
             {
                 "schema_version": 3,
                 "inputs": {"tool": tool},
+                "launch_policy": {"operator_prompt_mode": "as_is"},
                 "runtime": {
                     "launch_executable": "cao",
                     "launch_home_selector": {
@@ -428,8 +429,8 @@ def materialize_delegated_launch(
     job_dir.mkdir(parents=True, exist_ok=True)
     launch_plan = replace(
         launch_plan,
-        env={**launch_plan.env, AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
-        env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+        env={**launch_plan.env, HOUMAO_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
+        env_var_names=sorted({*launch_plan.env_var_names, HOUMAO_JOB_DIR_ENV_VAR}),
     )
 
     manifest_path = default_manifest_path(
@@ -470,7 +471,7 @@ def materialize_delegated_launch(
             AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
             AGENT_ID_ENV_VAR: agent_id,
             AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
-            AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
+            HOUMAO_JOB_DIR_ENV_VAR: str(job_dir),
         },
     )
     gateway_paths = ensure_gateway_capability(
@@ -629,6 +630,7 @@ def _materialize_join_placeholder_files(
             {
                 "schema_version": 3,
                 "inputs": {"tool": tool},
+                "launch_policy": {"operator_prompt_mode": "as_is"},
                 "runtime": {
                     "launch_executable": executable,
                     "launch_home_selector": {

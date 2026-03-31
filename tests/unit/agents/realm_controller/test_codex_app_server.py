@@ -87,7 +87,7 @@ def test_codex_app_server_preserve_mode_leaves_no_proxy_untouched(
     plan = _sample_launch_plan(tmp_path)
     plan.working_directory.mkdir(parents=True)
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
-    monkeypatch.setenv("AGENTSYS_PRESERVE_NO_PROXY_ENV", "1")
+    monkeypatch.setenv("HOUMAO_PRESERVE_NO_PROXY_ENV", "1")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
     captured_process: dict[str, object] = {}

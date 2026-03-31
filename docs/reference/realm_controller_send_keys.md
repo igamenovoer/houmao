@@ -205,7 +205,7 @@ The underlying runtime module CLI still supports `send-keys` for advanced target
 
 ```bash
 pixi run python -m houmao.agents.realm_controller send-keys \
-  --agent-identity AGENTSYS-gpu \
+  --agent-identity HOUMAO-gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
 

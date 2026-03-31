@@ -28,16 +28,16 @@ For tmux-backed sessions, the runtime publishes discovery pointers into tmux ses
 
 Core runtime pointers:
 
-- `AGENTSYS_MANIFEST_PATH`
-- `AGENTSYS_AGENT_ID`
-- `AGENTSYS_AGENT_DEF_DIR`
+- `HOUMAO_MANIFEST_PATH`
+- `HOUMAO_AGENT_ID`
+- `HOUMAO_AGENT_DEF_DIR`
 
 Live gateway pointers, present only while a gateway is attached:
 
-- `AGENTSYS_AGENT_GATEWAY_HOST`
-- `AGENTSYS_AGENT_GATEWAY_PORT`
-- `AGENTSYS_GATEWAY_STATE_PATH`
-- `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
+- `HOUMAO_AGENT_GATEWAY_HOST`
+- `HOUMAO_AGENT_GATEWAY_PORT`
+- `HOUMAO_GATEWAY_STATE_PATH`
+- `HOUMAO_GATEWAY_PROTOCOL_VERSION`
 
 Important rule:
 

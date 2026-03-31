@@ -35,9 +35,9 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 from houmao.agents.realm_controller.loaders import parse_allowlisted_env
 from houmao.agents.realm_controller.manifest import default_manifest_path, load_session_manifest
 from houmao.owned_paths import (
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
-    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.server.client import HoumaoServerClient
 from houmao.cao.models import CaoSessionDetail
@@ -932,9 +932,9 @@ def _build_demo_environment(*, paths: DemoPaths, lanes: dict[str, PreparedLane])
 
     env = dict(os.environ)
     env["HOME"] = str(paths.server_home_dir)
-    env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
-    env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
+    env[HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
+    env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
+    env[HOUMAO_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
     for lane in lanes.values():
         env.update(lane.preflight.selected_allowlisted_env)
         env[lane.preflight.home_selector_env_var] = str(lane.build_result.home_path)

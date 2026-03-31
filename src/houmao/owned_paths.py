@@ -28,11 +28,11 @@ from typing import Mapping
 
 import platformdirs
 
-AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR = "AGENTSYS_GLOBAL_REGISTRY_DIR"
-AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR = "AGENTSYS_GLOBAL_RUNTIME_DIR"
-AGENTSYS_GLOBAL_MAILBOX_DIR_ENV_VAR = "AGENTSYS_GLOBAL_MAILBOX_DIR"
-AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR = "AGENTSYS_LOCAL_JOBS_DIR"
-AGENTSYS_JOB_DIR_ENV_VAR = "AGENTSYS_JOB_DIR"
+HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR = "HOUMAO_GLOBAL_REGISTRY_DIR"
+HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR = "HOUMAO_GLOBAL_RUNTIME_DIR"
+HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR = "HOUMAO_GLOBAL_MAILBOX_DIR"
+HOUMAO_LOCAL_JOBS_DIR_ENV_VAR = "HOUMAO_LOCAL_JOBS_DIR"
+HOUMAO_JOB_DIR_ENV_VAR = "HOUMAO_JOB_DIR"
 
 _HOU_MAO_DIRNAME = ".houmao"
 
@@ -54,7 +54,7 @@ def resolve_registry_root(
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
-        env_var_name=AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
+        env_var_name=HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
         default_root=resolve_houmao_home_root() / "registry",
         base=base,
     )
@@ -71,7 +71,7 @@ def resolve_runtime_root(
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
-        env_var_name=AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
+        env_var_name=HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
         default_root=resolve_houmao_home_root() / "runtime",
         base=base,
     )
@@ -88,7 +88,7 @@ def resolve_mailbox_root(
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
-        env_var_name=AGENTSYS_GLOBAL_MAILBOX_DIR_ENV_VAR,
+        env_var_name=HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
         default_root=resolve_houmao_home_root() / "mailbox",
         base=base,
     )
@@ -106,7 +106,7 @@ def resolve_local_jobs_root(
     return _resolve_root(
         explicit_root=explicit_root,
         env=env,
-        env_var_name=AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+        env_var_name=HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
         default_root=working_directory.resolve() / _HOU_MAO_DIRNAME / "jobs",
         base=base,
     )

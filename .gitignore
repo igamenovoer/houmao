@@ -50,7 +50,6 @@ tmp/
 .shadow-repo/
 *.log
 .agent-run-logs/
-.agentsys/
 tmp/agents-runtime/
 tmp/cao-home/
 tmp/cao-server/

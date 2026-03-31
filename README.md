@@ -188,7 +188,7 @@ The supported local workflow is `houmao-mgr project init`. It creates one repo-l
 Commands that need agent definitions now resolve the directory with this precedence:
 
 1. CLI `--agent-def-dir`
-2. env `AGENTSYS_AGENT_DEF_DIR`
+2. env `HOUMAO_AGENT_DEF_DIR`
 3. nearest ancestor `.houmao/houmao-config.toml`
 4. default `<pwd>/.houmao/agents`
 

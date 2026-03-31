@@ -358,17 +358,17 @@ def test_mailbox_cleanup_dry_run_reports_inactive_registration_and_preserves_mes
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
-            address="AGENTSYS-cleanup@agents.localhost",
-            owner_principal_id="AGENTSYS-cleanup",
+            address="HOUMAO-cleanup@agents.localhost",
+            owner_principal_id="HOUMAO-cleanup",
             mailbox_kind="in_root",
-            mailbox_path=paths.mailbox_entry_path("AGENTSYS-cleanup@agents.localhost"),
+            mailbox_path=paths.mailbox_entry_path("HOUMAO-cleanup@agents.localhost"),
         ),
     )
     deregister_mailbox(
         paths.root,
         DeregisterMailboxRequest(
             mode="deactivate",
-            address="AGENTSYS-cleanup@agents.localhost",
+            address="HOUMAO-cleanup@agents.localhost",
         ),
     )
     message_path = (paths.messages_dir / "keep.md").resolve()
@@ -401,13 +401,13 @@ def test_mailbox_cleanup_removes_inactive_registration_and_keeps_messages(
     tmp_path: Path,
 ) -> None:
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
-    address = "AGENTSYS-cleanup@agents.localhost"
+    address = "HOUMAO-cleanup@agents.localhost"
     register_mailbox(
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
             address=address,
-            owner_principal_id="AGENTSYS-cleanup",
+            owner_principal_id="HOUMAO-cleanup",
             mailbox_kind="in_root",
             mailbox_path=paths.mailbox_entry_path(address),
         ),
@@ -446,13 +446,13 @@ def test_mailbox_cleanup_removes_inactive_registration_and_keeps_messages(
 
 def test_mailbox_cleanup_plain_output_lists_action_lines(tmp_path: Path) -> None:
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
-    address = "AGENTSYS-cleanup@agents.localhost"
+    address = "HOUMAO-cleanup@agents.localhost"
     register_mailbox(
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
             address=address,
-            owner_principal_id="AGENTSYS-cleanup",
+            owner_principal_id="HOUMAO-cleanup",
             mailbox_kind="in_root",
             mailbox_path=paths.mailbox_entry_path(address),
         ),
@@ -493,13 +493,13 @@ def test_mailbox_cleanup_plain_output_lists_action_lines(tmp_path: Path) -> None
 
 def test_mailbox_cleanup_fancy_output_lists_action_lines(tmp_path: Path) -> None:
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
-    address = "AGENTSYS-cleanup@agents.localhost"
+    address = "HOUMAO-cleanup@agents.localhost"
     register_mailbox(
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
             address=address,
-            owner_principal_id="AGENTSYS-cleanup",
+            owner_principal_id="HOUMAO-cleanup",
             mailbox_kind="in_root",
             mailbox_path=paths.mailbox_entry_path(address),
         ),

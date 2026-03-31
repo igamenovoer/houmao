@@ -31,13 +31,13 @@ def test_canonical_message_serialization_round_trips() -> None:
         thread_id="msg-20260311T041500Z-a1b2c3d4e5f64798aabbccddeeff0011",
         created_at_utc="2026-03-11T04:15:00Z",
         sender=MailboxPrincipal(
-            principal_id="AGENTSYS-orchestrator",
-            address="AGENTSYS-orchestrator@agents.localhost",
+            principal_id="HOUMAO-orchestrator",
+            address="HOUMAO-orchestrator@agents.localhost",
         ),
         to=[
             MailboxPrincipal(
-                principal_id="AGENTSYS-research",
-                address="AGENTSYS-research@agents.localhost",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
             )
         ],
         subject="Investigate parser drift",
@@ -73,13 +73,13 @@ def test_reply_messages_require_references_ending_with_parent() -> None:
             references=[],
             created_at_utc="2026-03-11T04:16:00Z",
             sender=MailboxPrincipal(
-                principal_id="AGENTSYS-research",
-                address="AGENTSYS-research@agents.localhost",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
             ),
             to=[
                 MailboxPrincipal(
-                    principal_id="AGENTSYS-orchestrator",
-                    address="AGENTSYS-orchestrator@agents.localhost",
+                    principal_id="HOUMAO-orchestrator",
+                    address="HOUMAO-orchestrator@agents.localhost",
                 )
             ],
             subject="Re: Investigate parser drift",

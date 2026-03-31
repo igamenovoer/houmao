@@ -63,7 +63,7 @@ def test_terminal_state_parses_simplified_tracked_state_contract(monkeypatch) ->
             "tracked_session_id": "cao-gpu",
             "session_name": "cao-gpu",
             "tool": "codex",
-            "tmux_session_name": "AGENTSYS-gpu",
+            "tmux_session_name": "HOUMAO-gpu",
             "terminal_aliases": ["abcd1234"],
         },
         "diagnostics": {
@@ -139,7 +139,7 @@ def test_launch_headless_agent_posts_resolved_json_body(monkeypatch) -> None:
         agent_def_dir="/tmp/agents",
         brain_manifest_path="/tmp/brain.yaml",
         role_name="gpu-kernel-coder",
-        agent_name="AGENTSYS-gpu",
+        agent_name="HOUMAO-gpu",
         agent_id=None,
     )
     recorded: dict[str, object] = {}
@@ -153,11 +153,11 @@ def test_launch_headless_agent_posts_resolved_json_body(monkeypatch) -> None:
             "session_name": None,
             "terminal_id": None,
             "runtime_session_id": "claude-headless-1",
-            "tmux_session_name": "AGENTSYS-gpu",
+            "tmux_session_name": "HOUMAO-gpu",
             "tmux_window_name": "agent",
             "manifest_path": "/tmp/manifest.json",
             "session_root": "/tmp/session-root",
-            "agent_name": "AGENTSYS-gpu",
+            "agent_name": "HOUMAO-gpu",
             "agent_id": None,
         },
         "manifest_path": "/tmp/manifest.json",
@@ -198,7 +198,7 @@ def test_register_launch_posts_to_root_houmao_route(monkeypatch) -> None:
         tool="claude",
         manifest_path="/tmp/manifest.json",
         session_root="/tmp/session-root",
-        agent_name="AGENTSYS-gpu",
+        agent_name="HOUMAO-gpu",
         agent_id="agent-1234",
         tmux_session_name="cao-gpu",
         tmux_window_name="gpu-1",
@@ -238,7 +238,7 @@ def test_register_launch_posts_to_root_houmao_route(monkeypatch) -> None:
                 "tool": "claude",
                 "manifest_path": "/tmp/manifest.json",
                 "session_root": "/tmp/session-root",
-                "agent_name": "AGENTSYS-gpu",
+                "agent_name": "HOUMAO-gpu",
                 "agent_id": "agent-1234",
                 "tmux_session_name": "cao-gpu",
                 "tmux_window_name": "gpu-1",
@@ -259,11 +259,11 @@ def test_get_managed_agent_state_percent_encodes_alias(monkeypatch) -> None:
             "session_name": None,
             "terminal_id": None,
             "runtime_session_id": "claude-headless-1",
-            "tmux_session_name": "AGENTSYS-gpu",
+            "tmux_session_name": "HOUMAO-gpu",
             "tmux_window_name": "agent",
             "manifest_path": "/tmp/manifest.json",
             "session_root": "/tmp/session-root",
-            "agent_name": "AGENTSYS-gpu",
+            "agent_name": "HOUMAO-gpu",
             "agent_id": None,
         },
         "availability": "available",
@@ -290,12 +290,12 @@ def test_get_managed_agent_state_percent_encodes_alias(monkeypatch) -> None:
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    state = client.get_managed_agent_state("AGENTSYS gpu/1")
+    state = client.get_managed_agent_state("HOUMAO gpu/1")
 
     assert state.tracked_agent_id == "claude-headless-1"
     assert recorded == {
         "method": "GET",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/state",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/state",
         "kwargs": {},
     }
 
@@ -312,11 +312,11 @@ def test_get_managed_agent_state_detail_percent_encodes_alias(monkeypatch) -> No
             "session_name": None,
             "terminal_id": None,
             "runtime_session_id": "claude-headless-1",
-            "tmux_session_name": "AGENTSYS-gpu",
+            "tmux_session_name": "HOUMAO-gpu",
             "tmux_window_name": "agent",
             "manifest_path": "/tmp/manifest.json",
             "session_root": "/tmp/session-root",
-            "agent_name": "AGENTSYS-gpu",
+            "agent_name": "HOUMAO-gpu",
             "agent_id": None,
         },
         "summary_state": {
@@ -328,11 +328,11 @@ def test_get_managed_agent_state_detail_percent_encodes_alias(monkeypatch) -> No
                 "session_name": None,
                 "terminal_id": None,
                 "runtime_session_id": "claude-headless-1",
-                "tmux_session_name": "AGENTSYS-gpu",
+                "tmux_session_name": "HOUMAO-gpu",
                 "tmux_window_name": "agent",
                 "manifest_path": "/tmp/manifest.json",
                 "session_root": "/tmp/session-root",
-                "agent_name": "AGENTSYS-gpu",
+                "agent_name": "HOUMAO-gpu",
                 "agent_id": None,
             },
             "availability": "available",
@@ -388,12 +388,12 @@ def test_get_managed_agent_state_detail_percent_encodes_alias(monkeypatch) -> No
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    detail = client.get_managed_agent_state_detail("AGENTSYS gpu/1")
+    detail = client.get_managed_agent_state_detail("HOUMAO gpu/1")
 
     assert detail.tracked_agent_id == "claude-headless-1"
     assert recorded == {
         "method": "GET",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/state/detail",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/state/detail",
         "kwargs": {},
     }
 
@@ -426,12 +426,12 @@ def test_submit_managed_agent_request_posts_typed_json_body(monkeypatch) -> None
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.submit_managed_agent_request("AGENTSYS gpu/1", request_model)
+    response = client.submit_managed_agent_request("HOUMAO gpu/1", request_model)
 
     assert response.request_id == "mreq-123"
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/requests",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/requests",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -465,12 +465,12 @@ def test_submit_managed_agent_gateway_request_posts_typed_json_body(monkeypatch)
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.submit_managed_agent_gateway_request("AGENTSYS gpu/1", request_model)
+    response = client.submit_managed_agent_gateway_request("HOUMAO gpu/1", request_model)
 
     assert response.request_id == "greq-123"
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/requests",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/requests",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -500,12 +500,12 @@ def test_control_managed_agent_gateway_prompt_posts_typed_json_body(monkeypatch)
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.control_managed_agent_gateway_prompt("AGENTSYS gpu/1", request_model)
+    response = client.control_managed_agent_gateway_prompt("HOUMAO gpu/1", request_model)
 
     assert response.sent is True
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/prompt",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/control/prompt",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -536,12 +536,12 @@ def test_send_managed_agent_gateway_control_input_posts_json_body(monkeypatch) -
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.send_managed_agent_gateway_control_input("AGENTSYS gpu/1", request_model)
+    response = client.send_managed_agent_gateway_control_input("HOUMAO gpu/1", request_model)
 
     assert response.action == "control_input"
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/send-keys",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/control/send-keys",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -574,12 +574,12 @@ def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) ->
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.put_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1", request_model)
+    response = client.put_managed_agent_gateway_mail_notifier("HOUMAO gpu/1", request_model)
 
     assert response.enabled is True
     assert recorded == {
         "method": "PUT",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -608,12 +608,12 @@ def test_get_managed_agent_mail_status_percent_encodes_alias(monkeypatch) -> Non
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.get_managed_agent_mail_status("AGENTSYS gpu/1")
+    response = client.get_managed_agent_mail_status("HOUMAO gpu/1")
 
     assert response.principal_id == "agent-1234"
     assert recorded == {
         "method": "GET",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/status",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/status",
         "kwargs": {},
     }
 
@@ -646,12 +646,12 @@ def test_check_managed_agent_mail_posts_json_body(monkeypatch) -> None:
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.check_managed_agent_mail("AGENTSYS gpu/1", request_model)
+    response = client.check_managed_agent_mail("HOUMAO gpu/1", request_model)
 
     assert response.unread_only is True
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/check",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/check",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -704,20 +704,20 @@ def test_send_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    send_response = client.send_managed_agent_mail("AGENTSYS gpu/1", send_request)
-    reply_response = client.reply_managed_agent_mail("AGENTSYS gpu/1", reply_request)
+    send_response = client.send_managed_agent_mail("HOUMAO gpu/1", send_request)
+    reply_response = client.reply_managed_agent_mail("HOUMAO gpu/1", reply_request)
 
     assert send_response.operation == "send"
     assert reply_response.operation == "reply"
     assert recorded == [
         {
             "method": "POST",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/send",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/send",
             "kwargs": {"json_body": send_request.model_dump(mode="json")},
         },
         {
             "method": "POST",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/reply",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/reply",
             "kwargs": {"json_body": reply_request.model_dump(mode="json")},
         },
     ]
@@ -751,12 +751,12 @@ def test_update_managed_agent_mail_state_posts_json_body(monkeypatch) -> None:
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.update_managed_agent_mail_state("AGENTSYS gpu/1", request_model)
+    response = client.update_managed_agent_mail_state("HOUMAO gpu/1", request_model)
 
     assert response.read is True
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/mail/state",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/state",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -825,11 +825,11 @@ def test_passive_server_client_routes_state_detail_and_history_to_compatibility_
         "session_name": None,
         "terminal_id": None,
         "runtime_session_id": "tracked-alpha",
-        "tmux_session_name": "AGENTSYS-alpha",
+        "tmux_session_name": "HOUMAO-alpha",
         "tmux_window_name": "agent",
         "manifest_path": "/tmp/manifest.json",
         "session_root": "/tmp/session-root",
-        "agent_name": "AGENTSYS-alpha",
+        "agent_name": "HOUMAO-alpha",
         "agent_id": "published-alpha",
     }
     state_payload = {
@@ -904,9 +904,9 @@ def test_passive_server_client_routes_state_detail_and_history_to_compatibility_
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    state = client.get_managed_agent_state("AGENTSYS gpu/1")
-    detail = client.get_managed_agent_state_detail("AGENTSYS gpu/1")
-    history = client.get_managed_agent_history("AGENTSYS gpu/1", limit=5)
+    state = client.get_managed_agent_state("HOUMAO gpu/1")
+    detail = client.get_managed_agent_state_detail("HOUMAO gpu/1")
+    history = client.get_managed_agent_history("HOUMAO gpu/1", limit=5)
 
     assert state.tracked_agent_id == "tracked-alpha"
     assert detail.detail.transport == "headless"
@@ -914,17 +914,17 @@ def test_passive_server_client_routes_state_detail_and_history_to_compatibility_
     assert recorded == [
         {
             "method": "GET",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-state",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/managed-state",
             "kwargs": {},
         },
         {
             "method": "GET",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-state/detail",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/managed-state/detail",
             "kwargs": {},
         },
         {
             "method": "GET",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/managed-history",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/managed-history",
             "kwargs": {"params": {"limit": "5"}},
         },
     ]
@@ -951,7 +951,7 @@ def test_passive_server_client_submit_headless_turn_normalizes_response(monkeypa
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.submit_headless_turn("AGENTSYS gpu/1", request_model)
+    response = client.submit_headless_turn("HOUMAO gpu/1", request_model)
 
     assert response == HoumaoHeadlessTurnAcceptedResponse(
         success=True,
@@ -963,7 +963,7 @@ def test_passive_server_client_submit_headless_turn_normalizes_response(monkeypa
     )
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/AGENTSYS%20gpu%2F1/turns",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/turns",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -979,13 +979,13 @@ def test_passive_server_client_launch_passive_headless_agent_posts_request_model
         agent_def_dir="/tmp/agents",
         brain_manifest_path="/tmp/brain/manifest.json",
         role_name="server-api-smoke",
-        agent_name="AGENTSYS-headless",
+        agent_name="HOUMAO-headless",
         agent_id="published-headless",
     )
     response_payload = {
         "status": "ok",
         "tracked_agent_id": "tracked-headless",
-        "agent_name": "AGENTSYS-headless",
+        "agent_name": "HOUMAO-headless",
         "manifest_path": "/tmp/brain/manifest.json",
         "session_root": "/tmp/session-root",
         "detail": "launch accepted",
@@ -1004,7 +1004,7 @@ def test_passive_server_client_launch_passive_headless_agent_posts_request_model
     assert response == PassiveHeadlessLaunchResponse(
         status="ok",
         tracked_agent_id="tracked-headless",
-        agent_name="AGENTSYS-headless",
+        agent_name="HOUMAO-headless",
         manifest_path="/tmp/brain/manifest.json",
         session_root="/tmp/session-root",
         detail="launch accepted",
@@ -1027,11 +1027,11 @@ def test_passive_server_client_normalizes_headless_managed_prompt_submission(
         session_name=None,
         terminal_id=None,
         runtime_session_id="tracked-alpha",
-        tmux_session_name="AGENTSYS-alpha",
+        tmux_session_name="HOUMAO-alpha",
         tmux_window_name="agent",
         manifest_path="/tmp/manifest.json",
         session_root="/tmp/session-root",
-        agent_name="AGENTSYS-alpha",
+        agent_name="HOUMAO-alpha",
         agent_id="published-alpha",
     )
 
@@ -1101,12 +1101,12 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    control = client.send_managed_agent_gateway_control_input("AGENTSYS gpu/1", request_model)
-    notifier_status = client.get_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
+    control = client.send_managed_agent_gateway_control_input("HOUMAO gpu/1", request_model)
+    notifier_status = client.get_managed_agent_gateway_mail_notifier("HOUMAO gpu/1")
     notifier_enabled = client.put_managed_agent_gateway_mail_notifier(
-        "AGENTSYS gpu/1", notifier_put
+        "HOUMAO gpu/1", notifier_put
     )
-    notifier_disabled = client.delete_managed_agent_gateway_mail_notifier("AGENTSYS gpu/1")
+    notifier_disabled = client.delete_managed_agent_gateway_mail_notifier("HOUMAO gpu/1")
 
     assert control.detail == "queued"
     assert notifier_status.enabled is True
@@ -1115,22 +1115,22 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
     assert recorded == [
         {
             "method": "POST",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/control/send-keys",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/control/send-keys",
             "kwargs": {"json_body": request_model.model_dump(mode="json")},
         },
         {
             "method": "GET",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
             "kwargs": {},
         },
         {
             "method": "PUT",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
             "kwargs": {"json_body": notifier_put.model_dump(mode="json")},
         },
         {
             "method": "DELETE",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/mail-notifier",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
             "kwargs": {},
         },
     ]
@@ -1145,7 +1145,7 @@ def test_houmao_server_client_gateway_tui_routes(monkeypatch) -> None:
             "tracked_session_id": "tracked-agent",
             "session_name": "tracked-agent",
             "tool": "codex",
-            "tmux_session_name": "AGENTSYS-gpu",
+            "tmux_session_name": "HOUMAO-gpu",
             "terminal_aliases": ["headless123"],
         },
         "diagnostics": {
@@ -1198,9 +1198,9 @@ def test_houmao_server_client_gateway_tui_routes(monkeypatch) -> None:
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    state = client.get_managed_agent_gateway_tui_state("AGENTSYS gpu/1")
-    history = client.get_managed_agent_gateway_tui_history("AGENTSYS gpu/1", limit=7)
-    noted = client.note_managed_agent_gateway_tui_prompt("AGENTSYS gpu/1", prompt="hello")
+    state = client.get_managed_agent_gateway_tui_state("HOUMAO gpu/1")
+    history = client.get_managed_agent_gateway_tui_history("HOUMAO gpu/1", limit=7)
+    noted = client.note_managed_agent_gateway_tui_prompt("HOUMAO gpu/1", prompt="hello")
 
     assert isinstance(state, HoumaoTerminalStateResponse)
     assert isinstance(history, HoumaoTerminalSnapshotHistoryResponse)
@@ -1208,17 +1208,17 @@ def test_houmao_server_client_gateway_tui_routes(monkeypatch) -> None:
     assert recorded == [
         {
             "method": "GET",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/tui/state",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/tui/state",
             "kwargs": {},
         },
         {
             "method": "GET",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/tui/history?limit=7",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/tui/history?limit=7",
             "kwargs": {},
         },
         {
             "method": "POST",
-            "path": "/houmao/agents/AGENTSYS%20gpu%2F1/gateway/tui/note-prompt",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/tui/note-prompt",
             "kwargs": {
                 "json_body": GatewayRequestPayloadSubmitPromptV1(prompt="hello").model_dump(
                     mode="json"

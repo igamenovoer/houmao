@@ -17,10 +17,10 @@ from houmao.agents.brain_builder import (
 from houmao.agents.mailbox_runtime_support import project_runtime_mailbox_system_skills
 from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
 from houmao.owned_paths import (
-    AGENTSYS_GLOBAL_MAILBOX_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
-    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import HoumaoHeadlessLaunchMailboxOptions, HoumaoHeadlessLaunchRequest
@@ -54,10 +54,10 @@ def build_demo_environment(
     """Return the shared environment used by the demo-owned server."""
 
     env = dict(os.environ if base_env is None else base_env)
-    env[AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
-    env[AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    env[AGENTSYS_GLOBAL_MAILBOX_DIR_ENV_VAR] = str(paths.mailbox_root)
-    env[AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
+    env[HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
+    env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
+    env[HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR] = str(paths.mailbox_root)
+    env[HOUMAO_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
     env["HOME"] = str(paths.server_home_dir)
     return env
 

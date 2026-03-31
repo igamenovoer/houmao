@@ -187,7 +187,7 @@ claude -p
 ```bash
 RUNTIME_ROOT="$RUN_ROOT/runtime"
 HOME_ID="managed-codex"
-AGENT_NAME="AGENTSYS-skill-demo-codex"
+AGENT_NAME="HOUMAO-skill-demo-codex"
 
 pixi run python -m houmao.agents.realm_controller build-brain \
   --agent-def-dir tests/fixtures/agents \
@@ -219,7 +219,7 @@ pixi run python -m houmao.agents.realm_controller stop-session \
 ```bash
 RUNTIME_ROOT="$RUN_ROOT/runtime"
 HOME_ID="managed-claude"
-AGENT_NAME="AGENTSYS-skill-demo-claude"
+AGENT_NAME="HOUMAO-skill-demo-claude"
 
 pixi run python -m houmao.agents.realm_controller build-brain \
   --agent-def-dir tests/fixtures/agents \

@@ -28,7 +28,7 @@ def _identity(*, observed_tool_version: str | None = None) -> HoumaoTrackedSessi
         session_name="cao-gpu",
         tool="codex",
         observed_tool_version=observed_tool_version,
-        tmux_session_name="AGENTSYS-gpu",
+        tmux_session_name="HOUMAO-gpu",
         terminal_aliases=["abcd1234"],
     )
 

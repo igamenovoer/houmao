@@ -84,7 +84,7 @@ Use `agents mail send` for manager-owned composition.
 ```bash
 pixi run houmao-mgr agents mail send \
   --agent-name research \
-  --to AGENTSYS-orchestrator@agents.localhost \
+  --to HOUMAO-orchestrator@agents.localhost \
   --subject "Investigate parser drift" \
   --body-file body.md \
   --attach notes.txt

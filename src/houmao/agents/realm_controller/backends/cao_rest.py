@@ -1916,7 +1916,7 @@ def generate_cao_session_name(
     Returns
     -------
     str
-        Canonical session identity (`AGENTSYS-...`), unique among tmux sessions.
+        Canonical session identity (`HOUMAO-...`), unique among tmux sessions.
     """
 
     occupied = existing_sessions if existing_sessions is not None else _list_tmux_sessions()

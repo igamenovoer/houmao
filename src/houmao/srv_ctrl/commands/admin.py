@@ -46,7 +46,7 @@ def _runtime_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
         help=(
-            "Runtime root override. Defaults to `AGENTSYS_GLOBAL_RUNTIME_DIR` or the shared "
+            "Runtime root override. Defaults to `HOUMAO_GLOBAL_RUNTIME_DIR` or the shared "
             "Houmao runtime root."
         ),
     )(function)

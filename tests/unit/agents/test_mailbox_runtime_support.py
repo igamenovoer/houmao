@@ -48,8 +48,8 @@ def _build_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig
     mailbox_root = tmp_path / "mailbox"
     durable_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-26T18:10:00.000001Z",
     )
@@ -65,11 +65,11 @@ def _build_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig
 
 def _build_symlink_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig:
     mailbox_root = tmp_path / "mailbox"
-    private_mailbox = (tmp_path / "private-mailboxes" / "AGENTSYS-research").resolve()
+    private_mailbox = (tmp_path / "private-mailboxes" / "HOUMAO-research").resolve()
     durable_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-26T18:10:00.000001Z",
         mailbox_kind="symlink",
@@ -121,13 +121,13 @@ def _seed_manifest_with_mailbox(
             brain_manifest_path=tmp_path / "brain.yaml",
             agent_name=agent_name,
             agent_id=derive_agent_id_from_name(agent_name),
-            tmux_session_name=f"AGENTSYS-{agent_name}",
+            tmux_session_name=f"HOUMAO-{agent_name}",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 0,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": f"AGENTSYS-{agent_name}",
+                "tmux_session_name": f"HOUMAO-{agent_name}",
             },
         )
     )
@@ -196,7 +196,7 @@ def test_resolve_live_mailbox_binding_rejects_missing_active_registration(tmp_pa
     unregistered_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=durable_mailbox.principal_id,
-        address="AGENTSYS-missing@agents.localhost",
+        address="HOUMAO-missing@agents.localhost",
         filesystem_root=durable_mailbox.filesystem_root,
         bindings_version=durable_mailbox.bindings_version,
     )
@@ -210,15 +210,15 @@ def test_publish_tmux_live_mailbox_projection_refreshes_current_bindings(tmp_pat
     new_root = tmp_path / "mail-new"
     previous_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=old_root.resolve(),
         bindings_version="2026-03-26T18:10:00.000001Z",
     )
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=new_root.resolve(),
         bindings_version="2026-03-26T18:20:00.000001Z",
     )
@@ -233,7 +233,7 @@ def test_publish_tmux_live_mailbox_projection_refreshes_current_bindings(tmp_pat
     unset_calls: list[tuple[str, list[str]]] = []
 
     publish_tmux_live_mailbox_projection(
-        session_name="AGENTSYS-research",
+        session_name="HOUMAO-research",
         previous_mailbox=previous_mailbox,
         mailbox=mailbox,
         set_env=lambda session_name, env_vars: set_calls.append((session_name, dict(env_vars))),
@@ -243,9 +243,9 @@ def test_publish_tmux_live_mailbox_projection_refreshes_current_bindings(tmp_pat
     )
 
     assert set_calls
-    assert set_calls[-1][0] == "AGENTSYS-research"
-    assert set_calls[-1][1]["AGENTSYS_MAILBOX_FS_ROOT"] == str(new_root.resolve())
-    assert set_calls[-1][1]["AGENTSYS_MAILBOX_BINDINGS_VERSION"] == mailbox.bindings_version
+    assert set_calls[-1][0] == "HOUMAO-research"
+    assert set_calls[-1][1]["HOUMAO_MAILBOX_FS_ROOT"] == str(new_root.resolve())
+    assert set_calls[-1][1]["HOUMAO_MAILBOX_BINDINGS_VERSION"] == mailbox.bindings_version
     assert unset_calls == []
 
 
@@ -254,11 +254,11 @@ def test_publish_tmux_live_mailbox_projection_clears_stale_transport_vars(tmp_pa
     credential_file.write_text('{"password":"secret"}\n', encoding="utf-8")
     previous_mailbox = StalwartMailboxResolvedConfig(
         transport="stalwart",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         jmap_url="http://stalwart.local/jmap",
         management_url="http://stalwart.local/api",
-        login_identity="AGENTSYS-research@agents.localhost",
+        login_identity="HOUMAO-research@agents.localhost",
         credential_ref="cred-1",
         bindings_version="2026-03-26T18:10:00.000001Z",
         credential_file=credential_file,
@@ -267,7 +267,7 @@ def test_publish_tmux_live_mailbox_projection_clears_stale_transport_vars(tmp_pa
     unset_calls: list[tuple[str, list[str]]] = []
 
     publish_tmux_live_mailbox_projection(
-        session_name="AGENTSYS-research",
+        session_name="HOUMAO-research",
         previous_mailbox=previous_mailbox,
         mailbox=None,
         set_env=lambda session_name, env_vars: set_calls.append((session_name, dict(env_vars))),
@@ -279,17 +279,17 @@ def test_publish_tmux_live_mailbox_projection_clears_stale_transport_vars(tmp_pa
     assert set_calls == []
     assert unset_calls == [
         (
-            "AGENTSYS-research",
+            "HOUMAO-research",
             [
-                "AGENTSYS_MAILBOX_ADDRESS",
-                "AGENTSYS_MAILBOX_BINDINGS_VERSION",
-                "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE",
-                "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF",
-                "AGENTSYS_MAILBOX_EMAIL_JMAP_URL",
-                "AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY",
-                "AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL",
-                "AGENTSYS_MAILBOX_PRINCIPAL_ID",
-                "AGENTSYS_MAILBOX_TRANSPORT",
+                "HOUMAO_MAILBOX_ADDRESS",
+                "HOUMAO_MAILBOX_BINDINGS_VERSION",
+                "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE",
+                "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF",
+                "HOUMAO_MAILBOX_EMAIL_JMAP_URL",
+                "HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY",
+                "HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL",
+                "HOUMAO_MAILBOX_PRINCIPAL_ID",
+                "HOUMAO_MAILBOX_TRANSPORT",
             ],
         )
     ]
@@ -320,7 +320,7 @@ def test_resolve_live_mailbox_binding_from_manifest_path_uses_manifest_binding_a
     assert resolution.gateway.base_url == "http://127.0.0.1:43123"
     assert resolution.gateway.state_path == state_path.resolve()
     assert payload["mailbox"]["filesystem"]["inbox_path"].endswith(
-        "AGENTSYS-research@agents.localhost/inbox"
+        "HOUMAO-research@agents.localhost/inbox"
     )
     assert endpoint_log == ["http://127.0.0.1:43123"]
 
@@ -346,7 +346,7 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
                 session_root=str(manifest_path.parent),
                 agent_def_dir=str(tmp_path / "repo"),
             ),
-            terminal=RegistryTerminalV1(session_name="AGENTSYS-gpu"),
+            terminal=RegistryTerminalV1(session_name="HOUMAO-gpu"),
             gateway=RegistryGatewayV1(
                 host="127.0.0.1",
                 port=49999,
@@ -354,14 +354,14 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
                 protocol_version="v1",
             ),
         ),
-        env={"AGENTSYS_GLOBAL_REGISTRY_DIR": str(registry_root)},
+        env={"HOUMAO_GLOBAL_REGISTRY_DIR": str(registry_root)},
         now=published_at,
     )
     endpoint_log: list[str] = []
 
     resolution = resolve_live_mailbox_binding_from_agent_identity(
         agent_identity="gpu",
-        env={"AGENTSYS_GLOBAL_REGISTRY_DIR": str(registry_root)},
+        env={"HOUMAO_GLOBAL_REGISTRY_DIR": str(registry_root)},
         process_env_reader=lambda _: None,
         tmux_env_reader=mailbox_env_bindings(mailbox).get,
         gateway_client_factory=_healthy_gateway_client_factory(endpoint_log),

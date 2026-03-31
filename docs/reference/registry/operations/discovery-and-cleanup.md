@@ -14,7 +14,7 @@ For live gateway recovery, the registry remains only a locator layer: it helps t
 
 For name-addressed tmux-backed control such as `houmao-mgr agents prompt`, `houmao-mgr agents gateway send-keys`, `houmao-mgr agents mail`, and `houmao-mgr agents stop`, the current order is:
 
-1. normalize the input to canonical `AGENTSYS-...` form,
+1. normalize the input to canonical `HOUMAO-...` form,
 2. try tmux-local discovery first,
 3. fall back to the shared registry when tmux-local discovery is unavailable,
 4. validate the resolved manifest and agent-definition pointers before resuming control.
@@ -28,10 +28,10 @@ The shared registry is used when tmux-local discovery cannot give the runtime a 
 Current fallback-eligible cases include:
 
 - the tmux session does not exist,
-- `AGENTSYS_MANIFEST_PATH` is missing or blank,
-- `AGENTSYS_MANIFEST_PATH` points to a missing manifest,
-- `AGENTSYS_AGENT_DEF_DIR` is missing or blank,
-- `AGENTSYS_AGENT_DEF_DIR` points to a missing directory.
+- `HOUMAO_MANIFEST_PATH` is missing or blank,
+- `HOUMAO_MANIFEST_PATH` points to a missing manifest,
+- `HOUMAO_AGENT_DEF_DIR` is missing or blank,
+- `HOUMAO_AGENT_DEF_DIR` points to a missing directory.
 
 Hard mismatches still fail fast instead of silently falling back:
 
@@ -53,7 +53,7 @@ sequenceDiagram
     alt tmux pointers valid
         TM-->>CLI: resolved pointers
     else tmux missing or stale
-        CLI->>RG: load fresh record<br/>for AGENTSYS-gpu
+        CLI->>RG: load fresh record<br/>for HOUMAO-gpu
         alt fresh record found
             RG-->>CLI: manifest_path +<br/>agent_def_dir
         else no fresh record
@@ -82,7 +82,7 @@ pixi run houmao-mgr agents stop \
 Use an explicit registry root for isolated environments:
 
 ```bash
-AGENTSYS_GLOBAL_REGISTRY_DIR=/abs/path/tmp/registry \
+HOUMAO_GLOBAL_REGISTRY_DIR=/abs/path/tmp/registry \
 pixi run houmao-mgr agents prompt \
   --agent-name gpu \
   --prompt "hello"
@@ -98,7 +98,7 @@ pixi run python -m houmao.agents.realm_controller send-prompt \
   --prompt "Summarize the current plan"
 
 pixi run python -m houmao.agents.realm_controller stop-session \
-  --agent-identity AGENTSYS-gpu
+  --agent-identity HOUMAO-gpu
 ```
 
 ## Cleanup Semantics
@@ -200,7 +200,7 @@ sequenceDiagram
 
 - `houmao-mgr admin cleanup registry` probes tmux-backed records locally by default; use `--no-tmux-check` when you intentionally want lease-only cleanup.
 - A malformed record is treated as stale for lookup and as removable for cleanup.
-- The cleanup command uses the same effective root-resolution logic as publication and lookup, so `AGENTSYS_GLOBAL_REGISTRY_DIR` changes all three paths together.
+- The cleanup command uses the same effective root-resolution logic as publication and lookup, so `HOUMAO_GLOBAL_REGISTRY_DIR` changes all three paths together.
 - The supported native cleanup path is `houmao-mgr admin cleanup registry`; `admin cleanup-registry` is retired from the native `houmao-mgr` admin tree.
 
 ## Source References

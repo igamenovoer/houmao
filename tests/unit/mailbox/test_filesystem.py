@@ -15,8 +15,8 @@ def test_bootstrap_creates_address_routed_schema_assets_and_placeholder_director
     tmp_path: Path,
 ) -> None:
     principal = MailboxPrincipal(
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
     )
 
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=principal)
@@ -60,8 +60,8 @@ def test_bootstrap_creates_address_routed_schema_assets_and_placeholder_director
         ).fetchone()
 
     assert row == (
-        "AGENTSYS-research@agents.localhost",
-        "AGENTSYS-research",
+        "HOUMAO-research@agents.localhost",
+        "HOUMAO-research",
         "active",
         "in_root",
         str(mailbox_entry),
@@ -101,8 +101,8 @@ def test_bootstrap_rejects_stale_principal_scoped_mailbox_root(tmp_path: Path) -
 
 def test_bootstrap_is_idempotent_for_matching_address_registration(tmp_path: Path) -> None:
     principal = MailboxPrincipal(
-        principal_id="AGENTSYS-orchestrator",
-        address="AGENTSYS-orchestrator@agents.localhost",
+        principal_id="HOUMAO-orchestrator",
+        address="HOUMAO-orchestrator@agents.localhost",
     )
 
     first_paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=principal)

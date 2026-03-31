@@ -12,11 +12,11 @@ When `gateway.base_url` is present, use the installed Houmao gateway skill `houm
 
 - `principal_id`
   Meaning: stable mailbox principal id for the current agent or participant.
-  Example: `AGENTSYS-research`
+  Example: `HOUMAO-research`
 
 - `address`
   Meaning: email-like address associated with the current mailbox principal.
-  Example: `AGENTSYS-research@agents.localhost`
+  Example: `HOUMAO-research@agents.localhost`
 
 - `bindings_version`
   Meaning: monotonic binding version or timestamp used to detect mailbox-binding refresh.

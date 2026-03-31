@@ -56,7 +56,7 @@ from .mailbox_runtime_models import (
     StalwartMailboxResolvedConfig,
 )
 
-AGENT_NAMESPACE_PREFIX = "AGENTSYS-"
+AGENT_NAMESPACE_PREFIX = "HOUMAO-"
 _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _COLLAPSE_DASH_RE = re.compile(r"-{2,}")
 _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
@@ -85,24 +85,24 @@ _TOOL_SKILLS_DESTINATION = {
 }
 
 _MAILBOX_COMMON_ENV_VARS = (
-    "AGENTSYS_MAILBOX_TRANSPORT",
-    "AGENTSYS_MAILBOX_PRINCIPAL_ID",
-    "AGENTSYS_MAILBOX_ADDRESS",
-    "AGENTSYS_MAILBOX_BINDINGS_VERSION",
+    "HOUMAO_MAILBOX_TRANSPORT",
+    "HOUMAO_MAILBOX_PRINCIPAL_ID",
+    "HOUMAO_MAILBOX_ADDRESS",
+    "HOUMAO_MAILBOX_BINDINGS_VERSION",
 )
 _MAILBOX_FILESYSTEM_ENV_VARS = (
-    "AGENTSYS_MAILBOX_FS_ROOT",
-    "AGENTSYS_MAILBOX_FS_SQLITE_PATH",
-    "AGENTSYS_MAILBOX_FS_INBOX_DIR",
-    "AGENTSYS_MAILBOX_FS_MAILBOX_DIR",
-    "AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH",
+    "HOUMAO_MAILBOX_FS_ROOT",
+    "HOUMAO_MAILBOX_FS_SQLITE_PATH",
+    "HOUMAO_MAILBOX_FS_INBOX_DIR",
+    "HOUMAO_MAILBOX_FS_MAILBOX_DIR",
+    "HOUMAO_MAILBOX_FS_LOCAL_SQLITE_PATH",
 )
 _MAILBOX_EMAIL_ENV_VARS = (
-    "AGENTSYS_MAILBOX_EMAIL_JMAP_URL",
-    "AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL",
-    "AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY",
-    "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF",
-    "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE",
+    "HOUMAO_MAILBOX_EMAIL_JMAP_URL",
+    "HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL",
+    "HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY",
+    "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF",
+    "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE",
 )
 MailboxBindingSource = Literal["manifest_binding"]
 ResolveLiveSource = Literal["auto", "tmux_session_env", "process_env"]
@@ -531,15 +531,15 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
             mailbox_root, address=config.address
         )
         return {
-            "AGENTSYS_MAILBOX_TRANSPORT": config.transport,
-            "AGENTSYS_MAILBOX_PRINCIPAL_ID": config.principal_id,
-            "AGENTSYS_MAILBOX_ADDRESS": config.address,
-            "AGENTSYS_MAILBOX_BINDINGS_VERSION": config.bindings_version,
-            "AGENTSYS_MAILBOX_FS_ROOT": str(mailbox_root),
-            "AGENTSYS_MAILBOX_FS_SQLITE_PATH": str(mailbox_root / "index.sqlite"),
-            "AGENTSYS_MAILBOX_FS_INBOX_DIR": str(inbox_dir),
-            "AGENTSYS_MAILBOX_FS_MAILBOX_DIR": str(mailbox_dir),
-            "AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH": str(local_sqlite_path),
+            "HOUMAO_MAILBOX_TRANSPORT": config.transport,
+            "HOUMAO_MAILBOX_PRINCIPAL_ID": config.principal_id,
+            "HOUMAO_MAILBOX_ADDRESS": config.address,
+            "HOUMAO_MAILBOX_BINDINGS_VERSION": config.bindings_version,
+            "HOUMAO_MAILBOX_FS_ROOT": str(mailbox_root),
+            "HOUMAO_MAILBOX_FS_SQLITE_PATH": str(mailbox_root / "index.sqlite"),
+            "HOUMAO_MAILBOX_FS_INBOX_DIR": str(inbox_dir),
+            "HOUMAO_MAILBOX_FS_MAILBOX_DIR": str(mailbox_dir),
+            "HOUMAO_MAILBOX_FS_LOCAL_SQLITE_PATH": str(local_sqlite_path),
         }
 
     credential_file = config.credential_file
@@ -548,15 +548,15 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
             "stalwart mailbox env bindings require a materialized credential file for this session"
         )
     return {
-        "AGENTSYS_MAILBOX_TRANSPORT": config.transport,
-        "AGENTSYS_MAILBOX_PRINCIPAL_ID": config.principal_id,
-        "AGENTSYS_MAILBOX_ADDRESS": config.address,
-        "AGENTSYS_MAILBOX_BINDINGS_VERSION": config.bindings_version,
-        "AGENTSYS_MAILBOX_EMAIL_JMAP_URL": config.jmap_url,
-        "AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL": config.management_url,
-        "AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY": config.login_identity,
-        "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF": config.credential_ref,
-        "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE": str(credential_file.resolve()),
+        "HOUMAO_MAILBOX_TRANSPORT": config.transport,
+        "HOUMAO_MAILBOX_PRINCIPAL_ID": config.principal_id,
+        "HOUMAO_MAILBOX_ADDRESS": config.address,
+        "HOUMAO_MAILBOX_BINDINGS_VERSION": config.bindings_version,
+        "HOUMAO_MAILBOX_EMAIL_JMAP_URL": config.jmap_url,
+        "HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL": config.management_url,
+        "HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY": config.login_identity,
+        "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF": config.credential_ref,
+        "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE": str(credential_file.resolve()),
     }
 
 
@@ -1337,16 +1337,16 @@ def _mailbox_config_from_live_env_bindings(
     durable_mailbox: MailboxResolvedConfig,
     env_bindings: dict[str, str],
 ) -> MailboxResolvedConfig:
-    transport = env_bindings["AGENTSYS_MAILBOX_TRANSPORT"]
+    transport = env_bindings["HOUMAO_MAILBOX_TRANSPORT"]
     if transport != durable_mailbox.transport:
         raise ValueError(
             "current live mailbox projection transport "
             f"{transport!r} does not match durable mailbox transport {durable_mailbox.transport!r}"
         )
 
-    principal_id = env_bindings["AGENTSYS_MAILBOX_PRINCIPAL_ID"]
-    address = env_bindings["AGENTSYS_MAILBOX_ADDRESS"]
-    bindings_version = env_bindings["AGENTSYS_MAILBOX_BINDINGS_VERSION"]
+    principal_id = env_bindings["HOUMAO_MAILBOX_PRINCIPAL_ID"]
+    address = env_bindings["HOUMAO_MAILBOX_ADDRESS"]
+    bindings_version = env_bindings["HOUMAO_MAILBOX_BINDINGS_VERSION"]
     if principal_id != durable_mailbox.principal_id:
         raise ValueError(
             "current live mailbox principal_id "
@@ -1366,8 +1366,8 @@ def _mailbox_config_from_live_env_bindings(
         )
 
     if isinstance(durable_mailbox, FilesystemMailboxResolvedConfig):
-        filesystem_root = Path(env_bindings["AGENTSYS_MAILBOX_FS_ROOT"]).resolve()
-        mailbox_dir = Path(env_bindings["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"]).resolve()
+        filesystem_root = Path(env_bindings["HOUMAO_MAILBOX_FS_ROOT"]).resolve()
+        mailbox_dir = Path(env_bindings["HOUMAO_MAILBOX_FS_MAILBOX_DIR"]).resolve()
         expected_in_root_path = resolve_filesystem_mailbox_paths(
             filesystem_root
         ).mailbox_entry_path(address)
@@ -1387,7 +1387,7 @@ def _mailbox_config_from_live_env_bindings(
         )
         return mailbox
 
-    credential_file = Path(env_bindings["AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE"]).resolve()
+    credential_file = Path(env_bindings["HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE"]).resolve()
     if not credential_file.is_file():
         raise ValueError(
             "current live mailbox projection points at a missing Stalwart credential file: "
@@ -1397,10 +1397,10 @@ def _mailbox_config_from_live_env_bindings(
         transport="stalwart",
         principal_id=principal_id,
         address=address,
-        jmap_url=env_bindings["AGENTSYS_MAILBOX_EMAIL_JMAP_URL"],
-        management_url=env_bindings["AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL"],
-        login_identity=env_bindings["AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY"],
-        credential_ref=env_bindings["AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF"],
+        jmap_url=env_bindings["HOUMAO_MAILBOX_EMAIL_JMAP_URL"],
+        management_url=env_bindings["HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL"],
+        login_identity=env_bindings["HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY"],
+        credential_ref=env_bindings["HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF"],
         bindings_version=bindings_version,
         credential_file=credential_file,
     )
@@ -1434,7 +1434,7 @@ def _resolve_live_manifest_path(value: str | None) -> Path:
     manifest_path_value = value or _optional_env(AGENT_MANIFEST_PATH_ENV_VAR)
     if manifest_path_value is None:
         raise ValueError(
-            "resolve-live requires --manifest-path or the AGENTSYS_MANIFEST_PATH env var"
+            "resolve-live requires --manifest-path or the HOUMAO_MANIFEST_PATH env var"
         )
     manifest_path = Path(manifest_path_value).expanduser()
     if not manifest_path.is_absolute():
@@ -1459,7 +1459,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     target_group = resolve_live.add_mutually_exclusive_group()
     target_group.add_argument(
         "--manifest-path",
-        help="Absolute runtime-owned session manifest path. Defaults to AGENTSYS_MANIFEST_PATH.",
+        help="Absolute runtime-owned session manifest path. Defaults to HOUMAO_MANIFEST_PATH.",
     )
     target_group.add_argument(
         "--agent-identity",

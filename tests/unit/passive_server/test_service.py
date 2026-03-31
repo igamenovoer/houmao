@@ -166,8 +166,8 @@ def _populate_index(svc: PassiveServerService, agents: list[DiscoveredAgent]) ->
 
 def _agent(
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    agent_name: str = "HOUMAO-alpha",
+    session_name: str = "HOUMAO-alpha-abc123",
 ) -> DiscoveredAgent:
     """Create a DiscoveredAgent for test injection."""
 
@@ -188,14 +188,14 @@ class TestListAgents:
         _populate_index(
             svc,
             [
-                _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent(agent_id="b1", agent_name="AGENTSYS-beta", session_name="s2"),
+                _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent(agent_id="b1", agent_name="HOUMAO-beta", session_name="s2"),
             ],
         )
         resp = svc.list_agents()
         assert len(resp.agents) == 2
-        assert resp.agents[0].agent_name == "AGENTSYS-alpha"
-        assert resp.agents[1].agent_name == "AGENTSYS-beta"
+        assert resp.agents[0].agent_name == "HOUMAO-alpha"
+        assert resp.agents[1].agent_name == "HOUMAO-beta"
 
 
 class TestResolveAgent:
@@ -211,7 +211,7 @@ class TestResolveAgent:
 
     def test_resolve_by_name(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        _populate_index(svc, [_agent(agent_id="abc123", agent_name="AGENTSYS-alpha")])
+        _populate_index(svc, [_agent(agent_id="abc123", agent_name="HOUMAO-alpha")])
         result = svc.resolve_agent("alpha")
         assert result is not None
         assert not isinstance(result, DiscoveredAgentConflictResponse)
@@ -219,8 +219,8 @@ class TestResolveAgent:
 
     def test_resolve_by_canonical_name(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        _populate_index(svc, [_agent(agent_id="abc123", agent_name="AGENTSYS-alpha")])
-        result = svc.resolve_agent("AGENTSYS-alpha")
+        _populate_index(svc, [_agent(agent_id="abc123", agent_name="HOUMAO-alpha")])
+        result = svc.resolve_agent("HOUMAO-alpha")
         assert result is not None
         assert not isinstance(result, DiscoveredAgentConflictResponse)
         assert result.agent_id == "abc123"
@@ -235,8 +235,8 @@ class TestResolveAgent:
         _populate_index(
             svc,
             [
-                _agent(agent_id="abc123", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent(agent_id="def456", agent_name="AGENTSYS-alpha", session_name="s2"),
+                _agent(agent_id="abc123", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent(agent_id="def456", agent_name="HOUMAO-alpha", session_name="s2"),
             ],
         )
         result = svc.resolve_agent("alpha")
@@ -251,8 +251,8 @@ class TestResolveAgent:
 
 def _agent_with_gateway(
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    agent_name: str = "HOUMAO-alpha",
+    session_name: str = "HOUMAO-alpha-abc123",
     gateway_host: str = "127.0.0.1",
     gateway_port: int = 9901,
 ) -> DiscoveredAgent:
@@ -382,8 +382,8 @@ class TestGatewayStatus:
         _populate_index(
             svc,
             [
-                _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
+                _agent_with_gateway(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent_with_gateway(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2"),
             ],
         )
         result = svc.gateway_status("alpha")
@@ -556,8 +556,8 @@ class TestGatewayMailNotifier:
         _populate_index(
             svc,
             [
-                _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
+                _agent_with_gateway(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent_with_gateway(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2"),
             ],
         )
         result = svc.gateway_mail_notifier_status("alpha")

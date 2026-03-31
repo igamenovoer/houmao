@@ -39,9 +39,9 @@ from houmao.demo.legacy.houmao_server_interactive_full_pipeline_demo.models impo
     tool_for_provider,
 )
 from houmao.owned_paths import (
-    AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR,
-    AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
-    AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
@@ -543,9 +543,9 @@ def _demo_environment(*, paths: DemoPaths, agent_def_dir: Path) -> dict[str, str
     """Return the run-local environment used for registry and runtime ownership."""
 
     return {
-        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(paths.runtime_root.resolve()),
-        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: str(paths.registry_root.resolve()),
-        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: str(paths.jobs_root.resolve()),
+        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR: str(paths.runtime_root.resolve()),
+        HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(paths.registry_root.resolve()),
+        HOUMAO_LOCAL_JOBS_DIR_ENV_VAR: str(paths.jobs_root.resolve()),
         AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir.resolve()),
     }
 
@@ -554,9 +554,9 @@ def _state_environment(state: DemoState) -> dict[str, str]:
     """Return the run-local environment reconstructed from persisted state."""
 
     return {
-        AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR: str(Path(state.runtime_root).expanduser().resolve()),
-        AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR: str(Path(state.registry_root).expanduser().resolve()),
-        AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR: str(Path(state.jobs_root).expanduser().resolve()),
+        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR: str(Path(state.runtime_root).expanduser().resolve()),
+        HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(Path(state.registry_root).expanduser().resolve()),
+        HOUMAO_LOCAL_JOBS_DIR_ENV_VAR: str(Path(state.jobs_root).expanduser().resolve()),
         AGENT_DEF_DIR_ENV_VAR: str(Path(state.agent_def_dir).expanduser().resolve()),
     }
 

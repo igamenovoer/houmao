@@ -381,7 +381,7 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
         tmux_window_name="agent",
         manifest_path=str(manifest_path),
         session_root=str(tmp_path.resolve()),
-        agent_name="AGENTSYS-pair",
+        agent_name="HOUMAO-pair",
         agent_id="agent-123",
     )
     client = SimpleNamespace(
@@ -420,7 +420,7 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
             backend="houmao_server_rest",
             tool="codex",
             tmux_session_name="pair-session",
-            agent_name="AGENTSYS-pair",
+            agent_name="HOUMAO-pair",
             agent_id="agent-123",
             houmao_server=SimpleNamespace(
                 api_base_url="http://127.0.0.1:9889",
@@ -503,7 +503,7 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
             backend="claude_headless",
             tool="claude",
             tmux_session_name="headless-session",
-            agent_name="AGENTSYS-headless",
+            agent_name="HOUMAO-headless",
             agent_id="published-alpha",
         ),
     )
@@ -514,7 +514,7 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
 
     controller = SimpleNamespace(
         agent_id="published-alpha",
-        agent_identity="AGENTSYS-headless",
+        agent_identity="HOUMAO-headless",
         manifest_path=manifest_path,
         attach_gateway=_attach_gateway,
         gateway_status=lambda: {"status": "local-attached"},
@@ -542,7 +542,7 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
             tmux_window_name="agent",
             manifest_path=str(manifest_path),
             session_root=str(tmp_path.resolve()),
-            agent_name="AGENTSYS-headless",
+            agent_name="HOUMAO-headless",
             agent_id="published-alpha",
         ),
     )
@@ -994,7 +994,7 @@ def test_agents_relaunch_current_session_uses_manifest_first_runtime(
             )
             or SimpleNamespace(
                 agent_id="published-alpha",
-                agent_identity="AGENTSYS-alpha",
+                agent_identity="HOUMAO-alpha",
                 manifest_path=manifest_path,
                 relaunch=lambda: SimpleNamespace(status="ok", detail="Runtime relaunched."),
             )
@@ -1416,7 +1416,7 @@ def test_agents_launch_allows_missing_agent_name(
     controller = SimpleNamespace(
         manifest_path=working_directory / "runtime" / "manifest.json",
         agent_id="agent-1234",
-        agent_identity="AGENTSYS-claude-gpu-kernel-coder",
+        agent_identity="HOUMAO-claude-gpu-kernel-coder",
         tmux_session_name="gpu-session",
     )
 
@@ -1452,7 +1452,7 @@ def test_agents_launch_allows_missing_agent_name(
     )
 
     assert result.exit_code == 0
-    assert "agent_name=AGENTSYS-claude-gpu-kernel-coder" in result.output
+    assert "agent_name=HOUMAO-claude-gpu-kernel-coder" in result.output
     assert captured["build_request"].agent_name is None
     assert captured["start_kwargs"]["agent_name"] is None
 

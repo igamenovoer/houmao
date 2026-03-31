@@ -99,8 +99,8 @@ credential_projection:
 
 def _mailbox_launch_plan(tmp_path: Path) -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "AGENTSYS-research"
-    address = "AGENTSYS-research@agents.localhost"
+    principal_id = "HOUMAO-research"
+    address = "HOUMAO-research@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
@@ -155,8 +155,8 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             auth="personal-a",
             mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
-                principal_id="AGENTSYS-research",
-                address="AGENTSYS-research@agents.localhost",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
                 filesystem_root="shared-mail",
             ),
             home_id="mailbox-brain-001",
@@ -204,12 +204,12 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     assert mailbox is not None
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
     assert (
-        mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/archive"
+        mailbox.filesystem_root / "mailboxes/HOUMAO-research@agents.localhost/archive"
     ).is_dir()
     assert (
         mailbox.filesystem_root
         / "mailboxes"
-        / "AGENTSYS-research@agents.localhost"
+        / "HOUMAO-research@agents.localhost"
         / "mailbox.sqlite"
     ).is_file()
 
@@ -236,13 +236,13 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             launch_plan=resumed_launch_plan,
             role_name="r",
             brain_manifest_path=build_result.manifest_path,
-            agent_name="AGENTSYS-research",
+            agent_name="HOUMAO-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": "AGENTSYS-research",
+                "tmux_session_name": "HOUMAO-research",
             },
         )
     )
@@ -294,17 +294,17 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
                 SessionEvent(
                     kind="assistant",
                     message=(
-                        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                        "HOUMAO_MAIL_RESULT_BEGIN\n"
                         + json.dumps(
                             {
                                 "ok": True,
                                 "request_id": request_id,
                                 "operation": operation,
                                 "transport": "filesystem",
-                                "principal_id": "AGENTSYS-research",
+                                "principal_id": "HOUMAO-research",
                             }
                         )
-                        + "\nAGENTSYS_MAIL_RESULT_END"
+                        + "\nHOUMAO_MAIL_RESULT_END"
                     ),
                     turn_index=1,
                 )
@@ -328,9 +328,9 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             "mail",
             "send",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--to",
-            "AGENTSYS-orchestrator@agents.localhost",
+            "HOUMAO-orchestrator@agents.localhost",
             "--subject",
             "Investigate parser drift",
             "--body-file",
@@ -344,7 +344,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             "mail",
             "reply",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--message-ref",
             "filesystem:msg-20260312T050000Z-parent",
             "--body-content",
@@ -374,7 +374,7 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
         launch_plan=launch_plan,
         operation="send",
         args={
-            "to": ["AGENTSYS-orchestrator@agents.localhost"],
+            "to": ["HOUMAO-orchestrator@agents.localhost"],
             "cc": [],
             "subject": "Investigate parser drift",
             "body_content": "Hello from integration coverage",
@@ -430,7 +430,7 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
                     "request_id": self.submitted_request_id,
                     "operation": "send",
                     "transport": "filesystem",
-                    "principal_id": "AGENTSYS-research",
+                    "principal_id": "HOUMAO-research",
                     "message_ref": "filesystem:msg-20260318T130000Z-integration",
                 }
             )
@@ -441,9 +441,9 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
                     "Codex CLI v0.1.0\n"
                     "> mail send request\n"
                     "assistant> drafting message\n"
-                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    "HOUMAO_MAIL_RESULT_BEGIN\n"
                     f"{payload}\n"
-                    "AGENTSYS_MAIL_RESULT_END\n"
+                    "HOUMAO_MAIL_RESULT_END\n"
                     "> \n"
                 ),
             ]
@@ -528,13 +528,13 @@ def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
             brain_manifest_path=tmp_path / "brain.yaml",
             agent_name="research",
             agent_id=derive_agent_id_from_name("research"),
-            tmux_session_name="AGENTSYS-research",
+            tmux_session_name="HOUMAO-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": "AGENTSYS-research",
+                "tmux_session_name": "HOUMAO-research",
             },
         )
     )

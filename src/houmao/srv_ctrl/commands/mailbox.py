@@ -34,7 +34,7 @@ def _mailbox_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
         help=(
-            "Filesystem mailbox root override. Defaults to `AGENTSYS_GLOBAL_MAILBOX_DIR` "
+            "Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` "
             "or the shared Houmao mailbox root."
         ),
     )(function)
@@ -66,7 +66,7 @@ def status_mailbox_command(mailbox_root: Path | None) -> None:
 @click.option(
     "--address",
     required=True,
-    help="Full mailbox address, for example `AGENTSYS-agent@agents.localhost`.",
+    help="Full mailbox address, for example `HOUMAO-agent@agents.localhost`.",
 )
 @click.option("--principal-id", required=True, help="Mailbox owner principal id.")
 @click.option(
@@ -109,7 +109,7 @@ def register_mailbox_command(
 @click.option(
     "--address",
     required=True,
-    help="Full mailbox address, for example `AGENTSYS-agent@agents.localhost`.",
+    help="Full mailbox address, for example `HOUMAO-agent@agents.localhost`.",
 )
 @click.option(
     "--mode",

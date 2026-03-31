@@ -222,8 +222,8 @@ def _sample_houmao_server_plan(tmp_path: Path) -> LaunchPlan:
 
 def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "AGENTSYS-gpu"
-    address = "AGENTSYS-gpu@agents.localhost"
+    principal_id = "HOUMAO-gpu"
+    address = "HOUMAO-gpu@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
@@ -256,8 +256,8 @@ def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
 
 
 def _sample_cao_plan_with_stalwart_mailbox(tmp_path: Path) -> LaunchPlan:
-    principal_id = "AGENTSYS-gpu"
-    address = "AGENTSYS-gpu@agents.localhost"
+    principal_id = "HOUMAO-gpu"
+    address = "HOUMAO-gpu@agents.localhost"
     jmap_url = "http://stalwart.local/jmap"
     management_url = "http://stalwart.local/api"
     mailbox = StalwartMailboxResolvedConfig(
@@ -404,7 +404,7 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
             backend="cao_rest",
             tool="codex",
             session_id="cao_rest-20260312-120000Z-abcd1234",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://localhost:9889",
@@ -459,9 +459,9 @@ def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
         agent_id="published-alpha",
-        tmux_session_name="AGENTSYS-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     published_env_calls: list[tuple[str, dict[str, str]]] = []
@@ -482,7 +482,7 @@ def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
 
     controller.ensure_gateway_capability()
 
-    assert ("AGENTSYS-gpu",) == tuple({call[0] for call in published_env_calls})
+    assert ("HOUMAO-gpu",) == tuple({call[0] for call in published_env_calls})
     assert any(
         env_vars.get(AGENT_MANIFEST_PATH_ENV_VAR) == str(manifest_path.resolve())
         and env_vars.get(AGENT_ID_ENV_VAR) == "published-alpha"
@@ -498,7 +498,7 @@ def test_legacy_tmux_session_stop_skips_gateway_teardown(tmp_path: Path) -> None
         manifest_path=(tmp_path / "legacy-session.json").resolve(),
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
     )
 
     result = controller.stop()
@@ -520,8 +520,8 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
-        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     monkeypatch.setattr(
@@ -571,8 +571,8 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     monkeypatch.setattr(
@@ -615,7 +615,7 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -630,7 +630,7 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -686,7 +686,7 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -701,17 +701,17 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
         _FakeGatewayTrackingRuntime,
     )
-    monkeypatch.setenv("AGENTSYS_GATEWAY_EXECUTION_MODE", "tmux_auxiliary_window")
-    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_WINDOW_ID", "@9")
-    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX", "2")
-    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_PANE_ID", "%9")
+    monkeypatch.setenv("HOUMAO_GATEWAY_EXECUTION_MODE", "tmux_auxiliary_window")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_WINDOW_ID", "@9")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_WINDOW_INDEX", "2")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_PANE_ID", "%9")
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -749,14 +749,14 @@ def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_p
             launch_plan=_sample_cao_plan(tmp_path),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gpu",
             session_id="cao-rest-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
-                "session_name": "AGENTSYS-gpu",
+                "session_name": "HOUMAO-gpu",
                 "terminal_id": "term-123",
                 "profile_name": "runtime-profile",
                 "profile_path": str(tmp_path / "runtime-profile.md"),
@@ -771,7 +771,7 @@ def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_p
             backend="cao_rest",
             tool="codex",
             session_id="cao-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
@@ -829,7 +829,7 @@ def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_p
     refreshed = refresh_gateway_manifest_publication(paths)
 
     assert refreshed.attach_identity == "cao-rest-1"
-    assert refreshed.tmux_session_name == "AGENTSYS-gpu"
+    assert refreshed.tmux_session_name == "HOUMAO-gpu"
     assert refreshed.gateway_pid == 43210
     assert refreshed.gateway_port == 43123
     assert refreshed.desired_port == 43123
@@ -844,7 +844,7 @@ def test_gateway_service_routes_local_interactive_interrupts_through_runtime_con
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -859,7 +859,7 @@ def test_gateway_service_routes_local_interactive_interrupts_through_runtime_con
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -894,7 +894,7 @@ def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -909,7 +909,7 @@ def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -967,11 +967,11 @@ def test_gateway_service_builds_local_interactive_tui_tracking_identity_from_man
     assert identity.tracked_session_id == "local-interactive-1"
     assert identity.session_name == "local-interactive-1"
     assert identity.tool == "codex"
-    assert identity.tmux_session_name == "AGENTSYS-local"
+    assert identity.tmux_session_name == "HOUMAO-local"
     assert identity.tmux_window_name == "agent"
     assert identity.terminal_aliases == []
-    assert identity.agent_name == "AGENTSYS-local"
-    assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
+    assert identity.agent_name == "HOUMAO-local"
+    assert identity.agent_id == derive_agent_id_from_name("HOUMAO-local")
     assert identity.manifest_path == str(manifest_path)
 
 
@@ -981,7 +981,7 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -996,7 +996,7 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -1017,11 +1017,11 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
         identity = _FakeGatewayTrackingRuntime.m_identities[0]
         assert identity.tracked_session_id == "local-interactive-1"
         assert identity.session_name == "local-interactive-1"
-        assert identity.tmux_session_name == "AGENTSYS-local"
+        assert identity.tmux_session_name == "HOUMAO-local"
         assert identity.tmux_window_name == "agent"
         assert identity.terminal_aliases == []
-        assert identity.agent_name == "AGENTSYS-local"
-        assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
+        assert identity.agent_name == "HOUMAO-local"
+        assert identity.agent_id == derive_agent_id_from_name("HOUMAO-local")
 
         state_response = client.get("/v1/control/tui/state")
         assert state_response.status_code == 200
@@ -1061,7 +1061,7 @@ def test_gateway_service_routes_local_interactive_prompt_through_direct_control_
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -1076,7 +1076,7 @@ def test_gateway_service_routes_local_interactive_prompt_through_direct_control_
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -1118,7 +1118,7 @@ def test_gateway_service_rejects_local_interactive_prompt_when_tui_not_ready(
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -1133,7 +1133,7 @@ def test_gateway_service_rejects_local_interactive_prompt_when_tui_not_ready(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -1183,7 +1183,7 @@ def test_gateway_service_force_bypasses_local_interactive_prompt_readiness_gate(
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -1198,7 +1198,7 @@ def test_gateway_service_force_bypasses_local_interactive_prompt_readiness_gate(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -1248,7 +1248,7 @@ def test_gateway_service_rejects_unsupported_backend_for_direct_prompt_control(
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -1263,7 +1263,7 @@ def test_gateway_service_rejects_unsupported_backend_for_direct_prompt_control(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -1464,7 +1464,7 @@ def test_ensure_gateway_capability_supports_houmao_server_backend(tmp_path: Path
             backend="houmao_server_rest",
             tool="codex",
             session_id="houmao-server-rest-20260319-120000Z-abcd1234",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
@@ -1501,8 +1501,8 @@ def test_gateway_status_invalidates_stale_live_bindings(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
-        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     captured_unset: dict[str, object] = {}
@@ -1566,7 +1566,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
     status = controller.gateway_status()
 
     assert status.gateway_health == "not_attached"
-    assert captured_unset["session_name"] == "AGENTSYS-gpu"
+    assert captured_unset["session_name"] == "HOUMAO-gpu"
     assert AGENT_GATEWAY_HOST_ENV_VAR in captured_unset["variable_names"]
 
 
@@ -1582,7 +1582,7 @@ def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreat
             backend="houmao_server_rest",
             tool="codex",
             session_id="houmao-server-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
@@ -1601,8 +1601,8 @@ def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreat
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
-        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     tmux_state = {
@@ -1661,7 +1661,7 @@ def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreat
         raise AssertionError(f"Unexpected tmux call: {args}")
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-gpu"
+        assert session_name == "HOUMAO-gpu"
         current = tmux_state["current"]
         if current is None:
             return ()
@@ -1809,7 +1809,7 @@ def test_same_session_gateway_liveness_ignores_current_agent_window(
 
     assert (
         _same_session_gateway_is_alive(
-            session_name="AGENTSYS-local",
+            session_name="HOUMAO-local",
             current_instance=current_instance,
         )
         is True
@@ -1831,8 +1831,8 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     tmux_state = {
@@ -1891,7 +1891,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
         raise AssertionError(f"Unexpected tmux call: {args}")
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-local"
+        assert session_name == "HOUMAO-local"
         current = tmux_state["current"]
         if current is None:
             return ()
@@ -1991,8 +1991,8 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     tmux_state = {
@@ -2028,7 +2028,7 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
         )
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-local"
+        assert session_name == "HOUMAO-local"
         tmux_state["list_calls"] += 1
         if tmux_state["list_calls"] < 3:
             return ()
@@ -2101,8 +2101,8 @@ def test_runtime_owned_foreground_gateway_attach_accepts_current_instance_before
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     def _fake_run_tmux(
@@ -2178,8 +2178,8 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     reserved_window_instance = type(
@@ -2194,7 +2194,7 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
     )()
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-local"
+        assert session_name == "HOUMAO-local"
         return (
             type(
                 "Pane",
@@ -2251,8 +2251,8 @@ def test_same_session_gateway_stale_cleanup_skips_reserved_window_zero(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     reserved_window_instance = type(
@@ -2305,7 +2305,7 @@ class _FakeCaoRestClient:
             id=terminal_id,
             name="developer-1",
             provider="codex",
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             agent_profile="runtime-profile",
             status="idle",
         )
@@ -2334,14 +2334,14 @@ def _seed_cao_gateway_root(
             launch_plan=plan,
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gpu",
             session_id="cao-rest-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state={
                 "api_base_url": "http://localhost:9889",
-                "session_name": "AGENTSYS-gpu",
+                "session_name": "HOUMAO-gpu",
                 "terminal_id": terminal_id,
                 "profile_name": "runtime-profile",
                 "profile_path": str(tmp_path / "runtime-profile.md"),
@@ -2357,7 +2357,7 @@ def _seed_cao_gateway_root(
             backend="cao_rest",
             tool="codex",
             session_id="cao-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://localhost:9889",
@@ -2386,9 +2386,9 @@ def _seed_headless_gateway_root(
             launch_plan=_sample_headless_plan(tmp_path),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-headless",
-            agent_id=derive_agent_id_from_name("AGENTSYS-headless"),
-            tmux_session_name="AGENTSYS-headless",
+            agent_name="HOUMAO-headless",
+            agent_id=derive_agent_id_from_name("HOUMAO-headless"),
+            tmux_session_name="HOUMAO-headless",
             session_id="claude-headless-1",
             agent_def_dir=agent_def_dir,
             backend_state={
@@ -2405,7 +2405,7 @@ def _seed_headless_gateway_root(
             backend="claude_headless",
             tool="claude",
             session_id="claude-headless-1",
-            tmux_session_name="AGENTSYS-headless",
+            tmux_session_name="HOUMAO-headless",
             working_directory=tmp_path,
             backend_state={"session_id": "claude-session-1"},
             agent_def_dir=tmp_path / "agents",
@@ -2420,16 +2420,16 @@ def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
         "turn_index": 2,
         "role_bootstrap_applied": True,
         "working_directory": str(tmp_path),
-        "tmux_session_name": "AGENTSYS-local",
+        "tmux_session_name": "HOUMAO-local",
     }
     payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=_sample_local_interactive_plan(tmp_path),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-local",
-            agent_id=derive_agent_id_from_name("AGENTSYS-local"),
-            tmux_session_name="AGENTSYS-local",
+            agent_name="HOUMAO-local",
+            agent_id=derive_agent_id_from_name("HOUMAO-local"),
+            tmux_session_name="HOUMAO-local",
             session_id="local-interactive-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state=backend_state,
@@ -2442,7 +2442,7 @@ def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
             backend="local_interactive",
             tool="codex",
             session_id="local-interactive-1",
-            tmux_session_name="AGENTSYS-local",
+            tmux_session_name="HOUMAO-local",
             working_directory=tmp_path,
             backend_state=backend_state,
             agent_def_dir=tmp_path / "agents",
@@ -2456,7 +2456,7 @@ class _FakeGatewayHeadlessSession:
         self,
         *,
         block_prompt: bool = False,
-        tmux_session_name: str = "AGENTSYS-headless",
+        tmux_session_name: str = "HOUMAO-headless",
         session_id: str | None = "claude-session-1",
         backend: str = "claude_headless",
     ) -> None:
@@ -2539,11 +2539,11 @@ class _FakeManagedPairClient:
             session_name=None,
             terminal_id=None,
             runtime_session_id=agent_ref,
-            tmux_session_name="AGENTSYS-headless",
+            tmux_session_name="HOUMAO-headless",
             tmux_window_name="agent",
             manifest_path="/tmp/manifest.json",
             session_root="/tmp/runtime",
-            agent_name="AGENTSYS-headless",
+            agent_name="HOUMAO-headless",
             agent_id=agent_ref,
         )
         summary_state = HoumaoManagedAgentStateResponse(
@@ -2736,12 +2736,12 @@ def _seed_cao_gateway_root_with_stalwart_mailbox(
             launch_plan=plan,
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gpu",
             backend_state={
                 "api_base_url": "http://localhost:9889",
-                "session_name": "AGENTSYS-gpu",
+                "session_name": "HOUMAO-gpu",
                 "terminal_id": terminal_id,
                 "profile_name": "runtime-profile",
                 "profile_path": str(tmp_path / "runtime-profile.md"),
@@ -2777,7 +2777,7 @@ def _seed_cao_gateway_root_with_stalwart_mailbox(
             backend="cao_rest",
             tool="codex",
             session_id="cao-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://localhost:9889",
@@ -2826,12 +2826,12 @@ def _deliver_unread_mailbox_message(
 ) -> str:
     mailbox_root = tmp_path / "mailbox"
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-gpu",
-        address="AGENTSYS-gpu@agents.localhost",
+        principal_id="HOUMAO-gpu",
+        address="HOUMAO-gpu@agents.localhost",
     )
     bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
 
@@ -3232,7 +3232,7 @@ def test_gateway_service_rest_backed_recovery_relaunches_from_manifest_authority
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-gpu",
+        lambda *, session_name: session_name == "HOUMAO-gpu",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -3474,7 +3474,7 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     send_response = client.post(
         "/v1/mail/send",
         json=GatewayMailSendRequestV1(
-            to=["AGENTSYS-sender@agents.localhost"],
+            to=["HOUMAO-sender@agents.localhost"],
             subject="Gateway route send",
             body_content="filesystem send body",
         ).model_dump(mode="json"),
@@ -3542,7 +3542,7 @@ def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mu
 
     local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
         mailbox_root,
-        address="AGENTSYS-gpu@agents.localhost",
+        address="HOUMAO-gpu@agents.localhost",
     )
     with sqlite3.connect(local_sqlite_path) as connection:
         state_row = connection.execute(
@@ -3667,7 +3667,7 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                     "preview": "preview",
                     "body": "full body",
                     "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
-                    "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                    "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                     "cc": [],
                     "replyTo": [],
                     "attachments": [],
@@ -3740,7 +3740,7 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                 "preview": "preview",
                 "body": "full body",
                 "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
-                "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                 "cc": [],
                 "replyTo": [],
                 "attachments": [],
@@ -3836,7 +3836,7 @@ def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization
                 "preview": "preview",
                 "body": "full body",
                 "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
-                "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                 "cc": [],
                 "replyTo": [],
                 "attachments": [],
@@ -4018,7 +4018,7 @@ def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway
         assert first_message_id in prompt
         assert second_message_id in prompt
         assert "thread_ref: filesystem:" in prompt
-        assert "from: AGENTSYS-sender@agents.localhost" in prompt
+        assert "from: HOUMAO-sender@agents.localhost" in prompt
         assert "subject: Gateway unread reminder one" in prompt
         assert "subject: Gateway unread reminder two" in prompt
         assert "Nominated unread target" not in prompt
@@ -4130,7 +4130,7 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
                     "preview": "preview",
                     "body": "full body",
                     "from": [{"email": "sender@agents.localhost"}],
-                    "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                    "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                     "cc": [],
                     "replyTo": [],
                     "attachments": [],

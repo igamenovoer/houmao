@@ -6,7 +6,7 @@ This page explains how the v1 filesystem mailbox decides which mailbox artifact 
 
 Registrations are address-routed, not principal-routed.
 
-- The key is the full mailbox address such as `AGENTSYS-research@agents.localhost`.
+- The key is the full mailbox address such as `HOUMAO-research@agents.localhost`.
 - At most one registration for that address may be `active`.
 - Older registrations may remain as `inactive` or `stashed`.
 - The registration record and the mailbox artifact can point either to an in-root mailbox directory or to a private mailbox directory reached through a symlink entry.

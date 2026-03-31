@@ -30,7 +30,7 @@ pixi run houmao-mgr agents prompt \
 Rules:
 
 - `--agent-name` accepts the unprefixed friendly name (e.g., `gpu`).
-- The runtime normalizes names into the canonical `AGENTSYS-<name>` namespace internally.
+- The runtime normalizes names into the canonical `HOUMAO-<name>` namespace internally.
 - Name resolution checks the shared registry and the local tmux session environment.
 - The manifest must exist and pass schema validation before control continues.
 
@@ -71,7 +71,7 @@ Runtime-managed sessions persist a durable manifest under `<runtime_root>/sessio
 Publicly relevant details:
 
 - `manifest.json` is the runtime's durable session record.
-- Tmux-backed sessions publish `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, and `AGENTSYS_AGENT_DEF_DIR`.
+- Tmux-backed sessions publish `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, and `HOUMAO_AGENT_DEF_DIR`.
 - `gateway/attach.json` is internal runtime bootstrap state, not part of the supported external discovery contract.
 - Live gateway env vars appear only while a gateway instance is actually attached.
 - For attached shared-mailbox work, the supported runtime-owned discovery path is `pixi run houmao-mgr agents mail resolve-live`.
@@ -82,7 +82,7 @@ Pair-managed note:
 
 - `houmao-mgr agents gateway attach` is the supported public pair command
 - explicit pair attach resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract on `houmao-server`
-- current-session pair attach resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID` and uses persisted manifest authority as the only route target
+- current-session pair attach resolves the manifest through `HOUMAO_MANIFEST_PATH` or shared-registry fallback from `HOUMAO_AGENT_ID` and uses persisted manifest authority as the only route target
 - for pair-managed sessions, tmux window `0` remains the contractual agent surface while live gateway auxiliary windows are implementation detail except for the exact handle recorded in `gateway/run/current-instance.json`
 
 Representative `houmao-mgr agents launch` output for a gateway-capable session:
@@ -95,7 +95,7 @@ Representative `houmao-mgr agents launch` output for a gateway-capable session:
   "agent_identity": "gpu",
   "agent_name": "gpu",
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
-  "tmux_session_name": "AGENTSYS-gpu-1760000123456",
+  "tmux_session_name": "HOUMAO-gpu-1760000123456",
   "job_dir": "/abs/path/workspace/.houmao/jobs/li-1"
 }
 ```
@@ -135,16 +135,16 @@ pixi run python -m houmao.agents.realm_controller send-prompt \
 
 ```bash
 pixi run python -m houmao.agents.realm_controller send-prompt \
-  --agent-identity AGENTSYS-gpu \
+  --agent-identity HOUMAO-gpu \
   --prompt "Summarize the current plan"
 ```
 
 Rules for the low-level surface:
 
 - Path-like `--agent-identity` values resolve directly to a manifest path.
-- Name-based `--agent-identity` resolves the manifest through `AGENTSYS_MANIFEST_PATH` in the tmux session environment.
-- For name-based control, the effective agent-definition directory is either explicit `--agent-def-dir` or the addressed tmux session's `AGENTSYS_AGENT_DEF_DIR`.
-- Name-based control does not fall back to the caller's ambient `AGENTSYS_AGENT_DEF_DIR` when the tmux pointer is stale or missing.
+- Name-based `--agent-identity` resolves the manifest through `HOUMAO_MANIFEST_PATH` in the tmux session environment.
+- For name-based control, the effective agent-definition directory is either explicit `--agent-def-dir` or the addressed tmux session's `HOUMAO_AGENT_DEF_DIR`.
+- Name-based control does not fall back to the caller's ambient `HOUMAO_AGENT_DEF_DIR` when the tmux pointer is stale or missing.
 
 ## Source References
 

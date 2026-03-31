@@ -30,18 +30,18 @@ Current high-value redirection surfaces:
 
 | Surface | Current operator-facing override |
 | --- | --- |
-| Runtime root | `AGENTSYS_GLOBAL_RUNTIME_DIR`, entrypoint-specific explicit `runtime_root` override |
-| Registry root | `AGENTSYS_GLOBAL_REGISTRY_DIR` |
-| Local jobs root | `AGENTSYS_LOCAL_JOBS_DIR` |
+| Runtime root | `HOUMAO_GLOBAL_RUNTIME_DIR`, entrypoint-specific explicit `runtime_root` override |
+| Registry root | `HOUMAO_GLOBAL_REGISTRY_DIR` |
+| Local jobs root | `HOUMAO_LOCAL_JOBS_DIR` |
 | CAO launcher runtime root | launcher config or CLI `runtime_root` override |
 | CAO `HOME` | launcher config or CLI `home_dir` override |
 
 Representative redirection setup:
 
 ```bash
-export AGENTSYS_GLOBAL_RUNTIME_DIR=/data/$USER/houmao-runtime
-export AGENTSYS_GLOBAL_REGISTRY_DIR=/data/$USER/houmao-registry
-export AGENTSYS_LOCAL_JOBS_DIR=/scratch/$USER/houmao-jobs
+export HOUMAO_GLOBAL_RUNTIME_DIR=/data/$USER/houmao-runtime
+export HOUMAO_GLOBAL_REGISTRY_DIR=/data/$USER/houmao-registry
+export HOUMAO_LOCAL_JOBS_DIR=/scratch/$USER/houmao-jobs
 ```
 
 Representative launcher config:

@@ -62,7 +62,7 @@ from houmao.server.service import HoumaoServerService, ProxyResponse
 from houmao.server.tui.parser import OfficialParseResult
 from houmao.server.tui.process import PaneProcessInspection
 from houmao.server.tui.transport import ResolvedTmuxTarget
-from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
 def _write(path: Path, text: str) -> None:
@@ -135,9 +135,9 @@ def _seed_cao_gateway_root(
             launch_plan=_sample_cao_plan(tmp_path),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gpu",
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
                 "session_name": "cao-rest-1",
@@ -157,7 +157,7 @@ def _seed_cao_gateway_root(
             backend="cao_rest",
             tool="codex",
             session_id="cao-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
@@ -182,10 +182,21 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
     manifest_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "inputs:",
                 "  tool: codex",
+                "  skills: []",
+                "  setup: default",
+                "  auth: default",
+                "  adapter_path: /tmp/tool-adapter.yaml",
+                "  preset_path: null",
+                "launch_policy:",
+                "  operator_prompt_mode: as_is",
                 "runtime:",
+                f"  runtime_root: {tmp_path}",
+                "  home_id: test-home",
+                f"  home_path: {tmp_path / 'home'}",
+                f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
                 "  launch_executable: codex",
                 "  launch_home_selector:",
                 "    env_var: CODEX_HOME",
@@ -195,11 +206,18 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
                 "      args: []",
                 "      tool_params: {}",
                 "    requested_overrides:",
-                "      recipe: null",
+                "      preset: null",
                 "      direct: null",
                 "    tool_metadata:",
                 "      tool_params: {}",
+                "    construction_provenance:",
+                "      adapter_path: /tmp/tool-adapter.yaml",
+                "      preset_path: null",
+                "      preset_overrides_present: false",
+                "      direct_overrides_present: false",
                 "credentials:",
+                f"  auth_path: {tmp_path / 'auth'}",
+                "  projected_files: []",
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
@@ -418,7 +436,7 @@ class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
             turn_index=0,
             role_bootstrap_applied=True,
             working_directory=str(launch_plan.working_directory),
-            tmux_session_name=tmux_session_name or "AGENTSYS-headless",
+            tmux_session_name=tmux_session_name or "HOUMAO-headless",
         )
         if not self._state.session_id:
             self._state.session_id = "headless-session-1"
@@ -614,7 +632,7 @@ class _FakeGatewayHeadlessSession:
             (),
             {
                 "turn_index": 0,
-                "tmux_session_name": "AGENTSYS-headless",
+                "tmux_session_name": "HOUMAO-headless",
                 "session_id": "headless-session-1",
             },
         )()
@@ -850,11 +868,11 @@ def _managed_agent_detail_payload(agent_ref: str) -> dict[str, object]:
         "session_name": None,
         "terminal_id": None,
         "runtime_session_id": agent_ref,
-        "tmux_session_name": "AGENTSYS-headless",
+        "tmux_session_name": "HOUMAO-headless",
         "tmux_window_name": "agent",
         "manifest_path": "/tmp/manifest.json",
         "session_root": "/tmp/session-root",
-        "agent_name": "AGENTSYS-headless",
+        "agent_name": "HOUMAO-headless",
         "agent_id": None,
     }
     summary_state = {
@@ -914,7 +932,7 @@ def _install_runtime_headless_fakes(
 ) -> None:
     """Install fake headless runtime and tmux environment hooks."""
 
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root.resolve()))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root.resolve()))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.CodexHeadlessSession",
         _FakeCodexHeadlessSession,
@@ -985,12 +1003,12 @@ def test_server_managed_gateway_attach_is_idempotent_and_projects_notifier_contr
                 agent_def_dir=str(agent_def_dir.resolve()),
                 brain_manifest_path=str(brain_manifest_path.resolve()),
                 role_name="r",
-                agent_name="AGENTSYS-headless",
+                agent_name="HOUMAO-headless",
                 agent_id=None,
                 mailbox=HoumaoHeadlessLaunchMailboxOptions(
                     transport="filesystem",
                     filesystem_root=str(mailbox_root.resolve()),
-                    address="AGENTSYS-headless@agents.localhost",
+                    address="HOUMAO-headless@agents.localhost",
                 ),
             )
         )
@@ -1077,11 +1095,11 @@ def test_tui_managed_agent_request_handoff_prefers_live_gateway_and_falls_back_a
             session_name="cao-rest-1",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
             manifest_path=str(manifest_path),
             session_root=str(session_root),
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
     )
@@ -1172,12 +1190,12 @@ def test_server_managed_headless_gateway_flow_covers_registry_and_degraded_contr
                 agent_def_dir=str(agent_def_dir.resolve()),
                 brain_manifest_path=str(brain_manifest_path.resolve()),
                 role_name="r",
-                agent_name="AGENTSYS-headless",
+                agent_name="HOUMAO-headless",
                 agent_id="agent-headless-1",
                 mailbox=HoumaoHeadlessLaunchMailboxOptions(
                     transport="filesystem",
                     filesystem_root=str(mailbox_root.resolve()),
-                    address="AGENTSYS-headless@agents.localhost",
+                    address="HOUMAO-headless@agents.localhost",
                 ),
             )
         )

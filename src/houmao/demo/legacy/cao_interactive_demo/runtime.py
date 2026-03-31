@@ -373,7 +373,7 @@ def _read_tmux_manifest_path(
 
     safe_name = session_name.replace("/", "_")
     result = run_command(
-        ["tmux", "show-environment", "-t", session_name, "AGENTSYS_MANIFEST_PATH"],
+        ["tmux", "show-environment", "-t", session_name, "HOUMAO_MANIFEST_PATH"],
         env.repo_root,
         paths.logs_dir / f"tmux-show-environment-{safe_name}.stdout",
         paths.logs_dir / f"tmux-show-environment-{safe_name}.stderr",
@@ -386,7 +386,7 @@ def _read_tmux_manifest_path(
         line = raw_line.strip()
         if not line:
             continue
-        prefix = "AGENTSYS_MANIFEST_PATH="
+        prefix = "HOUMAO_MANIFEST_PATH="
         if not line.startswith(prefix):
             continue
         value = line[len(prefix) :].strip()

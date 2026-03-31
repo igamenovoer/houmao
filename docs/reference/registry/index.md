@@ -28,9 +28,9 @@ For live gateway recovery, that means:
 
 ## Key Terms
 
-- `shared registry`: The per-user filesystem tree rooted at `~/.houmao/registry` by default, or at `AGENTSYS_GLOBAL_REGISTRY_DIR` when that override is set.
+- `shared registry`: The per-user filesystem tree rooted at `~/.houmao/registry` by default, or at `HOUMAO_GLOBAL_REGISTRY_DIR` when that override is set.
 - `live-agent record`: The strict `record.json` payload stored for one currently published logical agent.
-- `canonical agent name`: The reserved-prefix form such as `AGENTSYS-gpu`; registry-facing input also accepts unprefixed names such as `gpu`.
+- `canonical agent name`: The reserved-prefix form such as `HOUMAO-gpu`; registry-facing input also accepts unprefixed names such as `gpu`.
 - `agent_id`: The authoritative runtime-wide agent identifier used as the live-agent directory name.
 - `generation id`: The stable identifier for one live session instance; refreshes reuse it, replacement publishers do not.
 - `lease freshness`: The v1 liveness rule based on `lease_expires_at`, not on whether the directory happens to exist.

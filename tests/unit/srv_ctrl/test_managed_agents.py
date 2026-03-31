@@ -169,7 +169,7 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
 
 def test_resolve_managed_agent_target_rejects_prefixed_agent_name_selector() -> None:
     with pytest.raises(click.ClickException, match="raw creation-time name"):
-        resolve_managed_agent_target(agent_id=None, agent_name="AGENTSYS-gpu", port=None)
+        resolve_managed_agent_target(agent_id=None, agent_name="HOUMAO-gpu", port=None)
 
 
 def test_resolve_managed_agent_mail_target_uses_current_session_metadata(
@@ -185,9 +185,9 @@ def test_resolve_managed_agent_mail_target_uses_current_session_metadata(
         managed_agents_module,
         "_gateway_command_helpers",
         lambda: SimpleNamespace(
-            _try_current_tmux_session_name=lambda: "AGENTSYS-gpu",
+            _try_current_tmux_session_name=lambda: "HOUMAO-gpu",
             _resolve_gateway_current_session_target=lambda session_name: (
-                expected if session_name == "AGENTSYS-gpu" else None
+                expected if session_name == "HOUMAO-gpu" else None
             ),
         ),
     )
@@ -566,8 +566,8 @@ def test_register_mailbox_binding_forwards_confirmation_callback() -> None:
         return SimpleNamespace(
             mailbox=SimpleNamespace(
                 transport="filesystem",
-                principal_id="AGENTSYS-alpha",
-                address="AGENTSYS-alpha@agents.localhost",
+                principal_id="HOUMAO-alpha",
+                address="HOUMAO-alpha@agents.localhost",
                 filesystem_root=Path("/tmp/mailbox-root"),
                 bindings_version="2026-03-30T00:00:00Z",
             ),
@@ -621,8 +621,8 @@ def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
     original = managed_agents_module._local_manager_mail_status
     managed_agents_module._local_manager_mail_status = lambda _controller: GatewayMailStatusV1(
         transport="filesystem",
-        principal_id="AGENTSYS-alpha",
-        address="AGENTSYS-alpha@agents.localhost",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
         bindings_version="2026-03-27T00:00:00Z",
     )
     try:
@@ -637,8 +637,8 @@ def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
         "status": "verified",
         "execution_path": "manager_direct",
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-alpha",
-        "address": "AGENTSYS-alpha@agents.localhost",
+        "principal_id": "HOUMAO-alpha",
+        "address": "HOUMAO-alpha@agents.localhost",
         "bindings_version": "2026-03-27T00:00:00Z",
     }
 
@@ -696,14 +696,14 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
     response = GatewayMailActionResponseV1(
         operation="send",
         transport="filesystem",
-        principal_id="AGENTSYS-alpha",
-        address="AGENTSYS-alpha@agents.localhost",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
         message=GatewayMailboxMessageV1(
             message_ref="filesystem:msg-1",
             thread_ref="filesystem:msg-1",
             created_at_utc="2026-03-29T15:00:00Z",
             subject="hello",
-            sender=GatewayMailboxParticipantV1(address="AGENTSYS-alpha@agents.localhost"),
+            sender=GatewayMailboxParticipantV1(address="HOUMAO-alpha@agents.localhost"),
             to=[GatewayMailboxParticipantV1(address="beta@agents.localhost")],
         ),
     )
@@ -739,8 +739,8 @@ def test_mail_mark_read_local_headless_uses_verified_manager_direct_result(
     )
     response = GatewayMailStateResponseV1(
         transport="filesystem",
-        principal_id="AGENTSYS-alpha",
-        address="AGENTSYS-alpha@agents.localhost",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
         message_ref="filesystem:msg-1",
         read=True,
     )
@@ -800,8 +800,8 @@ def test_mail_resolve_live_local_returns_normalized_payload(
         payload=lambda: {
             "source": "manifest_binding",
             "transport": "filesystem",
-            "principal_id": "AGENTSYS-alpha",
-            "address": "AGENTSYS-alpha@agents.localhost",
+            "principal_id": "HOUMAO-alpha",
+            "address": "HOUMAO-alpha@agents.localhost",
             "bindings_version": "2026-03-29T15:00:00Z",
             "mailbox": {
                 "transport": "filesystem",
@@ -840,8 +840,8 @@ def test_mail_resolve_live_server_returns_pair_authority_payload() -> None:
         get_managed_agent_mail_resolve_live=lambda agent_ref: {
             "source": "manifest_binding",
             "transport": "filesystem",
-            "principal_id": "AGENTSYS-alpha",
-            "address": "AGENTSYS-alpha@agents.localhost",
+            "principal_id": "HOUMAO-alpha",
+            "address": "HOUMAO-alpha@agents.localhost",
             "bindings_version": "2026-03-29T15:00:00Z",
             "mailbox": {
                 "transport": "filesystem",
@@ -989,11 +989,11 @@ def _managed_identity(*, transport: str = "headless") -> HoumaoManagedAgentIdent
         session_name=session_name,
         terminal_id=terminal_id,
         runtime_session_id=runtime_session_id,
-        tmux_session_name="AGENTSYS-alpha",
+        tmux_session_name="HOUMAO-alpha",
         tmux_window_name="agent",
         manifest_path="/tmp/manifest.json",
         session_root="/tmp/session-root",
-        agent_name="AGENTSYS-alpha",
+        agent_name="HOUMAO-alpha",
         agent_id="published-alpha",
     )
 
@@ -1035,9 +1035,9 @@ def _gateway_tui_state_response() -> HoumaoTerminalStateResponse:
         terminal_id="headless123",
         tracked_session=HoumaoTrackedSessionIdentity(
             tracked_session_id="tracked-alpha",
-            session_name="AGENTSYS-alpha",
+            session_name="HOUMAO-alpha",
             tool="claude",
-            tmux_session_name="AGENTSYS-alpha",
+            tmux_session_name="HOUMAO-alpha",
             terminal_aliases=["headless123"],
         ),
         diagnostics=HoumaoTrackedDiagnostics(
@@ -1173,7 +1173,7 @@ def _gateway_status() -> GatewayStatusV1:
     return GatewayStatusV1(
         attach_identity="published-alpha",
         backend="claude_headless",
-        tmux_session_name="AGENTSYS-alpha",
+        tmux_session_name="HOUMAO-alpha",
         gateway_health="healthy",
         managed_agent_connectivity="connected",
         managed_agent_recovery="idle",

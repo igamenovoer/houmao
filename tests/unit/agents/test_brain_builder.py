@@ -304,8 +304,8 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
             credential_profile="personal-a",
             mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
-                principal_id="AGENTSYS-research",
-                address="AGENTSYS-research@agents.localhost",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
                 filesystem_root="shared-mail",
             ),
             home_id="home-gateway-first-mailbox",
@@ -431,8 +431,8 @@ config_profile: default
 credential_profile: personal-a
 mailbox:
   transport: filesystem
-  principal_id: AGENTSYS-research
-  address: AGENTSYS-research@agents.localhost
+  principal_id: HOUMAO-research
+  address: HOUMAO-research@agents.localhost
   filesystem_root: shared-mail
 """.strip()
         + "\n",
@@ -442,8 +442,8 @@ mailbox:
 
     assert recipe.mailbox == FilesystemMailboxDeclarativeConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root="shared-mail",
     )
 
@@ -484,8 +484,8 @@ def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_pa
             credential_profile="personal-a",
             mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
-                principal_id="AGENTSYS-research",
-                address="AGENTSYS-research@agents.localhost",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
                 filesystem_root="shared-mail",
             ),
             home_id="home-mailbox-001",
@@ -496,8 +496,8 @@ def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_pa
 
     assert manifest["mailbox"] == {
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-research",
-        "address": "AGENTSYS-research@agents.localhost",
+        "principal_id": "HOUMAO-research",
+        "address": "HOUMAO-research@agents.localhost",
         "filesystem_root": "shared-mail",
     }
 

@@ -22,7 +22,7 @@ houmao-mgr agents gateway attach [OPTIONS]
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. Implied when no selector is provided inside tmux. |
 | `--port INTEGER` | Houmao server port override for explicit attach. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 ### `detach`
 
@@ -134,7 +134,7 @@ houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
 ## Targeting Rules
 
 - Outside tmux, gateway commands require an explicit `--agent-id` or `--agent-name`.
-- Inside a managed tmux session, omitting the selector resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus shared registry when needed.
+- Inside a managed tmux session, omitting the selector resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus shared registry when needed.
 - `--current-session` forces same-session resolution and cannot be combined with `--agent-id`, `--agent-name`, or `--port`.
 - `--port` is only supported with an explicit selector, because current-session mode uses the manifest-declared pair authority instead of retargeting another server.
 
