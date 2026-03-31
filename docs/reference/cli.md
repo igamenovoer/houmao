@@ -32,6 +32,20 @@ houmao-server --help
 houmao-mgr --help
 ```
 
+## Output Style Control
+
+`houmao-mgr` supports three output modes via root-level flags:
+
+- `--print-plain` — Human-readable aligned text (default).
+- `--print-json` — Machine-readable JSON (`indent=2`, `sort_keys=True`).
+- `--print-fancy` — Rich-formatted output with tables, panels, and colors.
+
+Set `HOUMAO_CLI_PRINT_STYLE=plain|json|fancy` for persistent preference without repeating the flag. Resolution order: explicit flag → env var → `plain`.
+
+High-traffic commands such as `agents list`, `agents state`, `server status`, and `agents gateway status|prompt` have curated plain and fancy renderers. All other commands use generic fallback renderers that auto-detect payload shape (flat key-value dict, single-list-key table, or nested structure).
+
+Scripts and CI pipelines that parse `houmao-mgr` output as JSON must add `--print-json` or set `HOUMAO_CLI_PRINT_STYLE=json`.
+
 ## Common Runtime Flags
 
 Useful `start-session` overrides:
@@ -74,7 +88,7 @@ Useful pair runtime controls:
 - `houmao-mgr agents join --agent-name <friendly-name>` adopts a supported TUI that is already running in tmux window `0`, pane `0` of the current session, publishes the normal manifest-first runtime envelope, and does not restart the live TUI.
 - `houmao-mgr agents join --headless --agent-name <friendly-name> --provider <provider> --launch-args <arg> ...` adopts a tmux-backed native headless logical session between turns; `--resume-id` is optional, where omitted means start from no known chat, `last` means resume the latest known chat, and any other non-empty value means resume that exact provider session id.
 - `houmao-mgr agents relaunch --agent-name <friendly-name>` or `houmao-mgr agents relaunch` from inside the owning tmux session refreshes the supported tmux-backed runtime surface without rebuilding the managed-agent home.
-- `houmao-mgr server start` is detached by default, emits one structured startup result, and accepts `--foreground` when you want the server attached to the current terminal.
+- `houmao-mgr server start` is detached by default, emits one structured startup result (use `--print-json` for machine-readable output), and accepts `--foreground` when you want the server attached to the current terminal.
 - `houmao-mgr server start` exposes the same server startup flags as `houmao-server serve`, including `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds`.
 - `houmao-mgr server stop`, `houmao-mgr server status`, and `houmao-mgr server sessions ...` are the supported server-management commands.
 - `houmao-mgr server status` and `houmao-mgr server stop` also accept `houmao-passive-server` pair authorities, so Step 7 side-by-side checks can target an alternate passive-server port such as `9891` without switching CLIs.
@@ -120,7 +134,7 @@ For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --a
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project easy ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 
-All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus a fresh shared-registry record when needed.
+All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` (use `--print-json` for machine-readable output). When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus a fresh shared-registry record when needed.
 
 During Step 7 side-by-side validation, keep the old `houmao-server` on `9889` and run `houmao-passive-server` on `9891`. The same `houmao-mgr` surface can then compare both pair authorities directly:
 

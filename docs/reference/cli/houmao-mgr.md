@@ -7,8 +7,24 @@ Houmao pair CLI with native server and managed-agent command families.
 ## Synopsis
 
 ```
-houmao-mgr [OPTIONS] COMMAND [ARGS]...
+houmao-mgr [--print-plain | --print-json | --print-fancy] COMMAND [ARGS]...
 ```
+
+## Output Style
+
+All `houmao-mgr` commands support three output modes controlled by root-level flags:
+
+| Flag | Description |
+|---|---|
+| `--print-plain` | Human-readable aligned text (default). |
+| `--print-json` | Machine-readable JSON with stable formatting (`indent=2`, `sort_keys=True`). |
+| `--print-fancy` | Rich-formatted output with tables, panels, and colors (requires a terminal that supports ANSI escape codes). |
+
+The flags are mutually exclusive. When none is provided, the `HOUMAO_CLI_PRINT_STYLE` environment variable selects the active mode. Valid values are `plain`, `json`, and `fancy` (case-insensitive). When neither a flag nor the environment variable is set, the default is `plain`.
+
+Resolution precedence: explicit CLI flag → `HOUMAO_CLI_PRINT_STYLE` → `plain`.
+
+Scripts and automation that previously relied on JSON-by-default output must add `--print-json` or set `HOUMAO_CLI_PRINT_STYLE=json` to preserve machine-readable output.
 
 ## Command Groups
 
@@ -93,7 +109,7 @@ Cleanup targeting rules:
 
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
 - Inside the target tmux session, omitting those options resolves the current session from `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus fresh shared-registry metadata second.
-- Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized JSON payload.
+- Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload (use `--print-json` for machine-readable JSON).
 
 ### `mailbox` — Local filesystem mailbox administration
 
