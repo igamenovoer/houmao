@@ -36,7 +36,14 @@ from houmao.owned_paths import (
     AGENTSYS_GLOBAL_RUNTIME_DIR_ENV_VAR,
     AGENTSYS_LOCAL_JOBS_DIR_ENV_VAR,
 )
-from houmao.project.overlay import PROJECT_OVERLAY_DIR_ENV_VAR
+from houmao.project.catalog import PROJECT_CATALOG_FILENAME
+from houmao.project.overlay import (
+    PROJECT_CONFIG_FILENAME,
+    PROJECT_CONTENT_DIRNAME,
+    PROJECT_EASY_DIRNAME,
+    PROJECT_MAILBOX_DIRNAME,
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+)
 from houmao.srv_ctrl.commands.managed_agents import (
     managed_agent_detail_payload,
     resolve_managed_agent_target,
@@ -118,9 +125,10 @@ def prepare_output_root(*, paths: DemoPaths, allow_reprovision: bool) -> None:
         paths.deliveries_dir,
         paths.evidence_dir,
         paths.project_dir,
-        paths.overlay_dir,
+        paths.overlay_dir / PROJECT_MAILBOX_DIRNAME,
     )
     create_paths = (
+        paths.output_root,
         paths.control_dir,
         paths.logs_dir,
         paths.runtime_root,
@@ -128,6 +136,7 @@ def prepare_output_root(*, paths: DemoPaths, allow_reprovision: bool) -> None:
         paths.jobs_root,
         paths.deliveries_dir,
         paths.evidence_dir,
+        paths.overlay_dir,
     )
     if allow_reprovision:
         for target in cleanup_paths:
@@ -135,6 +144,31 @@ def prepare_output_root(*, paths: DemoPaths, allow_reprovision: bool) -> None:
                 shutil.rmtree(target)
     for target in create_paths:
         target.mkdir(parents=True, exist_ok=True)
+
+
+def prepare_persistent_overlay_roots(*, paths: DemoPaths) -> None:
+    """Ensure the reusable overlay-backed specialist roots are present."""
+
+    persistent_paths = (
+        paths.overlay_dir / "agents",
+        paths.overlay_dir / PROJECT_CONTENT_DIRNAME,
+        paths.overlay_dir / PROJECT_EASY_DIRNAME,
+    )
+    for target in persistent_paths:
+        target.mkdir(parents=True, exist_ok=True)
+
+
+def overlay_persistent_state_present(*, paths: DemoPaths) -> bool:
+    """Return whether reusable overlay-backed specialist state is already present."""
+
+    required_paths = (
+        paths.overlay_dir / PROJECT_CONFIG_FILENAME,
+        paths.overlay_dir / PROJECT_CATALOG_FILENAME,
+        paths.overlay_dir / "agents",
+        paths.overlay_dir / PROJECT_CONTENT_DIRNAME,
+        paths.overlay_dir / PROJECT_EASY_DIRNAME,
+    )
+    return all(path.exists() for path in required_paths)
 
 
 def run_command(
@@ -249,13 +283,18 @@ def import_project_auth_from_fixture(
     env_path = (fixture_dir / "env" / "vars.env").resolve()
     env_values = parse_env_file(env_path)
     files_root = (fixture_dir / "files").resolve()
+    auth_operation = (
+        "set"
+        if (paths.overlay_dir / "agents" / "tools" / tool / "auth" / tool_parameters.auth_name).exists()
+        else "add"
+    )
     command = [
         "project",
         "agents",
         "tools",
         tool,
         "auth",
-        "add",
+        auth_operation,
         "--name",
         tool_parameters.auth_name,
     ]
@@ -322,6 +361,7 @@ def import_project_auth_from_fixture(
         env=env,
         timeout_seconds=timeout_seconds,
     )
+    payload = {"auth_operation": auth_operation, **payload}
     write_json(paths.auth_import_path, payload)
     return payload
 
@@ -365,6 +405,55 @@ def create_specialist(
     )
     write_json(paths.specialist_create_path, payload)
     return payload
+
+
+def ensure_specialist(
+    *,
+    paths: DemoPaths,
+    env: Mapping[str, str],
+    specialist_name: str,
+    tool: str,
+    tool_parameters: ToolParameters,
+    system_prompt_file: Path,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """Reuse one project-local specialist when present or create it when absent."""
+
+    try:
+        payload = get_specialist(
+            paths=paths,
+            env=env,
+            specialist_name=specialist_name,
+            timeout_seconds=timeout_seconds,
+        )
+        write_json(
+            paths.specialist_create_path,
+            {
+                "status": "reused",
+                "specialist": specialist_name,
+                "tool": tool,
+            },
+        )
+        return payload
+    except DemoRuntimeError as exc:
+        if "not found" not in str(exc).lower():
+            raise
+
+    create_specialist(
+        paths=paths,
+        env=env,
+        specialist_name=specialist_name,
+        tool=tool,
+        tool_parameters=tool_parameters,
+        system_prompt_file=system_prompt_file,
+        timeout_seconds=timeout_seconds,
+    )
+    return get_specialist(
+        paths=paths,
+        env=env,
+        specialist_name=specialist_name,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def get_specialist(

@@ -440,10 +440,10 @@ def resolve_repo_relative_path(path: Path | str, *, repo_root: Path) -> Path:
     return (repo_root / candidate).resolve()
 
 
-def default_demo_output_dir(*, repo_root: Path, tool: SupportedTool) -> Path:
-    """Return the default tool-scoped output root for one selected tool."""
+def default_demo_output_dir(*, repo_root: Path) -> Path:
+    """Return the canonical default output root for the demo pack."""
 
-    return (repo_root / DEFAULT_DEMO_OUTPUT_DIR_RELATIVE / tool).resolve()
+    return (repo_root / DEFAULT_DEMO_OUTPUT_DIR_RELATIVE).resolve()
 
 
 def build_demo_layout(*, demo_output_dir: Path) -> DemoPaths:
@@ -476,4 +476,3 @@ def write_json(path: Path, payload: Any) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-

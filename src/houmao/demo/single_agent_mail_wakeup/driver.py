@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import shlex
+import shutil
 import sys
 import time
 from typing import Any
@@ -55,10 +56,10 @@ from .runtime import (
     attach_to_demo_session,
     build_demo_environment,
     capture_gateway_console,
-    create_specialist,
     disable_notifier,
     enable_notifier,
     enable_notifier_with_retry,
+    ensure_specialist,
     gateway_status,
     get_instance,
     get_specialist,
@@ -68,6 +69,7 @@ from .runtime import (
     load_session_details,
     notifier_status,
     prepare_output_root,
+    prepare_persistent_overlay_roots,
     provision_project_workdir,
     query_agent_show,
     query_agent_state,
@@ -193,7 +195,10 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--demo-output-dir",
         default=None,
-        help="Pack-local output root override. For `matrix`, this is the shared tool-root parent.",
+        help=(
+            "Pack-local canonical output-root override. Normal usage defaults to "
+            "`scripts/demo/single-agent-mail-wakeup/outputs/`."
+        ),
     )
     parser.add_argument(
         "--parameters",
@@ -233,28 +238,7 @@ def _resolve_paths(
         candidate = resolve_repo_relative_path(args.demo_output_dir, repo_root=repo_root)
         _require_pack_local_output_root(candidate, repo_root=repo_root)
         return build_demo_layout(demo_output_dir=candidate)
-    if tool is not None:
-        return build_demo_layout(
-            demo_output_dir=default_demo_output_dir(repo_root=repo_root, tool=tool)
-        )
-    return build_demo_layout(demo_output_dir=_discover_existing_output_root(repo_root=repo_root))
-
-
-def _resolve_matrix_paths(
-    args: argparse.Namespace,
-    *,
-    repo_root: Path,
-    tool: SupportedTool,
-) -> DemoPaths:
-    """Resolve one tool-scoped output layout for the `matrix` command."""
-
-    if args.demo_output_dir is None:
-        return build_demo_layout(
-            demo_output_dir=default_demo_output_dir(repo_root=repo_root, tool=tool)
-        )
-    base_root = resolve_repo_relative_path(args.demo_output_dir, repo_root=repo_root)
-    _require_pack_local_output_root(base_root, repo_root=repo_root)
-    return build_demo_layout(demo_output_dir=(base_root / tool))
+    return build_demo_layout(demo_output_dir=default_demo_output_dir(repo_root=repo_root))
 
 
 def _require_pack_local_output_root(output_root: Path, *, repo_root: Path) -> None:
@@ -267,26 +251,6 @@ def _require_pack_local_output_root(output_root: Path, *, repo_root: Path) -> No
         raise DemoPackError(
             f"output root must remain inside `{pack_root}`; got `{output_root.resolve()}`"
         ) from exc
-
-
-def _discover_existing_output_root(*, repo_root: Path) -> Path:
-    """Auto-select the only existing default tool output root when unambiguous."""
-
-    candidates: list[Path] = []
-    for tool in ("claude", "codex"):
-        output_root = default_demo_output_dir(repo_root=repo_root, tool=tool)
-        if (output_root / "control" / "demo_state.json").is_file():
-            candidates.append(output_root)
-    if len(candidates) == 1:
-        return candidates[0]
-    if not candidates:
-        raise DemoPackError(
-            "no persisted demo state was found under the default Claude/Codex output roots; "
-            "pass `--demo-output-dir`"
-        )
-    raise DemoPackError(
-        "multiple default demo roots contain persisted state; pass `--demo-output-dir`"
-    )
 
 
 def _require_demo_state(paths: DemoPaths) -> DemoState:
@@ -306,13 +270,17 @@ def _require_active_demo_state(paths: DemoPaths) -> DemoState:
     return state
 
 
-def _followup_command(*, paths: DemoPaths, command: str) -> str:
-    """Return one exact follow-up demo command pinned to the current output root."""
+def _followup_command(*, paths: DemoPaths, command: str, repo_root: Path) -> str:
+    """Return one exact follow-up demo command for the current output root."""
 
-    return (
-        "scripts/demo/single-agent-mail-wakeup/run_demo.sh "
-        f"{command} --demo-output-dir {shlex.quote(str(paths.output_root))}"
-    )
+    base = "scripts/demo/single-agent-mail-wakeup/run_demo.sh "
+    first, remainder = command.split(" ", 1) if " " in command else (command, "")
+    rendered = base + first
+    if paths.output_root != default_demo_output_dir(repo_root=repo_root):
+        rendered += f" --demo-output-dir {shlex.quote(str(paths.output_root))}"
+    if remainder:
+        rendered += f" {remainder}"
+    return rendered
 
 
 def _command_start(args: argparse.Namespace) -> int:
@@ -348,11 +316,17 @@ def _command_start(args: argparse.Namespace) -> int:
                 "attach_command": (
                     None
                     if state.tmux_session_name is None
-                    else _followup_command(paths=paths, command="attach")
+                    else _followup_command(paths=paths, command="attach", repo_root=repo_root)
                 ),
-                "send_command": _followup_command(paths=paths, command="send"),
-                "watch_gateway_command": _followup_command(paths=paths, command="watch-gateway"),
-                "notifier_status_command": _followup_command(paths=paths, command="notifier status"),
+                "send_command": _followup_command(
+                    paths=paths, command="send", repo_root=repo_root
+                ),
+                "watch_gateway_command": _followup_command(
+                    paths=paths, command="watch-gateway", repo_root=repo_root
+                ),
+                "notifier_status_command": _followup_command(
+                    paths=paths, command="notifier status", repo_root=repo_root
+                ),
                 "gateway_tmux_window_index": gateway_payload.get("gateway_tmux_window_index"),
             },
             indent=2,
@@ -379,8 +353,9 @@ def _start_demo(
             )
         return existing_state
 
-    allow_reprovision = existing_state is not None and not existing_state.active
+    allow_reprovision = True
     prepare_output_root(paths=paths, allow_reprovision=allow_reprovision)
+    prepare_persistent_overlay_roots(paths=paths)
     project_fixture = resolve_repo_relative_path(parameters.project_fixture, repo_root=repo_root)
     system_prompt_file = resolve_repo_relative_path(parameters.system_prompt_file, repo_root=repo_root)
     tool_parameters = parameters.tool_parameters(tool=tool)
@@ -405,7 +380,7 @@ def _start_demo(
     )
     run_id = build_run_id()
     launch_suffix = run_id.rsplit("-", 1)[-1]
-    specialist_name = f"{tool_parameters.specialist_name_prefix}-{launch_suffix}"
+    specialist_name = tool_parameters.specialist_name_prefix
     instance_name = f"{tool_parameters.instance_name_prefix}-{launch_suffix}"
     session_name = f"{tool_parameters.session_name_prefix}-{launch_suffix}"
     mailbox_principal_id = instance_name
@@ -417,19 +392,13 @@ def _start_demo(
     ).resolve()
     expected_output_content = f"{parameters.automatic.output_content_prefix} {launch_suffix}"
 
-    create_specialist(
+    specialist_payload = ensure_specialist(
         paths=paths,
         env=env,
         specialist_name=specialist_name,
         tool=tool,
         tool_parameters=tool_parameters,
         system_prompt_file=system_prompt_file,
-        timeout_seconds=parameters.command_timeout_seconds,
-    )
-    specialist_payload = get_specialist(
-        paths=paths,
-        env=env,
-        specialist_name=specialist_name,
         timeout_seconds=parameters.command_timeout_seconds,
     )
     launch_payload = specialist_payload.get("launch", {})
@@ -1088,7 +1057,7 @@ def _command_matrix(args: argparse.Namespace) -> int:
     results: list[dict[str, Any]] = []
     ok = True
     for tool in ("claude", "codex"):
-        paths = _resolve_matrix_paths(args, repo_root=repo_root, tool=tool)
+        paths = _resolve_paths(args, repo_root=repo_root, tool=tool)
         try:
             _run_auto(
                 repo_root=repo_root,
@@ -1098,12 +1067,19 @@ def _command_matrix(args: argparse.Namespace) -> int:
                 expected_report=args.expected_report,
                 snapshot=args.snapshot,
             )
+            matrix_report_path = paths.control_dir / f"matrix-report-{tool}.json"
+            matrix_sanitized_report_path = (
+                paths.control_dir / f"matrix-report-{tool}.sanitized.json"
+            )
+            shutil.copy2(paths.report_path, matrix_report_path)
+            shutil.copy2(paths.sanitized_report_path, matrix_sanitized_report_path)
             results.append(
                 {
                     "tool": tool,
                     "status": "passed",
                     "output_root": str(paths.output_root),
-                    "report_path": str(paths.report_path),
+                    "report_path": str(matrix_report_path),
+                    "sanitized_report_path": str(matrix_sanitized_report_path),
                 }
             )
         except Exception as exc:

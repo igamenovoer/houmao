@@ -9,18 +9,18 @@ from houmao.demo.single_agent_mail_wakeup.models import DemoState, DeliveryState
 
 
 def test_build_demo_layout_includes_project_overlay_and_runtime_roots(tmp_path: Path) -> None:
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/claude")
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
 
-    assert paths.project_dir == (tmp_path / "outputs/claude/project").resolve()
-    assert paths.overlay_dir == (tmp_path / "outputs/claude/overlay").resolve()
-    assert paths.runtime_root == (tmp_path / "outputs/claude/runtime").resolve()
-    assert paths.registry_root == (tmp_path / "outputs/claude/registry").resolve()
-    assert paths.jobs_root == (tmp_path / "outputs/claude/jobs").resolve()
-    assert paths.control_dir == (tmp_path / "outputs/claude/control").resolve()
+    assert paths.project_dir == (tmp_path / "outputs/project").resolve()
+    assert paths.overlay_dir == (tmp_path / "outputs/overlay").resolve()
+    assert paths.runtime_root == (tmp_path / "outputs/runtime").resolve()
+    assert paths.registry_root == (tmp_path / "outputs/registry").resolve()
+    assert paths.jobs_root == (tmp_path / "outputs/jobs").resolve()
+    assert paths.control_dir == (tmp_path / "outputs/control").resolve()
 
 
 def test_build_demo_environment_exports_overlay_runtime_registry_and_jobs(tmp_path: Path) -> None:
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/codex")
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
 
     env = runtime.build_demo_environment(paths=paths, base_env={})
 
@@ -44,7 +44,7 @@ def test_import_project_auth_from_fixture_shapes_claude_command(
         encoding="utf-8",
     )
     (fixture_root / "files/claude_state.template.json").write_text("{}\n", encoding="utf-8")
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/claude")
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
 
     captured: dict[str, object] = {}
@@ -105,7 +105,7 @@ def test_import_project_auth_from_fixture_shapes_codex_command(
         encoding="utf-8",
     )
     (fixture_root / "files/auth.json").write_text("{\"logged_in\": true}\n", encoding="utf-8")
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/codex")
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
 
     captured: dict[str, object] = {}
@@ -143,6 +143,53 @@ def test_import_project_auth_from_fixture_shapes_codex_command(
     assert "--auth-json" in command
 
 
+def test_import_project_auth_from_fixture_reuses_existing_bundle_with_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    fixture_root = repo_root / "fixtures/codex/yunwu-openai"
+    (fixture_root / "env").mkdir(parents=True)
+    (fixture_root / "files").mkdir(parents=True)
+    (fixture_root / "env/vars.env").write_text(
+        "OPENAI_API_KEY=sk-openai\nOPENAI_BASE_URL=https://api.example.test/v1\n",
+        encoding="utf-8",
+    )
+    (fixture_root / "files/auth.json").write_text("{\"logged_in\": true}\n", encoding="utf-8")
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.project_dir.mkdir(parents=True)
+    (paths.overlay_dir / "agents/tools/codex/auth/yunwu-openai").mkdir(parents=True, exist_ok=True)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_json_command(command: object, **kwargs: object) -> dict[str, object]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
+
+    runtime.import_project_auth_from_fixture(
+        paths=paths,
+        env={},
+        tool="codex",
+        tool_parameters=type(
+            "_Tool",
+            (),
+            {
+                "auth_fixture_dir": Path("fixtures/codex/yunwu-openai"),
+                "auth_name": "yunwu-openai",
+            },
+        )(),
+        repo_root=repo_root,
+        timeout_seconds=30.0,
+    )
+
+    command = captured["command"]
+    assert command[7] == "auth"
+    assert command[8] == "set"
+
+
 def test_driver_parser_accepts_supported_command_surface() -> None:
     parser = driver._build_parser()  # type: ignore[attr-defined]
 
@@ -172,7 +219,7 @@ def test_attach_gateway_can_request_foreground_window(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/claude")
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
 
     captured: dict[str, object] = {}
@@ -210,7 +257,7 @@ def test_capture_gateway_console_uses_authoritative_gateway_window(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs/claude")
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
 
     monkeypatch.setattr(
@@ -248,7 +295,7 @@ def test_capture_gateway_console_uses_authoritative_gateway_window(
 
 
 def test_report_contract_accepts_structural_project_mailbox_without_read_state(tmp_path: Path) -> None:
-    output_root = (tmp_path / "outputs/claude").resolve()
+    output_root = (tmp_path / "outputs").resolve()
     project_root = output_root / "project"
     overlay_root = output_root / "overlay"
     session_root = output_root / "runtime/session-1"
@@ -398,3 +445,127 @@ def test_sanitize_report_normalizes_delivery_subject_run_token() -> None:
             }
         ]
     }
+
+
+def test_followup_command_omits_output_override_for_default_root(tmp_path: Path) -> None:
+    repo_root = tmp_path.resolve()
+    paths = build_demo_layout(demo_output_dir=repo_root / "scripts/demo/single-agent-mail-wakeup/outputs")
+
+    attach_command = driver._followup_command(  # type: ignore[attr-defined]
+        paths=paths, command="attach", repo_root=repo_root
+    )
+    notifier_command = driver._followup_command(  # type: ignore[attr-defined]
+        paths=paths, command="notifier status", repo_root=repo_root
+    )
+
+    assert attach_command == "scripts/demo/single-agent-mail-wakeup/run_demo.sh attach"
+    assert notifier_command == "scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier status"
+
+
+def test_followup_command_includes_output_override_for_non_default_root(tmp_path: Path) -> None:
+    repo_root = tmp_path.resolve()
+    paths = build_demo_layout(
+        demo_output_dir=repo_root / "scripts/demo/single-agent-mail-wakeup/custom-outputs"
+    )
+
+    notifier_command = driver._followup_command(  # type: ignore[attr-defined]
+        paths=paths, command="notifier status", repo_root=repo_root
+    )
+
+    assert notifier_command == (
+        "scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier "
+        f"--demo-output-dir {paths.output_root} status"
+    )
+
+
+def test_prepare_output_root_preserves_overlay_specialist_state_and_resets_ephemeral_dirs(
+    tmp_path: Path,
+) -> None:
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+
+    persistent_paths = (
+        paths.overlay_dir / "agents/roles/single-mail-claude/system-prompt.md",
+        paths.overlay_dir / "content/prompts/demo.md",
+        paths.overlay_dir / "easy/specialists/single-mail-claude.toml",
+        paths.overlay_dir / "houmao-config.toml",
+        paths.overlay_dir / "catalog.sqlite",
+    )
+    for path in persistent_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("keep\n", encoding="utf-8")
+
+    ephemeral_dirs = (
+        paths.project_dir,
+        paths.runtime_root,
+        paths.registry_root,
+        paths.jobs_root,
+        paths.logs_dir,
+        paths.deliveries_dir,
+        paths.evidence_dir,
+        paths.control_dir,
+        paths.overlay_dir / "mailbox/staging",
+    )
+    for directory in ephemeral_dirs:
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "marker.txt").write_text("remove\n", encoding="utf-8")
+
+    runtime.prepare_output_root(paths=paths, allow_reprovision=True)
+
+    for path in persistent_paths:
+        assert path.is_file()
+    assert not (paths.overlay_dir / "mailbox").exists()
+    assert not paths.project_dir.exists()
+    for directory in (
+        paths.runtime_root,
+        paths.registry_root,
+        paths.jobs_root,
+        paths.logs_dir,
+        paths.deliveries_dir,
+        paths.evidence_dir,
+        paths.control_dir,
+    ):
+        assert directory.is_dir()
+        assert not (directory / "marker.txt").exists()
+
+
+def test_ensure_specialist_reuses_existing_specialist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.control_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        runtime,
+        "get_specialist",
+        lambda **kwargs: {"name": "single-mail-codex", "launch": {"prompt_mode": "unattended"}},
+    )
+
+    create_calls: list[object] = []
+
+    def fake_create_specialist(**kwargs: object) -> dict[str, object]:
+        create_calls.append(kwargs)
+        return {"created": True}
+
+    monkeypatch.setattr(runtime, "create_specialist", fake_create_specialist)
+
+    payload = runtime.ensure_specialist(
+        paths=paths,
+        env={},
+        specialist_name="single-mail-codex",
+        tool="codex",
+        tool_parameters=type(
+            "_Tool",
+            (),
+            {
+                "setup": "yunwu-openai",
+                "auth_name": "yunwu-openai",
+            },
+        )(),
+        system_prompt_file=tmp_path / "prompt.md",
+        timeout_seconds=30.0,
+    )
+
+    assert payload["name"] == "single-mail-codex"
+    assert create_calls == []
+    assert paths.specialist_create_path.is_file()

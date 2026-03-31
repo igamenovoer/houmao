@@ -4,13 +4,14 @@ Supported runnable demo for the modern single-agent `houmao-mgr project easy` ga
 
 It shows the maintained TUI flow from project creation through gateway notifier wake-up:
 
-1. copy a demo-owned dummy project under `outputs/<tool>/project/`
-2. redirect Houmao overlay state into `outputs/<tool>/overlay/` with `HOUMAO_PROJECT_OVERLAY_DIR`
-3. import the local Claude or Codex fixture auth bundle into that overlay
-4. create a project-easy specialist and launch one TUI instance
-5. initialize the project mailbox, register the agent and operator addresses, attach a live gateway, and enable mail-notifier polling
-6. inject one filesystem-backed operator message
-7. verify artifact creation under `project/tmp/`, actor-scoped unread completion through `agents mail check --unread-only`, and structural project-mailbox visibility
+1. use one canonical demo-owned state root under `outputs/`
+2. copy a fresh dummy project under `outputs/project/`
+3. redirect Houmao overlay state into `outputs/overlay/` with `HOUMAO_PROJECT_OVERLAY_DIR`
+4. preserve reusable project-easy specialist state under that overlay across fresh runs
+5. import the local Claude or Codex fixture auth bundle into that overlay and create or reuse one project-easy specialist
+6. initialize the project mailbox, register the agent and operator addresses, attach a live gateway, and enable mail-notifier polling
+7. inject one filesystem-backed operator message
+8. verify artifact creation under `project/tmp/`, actor-scoped unread completion through `agents mail check --unread-only`, and structural project-mailbox visibility
 
 ## Supported Lanes
 
@@ -21,12 +22,14 @@ This demo is intentionally TUI-only. It does not claim headless or mixed-mode su
 
 ## Output Layout
 
-Each tool lane owns one demo-local output root under `outputs/<tool>/`:
+The demo owns one canonical output root under `outputs/`:
 
 - `project/`: copied dummy project and visible worktree
 - `overlay/`: redirected Houmao overlay selected through `HOUMAO_PROJECT_OVERLAY_DIR`
 - `runtime/`, `registry/`, `jobs/`: demo-owned runtime state
 - `control/`, `logs/`, `deliveries/`, `evidence/`: persisted demo artifacts
+
+Fresh `start` runs reset the copied project, mailbox, runtime, logs, deliveries, and evidence while preserving reusable specialist/auth/setup state under `overlay/`.
 
 Generated outputs are ignored through [outputs/.gitignore](outputs/.gitignore).
 
@@ -85,13 +88,13 @@ scripts/demo/single-agent-mail-wakeup/run_demo.sh matrix
 Success means all of the following:
 
 - gateway notifier evidence shows unread work was detected and processed
-- the agent created the requested file under `outputs/<tool>/project/tmp/single-agent-mail-wakeup/`
+- the agent created the requested file under `outputs/project/tmp/single-agent-mail-wakeup/`
 - `houmao-mgr agents mail check --unread-only` reached zero actionable unread messages
 - `houmao-mgr project mailbox messages list|get` corroborated the delivered message structurally
 
 The demo does **not** treat project-mailbox `read` state as authoritative. Structural project-mailbox inspection is used only for canonical identity, folder, projection path, canonical path, sender, recipients, subject, body, and attachments.
 
-The new stepwise controls are for live observation and experimentation only. `inspect` and `verify` remain the persisted evidence/report surfaces, and `auto` remains the canonical unattended path.
+The new stepwise controls are for live observation and experimentation only. `inspect` and `verify` remain the persisted evidence/report surfaces, and `auto` remains the canonical unattended path. Normal operator usage does not require `--demo-output-dir` because follow-up commands resolve the active run from the canonical persisted state under `outputs/control/demo_state.json`.
 
 ## Failure Modes
 
@@ -101,3 +104,4 @@ The new stepwise controls are for live observation and experimentation only. `in
 - gateway wake-up never occurs
 - the agent does not create the requested output file with the expected deterministic content
 - `agents mail check --unread-only` never reaches zero
+- a fresh run finds an active prior session that has not been stopped yet
