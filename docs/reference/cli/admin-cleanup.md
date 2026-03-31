@@ -37,7 +37,7 @@ houmao-mgr admin cleanup runtime [OPTIONS] COMMAND [ARGS]...
 | `logs` | Clean log-style runtime artifacts while preserving active sessions. |
 | `mailbox-credentials` | Clean unreferenced runtime-owned Stalwart credential material. |
 
-The compatibility alias `houmao-mgr admin cleanup-registry` remains available for the registry-only command.
+In plain and fancy output modes, populated cleanup buckets are rendered line by line so operators can see the exact artifacts and reasons without switching to JSON. Use `--print-json` when you need the full machine-readable cleanup payload.
 
 ## See Also
 

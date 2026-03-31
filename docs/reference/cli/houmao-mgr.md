@@ -38,7 +38,7 @@ Administrative utilities for the Houmao environment.
 
 For dedicated coverage, see [admin cleanup](admin-cleanup.md).
 
-The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-mgr admin cleanup runtime {sessions,builds,logs,mailbox-credentials}`. Registry cleanup probes tmux-backed records locally by default and accepts `--no-tmux-check` for lease-only cleanup. `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for the registry-only command.
+The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-mgr admin cleanup runtime {sessions,builds,logs,mailbox-credentials}`. Registry cleanup probes tmux-backed records locally by default and accepts `--no-tmux-check` for lease-only cleanup. Human-oriented cleanup output prints each populated action bucket line by line; use `--print-json` when you need the structured payload.
 
 ### `agents` — Agent lifecycle
 
@@ -109,7 +109,7 @@ Cleanup targeting rules:
 
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
 - Inside the target tmux session, omitting those options resolves the current session from `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus fresh shared-registry metadata second.
-- Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload (use `--print-json` for machine-readable JSON).
+- Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
 
 ### `mailbox` — Local filesystem mailbox administration
 

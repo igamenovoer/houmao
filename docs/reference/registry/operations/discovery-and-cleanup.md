@@ -1,6 +1,6 @@
 # Shared Registry Discovery And Cleanup
 
-This page explains the operator-facing behavior of the shared registry: when the runtime uses it for name-based discovery, how fallback interacts with tmux-local pointers, and what `houmao-mgr admin cleanup registry` actually removes. The older `houmao-mgr admin cleanup-registry` spelling remains as a compatibility alias, but the grouped `admin cleanup ...` tree is the canonical documented path.
+This page explains the operator-facing behavior of the shared registry: when the runtime uses it for name-based discovery, how fallback interacts with tmux-local pointers, and what `houmao-mgr admin cleanup registry` actually removes.
 
 ## Mental Model
 
@@ -118,6 +118,8 @@ Default behavior:
 - continue past per-directory removal failures and report them separately,
 - report one structured cleanup payload with `scope`, `resolution`, `planned_actions`, `applied_actions`, `blocked_actions`, `preserved_actions`, and summary counters.
 
+By default, plain and fancy output render populated cleanup buckets line by line so operators can see the exact path, artifact kind, and reason for each action. Use `--print-json` when you need the full structured payload for tooling or scripting.
+
 Examples:
 
 ```bash
@@ -199,7 +201,7 @@ sequenceDiagram
 - `houmao-mgr admin cleanup registry` probes tmux-backed records locally by default; use `--no-tmux-check` when you intentionally want lease-only cleanup.
 - A malformed record is treated as stale for lookup and as removable for cleanup.
 - The cleanup command uses the same effective root-resolution logic as publication and lookup, so `AGENTSYS_GLOBAL_REGISTRY_DIR` changes all three paths together.
-- `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for operators or tests that still use the pre-grouped spelling.
+- The supported native cleanup path is `houmao-mgr admin cleanup registry`; `admin cleanup-registry` is retired from the native `houmao-mgr` admin tree.
 
 ## Source References
 

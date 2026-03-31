@@ -42,6 +42,7 @@ from houmao.project.overlay import (
 )
 
 from .agents.core import emit_local_launch_completion, launch_managed_agent_locally
+from .cleanup_support import emit_cleanup_payload
 from .common import (
     build_destructive_confirmation_callback,
     confirm_destructive_action,
@@ -1647,7 +1648,7 @@ def cleanup_project_mailbox_command(
 ) -> None:
     """Clean inactive or stashed registrations under the current project's mailbox root."""
 
-    emit(
+    emit_cleanup_payload(
         cleanup_mailbox_root(
             mailbox_root=_project_mailbox_root(),
             inactive_older_than_seconds=inactive_older_than_seconds,

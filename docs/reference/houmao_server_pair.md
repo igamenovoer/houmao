@@ -142,7 +142,7 @@ Authority is split intentionally:
 - `agents cleanup ...` handles one manifest-scoped local cleanup target for session envelopes, session-local logs, or session-local mailbox secrets
 - `agents ...` follow-up commands discover agents through the shared registry first and only hit `houmao-server` when needed
 - `brains build` is a local brain-construction wrapper
-- `admin cleanup ...` is local shared-registry and runtime maintenance; `admin cleanup-registry` remains as a compatibility alias for the registry-only command
+- `admin cleanup ...` is local shared-registry and runtime maintenance; use `admin cleanup registry` for the registry janitor and `--print-json` only when you need the machine-readable cleanup payload
 
 For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
 

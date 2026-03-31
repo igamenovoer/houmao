@@ -9,6 +9,7 @@ import click
 
 from houmao.owned_paths import resolve_mailbox_root
 
+from .cleanup_support import emit_cleanup_payload
 from .common import build_destructive_confirmation_callback, overwrite_confirm_option
 from .output import emit
 from .mailbox_support import (
@@ -188,7 +189,7 @@ def cleanup_mailbox_command(
 ) -> None:
     """Clean inactive or stashed mailbox registrations without deleting canonical mail."""
 
-    emit(
+    emit_cleanup_payload(
         cleanup_mailbox_root(
             mailbox_root=resolve_mailbox_root(explicit_root=mailbox_root),
             inactive_older_than_seconds=inactive_older_than_seconds,
