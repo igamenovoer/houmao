@@ -56,7 +56,7 @@ That page SHALL make clear that `.houmao/agents/compatibility-profiles/` is opti
 Repo-owned onboarding docs that explain local build and launch workflows SHALL describe the catalog-backed `.houmao` overlay and ambient agent-definition resolution as:
 
 1. explicit CLI `--agent-def-dir`,
-2. `AGENTSYS_AGENT_DEF_DIR`,
+2. `HOUMAO_AGENT_DEF_DIR`,
 3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
 4. nearest ancestor `.houmao/houmao-config.toml`,
 5. default fallback `<cwd>/.houmao/agents`.
@@ -74,7 +74,7 @@ At minimum, this requirement SHALL apply to:
 #### Scenario: Reader sees the catalog-backed `.houmao` overlay and `HOUMAO_PROJECT_OVERLAY_DIR` precedence in onboarding docs
 - **WHEN** a reader follows the repo-owned onboarding docs for local build and launch
 - **THEN** the docs describe the catalog-backed `.houmao` overlay with `houmao-config.toml` as the discovery anchor
-- **AND THEN** the docs describe `HOUMAO_PROJECT_OVERLAY_DIR` between `AGENTSYS_AGENT_DEF_DIR` and nearest-ancestor discovery
+- **AND THEN** the docs describe `HOUMAO_PROJECT_OVERLAY_DIR` between `HOUMAO_AGENT_DEF_DIR` and nearest-ancestor discovery
 - **AND THEN** the docs describe ambient agent-definition lookup using `houmao-config.toml` and the default `<cwd>/.houmao/agents`
 - **AND THEN** the docs do not present `<cwd>/.agentsys/agents` as a supported fallback
 
@@ -191,4 +191,3 @@ The getting-started documentation SHALL point readers to `scripts/demo/minimal-a
 
 - **WHEN** a reader follows the getting-started quickstart for preset-backed build and launch
 - **THEN** the page points them to `scripts/demo/minimal-agent-launch/` as the maintained minimal end-to-end example for local launch
-

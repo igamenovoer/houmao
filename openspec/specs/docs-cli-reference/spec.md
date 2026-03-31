@@ -102,7 +102,7 @@ The CLI reference SHALL note that `houmao-cli` and `houmao-cao-server` are depre
 Repo-owned CLI reference docs that describe agent-definition-directory resolution for active commands, or that mention deprecated compatibility entrypoints, SHALL describe ambient agent-definition resolution as:
 
 1. explicit CLI `--agent-def-dir`,
-2. `AGENTSYS_AGENT_DEF_DIR`,
+2. `HOUMAO_AGENT_DEF_DIR`,
 3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
 4. nearest ancestor `.houmao/houmao-config.toml`,
 5. default fallback `<cwd>/.houmao/agents`.
@@ -114,7 +114,7 @@ The CLI reference SHALL keep `houmao-cli` and `houmao-cao-server` in explicit de
 
 #### Scenario: Reader sees `HOUMAO_PROJECT_OVERLAY_DIR` in the CLI precedence contract
 - **WHEN** a reader checks the CLI reference for agent-definition-directory resolution
-- **THEN** the page describes `HOUMAO_PROJECT_OVERLAY_DIR` between `AGENTSYS_AGENT_DEF_DIR` and nearest-ancestor `.houmao/houmao-config.toml` discovery
+- **THEN** the page describes `HOUMAO_PROJECT_OVERLAY_DIR` between `HOUMAO_AGENT_DEF_DIR` and nearest-ancestor `.houmao/houmao-config.toml` discovery
 - **AND THEN** the page explains that the env var points directly at the overlay directory
 
 #### Scenario: Reader sees `.houmao` ambient fallback in the CLI reference

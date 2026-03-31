@@ -1,5 +1,8 @@
-## ADDED Requirements
+# cao-claude-code-output-extraction Specification
 
+## Purpose
+Define requirements for Claude Code CAO output parsing, versioned preset resolution, and runtime-owned shadow extraction behavior.
+## Requirements
 ### Requirement: Claude Code CAO output is parsed by a runtime shadow provider
 For CAO provider `claude_code`, when a session runs in `parsing_mode=shadow_only`, the system SHALL treat CAO as a transport layer and derive both:
 1) Claude Code surface state, and
@@ -46,26 +49,15 @@ If no supported variant matches, the system SHALL fail the turn with an explicit
 - **AND THEN** the error includes an ANSI-stripped tail excerpt suitable for debugging
 
 ### Requirement: Claude Code parsing preset is resolved by version
-The system SHALL resolve a single Claude Code parsing preset that controls:
-1) assistant response marker detection,
-2) spinner/processing detection,
-3) idle prompt detection (used for shadow status and extraction stop conditions), and
-4) separator line detection (for example `────────`).
+The system SHALL resolve a single Claude Code parsing preset using this priority order:
+1. `HOUMAO_CAO_CLAUDE_CODE_VERSION` environment variable when set and non-empty,
+2. auto-detected Claude Code version from the scrollback banner, and
+3. the latest known preset.
 
-Preset selection SHALL follow this priority order:
-1) `AGENTSYS_CAO_CLAUDE_CODE_VERSION` environment variable (when set and non-empty),
-2) auto-detected Claude Code version from the scrollback banner (for example `Claude Code v2.1.62`), and
-3) latest known preset (fallback).
-
-If version detection fails entirely (no banner/version found), the system SHALL use the latest known preset. Operators MAY set `AGENTSYS_CAO_CLAUDE_CODE_VERSION` to pin a specific preset when the latest patterns do not match.
-
-When selecting a preset for a requested/detected version `V`, the system SHALL:
-- use an exact-match preset when present, otherwise
-- use the closest previous preset (floor lookup), and
-- if `V` is older than the oldest known preset, use the oldest (baseline) preset.
+If version detection fails entirely, the system SHALL use the latest known preset. Operators MAY set `HOUMAO_CAO_CLAUDE_CODE_VERSION` to pin a specific preset when the latest patterns do not match.
 
 #### Scenario: Env override pins the parsing preset
-- **GIVEN** `AGENTSYS_CAO_CLAUDE_CODE_VERSION=2.1.62` is set for the runtime process
+- **GIVEN** `HOUMAO_CAO_CLAUDE_CODE_VERSION=2.1.62` is set for the runtime process
 - **WHEN** the system evaluates Claude Code output for shadow status or extraction
 - **THEN** it uses the 2.1.62 parsing preset regardless of what the scrollback banner reports
 
@@ -164,7 +156,7 @@ For Claude in `parsing_mode=shadow_only`, runtime SHALL transition from `unknown
 - **THEN** runtime shadow lifecycle status becomes `stalled`
 
 ### Requirement: Claude stalled state supports configurable terminality and recovery
-For Claude stalled handling:
+For Claude stalled handling, the runtime SHALL support configurable terminal and non-terminal recovery behavior:
 - if `stalled_is_terminal=true`, runtime SHALL fail the turn with explicit stalled diagnostics,
 - if `stalled_is_terminal=false`, runtime SHALL keep polling and MAY recover to a known status automatically.
 
@@ -218,3 +210,4 @@ The system SHALL return normalized dialog projection instead, and SHALL NOT repr
 - **WHEN** a Claude `shadow_only` turn reaches runtime completion
 - **THEN** the caller-facing payload contains normalized dialog projection rather than raw `mode=full` tmux scrollback
 - **AND THEN** the payload does not claim authoritative prompt-associated answer extraction by default
+

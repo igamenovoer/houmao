@@ -3,7 +3,6 @@
 ## Purpose
 TBD - created by archiving change add-shared-registry-reference-docs. Update Purpose after archive.
 ## Requirements
-
 ### Requirement: Shared-registry reference documentation is organized under a dedicated subtree
 The repository SHALL publish the shared live-agent registry reference documentation under `docs/reference/registry/` with an `index.md` entrypoint instead of concentrating the full registry reference inside broader runtime pages.
 
@@ -76,7 +75,7 @@ The shared-registry contract documentation SHALL explain that the shared registr
 At minimum, that contract coverage SHALL include:
 
 - why the shared registry exists alongside tmux-local discovery,
-- the effective registry root and `AGENTSYS_GLOBAL_REGISTRY_DIR` override behavior,
+- the effective registry root and `HOUMAO_GLOBAL_REGISTRY_DIR` override behavior,
 - the `live_agents/<agent-id>/record.json` layout,
 - canonical `AGENTSYS-...` naming, authoritative `agent_id`, and the difference between name lookup and directory identity,
 - the strict v2 record fields and which nested sections are optional,
@@ -106,7 +105,7 @@ At minimum, that operational guidance SHALL cover:
 - when name-based control uses tmux-local discovery first,
 - when shared-registry fallback applies for missing or stale tmux discovery pointers,
 - which validation failures still fail fast instead of falling back silently,
-- how `cleanup-registry` removes stale directories and reports removed, preserved, and failed buckets,
+- how `houmao-mgr admin cleanup registry` removes stale directories and reports planned, applied, blocked, and preserved cleanup actions,
 - how operators should interpret fresh, stale, malformed, and conflicted registry state at the level needed to use the system safely.
 
 #### Scenario: Operational guidance explains name-based resolution fallback
@@ -115,9 +114,9 @@ At minimum, that operational guidance SHALL cover:
 - **AND THEN** the reader can tell which discovery problems are fallback-eligible and which remain explicit errors
 
 #### Scenario: Operational guidance explains cleanup outcomes
-- **WHEN** an operator runs `cleanup-registry` or needs to inspect stale registry state
-- **THEN** the registry operations pages explain the cleanup grace period, removal behavior, and reported removed, preserved, and failed buckets
-- **AND THEN** the reader can distinguish currently live entries from stale or cleanup-blocked directories
+- **WHEN** an operator runs `houmao-mgr admin cleanup registry` or needs to inspect stale registry state
+- **THEN** the registry operations pages explain the cleanup grace period, removal behavior, and per-action cleanup reporting for planned, applied, blocked, and preserved outcomes
+- **AND THEN** the reader can distinguish currently live entries from stale or cleanup-blocked directories without relying on the retired `cleanup-registry` spelling
 
 ### Requirement: Shared-registry internal documentation explains runtime publication hooks and failure boundaries
 The shared-registry internal documentation SHALL explain how the runtime publishes, refreshes, persists, and clears registry state across runtime-managed session lifecycle actions.

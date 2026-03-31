@@ -155,7 +155,7 @@ For tmux-backed managed sessions, projected mailbox system skills SHALL resolve 
 That live resolver SHALL:
 
 - support same-session discovery when selectors are omitted inside the owning managed tmux session,
-- use `AGENTSYS_MANIFEST_PATH` as the primary current-session discovery source with `AGENTSYS_AGENT_ID` as fallback,
+- use `HOUMAO_MANIFEST_PATH` as the primary current-session discovery source with `HOUMAO_AGENT_ID` as fallback,
 - derive current mailbox state from the durable session mailbox binding instead of from targeted mailbox tmux env keys,
 - surface transport-specific actionable mailbox fields needed for current mailbox work,
 - surface the current validated gateway mail-facade binding for the session when a live gateway is attached,

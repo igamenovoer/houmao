@@ -35,43 +35,19 @@ The gateway companion SHALL direct its own logs away from the contractual operat
 - **AND THEN** normal gateway activity does not inject its own text into the operator-facing TUI surface
 
 ### Requirement: Pair-owned gateway attach for managed `houmao_server_rest` sessions supports explicit and current-session targeting
-The system SHALL expose `houmao-mgr agents gateway attach` as the pair-owned gateway attach surface for pair-managed tmux-backed TUI sessions whose runtime backend is `houmao_server_rest`.
+When called through the current-session contract, the command SHALL require execution inside the target agent's tmux session, SHALL discover the current tmux session as the attach context, SHALL prefer `HOUMAO_MANIFEST_PATH` from that tmux session when present and valid, and SHALL otherwise use `HOUMAO_AGENT_ID` from that same tmux session to resolve exactly one fresh shared-registry record and `runtime.manifest_path`.
 
-When called with an explicit managed-agent selector, the command SHALL resolve the target through the Houmao managed-agent identity namespace and SHALL execute attach through the managed-agent gateway attach route rather than through raw `cao` or raw runtime CLI semantics.
+Current-session attach SHALL NOT fall back to retired `AGENTSYS_*` names. It SHALL also NOT fall back to `HOUMAO_GATEWAY_ATTACH_PATH`, `HOUMAO_GATEWAY_ROOT`, `terminal_id`, cwd, ambient shell env, or another server target when manifest or shared-registry discovery is invalid or stale.
 
-When called through the current-session contract, the command SHALL require execution inside the target agent's tmux session, SHALL discover the current tmux session as the attach context, SHALL prefer `AGENTSYS_MANIFEST_PATH` from that tmux session when present and valid, SHALL otherwise use `AGENTSYS_AGENT_ID` from that same tmux session to resolve exactly one fresh shared-registry record and `runtime.manifest_path`, SHALL require the resolved manifest to belong to the current tmux session, SHALL derive attach authority from that manifest, and SHALL refuse the attach when those inputs are missing, stale, ambiguous, identify a non-`houmao_server_rest` session, or fail to resolve exactly one managed agent on the persisted pair authority.
+#### Scenario: Current-session attach prefers HOUMAO manifest pointer
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from the owning tmux session
+- **AND WHEN** that tmux session publishes a valid `HOUMAO_MANIFEST_PATH`
+- **THEN** the attach flow resolves authority from that manifest pointer
 
-`houmao-mgr` SHALL NOT require the user to address raw `cao_rest` or child-CAO topology in order to attach a gateway for pair-managed sessions, and current-session attach SHALL NOT fall back to `AGENTSYS_GATEWAY_ATTACH_PATH`, `AGENTSYS_GATEWAY_ROOT`, `terminal_id`, cwd, ambient shell env, or another server target when manifest or shared-registry discovery is invalid or stale.
-
-#### Scenario: Explicit attach resolves through managed-agent identity
-- **WHEN** a developer runs `houmao-mgr agents gateway attach --agent-id abc123` for a pair-managed `houmao_server_rest` session
-- **THEN** the command resolves that target through the managed-agent identity namespace
-- **AND THEN** the attach request is issued through the Houmao managed-agent gateway lifecycle surface
-
-#### Scenario: Current-session attach prefers the tmux-published manifest pointer
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
-- **AND WHEN** that tmux session publishes a valid `AGENTSYS_MANIFEST_PATH`
-- **THEN** the command loads that manifest directly as the current-session attach authority
-- **AND THEN** the command does not require an explicit agent identity
-
-#### Scenario: Current-session attach falls back to shared registry by agent id
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
-- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale in that session
-- **AND WHEN** the tmux session publishes `AGENTSYS_AGENT_ID`
-- **THEN** the command resolves exactly one fresh shared-registry record by that authoritative `agent_id`
-- **AND THEN** it uses the resolved `runtime.manifest_path` as the attach authority input
-
-#### Scenario: Current-session attach uses manifest-declared server authority
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
-- **AND WHEN** the resolved manifest declares attach authority `api_base_url=<server>` with managed-agent ref `<agent-ref>`
-- **THEN** the command issues the managed-agent gateway attach request against `<server>` with `<agent-ref>` as `{agent_ref}`
-- **AND THEN** it does not retarget the request through legacy gateway pointers, `terminal_id`, or another alias
-
-#### Scenario: Current-session attach fails closed without usable manifest-first discovery
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from a tmux session whose `AGENTSYS_MANIFEST_PATH` is unusable
-- **AND WHEN** `AGENTSYS_AGENT_ID` is missing, stale, or does not resolve exactly one fresh shared-registry record
-- **THEN** the command fails explicitly
-- **AND THEN** it does not guess from cwd, ambient shell env, or raw CAO state
+#### Scenario: Current-session attach falls back to HOUMAO agent id through the shared registry
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from a tmux session whose `HOUMAO_MANIFEST_PATH` is unusable
+- **AND WHEN** the tmux session publishes `HOUMAO_AGENT_ID`
+- **THEN** the attach flow resolves authority through exactly one fresh shared-registry record
 
 ### Requirement: Pair-managed `houmao_server_rest` gateway companions may run in an auxiliary tmux window without redefining the agent surface
 For pair-managed tmux-backed `houmao_server_rest` sessions, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session for normal operation.
@@ -105,9 +81,7 @@ For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, th
 
 When that foreground mode is active, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
 
-When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL resolve that surface from the persisted auxiliary pane or window identity through session-wide tmux pane lookup, SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
-
-Same-session foreground gateway liveness SHALL NOT depend on which tmux window is currently active in the session.
+When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
 
 The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
 
@@ -127,12 +101,6 @@ The gateway companion SHALL continue writing its own durable logs to gateway-own
 - **THEN** the runtime determines local gateway liveness from the auxiliary tmux pane state for that window
 - **AND THEN** the runtime waits for successful gateway health responses before treating the gateway as ready
 - **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle
-
-#### Scenario: Current agent window does not hide the live gateway pane
-- **WHEN** tmux window `0` is current for a runtime-owned tmux-backed session
-- **AND WHEN** the live gateway companion pane remains in auxiliary window `1`
-- **THEN** foreground gateway liveness still resolves that auxiliary pane from the persisted gateway surface identity
-- **AND THEN** the runtime does not clear live gateway state solely because the agent window is current
 
 ### Requirement: Same-session gateway live state persists an authoritative execution handle
 The runtime SHALL persist one authoritative live gateway record under `<session-root>/gateway/run/current-instance.json`.
@@ -276,32 +244,12 @@ That runtime-owned discovery path SHALL surface at minimum the current `host`, `
 - **AND THEN** any existing `gateway_manifest.json` is treated as derived publication rather than as the authoritative input
 
 ### Requirement: Native headless gateway attach supports tmux current-session targeting without requiring a live worker process
-For native headless tmux-backed sessions, the system SHALL allow gateway attach from inside the owning tmux session using manifest-first discovery from `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_ID`.
+For native headless tmux-backed sessions, the system SHALL allow gateway attach from inside the owning tmux session using manifest-first discovery from `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`.
 
-Current-session headless attach SHALL target the logical headless session described by the manifest rather than assuming a currently running headless worker process already exists.
-
-The system SHALL keep tmux window `0` reserved for the headless agent console surface, and any same-session gateway surface used during attach SHALL remain off window `0`.
-
-When the resolved manifest declares native headless relaunch authority, gateway attach SHALL treat that manifest-owned authority as sufficient to manage future headless turns even when no current headless process pid is published.
-
-#### Scenario: Current-session headless attach uses manifest-first discovery
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a native headless tmux session
-- **AND WHEN** that session publishes a valid `AGENTSYS_MANIFEST_PATH`
-- **THEN** the command loads that manifest as the current-session attach authority
-- **AND THEN** it does not require a currently running headless worker process
-
-#### Scenario: Headless attach falls back to shared registry by agent id
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a native headless tmux session
-- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale
-- **AND WHEN** the tmux session publishes `AGENTSYS_AGENT_ID`
-- **THEN** the command resolves exactly one fresh shared-registry record by that authoritative `agent_id`
-- **AND THEN** it uses the resolved `runtime.manifest_path` as the attach authority input
-
-#### Scenario: Headless attach succeeds between turns with no live agent pid
-- **WHEN** a native headless session has a valid manifest and tmux discovery metadata
-- **AND WHEN** no current headless worker process is running because the previous turn already ended
-- **THEN** gateway attach remains valid for that logical session
-- **AND THEN** the gateway uses manifest-owned launch authority to manage future turns
+#### Scenario: Native headless attach accepts HOUMAO current-session discovery
+- **WHEN** a developer runs gateway attach from inside the owning native headless tmux session
+- **AND WHEN** that session publishes a valid `HOUMAO_MANIFEST_PATH`
+- **THEN** the system resolves the target from `HOUMAO_MANIFEST_PATH`
 
 ### Requirement: Gateway bootstrap artifacts are internal runtime state rather than supported public authority
 Gateway bootstrap artifacts SHALL remain internal runtime state rather than supported public authority.
@@ -1187,3 +1135,4 @@ The gateway companion SHALL continue writing its own durable logs to gateway-own
 - **THEN** the runtime determines local gateway liveness from the auxiliary tmux pane state for that window
 - **AND THEN** the runtime waits for successful gateway health responses before treating the gateway as ready
 - **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle
+

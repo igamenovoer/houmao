@@ -2,7 +2,6 @@
 
 ## Purpose
 Define the ownership boundaries, default roots, and authoritative identity model for Houmao-managed registry, runtime, mailbox, and job-directory state.
-
 ## Requirements
 ### Requirement: Maintained local default paths retire `.agentsys*` path families
 Maintained workspace-local and run-local default path families that currently derive from `.agentsys` or `.agentsys-*` for agent-definition working trees or scratch outputs SHALL use `.houmao` or another Houmao-owned path family instead.
@@ -37,38 +36,22 @@ The default per-user Houmao roots SHALL be:
 - runtime root: `~/.houmao/runtime`
 - mailbox root: `~/.houmao/mailbox`
 
-For each started session, the default per-agent job dir SHALL be derived under the selected working directory as:
-- `<working-directory>/.houmao/jobs/<session-id>/`
+For each started session, the default per-agent job dir SHALL be derived under the selected working directory as `<working-directory>/.houmao/jobs/<session-id>/`.
 
 The system SHALL support env-var overrides for those default locations using:
-- `AGENTSYS_GLOBAL_REGISTRY_DIR` for the effective registry root
-- `AGENTSYS_GLOBAL_RUNTIME_DIR` for the effective runtime root
-- `AGENTSYS_GLOBAL_MAILBOX_DIR` for the effective Houmao mailbox root
-- `AGENTSYS_LOCAL_JOBS_DIR` as a per-launch or per-agent override for the directory under which that session's job dir is derived as `<local-jobs-dir>/<session-id>/`
-
-Subsystem-specific explicit CLI or config overrides that already exist MAY continue to relocate the effective registry root, runtime root, launcher home, or mailbox root.
-
-When both an explicit CLI/config override and an env-var override exist for the same effective location, the explicit override SHALL win.
-When no explicit override exists but a supported env-var override is set, the env-var override SHALL win.
-When neither explicit override nor env-var override is supplied, the system SHALL use the defaults above.
-
-#### Scenario: Default Houmao roots resolve under the user home
-- **WHEN** a developer starts new Houmao-managed runtime or mailbox work without explicit root overrides
-- **THEN** the system resolves the default registry, runtime, and mailbox roots under `~/.houmao/`
-
-#### Scenario: Job dir is derived from working directory and session id
-- **WHEN** the runtime starts a session with working directory `/repo/app` and generated session id `session-20260314-120000Z-abcd1234`
-- **THEN** the default per-agent job dir for that session is `/repo/app/.houmao/jobs/session-20260314-120000Z-abcd1234/`
+- `HOUMAO_GLOBAL_REGISTRY_DIR` for the effective registry root
+- `HOUMAO_GLOBAL_RUNTIME_DIR` for the effective runtime root
+- `HOUMAO_GLOBAL_MAILBOX_DIR` for the effective Houmao mailbox root
+- `HOUMAO_LOCAL_JOBS_DIR` as a per-launch or per-agent override for the directory under which that session's job dir is derived as `<local-jobs-dir>/<session-id>/`
 
 #### Scenario: Env-var override relocates the runtime root
-- **WHEN** `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
+- **WHEN** `HOUMAO_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
 - **AND WHEN** no explicit runtime-root override is supplied
 - **THEN** the effective Houmao runtime root is `/tmp/houmao-runtime`
 
 #### Scenario: Local-jobs-dir env-var override relocates per-session job dirs
-- **WHEN** `AGENTSYS_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
+- **WHEN** `HOUMAO_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
 - **AND WHEN** the runtime starts a session whose generated session id is `session-20260314-120000Z-abcd1234`
-- **AND WHEN** no more specific explicit job-dir override exists
 - **THEN** the effective job dir for that session is `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
 
 ### Requirement: Houmao-owned directory layout does not require family-based agent bucketing
@@ -91,42 +74,17 @@ Whenever a Houmao-owned directory name is intended to stand for one agent rather
 - **AND THEN** the canonical agent name remains persisted in metadata rather than used as the writable directory key
 
 ### Requirement: Canonical agent name is a strong human-facing label and `agent_id` is the authoritative global identity
-The system SHALL treat canonical agent name as a strong human-facing label for normal operator use. Reusing the same canonical agent name is expected to refer to the same agent most of the time, but the system SHALL NOT require canonical agent name to be globally unique by contract.
+Canonical agent name SHALL use the `HOUMAO-<name>` prefix family as the strong human-facing label for system-owned agents, while `agent_id` remains the authoritative global identity.
 
-The system SHALL assign each agent an authoritative `agent_id` that is globally unique by contract, and that `agent_id` SHALL replace registry-specific `agent_key` as the system-owned stable identity surface.
+When the system bootstraps an initial `agent_id` from canonical agent name, it SHALL use the full lowercase `md5("HOUMAO-<name>").hexdigest()` value.
 
-When no explicit `agent_id` is supplied and no previously persisted `agent_id` exists for the same built or resumed agent, the system SHALL bootstrap the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
+#### Scenario: Agent-id bootstrap hashes the HOUMAO canonical name
+- **WHEN** canonical agent name `HOUMAO-chris` is used for a new agent without an explicit or previously persisted `agent_id`
+- **THEN** the system bootstraps the initial authoritative id as the full lowercase `md5("HOUMAO-chris").hexdigest()`
 
-When a previously persisted `agent_id` already exists for that same built or resumed agent, the system SHALL reuse that persisted `agent_id` rather than recomputing it from the current canonical agent name.
-
-When system-owned writable association needs one stable key, the system SHALL treat `agent_id` as authoritative even if a user intentionally or accidentally pairs that same `agent_id` with a different canonical agent name.
-
-When the system encounters a different canonical agent name already associated with the same `agent_id`, it SHALL emit a warning before continuing with that authoritative `agent_id`.
-
-When different live or persisted agents share the same canonical agent name but use different authoritative `agent_id` values, the system SHALL treat canonical-name lookup as potentially ambiguous rather than silently treating those agents as identical.
-
-#### Scenario: Initial agent id bootstraps from canonical agent name
-- **WHEN** canonical agent name `AGENTSYS-chris` is used for a new agent without an explicit or previously persisted `agent_id`
-- **THEN** the system bootstraps the initial authoritative id as the full lowercase `md5("AGENTSYS-chris").hexdigest()`
-- **AND THEN** that bootstrapped `agent_id` becomes the persisted authoritative identity for that agent
-
-#### Scenario: Persisted agent id wins over later name-derived recomputation
-- **WHEN** the system already has persisted metadata for one agent with canonical agent name `AGENTSYS-chris` and `agent_id=abc123`
-- **AND WHEN** a later build, start, or resume flow for that same agent reaches the point where it could derive a default id from the current canonical name
-- **THEN** the system reuses persisted `agent_id=abc123`
-- **AND THEN** it does not silently replace that authoritative identity by recomputing from the current canonical name
-
-#### Scenario: Different canonical names sharing one explicit agent id trigger a warning
-- **WHEN** the system already has writable association metadata for `agent_id=abc123` with canonical agent name `AGENTSYS-chris`
-- **AND WHEN** a later start or publication explicitly reuses `agent_id=abc123` with canonical agent name `AGENTSYS-alex`
-- **THEN** the system emits a warning that different canonical names are sharing one authoritative `agent_id`
-- **AND THEN** it still treats `agent_id=abc123` as the authoritative association key for system-owned writable state
-
-#### Scenario: Same canonical agent name with different agent ids is ambiguous rather than silently merged
-- **WHEN** two different agents both use canonical agent name `AGENTSYS-chris`
-- **AND WHEN** those agents persist different authoritative ids such as `agent_id=abc123` and `agent_id=def456`
-- **THEN** the system does not silently merge their system-owned association state
-- **AND THEN** name-based lookup for `AGENTSYS-chris` may require disambiguation by `agent_id` or another persisted metadata surface
+#### Scenario: Name-based lookup reflects the HOUMAO canonical label
+- **WHEN** two different agents both use canonical agent name `HOUMAO-chris`
+- **THEN** name-based lookup for `HOUMAO-chris` may require disambiguation by `agent_id` or another persisted metadata surface
 
 ### Requirement: Houmao-owned zones keep discovery, durable state, shared mailbox state, and destructive scratch separate
 The system SHALL preserve distinct mutability and ownership boundaries across the Houmao-owned zones.
@@ -162,3 +120,4 @@ Reference docs for this change SHALL recommend ignoring `.houmao/` or `.houmao/j
 - **WHEN** a developer stops a session that used a workspace-local job dir under `.houmao/jobs/`
 - **THEN** the runtime leaves that job dir in place in this version
 - **AND THEN** any cleanup of that scratch directory remains a manual operator action
+

@@ -105,7 +105,7 @@ At minimum, that operational guidance SHALL cover:
 
 - launch-time auto-attach and attach-later behavior,
 - attach targeting through explicit selectors and current-session resolution,
-- current-session discovery through `AGENTSYS_MANIFEST_PATH` with `AGENTSYS_AGENT_ID` plus fresh shared-registry fallback,
+- current-session discovery through `HOUMAO_MANIFEST_PATH` with `HOUMAO_AGENT_ID` plus fresh shared-registry fallback,
 - the pair-managed registration precondition for current-session attach,
 - detach behavior and stop-session interaction,
 - status inspection and the difference between offline, unavailable, and live states,
@@ -127,7 +127,7 @@ At minimum, that operational guidance SHALL cover:
 #### Scenario: Current-session attach guidance reflects strict manifest-first discovery
 
 - **WHEN** a reader needs to use current-session gateway attach
-- **THEN** the gateway operations pages explain that attach resolves through `AGENTSYS_MANIFEST_PATH` first and `AGENTSYS_AGENT_ID` plus fresh shared-registry `runtime.manifest_path` second
+- **THEN** the gateway operations pages explain that attach resolves through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus fresh shared-registry `runtime.manifest_path` second
 - **AND THEN** the pages explain that current-session pair attach remains unavailable until the matching managed-agent registration exists on the persisted pair authority
 
 #### Scenario: Operator can distinguish gateway command families safely

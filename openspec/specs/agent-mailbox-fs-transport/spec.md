@@ -1,47 +1,20 @@
 ## Purpose
 Define the filesystem-backed mailbox transport layout, bootstrap rules, delivery model, locking model, and recovery guarantees for mailbox-enabled sessions.
-
 ## Requirements
-
 ### Requirement: Filesystem mailbox transport uses a configurable mailbox content root with deterministic internal layout
 The filesystem mailbox transport SHALL persist mailbox artifacts under a mailbox content root that is configurable through runtime mailbox binding inputs rather than through mailbox-specific session env publication.
 
 When no explicit mailbox content root is configured, the filesystem mailbox transport SHALL default that content root to the Houmao mailbox root `~/.houmao/mailbox` rather than deriving it from the runtime root.
 
-When no explicit mailbox content root is configured and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the effective Houmao mailbox root SHALL be derived from that env-var override before runtime persists or resolves filesystem mailbox state for the session.
+When no explicit mailbox content root is configured and `HOUMAO_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the effective Houmao mailbox root SHALL be derived from that env-var override before runtime persists or resolves filesystem mailbox state for the session.
 
 The filesystem mailbox transport SHALL require a symlink-capable local filesystem for address-based mailbox registration and mailbox projection writes.
 
-That mailbox subtree SHALL include at minimum:
-
-- `protocol-version.txt`
-- a canonical message store
-- a shared `rules/` directory for mailbox-local protocol guidance
-- mailbox projection registrations by full mailbox address
-- a SQLite index
-- lock-file locations
-- a staging area for in-progress writes
-
-#### Scenario: Creating a filesystem mailbox initializes required layout at an explicit mailbox root
-- **WHEN** a filesystem mailbox transport is initialized with an explicit mailbox content root setting
-- **THEN** the system creates or validates the mailbox subtree under that effective mailbox content root
-- **AND THEN** the mailbox subtree contains `protocol-version.txt` plus the required directories and index path for canonical messages, mailbox projections, locks, and staging
-
-#### Scenario: Creating a filesystem mailbox falls back to the Houmao mailbox root
-- **WHEN** a filesystem mailbox transport is initialized without an explicit mailbox content root setting
-- **THEN** the system derives the effective filesystem mailbox content root from the Houmao mailbox root default
-- **AND THEN** the resulting mailbox subtree uses that derived default location while preserving the same internal layout
-
 #### Scenario: Mailbox-root env-var override redirects the default mailbox root
-- **WHEN** `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
+- **WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
 - **AND WHEN** a filesystem mailbox transport is initialized without an explicit mailbox content root setting
 - **THEN** the system derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
 - **AND THEN** the resulting mailbox subtree uses that env-var-selected location while preserving the same internal layout
-
-#### Scenario: Unsupported symlink capability fails explicitly
-- **WHEN** the effective mailbox filesystem cannot create or resolve the symlinks required for mailbox registration or inbox and sent projections
-- **THEN** the filesystem mailbox transport fails initialization or delivery explicitly
-- **AND THEN** the transport does not silently replace those symlinks with copied or duplicated message files
 
 ### Requirement: Filesystem mailbox initialization is a runtime-owned bootstrap path
 The system SHALL initialize a new filesystem mailbox root through package-internal runtime bootstrap code that does not depend on pre-existing helper scripts under `rules/scripts/`.
@@ -298,3 +271,4 @@ If a caller needs to answer a cross-recipient question such as whether any recip
 - **WHEN** a tool needs to know whether any recipient of one message has marked it read
 - **THEN** the tool inspects the relevant recipients' mailbox-local state records
 - **AND THEN** the filesystem mailbox transport does not require a separate shared aggregate "anyone has read this" table to answer that question
+

@@ -114,7 +114,7 @@ The catalog-backed overlay MAY create the managed content roots required by the 
 Project-aware command paths that need an effective filesystem agent-definition root or compatibility-projection path and are invoked without explicit `--agent-def-dir` SHALL resolve that path in this order:
 
 1. explicit CLI `--agent-def-dir`,
-2. `AGENTSYS_AGENT_DEF_DIR`,
+2. `HOUMAO_AGENT_DEF_DIR`,
 3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
 4. nearest ancestor `.houmao/houmao-config.toml`,
 5. default fallback `<cwd>/.houmao/agents`.
@@ -145,7 +145,7 @@ At minimum, this project-aware defaulting SHALL apply to:
 #### Scenario: Env-selected overlay falls back to its local agents root
 - **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
 - **AND WHEN** `/tmp/ci-overlay/houmao-config.toml` does not exist
-- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is unset
+- **AND WHEN** `HOUMAO_AGENT_DEF_DIR` is unset
 - **AND WHEN** an operator runs a project-aware build or launch path from `/repo`
 - **THEN** the effective fallback agent-definition root is `/tmp/ci-overlay/agents`
 - **AND THEN** the command does not prefer nearest-ancestor project discovery from `/repo`
@@ -160,7 +160,7 @@ At minimum, this project-aware defaulting SHALL apply to:
 #### Scenario: Missing project config falls back to `.houmao`
 - **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
 - **AND WHEN** no ancestor `.houmao/houmao-config.toml` exists
-- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is unset
+- **AND WHEN** `HOUMAO_AGENT_DEF_DIR` is unset
 - **AND WHEN** an operator runs a project-aware build or launch path from `/repo`
 - **THEN** the effective fallback agent-definition root is `/repo/.houmao/agents`
 - **AND THEN** the command does not fall back to `/repo/.agentsys/agents`
@@ -211,4 +211,3 @@ When no project overlay is discovered under the selected overlay root, the comma
 - **THEN** the command reports `/repo/.houmao` as the resolved overlay root
 - **AND THEN** it reports `/repo/.houmao/houmao-config.toml` as the discovered config path
 - **AND THEN** it reports the resolved project-local catalog path under that overlay
-

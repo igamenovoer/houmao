@@ -18,29 +18,11 @@ The system SHALL support a non-CAO interactive mode where callers can send multi
 - **AND THEN** backends without a stable long-lived programmatic protocol MAY restart the CLI process between turns if continuity is preserved via persisted resume identity (for example `session_id`)
 
 ### Requirement: Headless Claude/Gemini/Codex sessions are tmux-backed and inspectable
-For headless sessions of tmux-backed CLI tools (at minimum Claude Code, Gemini, and Codex), the runtime SHALL create and own a tmux session per started session.
+The runtime SHALL publish `HOUMAO_MANIFEST_PATH=<absolute manifest path>` into the tmux session environment so that name-based `--agent-identity` resolution can locate the persisted session manifest.
 
-The runtime SHALL choose and persist one tmux session name per started session as a unique live-session handle rather than assuming the canonical agent identity is the tmux session name.
-
-The runtime SHALL reserve tmux window 0 as the primary agent surface for that session and SHALL keep the headless agent itself on that primary surface across runtime-controlled turns.
-
-The runtime SHALL name that stable primary window `agent`.
-
-The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` into the tmux session environment so that name-based `--agent-identity` resolution can locate the persisted session manifest.
-
-Auxiliary windows MAY exist later in the same tmux session for gateway, logs, or operator diagnostics, but they SHALL NOT displace the agent from window 0 and SHALL NOT redefine the primary headless attach surface.
-
-#### Scenario: Start a headless session creates a tmux identity with manifest pointer and primary agent window
-- **WHEN** a developer starts a headless Codex, Claude, or Gemini session without CAO
-- **THEN** the runtime creates a tmux-backed live session and persists its actual tmux session name as metadata for that live session
-- **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH` pointing at the persisted session manifest JSON
-- **AND THEN** window 0 is reserved as the primary agent surface for that session
-- **AND THEN** that primary window is named `agent`
-
-#### Scenario: Auxiliary windows do not replace the primary agent surface
-- **WHEN** a tmux-backed headless session later creates another window for gateway, logs, or operator diagnostics
-- **THEN** the headless agent remains anchored to window 0
-- **AND THEN** callers can continue treating window 0 as the canonical attach surface for that headless agent
+#### Scenario: Started headless tmux session publishes the HOUMAO manifest pointer
+- **WHEN** the runtime starts a tmux-backed headless session
+- **THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH` pointing at the persisted session manifest JSON
 
 ### Requirement: Codex headless backend uses `codex exec --json` and resumes via thread id
 For Codex, the runtime SHALL support a non-CAO interactive backend using repeated Codex CLI invocations that emit machine-readable JSONL output and provide a stable resume identifier.
@@ -85,45 +67,16 @@ The runtime SHALL provide an explicit force-cleanup path that terminates the tmu
 - **AND THEN** the corresponding tmux session is terminated
 
 ### Requirement: Deprecated standalone build and start entrypoints use config-first `.houmao` agent-definition resolution
-Deprecated standalone compatibility entrypoints that accept `--agent-def-dir` and otherwise resolve agent-definition content from the current working directory SHALL resolve the effective agent-definition root in this order:
+Deprecated standalone build/start entrypoints SHALL resolve agent-definition roots with this precedence:
+1. explicit CLI `--agent-def-dir`
+2. `HOUMAO_AGENT_DEF_DIR`
+3. nearest ancestor `.houmao/houmao-config.toml`
+4. default `<cwd>/.houmao/agents`
 
-1. explicit CLI `--agent-def-dir`,
-2. `AGENTSYS_AGENT_DEF_DIR`,
-3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
-4. nearest ancestor `.houmao/houmao-config.toml`,
-5. default fallback `<cwd>/.houmao/agents`.
-
-When `HOUMAO_PROJECT_OVERLAY_DIR` is set, it SHALL be an absolute path.
-When `HOUMAO_PROJECT_OVERLAY_DIR` is set and `<overlay-root>/houmao-config.toml` exists, the runtime SHALL use that config as the project discovery anchor and SHALL NOT prefer nearest-ancestor discovery from the caller's current working directory.
-When `HOUMAO_PROJECT_OVERLAY_DIR` is set and `<overlay-root>/houmao-config.toml` does not exist, the runtime SHALL derive the effective fallback agent-definition root as `<overlay-root>/agents` and SHALL NOT fall back to nearest-ancestor discovery from the caller's current working directory.
-
-When a project config is discovered, the runtime SHALL resolve `paths.agent_def_dir` relative to the directory that contains that config.
-When a discovered project overlay is catalog-backed, these deprecated compatibility entrypoints SHALL follow the same compatibility-projection path contract used by current pair-native build and launch code before reading presets, blueprints, or role packages.
-At minimum, this ambient resolution contract SHALL apply to `build-brain` and `start-session` when they resolve presets, blueprints, or role packages through the agent-definition root.
-The deprecated standalone ambient resolution contract SHALL NOT fall back to `<cwd>/.agentsys/agents`.
-
-#### Scenario: Deprecated `build-brain` uses the env-selected configured overlay
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
-- **AND WHEN** `/tmp/ci-overlay/houmao-config.toml` exists
-- **AND WHEN** that config resolves `agent_def_dir = "specialists"`
-- **AND WHEN** a developer invokes deprecated `houmao-cli build-brain ...` from `/repo/nested`
-- **THEN** the command resolves the effective agent-definition root as `/tmp/ci-overlay/specialists`
-
-#### Scenario: Deprecated `start-session` falls back to the env-selected agents root
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
-- **AND WHEN** `/tmp/ci-overlay/houmao-config.toml` does not exist
-- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is unset
-- **AND WHEN** a developer invokes deprecated `houmao-cli start-session ...` from `/workspace/demo`
-- **THEN** the command resolves the effective agent-definition root as `/tmp/ci-overlay/agents`
-- **AND THEN** it does not fall back to `/workspace/demo/.agentsys/agents`
-
-#### Scenario: Explicit environment override still wins over env-selected overlay
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
-- **AND WHEN** `/tmp/ci-overlay/houmao-config.toml` exists
-- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR=/tmp/agents`
-- **AND WHEN** a developer invokes deprecated `houmao-cli build-brain ...` from `/repo`
-- **THEN** the command resolves the effective agent-definition root as `/tmp/agents`
-- **AND THEN** it does not replace that env override with the env-selected overlay root
+#### Scenario: Env-var override wins for deprecated standalone build/start entrypoints
+- **WHEN** `HOUMAO_AGENT_DEF_DIR=/tmp/agents`
+- **AND WHEN** no explicit CLI `--agent-def-dir` is supplied
+- **THEN** the effective agent-definition root is `/tmp/agents`
 
 ### Requirement: `codex_app_server` remains explicit opt-in during one deprecation window
 During this change's deprecation window, the runtime SHALL:
@@ -186,7 +139,7 @@ That public deprecation guard SHALL reject deprecated `backend="cao_rest"` opera
 For supported loopback compatibility authorities (`http://localhost:<port>`,
 `http://127.0.0.1:<port>` with explicit ports), runtime-owned HTTP communication SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
-When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
+When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
 When the runtime uses a pair-backed compatibility authority internally, it SHALL pass the resolved working directory through to that authority as launch input and SHALL NOT impose a repo-owned validation rule that requires the workdir to live under the user home tree, the tool home, or a deprecated launcher home.
 
@@ -247,36 +200,12 @@ For `stalwart` sessions, that resolved configuration SHALL include the mailbox t
 - **AND THEN** runtime mailbox commands for that resumed session preserve the same sender principal and Stalwart mailbox identity unless an explicit refresh changes them later
 
 ### Requirement: Filesystem mailbox startup can target either the shared-root mailbox path or an explicit private mailbox directory
+When no explicit filesystem mailbox content root override is supplied and `HOUMAO_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before persisting or resolving filesystem mailbox state for that session.
 
-For filesystem mailbox-enabled session startup, the runtime SHALL support a transport-specific registration target that distinguishes between:
-
-- `in_root`
-- `symlink`
-
-When filesystem startup uses `in_root`, the runtime SHALL bootstrap or confirm the mailbox registration at the shared-root mailbox entry for the session's mailbox address.
-
-When filesystem startup uses `symlink`, the runtime SHALL bootstrap or confirm the mailbox registration at the shared-root mailbox entry for the session's mailbox address while using the resolved explicit mailbox directory as the concrete mailbox path.
-
-The runtime SHALL validate that explicit filesystem mailbox target before session startup commits, SHALL preserve the selected filesystem mailbox kind and concrete mailbox path in the resolved filesystem mailbox configuration, and SHALL persist that resolved binding so resume restores the same mailbox association shape.
-
-The runtime SHALL reject a filesystem `symlink` mailbox target whose resolved concrete mailbox path is inside the resolved filesystem mailbox root.
-
-If filesystem mailbox bootstrap fails for the selected target, session startup SHALL fail explicitly and SHALL NOT report a successful started session.
-
-#### Scenario: Start session persists a symlink-backed filesystem mailbox binding
-- **WHEN** a developer starts a filesystem mailbox-enabled session with an explicit private mailbox directory outside the shared mailbox root
-- **THEN** the runtime bootstraps that mailbox association as a `symlink` filesystem mailbox binding
-- **AND THEN** the resolved session manifest preserves the filesystem mailbox kind and concrete mailbox directory needed to restore that same binding on resume
-
-#### Scenario: Resume restores the persisted symlink-backed filesystem mailbox binding
-- **WHEN** a developer resumes a previously started filesystem mailbox-enabled session whose persisted mailbox binding used an explicit private mailbox directory
-- **THEN** the runtime restores that same filesystem mailbox kind and concrete mailbox path from the session manifest
-- **AND THEN** subsequent mailbox-aware runtime work uses the same shared-root mailbox entry and private mailbox directory association
-
-#### Scenario: Start session rejects a private mailbox directory inside the mailbox root
-- **WHEN** a developer starts a filesystem mailbox-enabled session with a requested private mailbox directory that resolves inside the selected shared mailbox root
-- **THEN** session startup fails explicitly before reporting success
-- **AND THEN** the error explains that the private mailbox directory must live outside the shared mailbox root
+#### Scenario: Mailbox env override relocates the shared-root mailbox path
+- **WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
+- **AND WHEN** a filesystem-backed mailbox session has no more specific explicit mailbox-root override
+- **THEN** the runtime resolves the effective shared mailbox root from `/tmp/houmao-mailbox`
 
 ### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and persist manifest-backed mailbox bindings
 When mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under the reserved runtime-owned mailbox namespace and SHALL persist one transport-specific mailbox binding for that session in the session manifest.
@@ -289,7 +218,7 @@ Those persisted Stalwart runtime bindings SHALL expose only secret-free transpor
 
 When no explicit filesystem mailbox content root override is supplied, the runtime SHALL derive the effective filesystem mailbox content root from the independent Houmao mailbox root rather than from the effective runtime root.
 
-When no explicit filesystem mailbox content root override is supplied and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before persisting or resolving filesystem mailbox state for that session.
+When no explicit filesystem mailbox content root override is supplied and `HOUMAO_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before persisting or resolving filesystem mailbox state for that session.
 
 When current filesystem mailbox resolution depends on the session address having an active mailbox registration, the runtime SHALL bootstrap or confirm that session's mailbox registration before persisting the durable mailbox binding or serving manager-owned current-mailbox resolution for `start-session`.
 
@@ -313,7 +242,7 @@ The runtime SHALL satisfy that registration-dependent mailbox contract through b
 - **AND THEN** the persisted session mailbox binding reflects that derived default path
 
 #### Scenario: Mailbox-root env-var override redirects the effective mailbox root
-- **WHEN** `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
+- **WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
 - **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
 - **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
 - **AND THEN** the persisted session mailbox binding reflects that derived path
@@ -383,7 +312,7 @@ For TUI-mediated mailbox commands, the runtime SHALL NOT require exactly one par
 
 If a parseable active-request sentinel payload is recovered in TUI-mediated mode, the runtime MAY surface it as optional diagnostic or preview data. It SHALL NOT be required for the command to return.
 
-For `shadow_only` mailbox commands, prompt-echo mentions of `AGENTSYS_MAIL_RESULT_BEGIN` and `AGENTSYS_MAIL_RESULT_END` inside ordinary prose, echoed mailbox request content, or echoed response-contract metadata SHALL NOT be treated as authoritative mailbox-result evidence.
+For `shadow_only` mailbox commands, prompt-echo mentions of `HOUMAO_MAIL_RESULT_BEGIN` and `HOUMAO_MAIL_RESULT_END` inside ordinary prose, echoed mailbox request content, or echoed response-contract metadata SHALL NOT be treated as authoritative mailbox-result evidence.
 
 For `shadow_only` mailbox commands, mailbox correctness SHALL not depend on `dialog_projection.dialog_text` being an exact recovered reply transcript.
 
@@ -410,33 +339,11 @@ For `shadow_only` mailbox commands, mailbox correctness SHALL not depend on `dia
 - **AND THEN** it does not silently queue hidden mailbox work for later execution
 
 ### Requirement: Runtime mail send and reply commands require full recipient addresses and explicit body inputs
-The runtime `mail` command surface SHALL treat `send` and `reply` as explicit mailbox operations rather than prompt-composition helpers.
+Runtime mail send and reply commands SHALL require full mailbox addresses in the active Houmao namespace rather than loose agent-name shortcuts.
 
-For `mail send`, the runtime SHALL require recipients in full mailbox-address form for all `--to` and `--cc` inputs.
-
-For `mail send` and `mail reply`, the runtime SHALL require explicit body input through `--body-file` or `--body-content`.
-
-The runtime SHALL reject `--instruction` for `mail send` and `mail reply`.
-
-#### Scenario: Mail send accepts full mailbox address plus explicit inline body
-- **WHEN** a developer invokes `mail send` for a resumed mailbox-enabled session with `--to AGENTSYS-bob@agents.localhost` and `--body-content`
-- **THEN** the runtime accepts the request as a mailbox operation
-- **AND THEN** the resulting mailbox request preserves the sender identity already bound to that session
-
-#### Scenario: Mail send rejects ambiguous short recipient names
-- **WHEN** a developer invokes `mail send` with `--to bob`
-- **THEN** the runtime fails fast with an explicit validation error
-- **AND THEN** the error explains that a full mailbox address is required
-
-#### Scenario: Mail send or reply rejects missing explicit body input
-- **WHEN** a developer invokes `mail send` or `mail reply` without `--body-file` and without `--body-content`
-- **THEN** the runtime fails fast before prompting the live agent session
-- **AND THEN** the error explains that explicit mail body content is required
-
-#### Scenario: Mail send or reply rejects instruction-style composition
-- **WHEN** a developer invokes `mail send` or `mail reply` with `--instruction`
-- **THEN** the runtime rejects that request explicitly
-- **AND THEN** the operator is directed to use `--body-file` or `--body-content` instead
+#### Scenario: Runtime mail send accepts full HOUMAO mailbox addresses
+- **WHEN** a developer invokes `mail send` for a resumed mailbox-enabled session with `--to HOUMAO-bob@agents.localhost` and `--body-content`
+- **THEN** the command accepts that address as a valid full recipient address
 
 ### Requirement: Runtime mailbox prompt payloads carry explicit content and address data without instruction fields
 When the runtime translates `mail send` or `mail reply` into a runtime-owned mailbox prompt for a live session, the structured mailbox request payload SHALL carry explicit address and body data rather than an instruction asking the agent to improvise the final message.
@@ -582,87 +489,21 @@ For tmux-backed supported surfaces, the manifest SHALL be the stable authority f
 - **AND THEN** it does not require `gateway_manifest.json` or `attach.json` to remain authoritative for the resumed operation
 
 ### Requirement: Runtime defaults new build and session state to the Houmao runtime root
-When the caller does not provide an explicit runtime-root override, the runtime SHALL default new Houmao-managed build and session state to `~/.houmao/runtime`.
+When no explicit runtime-root override is supplied and `HOUMAO_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the runtime SHALL use that env-var value as the effective runtime root instead of the built-in default.
 
-When no explicit runtime-root override is supplied and `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the runtime SHALL use that env-var value as the effective runtime root instead of the built-in default.
-
-At minimum, this default SHALL apply to:
-- generated brain homes under `~/.houmao/runtime/homes/<home-id>/`,
-- generated manifests under `~/.houmao/runtime/manifests/<home-id>.yaml`,
-- runtime-owned session roots for started sessions,
-- other durable runtime-owned session artifacts that are derived from the effective runtime root.
-
-Explicit runtime-root overrides SHALL continue to take precedence over the default.
-
-The default build-state layout SHALL NOT require tool- or family-based directory bucketing in order to associate a generated home or manifest with an agent.
-
-When the runtime needs to associate that flat build or session state with one agent, it SHALL rely on persisted canonical agent name, authoritative `agent_id`, persisted terminal metadata, and other explicit runtime metadata rather than on bucket names in the directory hierarchy.
-
-Whenever runtime-owned directory naming needs one path component that stands for one agent rather than one session, backend, or service instance, the runtime SHALL use authoritative `agent_id` for that directory name instead of canonical agent name.
-
-#### Scenario: Build flow defaults generated homes and manifests to the Houmao runtime root
-- **WHEN** a developer runs a build flow without an explicit runtime-root override
-- **THEN** the generated brain home and manifest are written under `~/.houmao/runtime`
-
-#### Scenario: Build flow does not require tool-family buckets in the default layout
-- **WHEN** a developer runs a build flow without an explicit runtime-root override
-- **THEN** the generated home path is rooted under `~/.houmao/runtime/homes/<home-id>/`
-- **AND THEN** the generated manifest path is rooted under `~/.houmao/runtime/manifests/<home-id>.yaml`
-- **AND THEN** those default paths do not require an intermediate tool- or family-grouping bucket
-
-#### Scenario: Start-session defaults durable session state to the Houmao runtime root
-- **WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
-- **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `~/.houmao/runtime`
-
-#### Scenario: Runtime-root env-var override redirects durable runtime state
-- **WHEN** `AGENTSYS_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
-- **AND WHEN** a developer starts a runtime-owned session without an explicit runtime-root override
-- **THEN** the session manifest and other durable runtime-owned session artifacts are rooted under `/tmp/houmao-runtime`
+#### Scenario: Runtime-root env-var override relocates the effective runtime root
+- **WHEN** `HOUMAO_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
+- **AND WHEN** no explicit runtime-root override is supplied
+- **THEN** the effective Houmao runtime root is `/tmp/houmao-runtime`
 
 ### Requirement: Runtime materializes canonical agent name and authoritative `agent_id` for system-owned association
-For runtime-owned sessions, the runtime SHALL persist canonical agent name as a strong human-facing metadata field for normal operator use, but it SHALL NOT treat canonical agent name as the authoritative writable-state key.
+Runtime-owned session start SHALL materialize canonical agent names in `HOUMAO-<name>` form and SHALL derive the initial authoritative `agent_id` from that canonical name when no explicit or previously persisted `agent_id` exists.
 
-The runtime SHALL materialize an authoritative `agent_id` in persisted runtime-owned metadata and in any shared-registry publication derived from that session, and that `agent_id` SHALL replace registry-specific `agent_key` for cross-module identity association.
+The initial authoritative id SHALL be the full lowercase `md5("HOUMAO-<name>").hexdigest()` value.
 
-The session-manifest schema for this capability SHALL expose canonical agent name and authoritative `agent_id` as first-class top-level manifest fields rather than burying them inside `backend_state`.
-
-When the caller does not provide an explicit `agent_id`, the runtime SHALL first reuse a previously persisted `agent_id` for the same built or resumed agent when one exists in manifest metadata, build metadata, or equivalent runtime-owned metadata.
-
-Only when no explicit `agent_id` and no previously persisted `agent_id` exist SHALL the runtime bootstrap the initial `agent_id` as the full lowercase `md5(canonical agent name).hexdigest()`.
-
-When runtime-controlled start, resume, or publication logic encounters an existing association for the same `agent_id` but a different canonical agent name, the runtime SHALL emit a warning and continue treating that `agent_id` as authoritative for system-owned writable association.
-
-When runtime-controlled lookup encounters more than one live or persisted association for the same canonical agent name but different authoritative `agent_id` values, the runtime SHALL surface ambiguity rather than silently treating those associations as one agent.
-
-#### Scenario: Start-session bootstraps a default agent id from the canonical agent name when no persisted id exists
-- **WHEN** a developer starts a runtime-owned session with canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** the caller does not provide an explicit `agent_id`
-- **AND WHEN** no previously persisted `agent_id` exists for that same built or resumed agent
-- **THEN** the runtime materializes the full lowercase `md5("AGENTSYS-gpu").hexdigest()` value as the session's initial authoritative `agent_id`
-- **AND THEN** persisted runtime-owned metadata for that session records both the canonical agent name and the bootstrapped `agent_id`
-
-#### Scenario: Start-session reuses a previously persisted agent id
-- **WHEN** a developer starts or resumes a runtime-owned session for an agent whose existing persisted metadata already carries `agent_id=abc123`
-- **AND WHEN** the caller does not provide an explicit replacement `agent_id`
-- **THEN** the runtime reuses `agent_id=abc123`
-- **AND THEN** it does not silently replace that authoritative identity by recomputing from the current canonical agent name
-
-#### Scenario: Agent-keyed runtime-owned directories use agent id rather than canonical agent name
-- **WHEN** runtime-owned directory derivation needs one path component that stands for one agent
-- **THEN** the runtime uses that agent's authoritative `agent_id` for the directory name
-- **AND THEN** canonical agent name remains an operator-facing metadata field rather than the writable directory key
-
-#### Scenario: Explicit agent id reused with a different canonical name triggers a warning
-- **WHEN** runtime-owned metadata or shared-registry publication already associates `agent_id=abc123` with canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** a later runtime-controlled start or publication explicitly uses `agent_id=abc123` with canonical agent name `AGENTSYS-editor`
-- **THEN** the runtime emits a warning about the different-name same-id association
-- **AND THEN** the runtime still treats `agent_id=abc123` as the authoritative writable-state identity
-
-#### Scenario: Same canonical name with different agent ids is reported as ambiguous
-- **WHEN** runtime-controlled lookup sees more than one live or persisted session metadata surface for canonical agent name `AGENTSYS-gpu`
-- **AND WHEN** those metadata surfaces carry different authoritative ids such as `agent_id=abc123` and `agent_id=def456`
-- **THEN** the runtime reports that canonical-name lookup is ambiguous
-- **AND THEN** it requires disambiguation by `agent_id`, manifest path, or another explicit metadata surface
+#### Scenario: Runtime bootstraps agent identity from the HOUMAO canonical name
+- **WHEN** a developer starts a runtime-owned session with canonical agent name `HOUMAO-gpu`
+- **THEN** the runtime materializes the full lowercase `md5("HOUMAO-gpu").hexdigest()` value as the session's initial authoritative `agent_id`
 
 ### Requirement: Tmux session names are unique live-session handles rather than authoritative agent names
 For tmux-backed runtime sessions, the runtime SHALL treat the tmux session name as a unique handle for one live session rather than as the source of truth for canonical agent name or authoritative `agent_id`.
@@ -690,41 +531,15 @@ When runtime-controlled logic needs to recover the true canonical agent name or 
 - **AND THEN** it does not assume the tmux session name itself equals the canonical agent name
 
 ### Requirement: Runtime creates and reuses a per-agent job dir for each started session
-For each runtime-owned started session, the runtime SHALL derive a per-agent job dir at `<working-directory>/.houmao/jobs/<session-id>/`.
+When no explicit job-dir override is supplied and `HOUMAO_LOCAL_JOBS_DIR` is set to an absolute directory path for that launch or started agent, the runtime SHALL derive the effective per-agent job dir as `<HOUMAO_LOCAL_JOBS_DIR>/<session-id>/`.
 
-When no explicit job-dir override is supplied and `AGENTSYS_LOCAL_JOBS_DIR` is set to an absolute directory path for that launch or started agent, the runtime SHALL derive the effective per-agent job dir as:
-- `<AGENTSYS_LOCAL_JOBS_DIR>/<session-id>/`
+The runtime SHALL create that directory before the session needs runtime-managed scratch space and SHALL expose its absolute path to the launched session through `HOUMAO_JOB_DIR`.
 
-The runtime SHALL create that directory before the session needs runtime-managed scratch space and SHALL expose its absolute path to the launched session through `AGENTSYS_JOB_DIR`.
-
-The per-agent job dir SHALL be intended for session-local logs, temporary outputs, and destructive scratch work, and SHALL NOT replace the durable runtime-owned session root under the effective runtime root.
-
-Resume and later runtime-controlled work for the same persisted session SHALL continue to use the same derived per-agent job dir rather than allocating a replacement directory for that same session id.
-
-For this capability, runtime-controlled stop behavior SHALL NOT automatically remove the job dir.
-
-#### Scenario: Start-session creates the job dir and publishes its binding
-- **WHEN** a developer starts a runtime-owned session with working directory `/repo/app`
-- **AND WHEN** the generated session id is `session-20260314-120000Z-abcd1234`
-- **THEN** the runtime creates `/repo/app/.houmao/jobs/session-20260314-120000Z-abcd1234/`
-- **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
-
-#### Scenario: Resume reuses the same job dir for the same session
-- **WHEN** the runtime resumes control of a previously started session whose working directory and session id already determine one per-agent job dir
-- **THEN** resumed runtime-controlled work continues to use that same per-agent job dir
-- **AND THEN** the runtime does not allocate a different destructive-scratch directory for that same logical session
-
-#### Scenario: Local-jobs-dir env-var override relocates the effective job dir
-- **WHEN** `AGENTSYS_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
-- **AND WHEN** the runtime starts a runtime-owned session whose generated session id is `session-20260314-120000Z-abcd1234`
-- **THEN** the runtime creates `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
-- **AND THEN** the started session environment includes `AGENTSYS_JOB_DIR` pointing to that absolute path
-
-#### Scenario: Stop-session does not auto-clean the job dir in this version
-- **WHEN** a runtime-owned session has created a job dir for one session id
-- **AND WHEN** a developer later stops that session through runtime-controlled stop behavior
-- **THEN** the runtime leaves the job dir in place in this version
-- **AND THEN** later cleanup of that scratch directory remains manual
+#### Scenario: Job-dir env override publishes the HOUMAO job-dir pointer
+- **WHEN** `HOUMAO_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
+- **AND WHEN** the runtime starts a session whose generated session id is `session-20260314-120000Z-abcd1234`
+- **THEN** the effective job dir is `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
+- **AND THEN** the started session environment includes `HOUMAO_JOB_DIR` pointing to that absolute path
 
 ### Requirement: Runtime-generated manifests/configs are schema-validated
 The system SHALL schema-validate all runtime-generated structured manifest/config artifacts on write and on read/load.
@@ -1177,104 +992,30 @@ For CAO-backed sessions, the `start-session` CLI output SHALL include the resolv
 - **THEN** the `start-session` output includes the resolved `parsing_mode`
 
 ### Requirement: Parsing mode changes do not alter AGENTSYS identity/addressing contracts
-For CAO-backed sessions, parsing mode selection (`cao_only` or `shadow_only`) SHALL NOT change AGENTSYS agent-identity semantics or tmux manifest-pointer addressing behavior.
+Changing runtime parsing mode SHALL NOT redefine the active Houmao identity or addressing contracts. Parsing-mode differences do not rename canonical agent identities, mailbox addressing, or tmux-published discovery pointers away from the `HOUMAO-*` / `HOUMAO_*` family selected by this change.
 
-#### Scenario: Start-session still publishes AGENTSYS identity and manifest pointer in both modes
-- **WHEN** a developer starts a CAO-backed session with `parsing_mode=cao_only` or `parsing_mode=shadow_only`
-- **THEN** the runtime still persists canonical `AGENTSYS-...` identity metadata and the manifest pointer for the session
-- **AND THEN** the tmux session name remains a distinct live-session handle rather than the authoritative agent identity
-- **AND THEN** tmux session env includes `AGENTSYS_MANIFEST_PATH` pointing to the absolute persisted session manifest path
-
-#### Scenario: Name-based prompt/stop addressing remains mode-independent
-- **WHEN** a developer targets an agent by `--agent-identity <name>`
-- **AND WHEN** the underlying CAO session was started in either parsing mode
-- **THEN** manifest resolution still uses tmux session + `AGENTSYS_MANIFEST_PATH`
-- **AND THEN** manifest/session mismatch checks still fail fast before control operations proceed
+#### Scenario: Parsing mode change preserves the HOUMAO namespace contract
+- **WHEN** the runtime starts two equivalent sessions that differ only in parsing mode
+- **THEN** both sessions persist canonical `HOUMAO-...` identity metadata
+- **AND THEN** both sessions publish `HOUMAO_MANIFEST_PATH` and related `HOUMAO_*` discovery variables rather than reverting to `AGENTSYS_*`
 
 ### Requirement: Name-addressed tmux-backed session control SHALL recover `agent_def_dir` from session environment
-For tmux-backed session-control commands that accept `--agent-identity` (`send-prompt`, `send-keys`, and `stop-session`), the system SHALL allow callers to omit `--agent-def-dir` when the identity is name-based rather than path-like.
+Name-addressed tmux-backed control SHALL prefer the tmux-published `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_DEF_DIR` values when they are present and valid.
 
-When `--agent-identity` is name-based and `--agent-def-dir` is omitted, the
-system SHALL:
-- resolve the addressed tmux session by canonical agent identity,
-- prefer the tmux-published `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR` values when they are present and valid,
-- fall back to fresh shared-registry discovery metadata when tmux-local discovery pointers are missing, blank, or stale, and
-- use the recovered absolute agents root for resume or control operations.
-
-The shared-registry fallback SHALL apply only to discovery-pointer unavailability. Hard validation mismatches such as a manifest whose persisted tmux session identity does not match the addressed agent name SHALL still fail fast.
-
-When `--agent-def-dir` is provided explicitly, the system SHALL use the
-explicit CLI value instead of the tmux-published or registry-published fallback.
-
-Manifest-path control flows are unchanged by this requirement.
-
-#### Scenario: Name-based send-prompt omits explicit agent-def-dir
-- **WHEN** a developer runs `send-prompt --agent-identity chris --prompt "hello"`
-- **AND WHEN** tmux session `AGENTSYS-chris` exists
-- **AND WHEN** that tmux session publishes valid `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR` values
-- **THEN** the runtime resumes and delivers the prompt without requiring explicit `--agent-def-dir`
-
-#### Scenario: Name-based stop-session omits explicit agent-def-dir
-- **WHEN** a developer runs `stop-session --agent-identity chris`
-- **AND WHEN** tmux session `AGENTSYS-chris` exists
-- **AND WHEN** that tmux session publishes valid `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR` values
-- **THEN** the runtime resumes and stops the addressed session without requiring explicit `--agent-def-dir`
-
-#### Scenario: Name-based send-keys omits explicit agent-def-dir
-- **WHEN** a developer runs `send-keys --agent-identity chris --sequence "<[Escape]>"`
-- **AND WHEN** tmux session `AGENTSYS-chris` exists
-- **AND WHEN** that tmux session publishes valid `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_DEF_DIR` values
-- **THEN** the runtime resumes and delivers the control-input request without requiring explicit `--agent-def-dir`
-
-#### Scenario: Explicit CLI agent-def-dir overrides tmux fallback
-- **WHEN** a developer runs `stop-session --agent-identity chris --agent-def-dir /abs/custom/agents`
-- **AND WHEN** tmux session `AGENTSYS-chris` publishes a different `AGENTSYS_AGENT_DEF_DIR`
-- **THEN** the runtime uses `/abs/custom/agents` as the effective agent-definition root
-
-#### Scenario: Registry fallback covers missing tmux manifest pointer
-- **WHEN** a developer runs `send-prompt --agent-identity chris --prompt "hi"`
-- **AND WHEN** tmux session `AGENTSYS-chris` exists
-- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale in that tmux session environment
-- **AND WHEN** a fresh shared-registry record exists for `AGENTSYS-chris`
-- **THEN** the runtime resolves the session through the shared-registry record instead of failing immediately on the tmux-local pointer problem
-
-#### Scenario: Registry fallback covers missing tmux agent-def-dir pointer
-- **WHEN** a developer runs `send-prompt --agent-identity chris --prompt "hi"`
-- **AND WHEN** tmux session `AGENTSYS-chris` exists
-- **AND WHEN** `AGENTSYS_AGENT_DEF_DIR` is missing, blank, or stale in that tmux session environment
-- **AND WHEN** a fresh shared-registry record exists for `AGENTSYS-chris`
-- **THEN** the runtime resolves the effective agent-definition root through the shared-registry record instead of failing immediately on the tmux-local pointer problem
-
-#### Scenario: Identity mismatch still fails fast instead of falling back
-- **WHEN** a developer runs a tmux-backed name-based control command for `AGENTSYS-chris`
-- **AND WHEN** a candidate tmux-local or shared-registry manifest resolves to persisted tmux session identity other than `AGENTSYS-chris`
-- **THEN** the runtime rejects the operation with an explicit mismatch error
-- **AND THEN** it does not silently recover by targeting a different live session
-
-#### Scenario: Manifest-path control does not depend on tmux fallback
-- **WHEN** a developer runs `stop-session --agent-identity /abs/runtime/sessions/cao_rest/session.json`
-- **THEN** the runtime keeps the existing manifest-path control flow
-- **AND THEN** this change does not require tmux session environment lookup for that request
+#### Scenario: Name-addressed control recovers the agent-definition root from HOUMAO tmux env
+- **WHEN** tmux session `HOUMAO-chris` exists
+- **AND WHEN** that tmux session publishes valid `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_DEF_DIR` values
+- **THEN** name-addressed tmux-backed session control resolves the manifest and effective agent-definition root from those `HOUMAO_*` values
 
 ### Requirement: Runtime-launched agent subprocess env injects loopback `NO_PROXY` by default
-The runtime SHALL, when launching agent backends via subprocess (for example,
-Codex app-server and Claude/Gemini headless CLIs), preserve proxy variables for
-agent egress and SHALL, by default, ensure loopback entries exist in `NO_PROXY`
-and `no_proxy` (merge+append semantics; entries include `localhost`,
-`127.0.0.1`, and `::1`).
+For supported loopback compatibility base URLs, the runtime SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
-When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY`
-or `no_proxy` for the spawned process and will respect caller-provided values.
+When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
-#### Scenario: Non-CAO backend subprocess env injects loopback `NO_PROXY` by default
-- **WHEN** a developer launches a non-CAO backend session (for example, Codex app-server or a headless CLI)
-- **AND WHEN** caller environment includes `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`
-- **THEN** the runtime-launched backend subprocess environment includes loopback `NO_PROXY`/`no_proxy` entries by default
-
-#### Scenario: Preserve mode does not modify non-CAO subprocess `NO_PROXY`
-- **WHEN** a developer launches a non-CAO backend session
-- **AND WHEN** caller environment includes `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`
-- **THEN** the runtime does not inject or modify `NO_PROXY`/`no_proxy` for the spawned backend process
+#### Scenario: Preserve mode does not modify loopback no-proxy entries
+- **WHEN** the runtime launches against a supported loopback compatibility base URL
+- **AND WHEN** caller environment includes `HOUMAO_PRESERVE_NO_PROXY_ENV=1`
+- **THEN** the runtime does not inject or modify `NO_PROXY` or `no_proxy`
 
 ### Requirement: Runtime CLI exposes a `send-keys` raw control-input path distinct from prompt submission
 The runtime SHALL provide a caller-facing `send-keys` control-input command for resumed CAO-backed tmux sessions that is distinct from `send-prompt`.
@@ -1482,7 +1223,7 @@ For gateway attach or launch-time auto-attach actions, the runtime SHALL resolve
 The precedence order for the effective gateway host SHALL be:
 
 1. lifecycle CLI override for the attach action in progress
-2. caller environment variable `AGENTSYS_AGENT_GATEWAY_HOST`
+2. caller environment variable `HOUMAO_AGENT_GATEWAY_HOST`
 3. blueprint configuration value `gateway.host`
 4. default `127.0.0.1`
 
@@ -1491,7 +1232,7 @@ Allowed effective gateway host values in this change are exactly `127.0.0.1` and
 The precedence order for the effective gateway port SHALL be:
 
 1. lifecycle CLI override for the attach action in progress
-2. caller environment variable `AGENTSYS_AGENT_GATEWAY_PORT`
+2. caller environment variable `HOUMAO_AGENT_GATEWAY_PORT`
 3. blueprint configuration value `gateway.port`
 4. a system-assigned port request during gateway startup when none of the above are provided
 
@@ -1505,7 +1246,7 @@ When a gateway instance starts successfully with a system-assigned port, the run
 
 #### Scenario: Default host remains loopback when no host override is supplied
 - **WHEN** a developer starts a gateway attach action without an explicit gateway-host override
-- **AND WHEN** caller environment omits `AGENTSYS_AGENT_GATEWAY_HOST`
+- **AND WHEN** caller environment omits `HOUMAO_AGENT_GATEWAY_HOST`
 - **AND WHEN** the selected blueprint does not declare `gateway.host`
 - **THEN** the runtime resolves `127.0.0.1` as the effective gateway host for that session
 - **AND THEN** the started session does not expose all-interface binding by default
@@ -1517,21 +1258,21 @@ When a gateway instance starts successfully with a system-assigned port, the run
 
 #### Scenario: CLI gateway-port override wins over env and blueprint defaults
 - **WHEN** a developer starts a gateway attach action with `--gateway-port 43123`
-- **AND WHEN** caller environment sets `AGENTSYS_AGENT_GATEWAY_PORT=43124`
+- **AND WHEN** caller environment sets `HOUMAO_AGENT_GATEWAY_PORT=43124`
 - **AND WHEN** the selected blueprint declares `gateway.port: 43125`
 - **THEN** the runtime resolves `43123` as the effective gateway port for that session
 - **AND THEN** the started session records and publishes `43123` as its gateway port
 
 #### Scenario: Env gateway-port override wins over blueprint default
 - **WHEN** a developer starts a gateway attach action without `--gateway-port`
-- **AND WHEN** caller environment sets `AGENTSYS_AGENT_GATEWAY_PORT=43124`
+- **AND WHEN** caller environment sets `HOUMAO_AGENT_GATEWAY_PORT=43124`
 - **AND WHEN** the selected blueprint declares `gateway.port: 43125`
 - **THEN** the runtime resolves `43124` as the effective gateway port for that session
 - **AND THEN** the started session does not treat the blueprint default as the effective port
 
 #### Scenario: Runtime requests a system-assigned port when no explicit gateway port is supplied
 - **WHEN** a developer starts a gateway attach action without `--gateway-port`
-- **AND WHEN** caller environment omits `AGENTSYS_AGENT_GATEWAY_PORT`
+- **AND WHEN** caller environment omits `HOUMAO_AGENT_GATEWAY_PORT`
 - **AND WHEN** the selected blueprint does not declare `gateway.port`
 - **THEN** the runtime starts gateway startup with a system-assigned port request instead of pre-probing a free local port
 - **AND THEN** the started session records and publishes the actual bound port as its effective gateway port
@@ -1624,26 +1365,26 @@ When a live gateway instance is currently attached, the runtime or gateway lifec
 
 At minimum, the runtime SHALL publish:
 
-- `AGENTSYS_MANIFEST_PATH`
-- `AGENTSYS_AGENT_ID`
+- `HOUMAO_MANIFEST_PATH`
+- `HOUMAO_AGENT_ID`
 
 When a live gateway instance exists, the system SHALL additionally publish:
 
-- `AGENTSYS_AGENT_GATEWAY_HOST`
-- `AGENTSYS_AGENT_GATEWAY_PORT`
-- `AGENTSYS_GATEWAY_STATE_PATH`
-- `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
+- `HOUMAO_AGENT_GATEWAY_HOST`
+- `HOUMAO_AGENT_GATEWAY_PORT`
+- `HOUMAO_GATEWAY_STATE_PATH`
+- `HOUMAO_GATEWAY_PROTOCOL_VERSION`
 
 The stable tmux discovery pointers SHALL also be the current-session entrypoint for tmux-backed relaunch.
 
 #### Scenario: Session start publishes manifest-first stable discovery pointers
 - **WHEN** the runtime starts a gateway-capable tmux-backed session
-- **THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH` and `AGENTSYS_AGENT_ID`
+- **THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_ID`
 - **AND THEN** those bindings point to the stable manifest authority or authoritative identity for that session even when no gateway instance is running
 
 #### Scenario: Live gateway attach publishes active gateway bindings
 - **WHEN** the runtime or lifecycle command attaches a live gateway instance to a gateway-capable tmux-backed session
-- **THEN** the tmux session environment contains `AGENTSYS_AGENT_GATEWAY_HOST`, `AGENTSYS_AGENT_GATEWAY_PORT`, `AGENTSYS_GATEWAY_STATE_PATH`, and `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
+- **THEN** the tmux session environment contains `HOUMAO_AGENT_GATEWAY_HOST`, `HOUMAO_AGENT_GATEWAY_PORT`, `HOUMAO_GATEWAY_STATE_PATH`, and `HOUMAO_GATEWAY_PROTOCOL_VERSION`
 - **AND THEN** those bindings point to the currently running gateway instance rather than merely to stable attachability
 
 ### Requirement: Runtime-owned stop-session teardown also cleans up a live attached gateway
@@ -1748,7 +1489,7 @@ The runtime SHALL determine whether it is the launch authority for shared-regist
 
 By default, the effective shared-registry root SHALL be `~/.houmao/registry`.
 
-When `AGENTSYS_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
+When `HOUMAO_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
 
 For tmux-backed sessions whose launch authority is the runtime, the published shared-registry record SHALL persist the canonical `AGENTSYS-...` agent identity together with the authoritative `agent_id` and the actual tmux session name for that live session.
 
@@ -1756,7 +1497,7 @@ When runtime publication code receives an agent name in namespace-free form, it 
 
 For a given live tmux-backed session whose launch authority is the runtime, the runtime SHALL persist and reuse the same shared-registry `generation_id` across later refreshes and resume-driven republishes of that same session.
 
-That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_DEF_DIR`, or the stable gateway attach pointers already published by the runtime.
+That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_DEF_DIR`, or the stable gateway attach pointers already published by the runtime.
 
 The published record SHALL include the secret-free runtime-owned pointers available for that session, including the manifest path, runtime session root, authoritative `agent_id`, actual tmux session name, and any gateway or mailbox pointers that the runtime has already materialized.
 
@@ -1864,7 +1605,7 @@ When that mode is selected, the runtime SHALL:
 
 For supported loopback `houmao-server` base URLs, runtime-owned HTTP communication SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
-When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
+When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
 #### Scenario: Starting a `houmao-server` session persists server identity
 - **WHEN** a developer starts a new interactive session using the `houmao-server` REST-backed mode
@@ -1945,7 +1686,7 @@ The runtime SHALL reserve tmux window `0` as the primary agent surface for that 
 
 Later relaunch of that tmux-backed pair-managed session SHALL reuse the same window `0` surface and SHALL NOT allocate a replacement tmux window.
 
-The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` and `AGENTSYS_AGENT_ID=<authoritative agent id>` into the tmux session environment so that pair-managed current-session discovery can locate the persisted session manifest directly and fall back through shared-registry resolution when needed.
+The runtime SHALL publish `HOUMAO_MANIFEST_PATH=<absolute manifest path>` and `HOUMAO_AGENT_ID=<authoritative agent id>` into the tmux session environment so that pair-managed current-session discovery can locate the persisted session manifest directly and fall back through shared-registry resolution when needed.
 
 The runtime SHALL reuse the existing runtime-owned gateway capability publication seam to materialize derived gateway bookkeeping, `state.json`, queue or bootstrap assets, and related session-owned gateway artifacts during pair launch or launch registration, before a live gateway is attached.
 
@@ -1958,8 +1699,8 @@ Runtime-controlled pair-managed turns and pair-managed tmux resolution SHALL con
 #### Scenario: Pair launch creates a gateway-capable tmux session before live attach
 - **WHEN** a developer launches a pair-managed TUI session through `houmao-mgr`
 - **THEN** the runtime persists the actual tmux session name for that live session
-- **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH`
-- **AND THEN** the tmux session environment contains `AGENTSYS_AGENT_ID`
+- **AND THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH`
+- **AND THEN** the tmux session environment contains `HOUMAO_AGENT_ID`
 - **AND THEN** the gateway capability artifacts are materialized through the shared runtime-owned gateway publication seam
 - **AND THEN** window `0` is reserved as the primary agent surface for that session
 
@@ -1992,7 +1733,7 @@ For native headless sessions, relaunch remains valid between turns even when no 
 
 #### Scenario: Current-session relaunch uses tmux session env and existing built home
 - **WHEN** a developer runs `houmao-mgr agents relaunch` inside a tmux-backed managed session
-- **THEN** the system resolves the session through `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_ID`
+- **THEN** the system resolves the session through `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`
 - **AND THEN** it relaunches the managed agent surface from manifest-owned relaunch posture plus the current tmux session env
 - **AND THEN** it does not rebuild the brain home
 
@@ -2075,7 +1816,7 @@ If the agent process later disappears unexpectedly and the runtime relaunches it
 ### Requirement: Native headless tmux-backed sessions reserve window 0 for console output and remain gateway-attachable between turns
 For runtime-owned native headless sessions that use tmux as the durable terminal container, the runtime SHALL keep window `0` reserved for the headless agent console surface.
 
-The runtime SHALL publish `AGENTSYS_MANIFEST_PATH=<absolute manifest path>` and `AGENTSYS_AGENT_ID=<authoritative agent id>` into that tmux session so current-session gateway attach can resolve the manifest directly and fall back through shared-registry resolution when needed.
+The runtime SHALL publish `HOUMAO_MANIFEST_PATH=<absolute manifest path>` and `HOUMAO_AGENT_ID=<authoritative agent id>` into that tmux session so current-session gateway attach can resolve the manifest directly and fall back through shared-registry resolution when needed.
 
 Gateway attach SHALL NOT assume a native headless worker process is currently running. Attach targets the logical persisted session, and the manifest SHALL contain enough authority for later headless turn launch even when `runtime.agent_pid` is empty.
 
@@ -2086,8 +1827,8 @@ Any native headless relaunch path SHALL reuse window `0` as the headless console
 #### Scenario: Native headless session reserves window 0 and publishes manifest-first discovery
 - **WHEN** a developer launches a native headless tmux-backed session
 - **THEN** window `0` is reserved for the headless console surface
-- **AND THEN** the tmux session environment contains `AGENTSYS_MANIFEST_PATH`
-- **AND THEN** the tmux session environment contains `AGENTSYS_AGENT_ID`
+- **AND THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH`
+- **AND THEN** the tmux session environment contains `HOUMAO_AGENT_ID`
 
 #### Scenario: Native headless attach remains valid after a turn exits
 - **WHEN** a native headless turn finishes and its worker process exits
@@ -2475,9 +2216,9 @@ The join materialization path SHALL construct the persisted joined-session `laun
 
 If a placeholder `brain_manifest.json` is written for a joined session, it SHALL remain a path or invariant artifact only and SHALL NOT be the authoritative source of runtime launch or relaunch behavior for that joined session.
 
-The join materialization path SHALL create the resolved job directory on disk before publishing `AGENTSYS_JOB_DIR`.
+The join materialization path SHALL create the resolved job directory on disk before publishing `HOUMAO_JOB_DIR`.
 
-The join materialization path SHALL publish `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR` into the adopted tmux session environment.
+The join materialization path SHALL publish `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, and `HOUMAO_JOB_DIR` into the adopted tmux session environment.
 
 For joined TUI adoption, the persisted manifest and later manifest rewrites SHALL preserve the adopted tmux window identity needed to find the live provider surface. Resume-time capability publication and other post-join local control paths SHALL NOT overwrite that adopted window metadata with `null` or a default launch-time window name.
 
@@ -2492,7 +2233,7 @@ The resulting manifest and tmux session environment SHALL remain the authoritati
 #### Scenario: TUI join materializes a normal `local_interactive` runtime envelope
 - **WHEN** the local join path adopts a live Codex TUI from tmux window `0`, pane `0`
 - **THEN** it writes a normal session root containing placeholder `agent_def/`, placeholder `brain_manifest.json`, a persisted session manifest, and session-local `gateway/` artifacts
-- **AND THEN** it publishes `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR` into that tmux session environment
+- **AND THEN** it publishes `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, and `HOUMAO_JOB_DIR` into that tmux session environment
 - **AND THEN** it publishes a shared-registry record for the adopted managed agent without requiring a separate join-only discovery store
 
 #### Scenario: Headless join materializes a native headless runtime envelope between turns

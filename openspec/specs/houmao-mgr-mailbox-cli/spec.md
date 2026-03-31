@@ -79,7 +79,7 @@ The summary payload for `messages list` SHALL include enough metadata to select 
 The effective mailbox root SHALL resolve from:
 
 1. explicit `--mailbox-root`,
-2. `AGENTSYS_GLOBAL_MAILBOX_DIR`,
+2. `HOUMAO_GLOBAL_MAILBOX_DIR`,
 3. the default shared mailbox root.
 
 A successful bootstrap SHALL create or validate the v1 filesystem mailbox layout, including protocol version, shared SQLite catalog, rules assets, mailbox directories root, locks root, and staging root.
@@ -184,7 +184,7 @@ The repair flow SHALL use the filesystem mailbox repair contract and SHALL repor
 The effective mailbox root SHALL resolve from:
 
 1. explicit `--mailbox-root`,
-2. `AGENTSYS_GLOBAL_MAILBOX_DIR`,
+2. `HOUMAO_GLOBAL_MAILBOX_DIR`,
 3. the default shared mailbox root.
 
 The command SHALL operate only on registrations whose status is `inactive` or `stashed`.

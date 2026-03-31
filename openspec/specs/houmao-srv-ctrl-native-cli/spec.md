@@ -200,7 +200,7 @@ At minimum, this SHALL apply to:
 - `mail-notifier enable`
 - `mail-notifier disable`
 
-When an operator omits explicit selectors and runs one of those commands inside the owning tmux session, `houmao-mgr` SHALL resolve the target through manifest-first current-session discovery using `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_ID`, and local resumed-control paths SHALL additionally recover `agent_def_dir` through `AGENTSYS_AGENT_DEF_DIR` or shared-registry runtime metadata.
+When an operator omits explicit selectors and runs one of those commands inside the owning tmux session, `houmao-mgr` SHALL resolve the target through manifest-first current-session discovery using `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`, and local resumed-control paths SHALL additionally recover `agent_def_dir` through `HOUMAO_AGENT_DEF_DIR` or shared-registry runtime metadata.
 
 When a command supports current-session targeting, `houmao-mgr` MAY also expose an explicit `--current-session` switch, but it SHALL treat omitted selectors inside tmux as the same current-session targeting mode.
 
@@ -342,7 +342,7 @@ Those commands SHALL address managed agents by managed-agent reference and SHALL
 For commands in that family that operate on one managed agent, `houmao-mgr` SHALL support both explicit selectors and same-session current-session targeting:
 
 - explicit `--agent-id` or `--agent-name` SHALL take precedence when provided,
-- otherwise, when the caller runs the command inside the owning managed tmux session, `houmao-mgr` SHALL resolve the current managed agent through manifest-first discovery using `AGENTSYS_MANIFEST_PATH` with `AGENTSYS_AGENT_ID` as fallback,
+- otherwise, when the caller runs the command inside the owning managed tmux session, `houmao-mgr` SHALL resolve the current managed agent through manifest-first discovery using `HOUMAO_MANIFEST_PATH` with `HOUMAO_AGENT_ID` as fallback,
 - outside tmux without explicit selectors, the command SHALL fail explicitly rather than guessing from cwd or ambient shell state.
 
 `resolve-live` SHALL return machine-readable mailbox binding and live gateway discovery data for the resolved managed agent.
@@ -483,16 +483,6 @@ At minimum, that command SHALL support the local build inputs and outputs needed
 - **THEN** `houmao-mgr` materializes the requested local brain artifacts on the local host
 - **AND THEN** the command does not require a running `houmao-server` instance just to build those artifacts
 
-### Requirement: `houmao-mgr admin cleanup-registry` exposes local shared-registry cleanup
-`houmao-mgr` SHALL expose a native `admin cleanup-registry` command for stale shared-registry cleanup.
-
-That command SHALL remain a local maintenance operation over local runtime-owned registry state.
-
-#### Scenario: Operator runs local shared-registry cleanup through the native admin tree
-- **WHEN** an operator runs `houmao-mgr admin cleanup-registry`
-- **THEN** `houmao-mgr` performs stale shared-registry cleanup on the local host
-- **AND THEN** the command does not require a new `houmao-server` admin endpoint to complete that maintenance
-
 ### Requirement: Native `houmao-mgr` expansion retires `cao` namespace and top-level `launch`
 Expanding `houmao-mgr` SHALL retire the `cao` command group and the top-level `launch` command entirely.
 
@@ -550,7 +540,7 @@ The command SHALL fail explicitly when the target is not tmux-backed, lacks vali
 
 #### Scenario: Current-session relaunch uses tmux-local discovery
 - **WHEN** an operator runs `houmao-mgr agents relaunch` from inside a tmux-backed managed session
-- **THEN** `houmao-mgr` resolves that session through `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_ID`
+- **THEN** `houmao-mgr` resolves that session through `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`
 - **AND THEN** it relaunches the managed agent surface without requiring an explicit selector
 
 #### Scenario: Explicit relaunch uses managed-agent identity
@@ -674,7 +664,10 @@ This grouped cleanup tree SHALL be documented as local maintenance over local Ho
 
 Within that grouped tree, `houmao-mgr admin cleanup registry` SHALL perform local tmux liveness probing by default for tmux-backed records and SHALL expose `--no-tmux-check` as the explicit opt-out flag for lease-only behavior.
 
-The compatibility alias `houmao-mgr admin cleanup-registry` SHALL preserve the same registry-cleanup behavior and flag contract.
+#### Scenario: Native admin help surface shows only grouped cleanup entry
+- **WHEN** an operator runs `houmao-mgr admin --help`
+- **THEN** the help output lists `cleanup`
+- **AND THEN** the help output does not list `cleanup-registry` as a sibling command
 
 #### Scenario: Native help surface shows grouped cleanup commands
 - **WHEN** an operator runs `houmao-mgr admin cleanup --help`
@@ -691,6 +684,11 @@ The compatibility alias `houmao-mgr admin cleanup-registry` SHALL preserve the s
 - **AND WHEN** a lease-fresh tmux-backed registry record points at a tmux session that is absent on the local host
 - **THEN** `houmao-mgr` classifies that record as stale by default
 - **AND THEN** the operator does not need an extra flag to perform local tmux-aware cleanup
+
+#### Scenario: Legacy cleanup-registry path is no longer supported
+- **WHEN** an operator runs `houmao-mgr admin cleanup-registry`
+- **THEN** the command fails because `cleanup-registry` is not a recognized native admin subcommand
+- **AND THEN** the operator is directed to use `houmao-mgr admin cleanup registry`
 
 ### Requirement: `houmao-mgr agents cleanup` exposes local managed-session cleanup commands
 `houmao-mgr` SHALL expose a native `agents cleanup` command family for local managed-session cleanup.
