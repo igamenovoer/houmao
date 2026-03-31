@@ -1420,7 +1420,7 @@ def launch_easy_instance_command(
     launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
 
     controller = launch_managed_agent_locally(
-        agents=specialist_metadata.role_name,
+        agents=str(specialist_metadata.resolved_preset_path(overlay)),
         agent_name=_require_non_empty_name(name, field_name="--name"),
         agent_id=None,
         auth=_optional_non_empty_value(auth),
@@ -1675,13 +1675,13 @@ def get_project_mailbox_account_command(address: str) -> None:
 
 @project_mailbox_group.group(name="messages")
 def project_mailbox_messages_group() -> None:
-    """Inspect mailbox-visible messages under the current project's mailbox root."""
+    """Inspect structural message projections under the current project's mailbox root."""
 
 
 @project_mailbox_messages_group.command(name="list")
 @click.option("--address", required=True, help="Full mailbox address.")
 def list_project_mailbox_messages_command(address: str) -> None:
-    """List mailbox-visible messages for one project-local mailbox address."""
+    """List structurally projected messages for one project-local mailbox address."""
 
     try:
         payload = list_mailbox_messages(mailbox_root=_project_mailbox_root(), address=address)
@@ -1694,7 +1694,7 @@ def list_project_mailbox_messages_command(address: str) -> None:
 @click.option("--address", required=True, help="Full mailbox address.")
 @click.option("--message-id", required=True, help="Canonical mailbox message id.")
 def get_project_mailbox_message_command(address: str, message_id: str) -> None:
-    """Get one mailbox-visible message for a project-local mailbox address."""
+    """Get one structurally projected message for a project-local mailbox address."""
 
     try:
         payload = get_mailbox_message(

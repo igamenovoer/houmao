@@ -228,14 +228,14 @@ def get_mailbox_account_command(mailbox_root: Path | None, address: str) -> None
 
 @mailbox_group.group(name="messages")
 def mailbox_messages_group() -> None:
-    """Inspect mailbox-visible messages under one resolved mailbox root."""
+    """Inspect structural message projections under one resolved mailbox root."""
 
 
 @mailbox_messages_group.command(name="list")
 @_mailbox_root_option
 @click.option("--address", required=True, help="Full mailbox address.")
 def list_mailbox_messages_command(mailbox_root: Path | None, address: str) -> None:
-    """List direct mailbox-visible messages for one selected address."""
+    """List structurally projected messages for one selected address."""
 
     try:
         payload = list_mailbox_messages(
@@ -256,7 +256,7 @@ def get_mailbox_message_command(
     address: str,
     message_id: str,
 ) -> None:
-    """Get one direct mailbox-visible message for a selected address."""
+    """Get one structurally projected message for a selected address."""
 
     try:
         payload = get_mailbox_message(

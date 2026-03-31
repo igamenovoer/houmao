@@ -15,6 +15,9 @@ from houmao.mailbox.managed import DeliveryRequest, ManagedPrincipal, deliver_me
 from houmao.srv_ctrl.commands.main import cli
 
 
+_AMBIGUOUS_MESSAGE_STATE_FIELDS = {"read", "starred", "archived", "deleted"}
+
+
 def _init_project_mailbox_repo(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -241,6 +244,8 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
     project_messages = json.loads(project_list_result.output)["messages"]
     assert [item["message_id"] for item in generic_messages] == [message_id]
     assert [item["message_id"] for item in project_messages] == [message_id]
+    assert _AMBIGUOUS_MESSAGE_STATE_FIELDS.isdisjoint(generic_messages[0])
+    assert _AMBIGUOUS_MESSAGE_STATE_FIELDS.isdisjoint(project_messages[0])
 
     generic_get_result = runner.invoke(
         cli,
@@ -277,6 +282,8 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
     assert generic_message["message_id"] == message_id
     assert project_message["message_id"] == message_id
     assert generic_message["subject"] == "Hello Alice"
+    assert _AMBIGUOUS_MESSAGE_STATE_FIELDS.isdisjoint(generic_message)
+    assert _AMBIGUOUS_MESSAGE_STATE_FIELDS.isdisjoint(project_message)
 
 
 def test_mailbox_register_prompts_before_overwriting_active_registration(

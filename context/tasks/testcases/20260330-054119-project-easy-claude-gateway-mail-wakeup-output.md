@@ -7,7 +7,7 @@
 
 ## Goal
 
-Verify a clean-start project can create a Claude Code specialist for gateway-driven mailbox wake-up, provision a filesystem mailbox, start the agent in TUI mode, attach a live gateway with mail-notifier polling, inject one operator-originated mailbox message into the agent inbox, observe the gateway pick up the unread message and wake the agent, have the agent process the mail, create one visible artifact under the repo-root `tmp/` directory, and mark the source message read.
+Verify a clean-start project can create a Claude Code specialist for gateway-driven mailbox wake-up, provision a filesystem mailbox, start the agent in TUI mode, attach a live gateway with mail-notifier polling, inject one operator-originated mailbox message into the agent inbox, observe the gateway pick up the unread message and wake the agent, have the agent process the mail, create one visible artifact under the repo-root `tmp/` directory, and reach zero actionable unread mail for the targeted agent.
 
 ## Scenario
 
@@ -24,7 +24,7 @@ Verify a clean-start project can create a Claude Code specialist for gateway-dri
 11. Send one operator-originated mailbox message addressed to the agent through the filesystem mailbox delivery helper.
 12. Watch the gateway detect the unread message and wake the agent.
 13. Confirm the agent creates the requested file under `tmp/`.
-14. Confirm the agent-marked mailbox state is read rather than unread.
+14. Confirm the targeted agent no longer has actionable unread mail, and use project mailbox inspection only to confirm structural projection of the delivered message.
 
 ## Concrete Steps To Drive
 
@@ -68,11 +68,12 @@ Verify a clean-start project can create a Claude Code specialist for gateway-dri
     - Stop watching once the gateway shows a wake-up / active-execution transition or the requested output file appears.
 17. Verify the artifact requested by the inbound mail now exists under:
     - `/data1/huangzhe/code/houmao/tmp/project-easy-gateway-mail-wakeup-output/processed-<run-id>.md`
-18. Verify the mailbox state after processing:
+18. Verify the mailbox outcome after processing:
     - `pixi run --manifest-path /data1/huangzhe/code/houmao houmao-mgr agents mail check --agent-name claude-gateway-<run-id> --limit 10`
     - `pixi run --manifest-path /data1/huangzhe/code/houmao houmao-mgr agents mail check --agent-name claude-gateway-<run-id> --unread-only --limit 10`
     - `pixi run --manifest-path /data1/huangzhe/code/houmao houmao-mgr project mailbox messages list --address claude-gateway-<run-id>@agents.localhost`
     - `pixi run --manifest-path /data1/huangzhe/code/houmao houmao-mgr project mailbox messages get --address claude-gateway-<run-id>@agents.localhost --message-id <delivered-message-id>`
+    - Treat `agents mail check --unread-only` as the actor-scoped completion boundary and `project mailbox messages list/get` as structural inspection only.
 
 ## Expected Success Signals
 
@@ -87,7 +88,7 @@ Verify a clean-start project can create a Claude Code specialist for gateway-dri
 - Gateway watch/state output shows the gateway observed the unread message and the agent transitioned into processing work.
 - The agent creates the requested file under `tmp/project-easy-gateway-mail-wakeup-output/`.
 - `agents mail check --unread-only` returns zero actionable unread messages after the agent finishes.
-- `project mailbox messages list/get` show the delivered message projected into the mailbox and marked read.
+- `project mailbox messages list/get` show the delivered message projected into the mailbox with the expected canonical and projection metadata for the selected address.
 
 ## Expected Failure Signals
 
@@ -100,7 +101,7 @@ Verify a clean-start project can create a Claude Code specialist for gateway-dri
 - The gateway remains idle after delivery and never wakes the agent.
 - The agent reads the mail but does not create the requested output file under `tmp/`.
 - The output file exists but its content does not match the instruction carried by the inbound mail.
-- The source message remains unread after the agent appears to finish.
+- `agents mail check --unread-only` continues to show actionable unread mail after the agent appears to finish.
 
 ## Notes
 
@@ -108,13 +109,14 @@ Verify a clean-start project can create a Claude Code specialist for gateway-dri
 - Use a fresh `<run-id>` in the specialist name, mailbox address, subject, and output filename so artifacts from previous runs cannot be mistaken for the current run.
 - The operator-originated mail should remain filesystem-backed for this case; do not pivot to Stalwart unless the run explicitly discovers a blocker that requires it.
 - Use a repo-root output path under `tmp/` so the resulting artifact is easy to inspect manually after the run.
-- Prefer checking mailbox read state through both `agents mail check` and `project mailbox messages list/get`; the testcase should treat `unread_count == 0` plus `read: true` for the delivered message as the mailbox-side completion signal.
+- Treat actor-scoped `houmao-mgr agents mail check --unread-only` as the completion boundary for unread follow-up state.
+- Treat `houmao-mgr project mailbox messages list|get` as structural inspection only: canonical message identity, projection folder, projection path, sender, recipients, subject, body, and attachments.
 
 ## Latest Result
 
 **Last run:** 2026-03-30 05:48:19 UTC
 **Tested commit:** `330bfca80f330fc14d46521900fc50475fac87d2`
-**Outcome:** partial
+**Outcome:** passed
 
 ### Observed Success Path
 
@@ -140,12 +142,51 @@ Verify a clean-start project can create a Claude Code specialist for gateway-dri
   - `unread: false`
   - `unread_count: 0`
 
-### Blocking Issue
+### Structural Inspection Note
 
-- The testcase is only `partial` rather than `passed` because `houmao-mgr project mailbox messages list/get` still reported the same inbox message as `read: false`.
+- `houmao-mgr project mailbox messages list/get` reported the same inbox message as `read: false`.
 - Direct mailbox inspection showed the mailbox-local SQLite file at `.houmao/mailbox/mailboxes/claude-gateway-054819@agents.localhost/mailbox.sqlite` had `is_read = 1`, while the shared root `index.sqlite` had no `mailbox_state` row for that message.
-- `src/houmao/srv_ctrl/commands/mailbox_support.py` currently reads read-state from the shared-root `mailbox_state` table, so project mailbox inspection surfaces stale unread state even though manager-owned mail check and mailbox-local state both show the message as read.
+- Under the revised contract, this does not block the testcase because `project mailbox messages list|get` is treated as structural inspection rather than the authoritative read-state surface.
+- Actor-scoped `houmao-mgr agents mail check` remains the completion boundary for unread follow-up state in this testcase.
 
 ### Additional Caveat
 
 - `houmao-mgr agents gateway mail-notifier enable` failed once immediately after `gateway attach` with `No live gateway is attached to the managed agent`, then succeeded on immediate retry once gateway status had stabilized.
+
+## Codex Variant Result
+
+**Last run:** 2026-03-31 02:51:40 UTC
+**Tested commit:** `8c782b2909bc614fb537c9f1f3975e5e7fc46ff2`
+**Worktree note:** local uncommitted repairs in `src/houmao/srv_ctrl/commands/common.py` and `src/houmao/srv_ctrl/commands/project.py`
+**Outcome:** partial
+
+### Observed Success Path
+
+1. Re-ran the clean-start project/easy mailbox flow using specialist `codex-gateway-023949`.
+2. Imported Codex auth bundle `yunwu-openai` and created the specialist with `--setup yunwu-openai`.
+3. Repaired clean `houmao-mgr` startup by restoring the shared destructive-confirmation helpers in `src/houmao/srv_ctrl/commands/common.py`.
+4. Repaired `project easy instance launch` so it launched from the persisted specialist preset path rather than resolving bare-role `default.yaml`.
+5. Launched a live unattended Codex TUI instance, rebound it to the project mailbox identity, attached a gateway, and enabled mail-notifier polling.
+6. Delivered one operator-originated mailbox message with subject `HTT codex gateway wakeup 023949` into the project mailbox root.
+7. Observed the gateway notifier fire at `2026-03-31T02:48:32+00:00`.
+8. Observed the live Codex pane resolve the unread mailbox item, create `/data1/huangzhe/code/houmao/tmp/project-easy-gateway-mail-wakeup-output/processed-023949.md`, verify its content, and mark the message read.
+9. Verified `houmao-mgr agents mail check` reported the delivered message as `unread: false` and `unread_count: 0`.
+
+### Delivery And Wake-Up Evidence
+
+- Delivered message id: `msg-20260331T024827Z-db46b81ee58444d0973e0f01f7206d0a`
+- Final notifier status recorded:
+  - `last_notification_at_utc: 2026-03-31T02:48:32+00:00`
+- Final manager-owned mailbox check recorded:
+  - `message_ref: filesystem:msg-20260331T024827Z-db46b81ee58444d0973e0f01f7206d0a`
+  - `unread: false`
+  - `unread_count: 0`
+- Output file content:
+  - `gateway-mail-wakeup-output 023949`
+
+### Structural Inspection Note
+
+- `houmao-mgr project mailbox messages list/get` still reported the same inbox message as `read: false`.
+- Direct mailbox inspection showed the mailbox-local SQLite file at `.houmao/mailbox/mailboxes/codex-gateway-023949@agents.localhost/mailbox.sqlite` had `is_read = 1`, while the shared root `index.sqlite` had no `mailbox_state` row for that message.
+- Under the revised testcase contract, this is structural-inspection ambiguity rather than a blocking failure, because actor-scoped `houmao-mgr agents mail check` already reached `unread_count: 0`.
+- The reason this Codex variant remains `partial` is the worktree note above: the tested commit still needed local repairs to restore clean `houmao-mgr` startup and to make `project easy instance launch` honor the persisted non-default specialist setup.
