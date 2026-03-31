@@ -33,59 +33,41 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 - **THEN** the runtime does not create a parallel `skills/.system/mailbox/...` mailbox skill tree for that session
 - **AND THEN** ordinary mailbox-skill discovery and prompting depend only on the visible `skills/mailbox/...` mailbox subtree
 
-### Requirement: Mailbox system skills use a stable env-var binding contract
-The system SHALL continue to publish runtime-managed mailbox binding env vars for mailbox-enabled sessions, but projected mailbox system skills SHALL consume current mailbox binding data through a manager-owned discovery command rather than by directly invoking Python module entrypoints or reconstructing transport-local paths themselves.
+### Requirement: Mailbox system skills use a stable resolver contract for current mailbox discovery
+The system SHALL expose current mailbox discovery for projected mailbox system skills through `houmao-mgr agents mail resolve-live` rather than through mailbox-specific `AGENTSYS_MAILBOX_*` env bindings.
 
-At minimum, the runtime SHALL continue to publish:
+The resolver output SHALL provide the current mailbox binding in structured form, including the selected transport, principal id, mailbox address, transport-specific actionable fields derived from the durable session mailbox binding, and any validated live gateway mail-facade binding for the same session.
 
-- `AGENTSYS_MAILBOX_TRANSPORT`,
-- `AGENTSYS_MAILBOX_PRINCIPAL_ID`,
-- `AGENTSYS_MAILBOX_ADDRESS`,
-- `AGENTSYS_MAILBOX_BINDINGS_VERSION`,
-- transport-specific mailbox binding env vars required by the selected transport.
+Projected mailbox system skills SHALL treat that resolver output as the supported mailbox-discovery contract and SHALL NOT require mailbox-specific shell export steps before ordinary mailbox work.
 
-The supported skill-facing discovery surface for current mailbox work SHALL be `houmao-mgr agents mail resolve-live`.
-
-The existing mailbox env naming contract remains the runtime-to-manager contract, not the agent-facing contract.
-
-#### Scenario: Filesystem mailbox skill resolves current bindings through `houmao-mgr agents mail`
+#### Scenario: Filesystem mailbox skill resolves current mailbox state through the manager-owned resolver
 - **WHEN** the runtime starts an agent session with the filesystem mailbox transport
-- **THEN** the started session environment includes the common and filesystem-specific mailbox binding env vars needed by Houmao-owned discovery
-- **AND THEN** the projected mailbox system skill directs the agent to `houmao-mgr agents mail resolve-live` instead of reading filesystem binding env vars directly
+- **THEN** the projected mailbox system skill directs the agent to `houmao-mgr agents mail resolve-live`
+- **AND THEN** the returned structured mailbox binding includes the current derived filesystem mailbox state needed for mailbox work without relying on `AGENTSYS_MAILBOX_*`
 
-#### Scenario: Stalwart mailbox skill resolves current bindings through `houmao-mgr agents mail`
+#### Scenario: Stalwart mailbox skill resolves current mailbox state through the manager-owned resolver
 - **WHEN** the runtime starts an agent session with the `stalwart` mailbox transport
-- **THEN** the started session environment includes the common and email-specific mailbox binding env vars needed by Houmao-owned discovery
-- **AND THEN** the projected mailbox system skill directs the agent to `houmao-mgr agents mail resolve-live` instead of direct Python-module or env-var-specific transport discovery
-
-### Requirement: Filesystem mailbox binding env vars are refreshable on demand
-The system SHALL support on-demand refresh of runtime-managed filesystem mailbox binding env vars for active agent sessions without requiring regeneration of the mailbox system skill templates themselves.
-
-Refreshed mailbox bindings SHALL apply to subsequent runtime-controlled work for that session.
-
-#### Scenario: Filesystem mailbox binding refresh updates subsequent work
-- **WHEN** the runtime changes the effective filesystem mailbox binding for an active session
-- **THEN** the runtime refreshes the mailbox binding env vars for that session
-- **AND THEN** subsequent mailbox-related work in that session observes the refreshed filesystem mailbox bindings without requiring a new mailbox system skill template
+- **THEN** the projected mailbox system skill directs the agent to `houmao-mgr agents mail resolve-live`
+- **AND THEN** the returned structured mailbox binding includes the current derived Stalwart mailbox state needed for mailbox work without relying on `AGENTSYS_MAILBOX_*`
 
 ### Requirement: Tmux-backed mailbox system skills resolve current mailbox bindings through a runtime-owned live resolver
-For tmux-backed managed sessions, projected mailbox system skills SHALL resolve current mailbox bindings through the runtime-owned live resolver exposed by `houmao-mgr agents mail resolve-live` rather than relying on the provider process's inherited mailbox env snapshot or a direct Python-module entrypoint.
+For tmux-backed managed sessions, projected mailbox system skills SHALL resolve current mailbox bindings through the runtime-owned live resolver exposed by `houmao-mgr agents mail resolve-live` rather than relying on the provider process's inherited mailbox env snapshot, mailbox-specific tmux env, or a direct Python-module entrypoint.
 
 That live resolver SHALL:
 
 - support same-session discovery when selectors are omitted inside the owning managed tmux session,
 - use `AGENTSYS_MANIFEST_PATH` as the primary current-session discovery source with `AGENTSYS_AGENT_ID` as fallback,
-- read only the targeted common and transport-specific mailbox binding keys needed for mailbox work,
-- surface the current `AGENTSYS_MAILBOX_BINDINGS_VERSION` for mailbox refresh detection,
+- derive current mailbox state from the durable session mailbox binding instead of from targeted mailbox tmux env keys,
+- surface transport-specific actionable mailbox fields needed for current mailbox work,
 - surface the current validated gateway mail-facade binding for the session when a live gateway is attached,
 - avoid requiring the agent to parse raw manifest JSON or enumerate unrelated tmux env vars manually.
 
 When a live gateway is attached, the resolver SHALL return the exact current `gateway.base_url` needed for attached shared-mailbox work.
 
 #### Scenario: Filesystem mailbox skill observes late-registered binding without provider relaunch
-- **WHEN** a tmux-backed filesystem mailbox session receives a mailbox task after late registration updated the owning tmux session environment
+- **WHEN** a tmux-backed filesystem mailbox session receives a mailbox task after late registration updated the durable session mailbox binding
 - **THEN** the projected mailbox system skill resolves the current mailbox binding through `houmao-mgr agents mail resolve-live`
-- **AND THEN** the skill observes the refreshed filesystem mailbox binding without requiring provider relaunch solely to refresh inherited process env
+- **AND THEN** the skill observes the refreshed filesystem mailbox state without requiring provider relaunch or mailbox-specific tmux env refresh
 
 #### Scenario: Attached mailbox skill resolves the live gateway mail facade through `houmao-mgr agents mail`
 - **WHEN** a tmux-backed mailbox-enabled session has a live attached gateway exposing `/v1/mail/*`

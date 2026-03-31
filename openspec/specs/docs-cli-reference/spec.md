@@ -22,6 +22,8 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `check`, `send`, `reply`, and `mark-read`, and it SHALL explain:
 
 - the selector rules for explicit targeting versus current-session targeting inside the owning managed tmux session,
+- the structured `resolve-live` result contract for current mailbox discovery, including the returned mailbox binding and optional `gateway.base_url`,
+- that mailbox-specific shell export is not part of the supported `resolve-live` contract,
 - the authority-aware result semantics that distinguish verified execution from non-authoritative TUI submission fallback.
 
 The `brains build` options table in the CLI reference SHALL reflect the current live CLI flag names: `--preset`, `--setup`, and `--auth`. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
@@ -40,6 +42,7 @@ The `brains build` options table in the CLI reference SHALL reflect the current 
 - **WHEN** a reader looks up `houmao-mgr agents mail`
 - **THEN** the CLI reference documents `resolve-live`, `mark-read`, and the other mailbox follow-up commands in that family
 - **AND THEN** the reader can see when omitted selectors resolve the current managed tmux session and when explicit `--agent-id` or `--agent-name` is required
+- **AND THEN** the page explains that `resolve-live` returns structured mailbox data rather than mailbox-specific shell export
 
 #### Scenario: Reader can find `agents mail` result-strength guidance
 - **WHEN** a reader looks up `houmao-mgr agents mail` result behavior
@@ -123,4 +126,3 @@ The CLI reference SHALL keep `houmao-cli` and `houmao-cao-server` in explicit de
 - **WHEN** a reader scans the CLI reference for mentions of `houmao-cli` or `houmao-cao-server`
 - **THEN** those mentions remain brief legacy and deprecation notes
 - **AND THEN** any documented ambient agent-definition resolution uses the current precedence contract rather than preserving `.agentsys`
-

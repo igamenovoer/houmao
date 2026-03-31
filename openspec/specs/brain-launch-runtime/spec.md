@@ -278,100 +278,51 @@ If filesystem mailbox bootstrap fails for the selected target, session startup S
 - **THEN** session startup fails explicitly before reporting success
 - **AND THEN** the error explains that the private mailbox directory must live outside the shared mailbox root
 
-### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and mailbox env bindings
-When mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under a reserved runtime-owned namespace and SHALL populate the transport-specific mailbox binding env contract before mailbox-related work is expected from the agent.
+### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and persist manifest-backed mailbox bindings
+When mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset under the reserved runtime-owned mailbox namespace and SHALL persist one transport-specific mailbox binding for that session in the session manifest.
 
-When the selected transport is `filesystem`, the runtime SHALL continue to derive and publish the filesystem mailbox content root and registration-dependent filesystem mailbox bindings for that session.
+When the selected transport is `filesystem`, the runtime SHALL derive and persist the effective filesystem mailbox content root and the mailbox identity needed to resolve current filesystem mailbox state for that session.
 
-When the selected transport is `stalwart`, the runtime SHALL publish the real-mail mailbox binding env vars for that session and SHALL NOT synthesize filesystem path bindings that do not belong to that transport.
+When the selected transport is `stalwart`, the runtime SHALL persist the real-mail mailbox binding metadata needed for later mailbox work and SHALL NOT synthesize filesystem-only mailbox path metadata that does not belong to that transport.
 
-Those Stalwart runtime bindings SHALL expose a runtime-managed authentication reference derived from the secret-free persisted `credential_ref` rather than embedding mailbox secrets directly into the persisted manifest payload.
+Those persisted Stalwart runtime bindings SHALL expose only secret-free transport metadata, with any session-local credential material derived later from persisted references rather than embedded inline in the session manifest.
 
 When no explicit filesystem mailbox content root override is supplied, the runtime SHALL derive the effective filesystem mailbox content root from the independent Houmao mailbox root rather than from the effective runtime root.
 
-When no explicit filesystem mailbox content root override is supplied and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before publishing `AGENTSYS_MAILBOX_FS_ROOT`.
+When no explicit filesystem mailbox content root override is supplied and `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the runtime SHALL derive the effective Houmao mailbox root from that env-var override before persisting or resolving filesystem mailbox state for that session.
 
-When active filesystem mailbox env bindings depend on the current session address having an active mailbox registration, the runtime SHALL bootstrap or confirm that session's mailbox registration before deriving those env bindings for `start-session`.
+When current filesystem mailbox resolution depends on the session address having an active mailbox registration, the runtime SHALL bootstrap or confirm that session's mailbox registration before persisting the durable mailbox binding or serving manager-owned current-mailbox resolution for `start-session`.
 
-The runtime SHALL satisfy that registration-dependent env-binding contract through bootstrap ordering rather than by synthesizing fallback mailbox paths when the active registration is missing.
+The runtime SHALL satisfy that registration-dependent mailbox contract through bootstrap ordering rather than by synthesizing fallback mailbox paths when the active registration is missing.
 
-#### Scenario: Start session projects mailbox system skills with filesystem bindings
+#### Scenario: Start session projects mailbox system skills with a filesystem mailbox binding
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled
 - **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skills destination under the reserved runtime-owned namespace
-- **AND THEN** the runtime starts the session with the filesystem mailbox binding env vars needed by those mailbox system skills
-- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to the effective mailbox content root for that session
+- **AND THEN** the runtime persists one filesystem mailbox binding for that session in the session manifest
+- **AND THEN** later mailbox discovery can derive the effective mailbox content root for that session from that persisted binding
 
-#### Scenario: Start session projects mailbox system skills with Stalwart bindings
+#### Scenario: Start session projects mailbox system skills with a Stalwart mailbox binding
 - **WHEN** a developer starts an agent session with `stalwart` mailbox support enabled
 - **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skills destination under the reserved runtime-owned namespace
-- **AND THEN** the runtime starts the session with the email mailbox binding env vars needed by those mailbox system skills
-- **AND THEN** the runtime does not populate filesystem mailbox root or mailbox-path bindings for that Stalwart session
+- **AND THEN** the runtime persists one secret-free `stalwart` mailbox binding for that session in the session manifest
+- **AND THEN** the runtime does not persist filesystem mailbox root or mailbox-path metadata for that Stalwart session
 
-#### Scenario: Start session defaults filesystem mailbox root from the Houmao mailbox root
+#### Scenario: Start session defaults the filesystem mailbox root from the Houmao mailbox root
 - **WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
 - **THEN** the runtime derives the effective filesystem mailbox content root from the Houmao mailbox root default
-- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived default path
+- **AND THEN** the persisted session mailbox binding reflects that derived default path
 
 #### Scenario: Mailbox-root env-var override redirects the effective mailbox root
 - **WHEN** `AGENTSYS_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
 - **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
 - **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
-- **AND THEN** the runtime sets `AGENTSYS_MAILBOX_FS_ROOT` to that derived path
+- **AND THEN** the persisted session mailbox binding reflects that derived path
 
 #### Scenario: Second mailbox-enabled session joins an initialized shared mailbox root without manual pre-registration
 - **WHEN** one mailbox-enabled session has already initialized and registered itself into a shared filesystem mailbox root
 - **AND WHEN** a second mailbox-enabled session starts against that same shared mailbox root with its own mailbox address
-- **THEN** the runtime bootstraps or confirms the second session's mailbox registration before deriving registration-dependent filesystem mailbox env bindings
+- **THEN** the runtime bootstraps or confirms the second session's mailbox registration before persisting registration-dependent filesystem mailbox state for that session
 - **AND THEN** the second `start-session` succeeds without requiring manual mailbox pre-registration outside the runtime startup path
-
-### Requirement: Runtime sessions support filesystem mailbox binding refresh
-The runtime SHALL support an explicit control path that refreshes filesystem mailbox binding env vars for an active session without requiring regeneration of the mailbox system skill templates.
-
-#### Scenario: Refresh mailbox bindings for an active session
-- **WHEN** a developer or orchestrator requests filesystem mailbox-binding refresh for an active session
-- **THEN** the runtime updates the filesystem mailbox binding env vars for that session
-- **AND THEN** the runtime updates the persisted session manifest to match the refreshed mailbox binding state
-- **AND THEN** subsequent runtime-controlled work in that session uses the refreshed filesystem mailbox bindings
-
-### Requirement: Tmux-backed sessions publish live-refreshable mailbox bindings into tmux session environment
-For tmux-backed managed sessions, the runtime SHALL treat the targeted mailbox env vars published in tmux session environment as the live mailbox projection for subsequent mailbox work.
-
-That live projection SHALL coexist with the persisted manifest mailbox payload rather than replacing it:
-
-- the manifest remains the durable mailbox capability record for resume, registry publication, and gateway adapter construction,
-- the tmux session env carries the effective live mailbox projection for the current tmux-contained session,
-- inherited provider process env MAY remain as a launch-time snapshot but SHALL NOT be the only authoritative live mailbox source after late mailbox mutation.
-
-When runtime-owned mailbox mutation changes the effective mailbox binding for a tmux-backed managed session, the runtime SHALL update or unset the targeted mailbox env vars in that tmux session without requiring provider relaunch solely for mailbox binding refresh.
-
-For joined tmux-backed sessions, that rule SHALL continue to apply even when the joined relaunch posture is unavailable, provided the runtime still has the local managed authority needed to update durable mailbox state and the owning tmux session environment.
-
-When the selected transport requires session-local materialization before direct mailbox work is actionable, the runtime SHALL complete that materialization before publishing the refreshed live mailbox projection.
-
-#### Scenario: Late filesystem mailbox registration refreshes live mailbox projection without relaunch
-- **WHEN** the runtime late-registers a filesystem mailbox binding for a tmux-backed managed session
-- **THEN** it persists the mailbox binding into the session manifest
-- **AND THEN** it publishes the current common and filesystem-specific `AGENTSYS_MAILBOX_*` values plus the refreshed `AGENTSYS_MAILBOX_BINDINGS_VERSION` into the owning tmux session environment
-- **AND THEN** subsequent mailbox-related work for that managed session can resolve the refreshed mailbox binding without requiring provider relaunch solely for mailbox env refresh
-
-#### Scenario: Joined tmux session without relaunch posture still refreshes the live mailbox projection
-- **WHEN** the runtime late-registers a filesystem mailbox binding for a joined tmux-backed managed session whose relaunch posture is unavailable
-- **AND WHEN** the owning tmux session remains reachable and local controller authority is intact
-- **THEN** it persists the mailbox binding into the session manifest
-- **AND THEN** it publishes the refreshed targeted `AGENTSYS_MAILBOX_*` projection into the owning tmux session environment
-- **AND THEN** subsequent mailbox-related work for that joined session can resolve the refreshed mailbox binding without requiring joined-session relaunch posture
-
-#### Scenario: Late mailbox unregistration clears the live tmux mailbox projection
-- **WHEN** the runtime late-unregisters mailbox support from a tmux-backed managed session
-- **THEN** it removes the durable mailbox binding from the session manifest
-- **AND THEN** it unsets the targeted mailbox binding env vars from the owning tmux session environment
-- **AND THEN** subsequent mailbox-related work for that session no longer treats it as mailbox-enabled
-
-#### Scenario: Stalwart live mailbox projection waits for session-local credential materialization
-- **WHEN** the runtime refreshes or late-registers a `stalwart` mailbox binding for a tmux-backed managed session
-- **THEN** it preserves the secret-free durable transport metadata in the manifest
-- **AND THEN** it materializes or validates the session-local credential file needed for direct mailbox work before publishing the live `AGENTSYS_MAILBOX_EMAIL_*` projection into tmux session environment
-- **AND THEN** the live mailbox binding is not treated as actionable until that session-local credential material is available
 
 ### Requirement: Runtime CLI exposes top-level agent-mediated mailbox operations for resumed sessions
 The runtime CLI SHALL expose a top-level `mail` command surface for resumed mailbox-enabled sessions.
@@ -506,27 +457,27 @@ The structured request payload for `send` and `reply` SHALL NOT include an `inst
 - **THEN** the structured mailbox request payload contains the target `message_id` and explicit body content for the reply
 - **AND THEN** that payload does not depend on free-form instruction text to determine the reply content
 
-### Requirement: Runtime filesystem mailbox env bindings follow the active mailbox registration path
-When the runtime starts or refreshes a mailbox-enabled filesystem session, it SHALL derive mailbox filesystem bindings from the active mailbox registration rather than by reconstructing a mailbox path from `principal_id`.
+### Requirement: Runtime filesystem mailbox resolution follows the active mailbox registration path
+When the runtime resolves current mailbox state for a filesystem-backed session, it SHALL derive registration-dependent filesystem paths from the active mailbox registration for the session's bound mailbox address rather than by reconstructing a mailbox path from `principal_id`.
 
-At minimum, `AGENTSYS_MAILBOX_FS_INBOX_DIR` SHALL point at the inbox path for the active mailbox registration for the session's bound mailbox address.
+At minimum, the manager-owned current-mailbox resolution path SHALL report the active inbox path for the session's bound mailbox address when that address has an active registration.
 
-If runtime bootstrap or refresh can detect that the target mailbox root still uses the unsupported principal-keyed layout from the earlier implementation, it SHALL fail explicitly and direct the operator to delete and re-bootstrap that mailbox root.
+If runtime bootstrap or later current-mailbox resolution can detect that the target mailbox root still uses the unsupported principal-keyed layout from the earlier implementation, it SHALL fail explicitly and direct the operator to delete and re-bootstrap that mailbox root.
 
-#### Scenario: Start session publishes address-based inbox binding
-- **WHEN** the runtime starts a mailbox-enabled session whose active registration is `AGENTSYS-research@agents.localhost`
-- **THEN** `AGENTSYS_MAILBOX_FS_INBOX_DIR` points at the inbox path for that active registration
+#### Scenario: Current mailbox resolution reports the active address-based inbox path
+- **WHEN** the runtime resolves current mailbox state for a filesystem-backed session whose active registration is `AGENTSYS-research@agents.localhost`
+- **THEN** the resolved inbox path points at the inbox for that active registration
 - **AND THEN** the runtime does not derive that path by concatenating `mailboxes/<principal_id>/inbox`
 
-#### Scenario: Refresh mailbox bindings follows the current active registration path
-- **WHEN** the runtime refreshes mailbox bindings for an active mailbox-enabled session after resolving the active registration
-- **THEN** `AGENTSYS_MAILBOX_FS_INBOX_DIR` is updated from the active mailbox registration path for that address
-- **AND THEN** subsequent runtime-controlled mailbox work uses the refreshed path
+#### Scenario: Updated registration changes derived filesystem mailbox paths
+- **WHEN** the runtime resolves current mailbox state for an active filesystem-backed session after the active mailbox registration changes for the bound address
+- **THEN** the resolved filesystem mailbox paths follow the current active registration for that address
+- **AND THEN** subsequent runtime-controlled mailbox work uses the refreshed derived path set
 
-#### Scenario: Unsupported stale mailbox root fails binding refresh explicitly
-- **WHEN** the runtime attempts to bootstrap or refresh mailbox bindings against a stale principal-keyed mailbox root from the earlier implementation
+#### Scenario: Unsupported stale mailbox root fails current mailbox resolution explicitly
+- **WHEN** the runtime attempts to bootstrap or resolve current filesystem mailbox state against a stale principal-keyed mailbox root from the earlier implementation
 - **THEN** the runtime fails explicitly
-- **AND THEN** the error tells the operator to delete and re-bootstrap the mailbox root rather than silently deriving incorrect bindings
+- **AND THEN** the error tells the operator to delete and re-bootstrap the mailbox root rather than silently deriving incorrect paths
 
 ### Requirement: Runtime-generated CAO agent profiles from roles
 When using CAO, the system SHALL generate CAO agent profiles at runtime from repo role packages rather than requiring committed/static CAO profile files.
@@ -2667,4 +2618,3 @@ This rule SHALL apply equally to current tools such as Claude Code and Codex and
 - **AND WHEN** the caller also supplies low-level startup inputs that would weaken the unattended strategy's owned launch surfaces
 - **THEN** the runtime replaces or removes those conflicting effective startup inputs before provider start
 - **AND THEN** the resulting Claude launch still uses the unattended strategy's startup policy
-

@@ -22,17 +22,17 @@ If the managed session is not mailbox-enabled, notifier enablement SHALL fail ex
 The gateway SHALL determine notifier support from two inputs:
 
 - the durable mailbox capability published in the runtime-owned session manifest referenced by the attach contract's `manifest_path`,
-- the current live mailbox actionability state for the attached session.
+- the current actionable mailbox state derived from that durable mailbox binding.
 
 The gateway SHALL continue using the manifest as the durable mailbox capability source and SHALL NOT introduce a second persisted mailbox-capability flag in gateway-owned attach or notifier state.
 
-For tmux-backed sessions, live mailbox actionability SHALL be evaluated from the current targeted `AGENTSYS_MAILBOX_*` projection published in the owning tmux session environment rather than from the provider process's inherited launch-time env snapshot.
+For tmux-backed sessions, current mailbox actionability SHALL be evaluated from runtime-owned validation of the manifest-backed mailbox binding rather than from mailbox-specific `AGENTSYS_MAILBOX_*` projection in the owning tmux session environment.
 
-For joined tmux-backed sessions, notifier support SHALL NOT treat unavailable relaunch posture as an additional readiness precondition once durable mailbox capability and live mailbox actionability are both satisfied.
+For joined tmux-backed sessions, notifier support SHALL NOT treat unavailable relaunch posture as an additional readiness precondition once durable mailbox capability and actionable mailbox validation are both satisfied.
 
 If that manifest pointer is missing, unreadable, unparsable, or its launch plan has no mailbox binding, enabling notifier behavior SHALL fail explicitly and SHALL leave notifier inactive.
 
-If the manifest exposes durable mailbox capability but the current live mailbox projection is unavailable, incomplete, or fails transport-specific validation for actionable mailbox work, notifier enablement SHALL fail explicitly and SHALL leave notifier inactive.
+If the manifest exposes durable mailbox capability but the resulting mailbox binding cannot be validated as actionable for notifier work, notifier enablement SHALL fail explicitly and SHALL leave notifier inactive.
 
 #### Scenario: Mail notifier is enabled with an explicit interval
 - **WHEN** a caller sends `PUT /v1/mail-notifier` with `enabled=true` and `interval_seconds=60`
@@ -54,24 +54,24 @@ If the manifest exposes durable mailbox capability but the current live mailbox 
 - **THEN** the gateway rejects that notifier enablement explicitly
 - **AND THEN** it does not treat any gateway-owned attach or notifier artifact as a substitute mailbox-capability source
 
-#### Scenario: Tmux-backed late registration becomes notifier-ready after live mailbox projection refresh
+#### Scenario: Tmux-backed late registration becomes notifier-ready after durable binding validation
 - **WHEN** a tmux-backed managed session has a durable mailbox binding in its manifest
-- **AND WHEN** the owning tmux session environment publishes the current actionable mailbox projection for that binding
-- **THEN** the gateway treats notifier support as available for that session without requiring provider relaunch solely to refresh inherited process env
-- **AND THEN** notifier enablement may proceed using that durable-plus-live mailbox contract
+- **AND WHEN** runtime-owned mailbox validation reports that binding as actionable for notifier work
+- **THEN** the gateway treats notifier support as available for that session without requiring provider relaunch or mailbox-specific tmux env refresh
+- **AND THEN** notifier enablement may proceed using that durable-plus-validated mailbox contract
 
 #### Scenario: Joined tmux session without relaunch posture becomes notifier-ready after late registration
 - **WHEN** a joined tmux-backed managed session has a durable mailbox binding in its manifest
 - **AND WHEN** that joined session's relaunch posture is unavailable
-- **AND WHEN** the owning tmux session environment publishes the current actionable mailbox projection for that binding
+- **AND WHEN** runtime-owned mailbox validation reports that binding as actionable for notifier work
 - **THEN** the gateway treats notifier support as available for that joined session
 - **AND THEN** notifier enablement may proceed without requiring joined-session relaunch posture
 
-#### Scenario: Durable mailbox presence without live mailbox actionability rejects notifier enablement
+#### Scenario: Durable mailbox presence without actionable validation rejects notifier enablement
 - **WHEN** a tmux-backed managed session has a durable mailbox binding in its manifest
-- **AND WHEN** the owning tmux session environment lacks the current actionable mailbox projection or a required transport-local live prerequisite
+- **AND WHEN** runtime-owned mailbox validation fails or required transport-local prerequisite material is unavailable for notifier work
 - **THEN** the gateway rejects notifier enablement explicitly
-- **AND THEN** notifier status reports that the session is not yet live-mailbox-actionable for notifier work
+- **AND THEN** notifier status reports that the session is not yet actionable for notifier work
 
 ### Requirement: Gateway mail notifier polls gateway-owned mailbox state and only schedules notifications when the agent is idle
 The gateway mail notifier SHALL inspect unread-mail state through the gateway-owned shared mailbox facade for the managed session rather than by reading filesystem mailbox-local SQLite directly.
