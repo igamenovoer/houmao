@@ -12,6 +12,7 @@ from houmao.mailbox import (
     resolve_filesystem_mailbox_paths,
 )
 from houmao.mailbox.managed import DeliveryRequest, ManagedPrincipal, deliver_message
+from houmao.project.overlay import PROJECT_OVERLAY_DIR_ENV_VAR
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -539,6 +540,77 @@ def test_project_mailbox_register_prompts_before_overwrite(
     assert result.exit_code == 0, result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
     assert registration.owner_principal_id == "AGENTSYS-bob"
+
+
+def test_project_mailbox_uses_env_selected_overlay_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+    env = {PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root)}
+
+    assert runner.invoke(cli, ["project", "init"], env=env).exit_code == 0
+    assert runner.invoke(cli, ["project", "mailbox", "init"], env=env).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "mailbox",
+                "register",
+                "--address",
+                "AGENTSYS-alice@agents.localhost",
+                "--principal-id",
+                "AGENTSYS-alice",
+            ],
+            env=env,
+        ).exit_code
+        == 0
+    )
+
+    generic_list_result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "accounts",
+            "list",
+            "--mailbox-root",
+            str(overlay_root / "mailbox"),
+        ],
+    )
+    project_list_result = runner.invoke(cli, ["project", "mailbox", "accounts", "list"], env=env)
+
+    assert generic_list_result.exit_code == 0, generic_list_result.output
+    assert project_list_result.exit_code == 0, project_list_result.output
+    generic_accounts = json.loads(generic_list_result.output)["accounts"]
+    project_accounts = json.loads(project_list_result.output)["accounts"]
+    assert [(item["address"], item["status"]) for item in generic_accounts] == [
+        (item["address"], item["status"]) for item in project_accounts
+    ]
+
+
+def test_project_mailbox_env_selected_overlay_without_config_fails_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(
+        cli,
+        ["project", "mailbox", "status"],
+        env={PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root)},
+    )
+
+    assert result.exit_code != 0
+    assert str(overlay_root) in result.output
 
 
 def test_project_mailbox_register_yes_overwrites_without_tty(

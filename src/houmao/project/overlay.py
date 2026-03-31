@@ -18,11 +18,13 @@ PROJECT_CONFIG_FILENAME = "houmao-config.toml"
 PROJECT_GITIGNORE_FILENAME = ".gitignore"
 PROJECT_EASY_DIRNAME = "easy"
 PROJECT_MAILBOX_DIRNAME = "mailbox"
+PROJECT_OVERLAY_DIR_ENV_VAR = "HOUMAO_PROJECT_OVERLAY_DIR"
 DEFAULT_AGENT_DEF_DIR = Path(".houmao") / "agents"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
 _STARTER_ASSET_ROOT = "starter_agents"
 
-AgentDefDirSource = Literal["cli", "env", "project_config", "default"]
+AgentDefDirSource = Literal["cli", "env", "project_config", "project_overlay_env", "default"]
+ProjectOverlaySource = Literal["env", "discovered", "default"]
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,15 @@ class AgentDefDirResolution:
 
 
 @dataclass(frozen=True)
+class ProjectOverlayResolution:
+    """Resolved active project-overlay root for project-aware commands."""
+
+    overlay_root: Path
+    source: ProjectOverlaySource
+    project_overlay: HoumaoProjectOverlay | None = None
+
+
+@dataclass(frozen=True)
 class ProjectInitResult:
     """Filesystem changes performed while bootstrapping one project overlay."""
 
@@ -100,7 +111,13 @@ def project_overlay_root(project_root: Path) -> Path:
 def project_config_path(project_root: Path) -> Path:
     """Return the repo-local `houmao-config.toml` path for one project root."""
 
-    return (project_overlay_root(project_root) / PROJECT_CONFIG_FILENAME).resolve()
+    return overlay_config_path(project_overlay_root(project_root))
+
+
+def overlay_config_path(overlay_root: Path) -> Path:
+    """Return the `houmao-config.toml` path for one overlay root."""
+
+    return (overlay_root.resolve() / PROJECT_CONFIG_FILENAME).resolve()
 
 
 def render_default_project_config() -> str:
@@ -115,22 +132,31 @@ def default_project_gitignore() -> str:
     return "*\n"
 
 
-def discover_project_overlay(start_directory: Path) -> HoumaoProjectOverlay | None:
+def discover_project_overlay(
+    start_directory: Path,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> HoumaoProjectOverlay | None:
     """Return the nearest ancestor repo-local Houmao overlay when present."""
 
-    resolved_start = start_directory.resolve()
-    for candidate_root in (resolved_start, *resolved_start.parents):
-        candidate_config = (candidate_root / PROJECT_DIRNAME / PROJECT_CONFIG_FILENAME).resolve()
-        if candidate_config.is_file():
-            return load_project_overlay(candidate_config)
-    return None
+    return resolve_project_overlay(cwd=start_directory, env=env).project_overlay
 
 
-def require_project_overlay(start_directory: Path) -> HoumaoProjectOverlay:
+def require_project_overlay(
+    start_directory: Path,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> HoumaoProjectOverlay:
     """Return the nearest discovered project overlay or raise one actionable error."""
 
-    project_overlay = discover_project_overlay(start_directory.resolve())
+    resolution = resolve_project_overlay(cwd=start_directory.resolve(), env=env)
+    project_overlay = resolution.project_overlay
     if project_overlay is None:
+        if resolution.source == "env":
+            raise ValueError(
+                "No local Houmao project overlay was discovered at "
+                f"`{resolution.overlay_root}`. Run `houmao-mgr project init` first."
+            )
         raise ValueError(
             "No local Houmao project overlay was discovered from the current directory. "
             "Run `houmao-mgr project init` first."
@@ -160,6 +186,50 @@ def load_project_overlay(config_path: Path) -> HoumaoProjectOverlay:
     )
 
 
+def resolve_project_overlay(
+    *,
+    cwd: Path,
+    env: Mapping[str, str] | None = None,
+) -> ProjectOverlayResolution:
+    """Resolve the active project-overlay root for project-aware commands."""
+
+    resolved_cwd = cwd.resolve()
+    overlay_root_override = _resolve_project_overlay_dir_env_override(env=env)
+    if overlay_root_override is not None:
+        project_overlay = _load_project_overlay_from_root(overlay_root_override)
+        return ProjectOverlayResolution(
+            overlay_root=overlay_root_override,
+            source="env",
+            project_overlay=project_overlay,
+        )
+
+    project_overlay = _discover_nearest_project_overlay(resolved_cwd)
+    if project_overlay is not None:
+        return ProjectOverlayResolution(
+            overlay_root=project_overlay.overlay_root,
+            source="discovered",
+            project_overlay=project_overlay,
+        )
+
+    return ProjectOverlayResolution(
+        overlay_root=(resolved_cwd / PROJECT_DIRNAME).resolve(),
+        source="default",
+    )
+
+
+def resolve_project_init_overlay_root(
+    *,
+    cwd: Path,
+    env: Mapping[str, str] | None = None,
+) -> Path:
+    """Resolve the overlay root `project init` should bootstrap."""
+
+    overlay_root_override = _resolve_project_overlay_dir_env_override(env=env)
+    if overlay_root_override is not None:
+        return overlay_root_override
+    return (cwd.resolve() / PROJECT_DIRNAME).resolve()
+
+
 def resolve_project_aware_agent_def_dir(
     *,
     cwd: Path,
@@ -183,12 +253,18 @@ def resolve_project_aware_agent_def_dir(
             source="env",
         )
 
-    project_overlay = discover_project_overlay(resolved_cwd)
+    overlay_resolution = resolve_project_overlay(cwd=resolved_cwd, env=env_mapping)
+    project_overlay = overlay_resolution.project_overlay
     if project_overlay is not None:
         return AgentDefDirResolution(
             agent_def_dir=project_overlay.agent_def_dir,
             source="project_config",
             project_overlay=project_overlay,
+        )
+    if overlay_resolution.source == "env":
+        return AgentDefDirResolution(
+            agent_def_dir=(overlay_resolution.overlay_root / "agents").resolve(),
+            source="project_overlay_env",
         )
 
     return AgentDefDirResolution(
@@ -220,19 +296,31 @@ def bootstrap_project_overlay(
     *,
     include_compatibility_profiles: bool = False,
 ) -> ProjectInitResult:
+    """Create or validate one repo-local Houmao project overlay from a project root."""
+
+    return bootstrap_project_overlay_at_root(
+        project_overlay_root(project_root),
+        include_compatibility_profiles=include_compatibility_profiles,
+    )
+
+
+def bootstrap_project_overlay_at_root(
+    overlay_root: Path,
+    *,
+    include_compatibility_profiles: bool = False,
+) -> ProjectInitResult:
     """Create or validate one repo-local Houmao project overlay."""
 
-    resolved_project_root = project_root.resolve()
-    overlay_root = project_overlay_root(resolved_project_root)
-    config_path = project_config_path(resolved_project_root)
-    catalog_path = (overlay_root / PROJECT_CATALOG_FILENAME).resolve()
-    content_root = (overlay_root / PROJECT_CONTENT_DIRNAME).resolve()
+    resolved_overlay_root = overlay_root.resolve()
+    config_path = overlay_config_path(resolved_overlay_root)
+    catalog_path = (resolved_overlay_root / PROJECT_CATALOG_FILENAME).resolve()
+    content_root = (resolved_overlay_root / PROJECT_CONTENT_DIRNAME).resolve()
     created_directories: list[Path] = []
     written_files: list[Path] = []
     preserved_files: list[Path] = []
 
     bootstrap_directories = [
-        overlay_root,
+        resolved_overlay_root,
         content_root,
         content_root / "prompts",
         content_root / "auth",
@@ -243,7 +331,7 @@ def bootstrap_project_overlay(
     for directory in bootstrap_directories:
         _ensure_directory(directory, created_directories=created_directories)
 
-    gitignore_path = (overlay_root / PROJECT_GITIGNORE_FILENAME).resolve()
+    gitignore_path = (resolved_overlay_root / PROJECT_GITIGNORE_FILENAME).resolve()
     _ensure_default_gitignore(
         gitignore_path,
         written_files=written_files,
@@ -281,6 +369,43 @@ def bootstrap_project_overlay(
         written_files=tuple(dict.fromkeys(written_files)),
         preserved_files=tuple(dict.fromkeys(preserved_files)),
     )
+
+
+def _discover_nearest_project_overlay(start_directory: Path) -> HoumaoProjectOverlay | None:
+    """Return the nearest ancestor repo-local Houmao overlay when present."""
+
+    resolved_start = start_directory.resolve()
+    for candidate_root in (resolved_start, *resolved_start.parents):
+        candidate_config = overlay_config_path(candidate_root / PROJECT_DIRNAME)
+        if candidate_config.is_file():
+            return load_project_overlay(candidate_config)
+    return None
+
+
+def _load_project_overlay_from_root(overlay_root: Path) -> HoumaoProjectOverlay | None:
+    """Load one project overlay from its root when the config is present."""
+
+    config_path = overlay_config_path(overlay_root)
+    if not config_path.is_file():
+        return None
+    return load_project_overlay(config_path)
+
+
+def _resolve_project_overlay_dir_env_override(
+    *,
+    env: Mapping[str, str] | None,
+) -> Path | None:
+    """Resolve one optional absolute project-overlay override from the environment."""
+
+    env_mapping = dict(os.environ) if env is None else dict(env)
+    env_value = env_mapping.get(PROJECT_OVERLAY_DIR_ENV_VAR)
+    if env_value is None or not env_value.strip():
+        return None
+
+    candidate = Path(env_value.strip()).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError(f"`{PROJECT_OVERLAY_DIR_ENV_VAR}` must be an absolute path.")
+    return candidate.resolve()
 
 
 def ensure_project_agent_compatibility_tree(

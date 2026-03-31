@@ -170,7 +170,10 @@ def _optional_path(value: str | None, *, base: Path) -> Path | None:
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
     """Resolve the agent-definition root used for local brain construction."""
 
-    return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    try:
+        return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _resolve_path(value: str, *, base: Path) -> Path:

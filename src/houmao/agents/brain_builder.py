@@ -40,7 +40,10 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_id,
     normalize_managed_agent_name,
 )
-from houmao.project.overlay import resolve_materialized_project_aware_agent_def_dir
+from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+    resolve_materialized_project_aware_agent_def_dir,
+)
 
 
 class BuildError(RuntimeError):
@@ -744,7 +747,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help=(
             "Agent definition directory root (contains tools/, skills/, and roles/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > nearest ancestor "
+            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > "
+            f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
             ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
         ),
     )
@@ -897,7 +901,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
-    return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    """Resolve the ambient agent-definition root for the standalone builder CLI."""
+
+    try:
+        return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
 
 
 if __name__ == "__main__":

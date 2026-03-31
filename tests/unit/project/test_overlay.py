@@ -7,7 +7,10 @@ import pytest
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.project.overlay import (
     bootstrap_project_overlay,
+    bootstrap_project_overlay_at_root,
     discover_project_overlay,
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+    resolve_project_overlay,
     resolve_project_aware_agent_def_dir,
 )
 
@@ -54,6 +57,7 @@ def test_resolve_project_aware_agent_def_dir_discovers_nearest_project_overlay(
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(PROJECT_OVERLAY_DIR_ENV_VAR, raising=False)
     project_root = (tmp_path / "repo").resolve()
     nested_dir = project_root / "a" / "b" / "c"
     nested_dir.mkdir(parents=True, exist_ok=True)
@@ -72,6 +76,7 @@ def test_resolve_project_aware_agent_def_dir_falls_back_to_houmao_default(
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(PROJECT_OVERLAY_DIR_ENV_VAR, raising=False)
     workdir = (tmp_path / "workspace").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
@@ -79,6 +84,75 @@ def test_resolve_project_aware_agent_def_dir_falls_back_to_houmao_default(
 
     assert resolution.source == "default"
     assert resolution.agent_def_dir == (workdir / ".houmao" / "agents").resolve()
+
+
+def test_resolve_project_aware_agent_def_dir_uses_overlay_env_before_ancestor_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = repo_root / "nested"
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    bootstrap_project_overlay_at_root(overlay_root)
+    monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
+
+    resolution = resolve_project_aware_agent_def_dir(cwd=nested_dir)
+
+    assert resolution.source == "project_config"
+    assert resolution.project_overlay is not None
+    assert resolution.project_overlay.overlay_root == overlay_root
+    assert resolution.agent_def_dir == (overlay_root / "agents").resolve()
+
+
+def test_resolve_project_aware_agent_def_dir_uses_overlay_env_agents_root_without_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    workdir = (tmp_path / "workspace").resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
+
+    resolution = resolve_project_aware_agent_def_dir(cwd=workdir)
+
+    assert resolution.source == "project_overlay_env"
+    assert resolution.project_overlay is None
+    assert resolution.agent_def_dir == (overlay_root / "agents").resolve()
+
+
+def test_resolve_project_overlay_env_override_blocks_ancestor_discovery_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = repo_root / "nested"
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
+
+    resolution = resolve_project_overlay(cwd=nested_dir)
+
+    assert resolution.source == "env"
+    assert resolution.overlay_root == overlay_root
+    assert resolution.project_overlay is None
+
+
+def test_resolve_project_aware_agent_def_dir_rejects_relative_overlay_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    workdir = (tmp_path / "workspace").resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, "relative/overlay")
+
+    with pytest.raises(ValueError, match="HOUMAO_PROJECT_OVERLAY_DIR"):
+        resolve_project_aware_agent_def_dir(cwd=workdir)
 
 
 def test_bootstrap_project_overlay_discovers_created_overlay(tmp_path: Path) -> None:
