@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the documentation requirements for Houmao getting-started documentation.
-
 ## Requirements
-
 ### Requirement: Architecture overview explains two-phase lifecycle
 
 The getting-started section SHALL include an architecture overview document that explains the two-phase lifecycle (build phase → run phase), the agent definition directory model, the backend abstraction, and the current operator-facing CLI surfaces. The content SHALL be derived from `brain_builder.py`, `realm_controller/`, and the current `houmao-mgr` and `houmao-server` command trees.
@@ -22,7 +20,7 @@ The getting-started section SHALL include an architecture overview document that
 
 ### Requirement: Agent definition directory layout documented
 
-The getting-started section SHALL include a page documenting the repo-local Houmao project overlay rooted at `.houmao/`, including:
+The getting-started section SHALL include a page documenting the default Houmao project overlay rooted at `.houmao/` beneath the working directory, including:
 
 - `.houmao/houmao-config.toml`
 - `.houmao/.gitignore`
@@ -36,6 +34,7 @@ The getting-started section SHALL include a page documenting the repo-local Houm
 - optional `.houmao/mailbox/`
 
 That page SHALL explain the purpose of each subdirectory and SHALL make clear that the `.houmao/` overlay is local-only by default.
+That page SHALL document `HOUMAO_PROJECT_OVERLAY_DIR` as an absolute-path env override for selecting the overlay directory directly in CI or controlled automation.
 
 That page SHALL distinguish:
 
@@ -46,9 +45,9 @@ That page SHALL distinguish:
 That page SHALL make clear that `.houmao/agents/compatibility-profiles/` is optional specialized metadata and is not created by default during `project init`.
 
 #### Scenario: Reader can initialize and interpret a new local Houmao project overlay
-
 - **WHEN** a reader follows the agent definition directory page
-- **THEN** they understand that `houmao-mgr project init` creates the local `.houmao/` overlay and local `agents/` source tree
+- **THEN** they understand that `houmao-mgr project init` creates the local `.houmao/` overlay by default
+- **AND THEN** they understand that `HOUMAO_PROJECT_OVERLAY_DIR` can redirect the overlay directory directly for CI
 - **AND THEN** they understand that `.houmao/agents/compatibility-profiles/` is created only when explicitly enabled
 - **AND THEN** they understand that `.houmao/mailbox/` is a project-local mailbox root created only when mailbox workflows are enabled explicitly
 - **AND THEN** they understand which files are local-only, including the whole `.houmao/` overlay and `tools/<tool>/auth/`
@@ -58,10 +57,12 @@ Repo-owned onboarding docs that explain local build and launch workflows SHALL d
 
 1. explicit CLI `--agent-def-dir`,
 2. `AGENTSYS_AGENT_DEF_DIR`,
-3. nearest ancestor `.houmao/houmao-config.toml`,
-4. default fallback `<cwd>/.houmao/agents`.
+3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
+4. nearest ancestor `.houmao/houmao-config.toml`,
+5. default fallback `<cwd>/.houmao/agents`.
 
-Those docs SHALL describe `.houmao/houmao-config.toml` as the project-discovery anchor for the catalog-backed overlay and `.houmao/agents/` as the compatibility projection used when file-tree consumers need a local agent-definition root.
+Those docs SHALL describe `HOUMAO_PROJECT_OVERLAY_DIR` as an absolute-path env override for selecting the overlay directory directly, and SHALL describe `houmao-config.toml` as the discovery anchor within the selected overlay directory.
+Those docs SHALL describe `agents/` as the compatibility projection used when file-tree consumers need a local agent-definition root.
 They SHALL NOT describe `.agentsys` as a supported default or fallback path for current workflows.
 
 At minimum, this requirement SHALL apply to:
@@ -70,10 +71,11 @@ At minimum, this requirement SHALL apply to:
 - getting-started pages that explain the `.houmao/` overlay and local launch flow,
 - current CLI-facing onboarding pages linked from getting-started content.
 
-#### Scenario: Reader sees the catalog-backed `.houmao` overlay and `.houmao`-only precedence in onboarding docs
+#### Scenario: Reader sees the catalog-backed `.houmao` overlay and `HOUMAO_PROJECT_OVERLAY_DIR` precedence in onboarding docs
 - **WHEN** a reader follows the repo-owned onboarding docs for local build and launch
-- **THEN** the docs describe the catalog-backed `.houmao` overlay with `.houmao/houmao-config.toml` as the discovery anchor
-- **AND THEN** the docs describe ambient agent-definition lookup using `.houmao/houmao-config.toml` and the default `<cwd>/.houmao/agents`
+- **THEN** the docs describe the catalog-backed `.houmao` overlay with `houmao-config.toml` as the discovery anchor
+- **AND THEN** the docs describe `HOUMAO_PROJECT_OVERLAY_DIR` between `AGENTSYS_AGENT_DEF_DIR` and nearest-ancestor discovery
+- **AND THEN** the docs describe ambient agent-definition lookup using `houmao-config.toml` and the default `<cwd>/.houmao/agents`
 - **AND THEN** the docs do not present `<cwd>/.agentsys/agents` as a supported fallback
 
 #### Scenario: Reader is not told to preserve `.agentsys` during local setup
@@ -189,3 +191,4 @@ The getting-started documentation SHALL point readers to `scripts/demo/minimal-a
 
 - **WHEN** a reader follows the getting-started quickstart for preset-backed build and launch
 - **THEN** the page points them to `scripts/demo/minimal-agent-launch/` as the maintained minimal end-to-end example for local launch
+

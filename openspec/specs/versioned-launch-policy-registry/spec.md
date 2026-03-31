@@ -1,8 +1,6 @@
 ## Purpose
 Define the runtime-owned registry contract for version-scoped launch-policy strategies that suppress startup operator prompts for supported tools and backends.
-
 ## Requirements
-
 ### Requirement: Launch policy strategies are version-scoped and runtime-owned
 The system SHALL maintain a runtime-owned launch policy registry for supported tools and backends. Each registry strategy SHALL bind one operator prompt policy mode to one or more compatible tool-version ranges and backends.
 
@@ -27,25 +25,44 @@ The `supported_versions` field SHALL use one dependency-style version-specifier 
 - **AND THEN** strategy selection remains deterministic for a given tool, backend, policy mode, and detected version
 
 ### Requirement: Strategies declare minimal input contract and evidence provenance
-Each launch policy strategy SHALL declare the minimal input contract it supports and the evidence basis for its behavior assumptions.
+Each launch policy strategy SHALL declare the unattended-compatibility contract it supports and the evidence basis for its behavior assumptions.
+
+This unattended-compatibility ownership model SHALL apply to every Houmao-launched agent backend that participates in the launch-policy registry, whether TUI or headless.
 
 At minimum, strategy metadata SHALL be able to describe:
 
-- the supported credential/input forms
-- whether user-prepared provider config/state files are required
-- which parts of the strategy are backed by official docs, local source/reference analysis, or live-probe observations
-- which runtime-owned file paths and logical subpaths the strategy is allowed to mutate
+- the startup-suppression surfaces the strategy owns, including runtime-home file paths, logical subpaths, and equivalent launch-arg surfaces,
+- the credential-readiness inputs or validation contract required after provider selection is resolved,
+- whether user-prepared provider config/state files are required,
+- which parts of the strategy are backed by official docs, local source/reference analysis, or live-probe observations,
+- which runtime-owned file paths and logical subpaths the strategy is allowed to mutate.
 
-#### Scenario: Strategy metadata distinguishes documented behavior from observed state
+Credential-readiness metadata SHALL remain separate from unattended-compatibility metadata. A strategy SHALL NOT imply that `auth.json`, API-key presence, or other secret material is itself the definition of no-prompt startup compatibility.
+
+#### Scenario: Strategy metadata separates unattended compatibility from credential readiness
 - **WHEN** a developer inspects a registry strategy for a supported tool version
-- **THEN** they can identify whether the strategy is intended to work from minimal credentials alone
-- **AND THEN** they can identify which startup-suppression assumptions came from official docs versus source/live validation
-- **AND THEN** they can identify the runtime-owned files and subpaths that strategy claims as mutable surface
+- **THEN** they can identify which startup prompts the strategy suppresses through runtime-owned config or launch surfaces
+- **AND THEN** they can identify the credential-readiness contract separately from that no-prompt startup contract
+- **AND THEN** the strategy metadata does not treat a secret form by itself as proof that unattended startup is supported
+
+#### Scenario: Strategy metadata identifies runtime-owned config surfaces explicitly
+- **WHEN** a developer inspects a Codex unattended strategy entry
+- **THEN** the entry declares the runtime-owned `config.toml` keys and equivalent launch-override surfaces it owns
+- **AND THEN** provider-defining setup content outside those declared owned surfaces remains part of the copied baseline rather than implicit strategy ownership
+
+#### Scenario: Future tool strategy uses the same unattended ownership model
+- **WHEN** a future Houmao-launched tool adds an unattended strategy to the registry
+- **THEN** that strategy declares the runtime-owned startup surfaces Houmao must control for unattended launch
+- **AND THEN** the same separation between setup baseline, unattended ownership, and credential readiness applies to that new tool
 
 ### Requirement: Launch policy strategies define ordered pre-launch actions
 A launch policy strategy SHALL define the ordered actions that must be applied before provider start to satisfy the requested prompt policy for the resolved working directory and runtime home.
 
-Those actions SHALL support at minimum CLI argument mutation, runtime-home config or state mutation, trust or bootstrap state management, startup notice/onboarding suppression when required by the version, and pre-launch validation.
+Those actions SHALL run after the selected setup baseline has been projected into the runtime home for the selected tool.
+
+Those actions SHALL support at minimum CLI argument mutation, canonicalization of caller launch args including config-override args that target strategy-owned runtime config, runtime-home config or state mutation, trust or bootstrap state management, startup notice/onboarding suppression when required by the version, and pre-launch validation.
+
+For supported TUI and headless backends, the registry SHALL treat those runtime-owned startup surfaces as authoritative whenever `operator_prompt_mode = unattended`.
 
 The canonical generic action vocabulary SHALL include at minimum:
 
@@ -58,15 +75,17 @@ The canonical generic action vocabulary SHALL include at minimum:
 
 Provider-specific complex behavior SHALL be exposed through stable hook ids referenced from `provider_hook.call`, not through arbitrary executable code embedded in the registry file.
 
-#### Scenario: Strategy applies ordered actions before provider start
+#### Scenario: Strategy applies ordered actions after setup baseline projection
 - **WHEN** the runtime resolves a compatible launch policy strategy
-- **THEN** it applies the strategy's ordered actions before provider process start
+- **AND WHEN** the selected tool setup has already been copied into the runtime home
+- **THEN** the runtime applies the strategy's ordered actions against that runtime copy before provider process start
 - **AND THEN** later actions observe the results of earlier strategy actions for the same runtime home and working directory
 
-#### Scenario: Codex strategy actions include trust and migration-state handling when required by the version
-- **WHEN** the runtime resolves a Codex unattended strategy for a version whose fresh-home startup stops on trust and then a model migration notice
-- **THEN** the ordered action set may include trust state mutation plus model/notice state mutation before provider start
-- **AND THEN** unattended compatibility is evaluated against the full observed startup sequence for that version
+#### Scenario: Codex strategy actions can canonicalize conflicting config-override args
+- **WHEN** the runtime resolves a Codex unattended strategy
+- **AND WHEN** caller-supplied launch overrides include a `-c` config override or direct flag that targets a strategy-owned no-prompt surface such as `approval_policy` or `sandbox_mode`
+- **THEN** ordered pre-launch actions canonicalize the effective startup surface so the strategy-owned unattended behavior still applies before provider start
+- **AND THEN** the runtime does not depend on the caller-supplied conflicting value to achieve unattended startup
 
 #### Scenario: Strategy-owned runtime paths are declared explicitly
 - **WHEN** a developer inspects a Claude or Codex unattended strategy entry
@@ -88,3 +107,4 @@ The registry resolution path SHALL allow a transient strategy-id override for co
 - **WHEN** `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` selects a registry strategy for an unattended launch
 - **THEN** resolution may use that strategy id for the current process
 - **AND THEN** the override does not alter the registry YAML, the recipe, or the resolved brain manifest
+
