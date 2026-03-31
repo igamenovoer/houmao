@@ -17,6 +17,8 @@ Those command families SHALL be documented as Houmao-owned pair commands or Houm
 
 The root group SHALL use `invoke_without_command=True` so that running `houmao-mgr` without arguments prints help text instead of raising a Python exception.
 
+The root group SHALL accept `--print-plain`, `--print-json`, and `--print-fancy` as mutually exclusive flag-value options that control the output formatting style for all subcommands. The resolved print style SHALL be stored in `click.Context.obj["output"]` as an `OutputContext` instance accessible to all subcommands.
+
 Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the supported command tree.
 
 #### Scenario: Native help surface shows the new top-level command families
@@ -28,6 +30,10 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 - **WHEN** an operator runs `houmao-mgr` without any arguments
 - **THEN** the CLI prints help text showing available command groups
 - **AND THEN** the CLI does NOT raise a Python exception or print a stack trace
+
+#### Scenario: Root group help shows print style flags
+- **WHEN** an operator runs `houmao-mgr --help`
+- **THEN** the help output lists `--print-plain`, `--print-json`, and `--print-fancy` as available options
 
 ### Requirement: `houmao-mgr project` exposes repo-local project views
 When `houmao-mgr` exposes the repo-local `project` command family, that family SHALL include:
@@ -752,4 +758,3 @@ Those project-scoped wrappers SHALL NOT add or reintroduce participant-local mut
 - **THEN** the command returns canonical message details together with the selected project-local address projection metadata
 - **AND THEN** the payload shape matches the root-level structural mailbox message detail contract
 - **AND THEN** the payload does not claim a single authoritative participant-local read, starred, archived, or deleted state
-
