@@ -21,6 +21,7 @@ from .common import (
     resolve_server_base_url,
 )
 from .output import emit
+from .project_aware_wording import describe_runtime_root_selection
 from .renderers.server import render_server_status_fancy, render_server_status_plain
 from ...server.commands.serve import run_server, server_serve_options
 from ..server_startup import start_detached_server
@@ -92,7 +93,13 @@ def start_server_command(
         compat_codex_warmup_seconds=compat_codex_warmup_seconds,
         startup_child=startup_child,
     )
-    emit(start_detached_server(config))
+    emit(
+        {
+            **start_detached_server(config).model_dump(mode="json"),
+            "runtime_root": str(config.runtime_root),
+            "runtime_root_detail": describe_runtime_root_selection(explicit_root=runtime_root),
+        }
+    )
 
 
 @server_group.command(name="status")

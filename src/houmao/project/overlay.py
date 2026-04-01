@@ -358,16 +358,24 @@ def resolve_project_aware_local_roots(
         agent_def_dir=agent_def_resolution.agent_def_dir,
         agent_def_dir_source=agent_def_resolution.source,
         runtime_root=(
-            project_overlay.runtime_root if project_overlay is not None else overlay_root / PROJECT_RUNTIME_DIRNAME
+            project_overlay.runtime_root
+            if project_overlay is not None
+            else overlay_root / PROJECT_RUNTIME_DIRNAME
         ).resolve(),
         jobs_root=(
-            project_overlay.jobs_root if project_overlay is not None else overlay_root / PROJECT_JOBS_DIRNAME
+            project_overlay.jobs_root
+            if project_overlay is not None
+            else overlay_root / PROJECT_JOBS_DIRNAME
         ).resolve(),
         mailbox_root=(
-            project_overlay.mailbox_root if project_overlay is not None else overlay_root / PROJECT_MAILBOX_DIRNAME
+            project_overlay.mailbox_root
+            if project_overlay is not None
+            else overlay_root / PROJECT_MAILBOX_DIRNAME
         ).resolve(),
         easy_root=(
-            project_overlay.easy_root if project_overlay is not None else overlay_root / PROJECT_EASY_DIRNAME
+            project_overlay.easy_root
+            if project_overlay is not None
+            else overlay_root / PROJECT_EASY_DIRNAME
         ).resolve(),
     )
 
@@ -400,7 +408,11 @@ def ensure_project_aware_local_roots(
         cli_agent_def_dir=cli_agent_def_dir,
         env=env_mapping,
     )
-    return replace(ensured_roots, bootstrap_result=bootstrap_result)
+    return replace(
+        ensured_roots,
+        overlay_root_source=roots.overlay_root_source,
+        bootstrap_result=bootstrap_result,
+    )
 
 
 def resolve_project_aware_runtime_root(

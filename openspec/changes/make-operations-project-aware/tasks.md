@@ -18,15 +18,15 @@
 
 ## 4. Remove remaining split-root assumptions from maintained workflows
 
-- [ ] 4.1 Audit maintained `houmao-mgr project ...` and project-managed easy-instance flows for direct shared-root resolution or hard `project init` prerequisites and route them through the shared project-aware resolver.
+- [x] 4.1 Audit maintained `houmao-mgr project ...` and project-managed easy-instance flows for direct shared-root resolution or hard `project init` prerequisites and route them through the shared project-aware resolver.
 - [x] 4.2 Audit maintained `houmao-mgr brains ...`, `houmao-mgr agents launch ...`, and local runtime-artifact launch surfaces for shared-root or working-directory job-root assumptions that must now resolve through the shared project-aware contract.
 - [x] 4.3 Audit maintained `houmao-mgr mailbox ...` and `houmao-mgr admin cleanup ...` families for remaining split-root assumptions and make the project-context versus explicit-override behavior consistent.
 - [x] 4.4 Audit maintained `houmao-mgr server ...` and `houmao-server` startup/config surfaces for shared runtime-root assumptions, while leaving deprecated compatibility entrypoints out of scope for this change.
-- [ ] 4.5 Update maintained demos and helper scripts that currently need multiple root env vars only to keep one workflow self-contained so they rely on overlay-local defaults where the new contract makes that possible.
-- [ ] 4.6 Refresh user-facing help text, error messages, and JSON payloads so they describe the new project-aware contract consistently across project, launch, mailbox, cleanup, and server surfaces, including notices for implicit overlay bootstrap.
+- [x] 4.5 Update maintained demos and helper scripts that currently need multiple root env vars only to keep one workflow self-contained so they rely on overlay-local defaults where the new contract makes that possible.
+- [x] 4.6 Refresh user-facing help text, error messages, and JSON payloads so they describe the new project-aware contract consistently across project, launch, mailbox, cleanup, and server surfaces, including notices for implicit overlay bootstrap.
 
 ## 5. Update docs and verify the new contract end to end
 
 - [x] 5.1 Update active reference and getting-started docs that currently describe shared runtime, shared mailbox, working-directory jobs, or mandatory `project init` bootstrapping so they document the new overlay-local contract and the registry-only shared default.
-- [ ] 5.2 Add or update unit and integration coverage for overlay-selection precedence, nearest-ancestor reuse, `.git`-marker worktree boundary handling for nested repos, `project status` remaining non-creating, implicit bootstrap notices, overlay-local build/runtime/jobs placement, mailbox defaults, single-root cleanup defaults plus explicit shared-root cleanup overrides, and server-start behavior in project context.
-- [ ] 5.3 Run focused validation for the changed command families, verify representative demo or interactive workflows still work with fewer root env overrides, and re-run `openspec status --change make-operations-project-aware` to confirm the change is apply-ready.
+- [x] 5.2 Add or update unit and integration coverage for overlay-selection precedence, nearest-ancestor reuse, `.git`-marker worktree boundary handling for nested repos, `project status` remaining non-creating, implicit bootstrap notices, overlay-local build/runtime/jobs placement, mailbox defaults, single-root cleanup defaults plus explicit shared-root cleanup overrides, and server-start behavior in project context.
+- [x] 5.3 Run focused validation for the changed command families, verify representative demo or interactive workflows still work with fewer root env overrides, and re-run `openspec status --change make-operations-project-aware` to confirm the change is apply-ready.

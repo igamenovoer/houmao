@@ -32,11 +32,11 @@ from houmao.project.easy import (
 )
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
+    ProjectAwareLocalRoots,
     bootstrap_project_overlay_at_root,
     ensure_project_aware_local_roots,
     ensure_project_agent_compatibility_tree,
     materialize_project_agent_catalog_projection,
-    require_project_overlay,
     resolve_project_init_overlay_root,
     resolve_project_aware_local_roots,
 )
@@ -62,6 +62,10 @@ from .mailbox_support import (
     unregister_mailbox_at_root,
 )
 from .managed_agents import list_managed_agents, resolve_managed_agent_target, stop_managed_agent
+from .project_aware_wording import (
+    describe_overlay_bootstrap,
+    describe_overlay_root_selection_source,
+)
 
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
@@ -69,7 +73,7 @@ _SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
 
 @click.group(name="project")
 def project_group() -> None:
-    """Local repo-local Houmao project-overlay administration."""
+    """Manage the selected Houmao project overlay for this invocation."""
 
 
 @project_group.command(name="init")
@@ -112,7 +116,7 @@ def init_project_command(with_compatibility_profiles: bool) -> None:
 
 @project_group.command(name="status")
 def project_status_command() -> None:
-    """Report the discovered repo-local Houmao project-overlay state."""
+    """Report the selected Houmao project-overlay state for this invocation."""
 
     cwd = Path.cwd().resolve()
     try:
@@ -126,6 +130,7 @@ def project_status_command() -> None:
             "project_root": str(overlay.project_root) if overlay is not None else None,
             "overlay_root": str(roots.overlay_root),
             "overlay_root_source": roots.overlay_root_source,
+            "selected_overlay_detail": _selected_overlay_detail(roots),
             "config_path": str(overlay.config_path) if overlay is not None else None,
             "catalog_path": str(overlay.catalog_path) if overlay is not None else None,
             "effective_agent_def_dir": str(roots.agent_def_dir),
@@ -135,12 +140,13 @@ def project_status_command() -> None:
             "project_mailbox_root": str(roots.mailbox_root),
             "project_easy_root": str(roots.easy_root),
             "would_bootstrap_overlay": overlay is None,
+            "overlay_bootstrap_detail": _status_overlay_bootstrap_detail(roots),
         }
     )
 
 
-def _ensure_project_overlay() -> HoumaoProjectOverlay:
-    """Return the ensured project overlay or raise one operator-facing error."""
+def _ensure_project_roots() -> ProjectAwareLocalRoots:
+    """Return ensured project-aware roots or raise one operator-facing error."""
 
     try:
         roots = ensure_project_aware_local_roots(cwd=Path.cwd().resolve())
@@ -148,7 +154,82 @@ def _ensure_project_overlay() -> HoumaoProjectOverlay:
         raise click.ClickException(str(exc)) from exc
     if roots.project_overlay is None:
         raise click.ClickException("Failed to ensure the active project overlay.")
-    return roots.project_overlay
+    return roots
+
+
+def _ensure_project_overlay() -> HoumaoProjectOverlay:
+    """Return the ensured selected project overlay."""
+
+    overlay = _ensure_project_roots().project_overlay
+    assert overlay is not None
+    return overlay
+
+
+def _resolve_existing_project_roots(
+    *,
+    fallback_label: str | None = None,
+) -> ProjectAwareLocalRoots:
+    """Return the selected roots for one non-creating project flow."""
+
+    try:
+        roots = resolve_project_aware_local_roots(cwd=Path.cwd().resolve())
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if roots.project_overlay is None:
+        raise click.ClickException(
+            _missing_selected_overlay_message(roots=roots, fallback_label=fallback_label)
+        )
+    return roots
+
+
+def _resolve_existing_project_overlay(
+    *,
+    fallback_label: str | None = None,
+) -> HoumaoProjectOverlay:
+    """Return the active selected overlay for non-creating project flows."""
+
+    overlay = _resolve_existing_project_roots(fallback_label=fallback_label).project_overlay
+    assert overlay is not None
+    return overlay
+
+
+def _selected_overlay_detail(roots: ProjectAwareLocalRoots) -> str:
+    """Describe the selected overlay root for one invocation."""
+
+    detail = describe_overlay_root_selection_source(overlay_root_source=roots.overlay_root_source)
+    if roots.project_overlay is None:
+        return (
+            f"{detail} No project overlay exists yet at `{roots.overlay_root}` for this invocation."
+        )
+    return detail
+
+
+def _status_overlay_bootstrap_detail(roots: ProjectAwareLocalRoots) -> str:
+    """Describe the bootstrap outcome for `project status`."""
+
+    if roots.project_overlay is None:
+        return (
+            "Project status used non-creating resolution and would bootstrap the selected overlay "
+            "during a stateful project command."
+        )
+    return describe_overlay_bootstrap(created_overlay=False, overlay_exists=True)
+
+
+def _missing_selected_overlay_message(
+    *,
+    roots: ProjectAwareLocalRoots,
+    fallback_label: str | None = None,
+) -> str:
+    """Build one non-creating selected-overlay failure message."""
+
+    message = (
+        "No Houmao project overlay is available at the selected overlay root "
+        f"`{roots.overlay_root}`. This command uses non-creating resolution and did not "
+        "bootstrap it."
+    )
+    if fallback_label is not None:
+        return f"{message} It did not fall back to the {fallback_label}."
+    return message
 
 
 @project_group.group(name="agents")
@@ -281,7 +362,7 @@ def add_claude_project_auth_command(
     default_haiku_model: str | None,
     state_template_file: Path | None,
 ) -> None:
-    """Create one new Claude auth bundle inside the discovered project overlay."""
+    """Create one new Claude auth bundle inside the active project overlay."""
 
     _run_claude_auth_write(
         operation="add",
@@ -392,7 +473,7 @@ def set_claude_project_auth_command(
     clear_default_haiku_model: bool,
     clear_state_template_file: bool,
 ) -> None:
-    """Update one existing Claude auth bundle inside the discovered project overlay."""
+    """Update one existing Claude auth bundle inside the active project overlay."""
 
     _run_claude_auth_write(
         operation="set",
@@ -523,7 +604,7 @@ def add_codex_project_auth_command(
     org_id: str | None,
     auth_json: Path | None,
 ) -> None:
-    """Create one new Codex auth bundle inside the discovered project overlay."""
+    """Create one new Codex auth bundle inside the active project overlay."""
 
     _run_codex_auth_write(
         operation="add",
@@ -567,7 +648,7 @@ def set_codex_project_auth_command(
     clear_org_id: bool,
     clear_auth_json: bool,
 ) -> None:
-    """Update one existing Codex auth bundle inside the discovered project overlay."""
+    """Update one existing Codex auth bundle inside the active project overlay."""
 
     _run_codex_auth_write(
         operation="set",
@@ -688,7 +769,7 @@ def add_gemini_project_auth_command(
     use_vertex_ai: bool,
     oauth_creds: Path,
 ) -> None:
-    """Create one new Gemini auth bundle inside the discovered project overlay."""
+    """Create one new Gemini auth bundle inside the active project overlay."""
 
     _run_gemini_auth_write(
         operation="add",
@@ -735,7 +816,7 @@ def set_gemini_project_auth_command(
     clear_google_api_key: bool,
     clear_use_vertex_ai: bool,
 ) -> None:
-    """Update one existing Gemini auth bundle inside the discovered project overlay."""
+    """Update one existing Gemini auth bundle inside the active project overlay."""
 
     _run_gemini_auth_write(
         operation="set",
@@ -763,7 +844,7 @@ def project_roles_group() -> None:
 def list_project_roles_command() -> None:
     """List project-local role roots."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     emit(
         {
             "project_root": str(overlay.project_root),
@@ -780,7 +861,7 @@ def list_project_roles_command() -> None:
 def get_project_role_command(name: str) -> None:
     """Inspect one project-local role."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     role_name = _require_non_empty_name(name, field_name="--name")
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if not role_root.is_dir():
@@ -818,7 +899,7 @@ def init_project_role_command(
 ) -> None:
     """Create one new project-local role root and optional initial preset."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     role_name = _require_non_empty_name(name, field_name="--name")
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if role_root.exists():
@@ -894,7 +975,7 @@ def scaffold_project_role_command(
 ) -> None:
     """Create one structurally complete starter slice for a project-local role."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     role_name = _require_non_empty_name(name, field_name="--name")
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if role_root.exists():
@@ -957,7 +1038,7 @@ def scaffold_project_role_command(
 def remove_project_role_command(name: str) -> None:
     """Remove one project-local role subtree."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     role_name = _require_non_empty_name(name, field_name="--name")
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if not role_root.is_dir():
@@ -983,7 +1064,7 @@ def project_role_presets_group() -> None:
 def list_project_role_presets_command(role: str) -> None:
     """List preset files for one project-local role."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     role_name = _require_non_empty_name(role, field_name="--role")
     emit(
         {
@@ -1007,7 +1088,7 @@ def list_project_role_presets_command(role: str) -> None:
 def get_project_role_preset_command(role: str, tool_name: str, setup: str) -> None:
     """Inspect one project-local role preset."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     emit(
         _preset_summary(
             overlay=overlay,
@@ -1046,7 +1127,7 @@ def add_project_role_preset_command(
 ) -> None:
     """Create one minimal project-local role preset."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     role_name = _require_non_empty_name(role, field_name="--role")
     preset_path = _write_role_preset(
         overlay=overlay,
@@ -1082,7 +1163,7 @@ def add_project_role_preset_command(
 def remove_project_role_preset_command(role: str, tool_name: str, setup: str) -> None:
     """Remove one project-local role preset."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     role_name = _require_non_empty_name(role, field_name="--role")
     resolved_setup = _require_non_empty_name(setup, field_name="--setup")
     preset_path = _preset_path(
@@ -1324,7 +1405,7 @@ def create_easy_specialist_command(
 def list_easy_specialists_command() -> None:
     """List persisted project-local specialist definitions."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     emit(
         {
             "project_root": str(overlay.project_root),
@@ -1341,7 +1422,7 @@ def list_easy_specialists_command() -> None:
 def get_easy_specialist_command(name: str) -> None:
     """Inspect one persisted specialist definition."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     specialist = _load_specialist_or_click(overlay=overlay, name=name)
     emit(_specialist_payload(overlay=overlay, metadata=specialist))
 
@@ -1351,7 +1432,7 @@ def get_easy_specialist_command(name: str) -> None:
 def remove_easy_specialist_command(name: str) -> None:
     """Remove one persisted specialist definition and its generated role subtree."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     specialist = _load_specialist_or_click(overlay=overlay, name=name)
     metadata_path = _remove_specialist_metadata_or_click(overlay=overlay, name=specialist.name)
     emit(
@@ -1444,7 +1525,7 @@ def launch_easy_instance_command(
     materialize_project_agent_catalog_projection(overlay)
     launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
 
-    controller = launch_managed_agent_locally(
+    launch_result = launch_managed_agent_locally(
         agents=str(specialist_metadata.resolved_preset_path(overlay)),
         agent_name=_require_non_empty_name(name, field_name="--name"),
         agent_id=None,
@@ -1460,7 +1541,7 @@ def launch_easy_instance_command(
         mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),
     )
     emit_local_launch_completion(
-        controller=controller,
+        launch_result=launch_result,
         agent_name=name,
         session_name=session_name,
         headless=headless,
@@ -1471,7 +1552,9 @@ def launch_easy_instance_command(
 def list_easy_instances_command() -> None:
     """List project-local managed agents as specialist instances when resolvable."""
 
-    overlay = _require_project_overlay()
+    roots = _resolve_existing_project_roots()
+    overlay = roots.project_overlay
+    assert overlay is not None
     specialists_by_name = {
         metadata.name: metadata for metadata in list_specialists(overlay=overlay)
     }
@@ -1479,6 +1562,8 @@ def list_easy_instances_command() -> None:
     emit(
         {
             "project_root": str(overlay.project_root),
+            "selected_overlay_root": str(roots.overlay_root),
+            "selected_overlay_detail": _selected_overlay_detail(roots),
             "instances": instances,
         }
     )
@@ -1487,9 +1572,11 @@ def list_easy_instances_command() -> None:
 @easy_instance_group.command(name="get")
 @click.option("--name", required=True, help="Managed-agent instance name.")
 def get_easy_instance_command(name: str) -> None:
-    """Inspect one managed-agent instance through the current project overlay."""
+    """Inspect one managed-agent instance through the selected project overlay."""
 
-    overlay = _require_project_overlay()
+    roots = _resolve_existing_project_roots()
+    overlay = roots.project_overlay
+    assert overlay is not None
     specialists_by_name = {
         metadata.name: metadata for metadata in list_specialists(overlay=overlay)
     }
@@ -1505,24 +1592,30 @@ def get_easy_instance_command(name: str) -> None:
     manifest_payload = _load_manifest_payload(manifest_path)
     if not _manifest_belongs_to_overlay(overlay=overlay, manifest_payload=manifest_payload):
         raise click.ClickException(
-            f"Managed agent `{name}` does not belong to the discovered project overlay."
+            f"Managed agent `{name}` does not belong to the selected project overlay."
         )
     emit(
-        _instance_payload(
-            overlay=overlay,
-            identity_payload=identity.model_dump(mode="json"),
-            manifest_payload=manifest_payload,
-            specialists_by_name=specialists_by_name,
-        )
+        {
+            **_instance_payload(
+                overlay=overlay,
+                identity_payload=identity.model_dump(mode="json"),
+                manifest_payload=manifest_payload,
+                specialists_by_name=specialists_by_name,
+            ),
+            "selected_overlay_root": str(roots.overlay_root),
+            "selected_overlay_detail": _selected_overlay_detail(roots),
+        }
     )
 
 
 @easy_instance_group.command(name="stop")
 @click.option("--name", required=True, help="Managed-agent instance name.")
 def stop_easy_instance_command(name: str) -> None:
-    """Stop one managed-agent instance through the current project overlay."""
+    """Stop one managed-agent instance through the selected project overlay."""
 
-    overlay = _require_project_overlay()
+    roots = _resolve_existing_project_roots()
+    overlay = roots.project_overlay
+    assert overlay is not None
     target = resolve_managed_agent_target(
         agent_id=None,
         agent_name=_require_non_empty_name(name, field_name="--name"),
@@ -1535,28 +1628,40 @@ def stop_easy_instance_command(name: str) -> None:
     manifest_payload = _load_manifest_payload(manifest_path)
     if not _manifest_belongs_to_overlay(overlay=overlay, manifest_payload=manifest_payload):
         raise click.ClickException(
-            f"Managed agent `{name}` does not belong to the discovered project overlay."
+            f"Managed agent `{name}` does not belong to the selected project overlay."
         )
-    emit(stop_managed_agent(target))
+    emit(
+        {
+            **stop_managed_agent(target),
+            "selected_overlay_root": str(roots.overlay_root),
+            "selected_overlay_detail": _selected_overlay_detail(roots),
+        }
+    )
 
 
 @project_group.group(name="mailbox")
 def project_mailbox_group() -> None:
-    """Operate on the current project's `.houmao/mailbox` root."""
+    """Operate on `mailbox/` under the selected project overlay."""
 
 
 @project_mailbox_group.command(name="init")
 def init_project_mailbox_command() -> None:
-    """Bootstrap or validate the current project's mailbox root."""
+    """Bootstrap or validate `mailbox/` under the selected project overlay."""
 
-    emit(init_mailbox_root(_project_mailbox_root()))
+    roots = _ensure_project_mailbox_roots()
+    emit(_project_mailbox_payload(roots=roots, payload=init_mailbox_root(roots.mailbox_root)))
 
 
 @project_mailbox_group.command(name="status")
 def status_project_mailbox_command() -> None:
-    """Inspect the current project's mailbox root."""
+    """Inspect `mailbox/` under the selected project overlay."""
 
-    emit(mailbox_root_status_payload(_project_mailbox_root()))
+    roots = _resolve_existing_project_mailbox_roots()
+    emit(
+        _project_mailbox_payload(
+            roots=roots, payload=mailbox_root_status_payload(roots.mailbox_root)
+        )
+    )
 
 
 @project_mailbox_group.command(name="register")
@@ -1571,20 +1676,24 @@ def status_project_mailbox_command() -> None:
 )
 @overwrite_confirm_option
 def register_project_mailbox_command(address: str, principal_id: str, mode: str, yes: bool) -> None:
-    """Register one mailbox address under the current project's mailbox root."""
+    """Register one mailbox address under `mailbox/` in the selected project overlay."""
 
+    roots = _ensure_project_mailbox_roots()
     emit(
-        register_mailbox_at_root(
-            mailbox_root=_project_mailbox_root(),
-            address=address,
-            principal_id=principal_id,
-            mode=mode,
-            confirm_destructive_replace=build_destructive_confirmation_callback(
-                yes=yes,
-                non_interactive_message=(
-                    "Mailbox registration would replace existing durable mailbox state. "
-                    "Rerun with `--yes` to confirm overwrite non-interactively or choose "
-                    "a non-destructive registration mode."
+        _project_mailbox_payload(
+            roots=roots,
+            payload=register_mailbox_at_root(
+                mailbox_root=roots.mailbox_root,
+                address=address,
+                principal_id=principal_id,
+                mode=mode,
+                confirm_destructive_replace=build_destructive_confirmation_callback(
+                    yes=yes,
+                    non_interactive_message=(
+                        "Mailbox registration would replace existing durable mailbox state. "
+                        "Rerun with `--yes` to confirm overwrite non-interactively or choose "
+                        "a non-destructive registration mode."
+                    ),
                 ),
             ),
         )
@@ -1601,13 +1710,17 @@ def register_project_mailbox_command(address: str, principal_id: str, mode: str,
     help="Filesystem mailbox deregistration mode.",
 )
 def unregister_project_mailbox_command(address: str, mode: str) -> None:
-    """Deactivate or purge one mailbox address under the current project's mailbox root."""
+    """Deactivate or purge one mailbox address under `mailbox/` in the selected overlay."""
 
+    roots = _ensure_project_mailbox_roots()
     emit(
-        unregister_mailbox_at_root(
-            mailbox_root=_project_mailbox_root(),
-            address=address,
-            mode=mode,
+        _project_mailbox_payload(
+            roots=roots,
+            payload=unregister_mailbox_at_root(
+                mailbox_root=roots.mailbox_root,
+                address=address,
+                mode=mode,
+            ),
         )
     )
 
@@ -1626,13 +1739,17 @@ def unregister_project_mailbox_command(address: str, mode: str) -> None:
     help="Quarantine staging artifacts instead of deleting them.",
 )
 def repair_project_mailbox_command(cleanup_staging: bool, quarantine_staging: bool) -> None:
-    """Repair the current project's mailbox root."""
+    """Repair `mailbox/` under the selected project overlay."""
 
+    roots = _ensure_project_mailbox_roots()
     emit(
-        repair_mailbox_root(
-            mailbox_root=_project_mailbox_root(),
-            cleanup_staging=cleanup_staging,
-            quarantine_staging=quarantine_staging,
+        _project_mailbox_payload(
+            roots=roots,
+            payload=repair_mailbox_root(
+                mailbox_root=roots.mailbox_root,
+                cleanup_staging=cleanup_staging,
+                quarantine_staging=quarantine_staging,
+            ),
         )
     )
 
@@ -1662,45 +1779,55 @@ def cleanup_project_mailbox_command(
     stashed_older_than_seconds: int,
     dry_run: bool,
 ) -> None:
-    """Clean inactive or stashed registrations under the current project's mailbox root."""
+    """Clean inactive or stashed registrations under `mailbox/` in the selected overlay."""
 
+    roots = _ensure_project_mailbox_roots()
     emit_cleanup_payload(
-        cleanup_mailbox_root(
-            mailbox_root=_project_mailbox_root(),
-            inactive_older_than_seconds=inactive_older_than_seconds,
-            stashed_older_than_seconds=stashed_older_than_seconds,
-            dry_run=dry_run,
+        _project_mailbox_payload(
+            roots=roots,
+            payload=cleanup_mailbox_root(
+                mailbox_root=roots.mailbox_root,
+                inactive_older_than_seconds=inactive_older_than_seconds,
+                stashed_older_than_seconds=stashed_older_than_seconds,
+                dry_run=dry_run,
+            ),
         )
     )
 
 
 @project_mailbox_group.group(name="accounts")
 def project_mailbox_accounts_group() -> None:
-    """Inspect mailbox registrations under the current project's mailbox root."""
+    """Inspect mailbox registrations under `mailbox/` in the selected overlay."""
 
 
 @project_mailbox_accounts_group.command(name="list")
 def list_project_mailbox_accounts_command() -> None:
-    """List mailbox accounts under the current project's mailbox root."""
+    """List mailbox accounts under `mailbox/` in the selected overlay."""
 
-    emit(list_mailbox_accounts(mailbox_root=_project_mailbox_root()))
+    roots = _resolve_existing_project_mailbox_roots()
+    emit(
+        _project_mailbox_payload(
+            roots=roots, payload=list_mailbox_accounts(mailbox_root=roots.mailbox_root)
+        )
+    )
 
 
 @project_mailbox_accounts_group.command(name="get")
 @click.option("--address", required=True, help="Full mailbox address.")
 def get_project_mailbox_account_command(address: str) -> None:
-    """Inspect one mailbox account under the current project's mailbox root."""
+    """Inspect one mailbox account under `mailbox/` in the selected overlay."""
 
+    roots = _resolve_existing_project_mailbox_roots()
     try:
-        payload = get_mailbox_account(mailbox_root=_project_mailbox_root(), address=address)
+        payload = get_mailbox_account(mailbox_root=roots.mailbox_root, address=address)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit(payload)
+    emit(_project_mailbox_payload(roots=roots, payload=payload))
 
 
 @project_mailbox_group.group(name="messages")
 def project_mailbox_messages_group() -> None:
-    """Inspect structural message projections under the current project's mailbox root."""
+    """Inspect structural message projections under `mailbox/` in the selected overlay."""
 
 
 @project_mailbox_messages_group.command(name="list")
@@ -1708,11 +1835,12 @@ def project_mailbox_messages_group() -> None:
 def list_project_mailbox_messages_command(address: str) -> None:
     """List structurally projected messages for one project-local mailbox address."""
 
+    roots = _resolve_existing_project_mailbox_roots()
     try:
-        payload = list_mailbox_messages(mailbox_root=_project_mailbox_root(), address=address)
+        payload = list_mailbox_messages(mailbox_root=roots.mailbox_root, address=address)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit(payload)
+    emit(_project_mailbox_payload(roots=roots, payload=payload))
 
 
 @project_mailbox_messages_group.command(name="get")
@@ -1721,36 +1849,54 @@ def list_project_mailbox_messages_command(address: str) -> None:
 def get_project_mailbox_message_command(address: str, message_id: str) -> None:
     """Get one structurally projected message for a project-local mailbox address."""
 
+    roots = _resolve_existing_project_mailbox_roots()
     try:
         payload = get_mailbox_message(
-            mailbox_root=_project_mailbox_root(),
+            mailbox_root=roots.mailbox_root,
             address=address,
             message_id=message_id,
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit(payload)
+    emit(_project_mailbox_payload(roots=roots, payload=payload))
 
 
-def _require_project_overlay() -> HoumaoProjectOverlay:
-    """Return the discovered project overlay or raise one operator-facing error."""
+def _ensure_project_mailbox_roots() -> ProjectAwareLocalRoots:
+    """Return ensured project roots for stateful project-mailbox commands."""
 
-    try:
-        return require_project_overlay(Path.cwd().resolve())
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    return _ensure_project_roots()
 
 
-def _project_mailbox_root() -> Path:
-    """Return the current project's mailbox root."""
+def _resolve_existing_project_mailbox_roots() -> ProjectAwareLocalRoots:
+    """Return existing project roots for non-creating project-mailbox commands."""
 
-    return _ensure_project_overlay().mailbox_root
+    return _resolve_existing_project_roots(fallback_label="shared mailbox root")
+
+
+def _project_mailbox_payload(
+    *,
+    roots: ProjectAwareLocalRoots,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    """Extend one project-mailbox payload with selected-overlay wording fields."""
+
+    return {
+        **payload,
+        "selected_overlay_root": str(roots.overlay_root),
+        "selected_overlay_detail": _selected_overlay_detail(roots),
+        "mailbox_root_detail": "Selected `mailbox/` under the selected project overlay.",
+        "project_overlay_bootstrapped": roots.created_overlay,
+        "overlay_bootstrap_detail": describe_overlay_bootstrap(
+            created_overlay=roots.created_overlay,
+            overlay_exists=roots.project_overlay is not None,
+        ),
+    }
 
 
 def _emit_tool_get(*, tool: str) -> None:
     """Emit one project-local tool summary."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     tool_root = _tool_root(overlay=overlay, tool=tool)
     adapter_path = (tool_root / "adapter.yaml").resolve()
     emit(
@@ -1769,7 +1915,7 @@ def _emit_tool_get(*, tool: str) -> None:
 def _emit_tool_setup_list(*, tool: str) -> None:
     """Emit the setup names for one supported tool."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     emit(
         {
             "project_root": str(overlay.project_root),
@@ -1782,7 +1928,7 @@ def _emit_tool_setup_list(*, tool: str) -> None:
 def _emit_tool_setup_get(*, tool: str, name: str) -> None:
     """Emit one project-local setup summary."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     setup_name = _require_non_empty_name(name, field_name="--name")
     setup_path = _tool_setup_path(overlay=overlay, tool=tool, name=setup_name)
     if not setup_path.is_dir():
@@ -1801,7 +1947,7 @@ def _emit_tool_setup_get(*, tool: str, name: str) -> None:
 def _emit_tool_setup_add(*, tool: str, name: str, source_name: str) -> None:
     """Clone one project-local tool setup bundle."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     target_name = _require_non_empty_name(name, field_name="--name")
     resolved_source_name = _require_non_empty_name(source_name, field_name="--from")
     source_path = _tool_setup_path(overlay=overlay, tool=tool, name=resolved_source_name)
@@ -1826,7 +1972,7 @@ def _emit_tool_setup_add(*, tool: str, name: str, source_name: str) -> None:
 def _emit_tool_setup_remove(*, tool: str, name: str) -> None:
     """Remove one project-local tool setup bundle."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     setup_name = _require_non_empty_name(name, field_name="--name")
     setup_path = _tool_setup_path(overlay=overlay, tool=tool, name=setup_name)
     if not setup_path.is_dir():
@@ -1846,7 +1992,7 @@ def _emit_tool_setup_remove(*, tool: str, name: str) -> None:
 def _emit_tool_auth_list(*, tool: str) -> None:
     """Emit the auth-bundle names for one supported tool."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     emit(
         {
             "project_root": str(overlay.project_root),
@@ -1859,14 +2005,14 @@ def _emit_tool_auth_list(*, tool: str) -> None:
 def _emit_tool_auth_get(*, tool: str, name: str) -> None:
     """Emit one structured auth-bundle description."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     emit(_describe_project_auth_bundle(overlay=overlay, tool=tool, name=name))
 
 
 def _emit_tool_auth_remove(*, tool: str, name: str) -> None:
     """Remove one named auth bundle and emit the removal payload."""
 
-    overlay = _require_project_overlay()
+    overlay = _resolve_existing_project_overlay()
     resolved_name = _require_non_empty_name(name, field_name="--name")
     target_path = _auth_bundle_root(overlay=overlay, tool=tool, name=resolved_name)
     if not target_path.is_dir():
@@ -2155,9 +2301,9 @@ def _run_claude_auth_write(
     clear_env_names: set[str],
     clear_file_sources: set[str],
 ) -> None:
-    """Create or update one Claude auth bundle and emit its result payload."""
+    """Create or update one Claude auth bundle under the active project overlay."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     env_values = _compact_env_values(
         {
             "ANTHROPIC_API_KEY": api_key,
@@ -2199,9 +2345,9 @@ def _run_codex_auth_write(
     clear_env_names: set[str],
     clear_file_sources: set[str],
 ) -> None:
-    """Create or update one Codex auth bundle and emit its result payload."""
+    """Create or update one Codex auth bundle under the active project overlay."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     env_values = _compact_env_values(
         {
             "OPENAI_API_KEY": api_key,
@@ -2234,9 +2380,9 @@ def _run_gemini_auth_write(
     oauth_creds: Path | None,
     clear_env_names: set[str],
 ) -> None:
-    """Create or update one Gemini auth bundle and emit its result payload."""
+    """Create or update one Gemini auth bundle under the active project overlay."""
 
-    overlay = _require_project_overlay()
+    overlay = _ensure_project_overlay()
     env_values = _compact_env_values(
         {
             "GEMINI_API_KEY": api_key,
@@ -2800,7 +2946,7 @@ def _load_overlay_tool_adapter(*, overlay: HoumaoProjectOverlay, tool: str) -> T
     adapter_path = (_tool_root(overlay=overlay, tool=tool) / "adapter.yaml").resolve()
     if not adapter_path.is_file():
         raise click.ClickException(
-            f"Tool `{tool}` is not initialized under the discovered project overlay: {adapter_path}"
+            f"Tool `{tool}` is not initialized under the selected project overlay: {adapter_path}"
         )
     try:
         return parse_tool_adapter(adapter_path)

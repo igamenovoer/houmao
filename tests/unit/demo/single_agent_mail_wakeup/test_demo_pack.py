@@ -13,22 +13,35 @@ def test_build_demo_layout_includes_project_overlay_and_runtime_roots(tmp_path: 
 
     assert paths.project_dir == (tmp_path / "outputs/project").resolve()
     assert paths.overlay_dir == (tmp_path / "outputs/overlay").resolve()
-    assert paths.runtime_root == (tmp_path / "outputs/runtime").resolve()
+    assert paths.runtime_root == (tmp_path / "outputs/overlay/runtime").resolve()
     assert paths.registry_root == (tmp_path / "outputs/registry").resolve()
-    assert paths.jobs_root == (tmp_path / "outputs/jobs").resolve()
+    assert paths.jobs_root == (tmp_path / "outputs/overlay/jobs").resolve()
     assert paths.control_dir == (tmp_path / "outputs/control").resolve()
 
 
-def test_build_demo_environment_exports_overlay_runtime_registry_and_jobs(tmp_path: Path) -> None:
+def test_build_demo_environment_exports_overlay_and_registry_and_clears_root_overrides(
+    tmp_path: Path,
+) -> None:
     paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
 
-    env = runtime.build_demo_environment(paths=paths, base_env={})
+    env = runtime.build_demo_environment(
+        paths=paths,
+        base_env={
+            "HOUMAO_AGENT_DEF_DIR": "/tmp/legacy-agents",
+            "HOUMAO_GLOBAL_RUNTIME_DIR": "/tmp/legacy-runtime",
+            "HOUMAO_GLOBAL_MAILBOX_DIR": "/tmp/legacy-mailbox",
+            "HOUMAO_LOCAL_JOBS_DIR": "/tmp/legacy-jobs",
+            "HOUMAO_JOB_DIR": "/tmp/legacy-job-dir",
+        },
+    )
 
     assert env["HOUMAO_PROJECT_OVERLAY_DIR"] == str(paths.overlay_dir)
-    assert env["HOUMAO_AGENT_DEF_DIR"] == str((paths.overlay_dir / "agents").resolve())
-    assert env["HOUMAO_GLOBAL_RUNTIME_DIR"] == str(paths.runtime_root)
     assert env["HOUMAO_GLOBAL_REGISTRY_DIR"] == str(paths.registry_root)
-    assert env["HOUMAO_LOCAL_JOBS_DIR"] == str(paths.jobs_root)
+    assert "HOUMAO_AGENT_DEF_DIR" not in env
+    assert "HOUMAO_GLOBAL_RUNTIME_DIR" not in env
+    assert "HOUMAO_GLOBAL_MAILBOX_DIR" not in env
+    assert "HOUMAO_LOCAL_JOBS_DIR" not in env
+    assert "HOUMAO_JOB_DIR" not in env
 
 
 def test_import_project_auth_from_fixture_shapes_claude_command(

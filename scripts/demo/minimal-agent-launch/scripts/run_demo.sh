@@ -112,15 +112,17 @@ fi
 mkdir -p "$(dirname "${output_dir}")"
 run_root="$(cd "$(dirname "${output_dir}")" && pwd)/$(basename "${output_dir}")"
 workdir="${run_root}/workdir"
-generated_agent_def_dir="${workdir}/.houmao/agents"
-runtime_root="${run_root}/runtime"
+overlay_root="${workdir}/.houmao"
+generated_agent_def_dir="${overlay_root}/agents"
+runtime_root="${overlay_root}/runtime"
+jobs_root="${overlay_root}/jobs"
 logs_dir="${run_root}/logs"
 inputs_dir="${DEMO_ROOT}/inputs"
 prompt_file="${inputs_dir}/prompt.txt"
 
 mkdir -p "${logs_dir}"
-rm -rf "${workdir}" "${runtime_root}"
-mkdir -p "${workdir}" "${runtime_root}"
+rm -rf "${workdir}"
+mkdir -p "${workdir}"
 
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -182,8 +184,8 @@ cleanup_agent_on_error() {
     set +e
     (
         cd "${REPO_ROOT}" || exit 1
-        export HOUMAO_AGENT_DEF_DIR="${generated_agent_def_dir}"
-        export HOUMAO_GLOBAL_RUNTIME_DIR="${runtime_root}"
+        unset HOUMAO_AGENT_DEF_DIR HOUMAO_GLOBAL_RUNTIME_DIR HOUMAO_GLOBAL_MAILBOX_DIR HOUMAO_LOCAL_JOBS_DIR HOUMAO_JOB_DIR
+        export HOUMAO_PROJECT_OVERLAY_DIR="${overlay_root}"
         pixi run houmao-mgr agents stop --agent-name "${agent_name}"
     ) >"${logs_dir}/stop-on-error.log" 2>&1
 }
@@ -209,8 +211,8 @@ mkdir -p \
     "${generated_agent_def_dir}/tools/codex/auth"
 ln -s "${fixture_auth_source}" "${generated_agent_def_dir}/tools/${tool}/auth/default"
 
-export HOUMAO_AGENT_DEF_DIR="${generated_agent_def_dir}"
-export HOUMAO_GLOBAL_RUNTIME_DIR="${runtime_root}"
+unset HOUMAO_AGENT_DEF_DIR HOUMAO_GLOBAL_RUNTIME_DIR HOUMAO_GLOBAL_MAILBOX_DIR HOUMAO_LOCAL_JOBS_DIR HOUMAO_JOB_DIR
+export HOUMAO_PROJECT_OVERLAY_DIR="${overlay_root}"
 
 (
     cd "${REPO_ROOT}"
@@ -267,8 +269,10 @@ cat >"${run_root}/summary.json" <<EOF
   "launch_mode": "${launch_mode}",
   "agent_name": "${agent_name}",
   "fixture_auth_source": "${fixture_auth_source}",
+  "overlay_root": "${overlay_root}",
   "generated_agent_def_dir": "${generated_agent_def_dir}",
   "runtime_root": "${runtime_root}",
+  "jobs_root": "${jobs_root}",
   "prompt_file": "${prompt_file}",
   "tmux_session_name": "${tmux_session_name}",
   "terminal_handoff": "${terminal_handoff}",

@@ -71,6 +71,19 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
     assert payload.agent_launch_authority.posture_kind == "unavailable"
     assert payload.tmux is not None
     assert payload.tmux.primary_window_name == "manual"
+    assert result.runtime_root == tmp_path.resolve()
+    assert (
+        result.runtime_root_detail
+        == "Selected runtime root from the explicit `--runtime-root` override."
+    )
+    assert result.jobs_root == (tmp_path / ".houmao" / "jobs").resolve()
+    assert result.jobs_root_detail == "Selected the overlay-local jobs root for this invocation."
+    assert result.overlay_root == (tmp_path / ".houmao").resolve()
+    assert result.project_overlay_bootstrapped is False
+    assert (
+        result.overlay_bootstrap_detail
+        == "No project overlay was bootstrapped for this invocation."
+    )
     record = published["record"]
     assert record is not None
     published_at = datetime.fromisoformat(record.published_at)

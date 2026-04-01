@@ -19,6 +19,11 @@ from houmao.project.overlay import (
 )
 
 from .output import emit
+from .project_aware_wording import (
+    describe_overlay_bootstrap,
+    describe_overlay_root_selection_source,
+    describe_runtime_root_selection,
+)
 
 
 @click.group(name="brains")
@@ -106,12 +111,8 @@ def build_brain_command(
     resolved_skills = (
         list(skills) if skills else (preset_payload.skills if preset_payload is not None else [])
     )
-    resolved_setup = setup or (
-        preset_payload.setup if preset_payload is not None else None
-    )
-    resolved_auth = auth or (
-        preset_payload.auth if preset_payload is not None else None
-    )
+    resolved_setup = setup or (preset_payload.setup if preset_payload is not None else None)
+    resolved_auth = auth or (preset_payload.auth if preset_payload is not None else None)
 
     missing: list[str] = []
     if resolved_tool is None:
@@ -166,8 +167,15 @@ def build_brain_command(
             "launch_helper_path": str(result.launch_helper_path),
             "manifest_path": str(result.manifest_path),
             "runtime_root": str(resolved_runtime_root),
+            "runtime_root_detail": describe_runtime_root_selection(explicit_root=runtime_root),
             "project_overlay_bootstrapped": project_roots.created_overlay,
             "overlay_root": str(project_roots.overlay_root),
+            "overlay_root_detail": describe_overlay_root_selection_source(
+                overlay_root_source=project_roots.overlay_root_source
+            ),
+            "overlay_bootstrap_detail": describe_overlay_bootstrap(
+                created_overlay=project_roots.created_overlay
+            ),
         }
     )
 

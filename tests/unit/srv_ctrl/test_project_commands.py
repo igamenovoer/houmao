@@ -196,6 +196,14 @@ def test_project_status_reports_discovered_overlay_from_nested_directory(
     assert payload["project_jobs_root"] == str((repo_root / ".houmao" / "jobs").resolve())
     assert payload["project_easy_root"] == str((repo_root / ".houmao" / "easy").resolve())
     assert payload["would_bootstrap_overlay"] is False
+    assert (
+        payload["selected_overlay_detail"]
+        == "Selected overlay root from nearest-ancestor project discovery."
+    )
+    assert (
+        payload["overlay_bootstrap_detail"]
+        == "Reused the selected project overlay without implicit bootstrap."
+    )
 
 
 def test_project_status_reports_env_selected_overlay(
@@ -257,6 +265,14 @@ def test_project_status_reports_missing_env_selected_overlay_clearly(
     assert payload["project_mailbox_root"] == str((overlay_root / "mailbox").resolve())
     assert payload["project_easy_root"] == str((overlay_root / "easy").resolve())
     assert payload["would_bootstrap_overlay"] is True
+    assert (
+        payload["selected_overlay_detail"]
+        == f"Selected overlay root from `HOUMAO_PROJECT_OVERLAY_DIR`. No project overlay exists yet at `{overlay_root}` for this invocation."
+    )
+    assert (
+        payload["overlay_bootstrap_detail"]
+        == "Project status used non-creating resolution and would bootstrap the selected overlay during a stateful project command."
+    )
 
 
 def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
@@ -281,7 +297,107 @@ def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
     assert payload["project_mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
     assert payload["project_easy_root"] == str((expected_overlay_root / "easy").resolve())
     assert payload["would_bootstrap_overlay"] is True
+    assert (
+        payload["selected_overlay_detail"]
+        == f"Selected overlay root from the default project-aware `<cwd>/.houmao` candidate. No project overlay exists yet at `{expected_overlay_root}` for this invocation."
+    )
+    assert (
+        payload["overlay_bootstrap_detail"]
+        == "Project status used non-creating resolution and would bootstrap the selected overlay during a stateful project command."
+    )
     assert not expected_overlay_root.exists()
+
+
+def test_project_agents_tool_auth_add_bootstraps_missing_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "codex",
+            "auth",
+            "add",
+            "--name",
+            "personal",
+            "--api-key",
+            "sk-openai",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "codex"
+        / "auth"
+        / "personal"
+        / "env"
+        / "vars.env"
+    ).is_file()
+
+
+def test_project_agents_tool_get_fails_without_bootstrapping_missing_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(cli, ["project", "agents", "tools", "codex", "get"])
+
+    assert result.exit_code != 0
+    assert str((repo_root / ".houmao").resolve()) in result.output
+    assert "uses non-creating resolution and did not bootstrap it" in result.output
+    assert not (repo_root / ".houmao").exists()
+
+
+def test_project_agents_role_init_bootstraps_missing_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(cli, ["project", "agents", "roles", "init", "--name", "researcher"])
+
+    assert result.exit_code == 0, result.output
+    assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
+    assert (
+        repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    ).is_file()
+
+
+def test_project_agents_role_list_fails_without_bootstrapping_missing_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(cli, ["project", "agents", "roles", "list"])
+
+    assert result.exit_code != 0
+    assert str((repo_root / ".houmao").resolve()) in result.output
+    assert "uses non-creating resolution and did not bootstrap it" in result.output
+    assert not (repo_root / ".houmao").exists()
 
 
 def test_project_agents_tools_auth_get_and_setups_flow(
@@ -727,6 +843,23 @@ def test_project_easy_specialist_create_allows_promptless_specialist(
     prompt_path = repo_root / ".houmao" / "agents" / "roles" / "reviewer" / "system-prompt.md"
     assert prompt_path.is_file()
     assert prompt_path.read_text(encoding="utf-8") == ""
+
+
+def test_project_easy_specialist_list_fails_without_bootstrapping_missing_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(cli, ["project", "easy", "specialist", "list"])
+
+    assert result.exit_code != 0
+    assert str((repo_root / ".houmao").resolve()) in result.output
+    assert "uses non-creating resolution and did not bootstrap it" in result.output
+    assert not (repo_root / ".houmao").exists()
 
 
 def test_project_easy_specialist_create_can_persist_as_is_opt_out(
@@ -1232,7 +1365,16 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["agents"] == "researcher"
+    assert captured["agents"] == str(
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "roles"
+        / "researcher"
+        / "presets"
+        / "codex"
+        / "yunwu-openai.yaml"
+    )
 
 
 def test_project_easy_specialist_create_rejects_credential_owned_env_names(
@@ -1394,7 +1536,16 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["agents"] == "researcher"
+    assert captured["agents"] == str(
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "roles"
+        / "researcher"
+        / "presets"
+        / "codex"
+        / "default.yaml"
+    )
     assert captured["agent_name"] == "repo-research-1"
     assert captured["provider"] == "codex"
     assert captured["headless"] is True
@@ -1717,7 +1868,33 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
 
     assert result.exit_code == 0, result.output
     assert stop_calls == [target]
-    assert json.loads(result.output) == {"success": True, "agent_name": "repo-research-1"}
+    payload = json.loads(result.output)
+    assert payload["success"] is True
+    assert payload["agent_name"] == "repo-research-1"
+    assert payload["selected_overlay_root"] == str((repo_root / ".houmao").resolve())
+    assert (
+        payload["selected_overlay_detail"]
+        == "Selected overlay root from nearest-ancestor project discovery."
+    )
+
+
+def test_project_easy_instance_stop_fails_without_bootstrapping_missing_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(
+        cli, ["project", "easy", "instance", "stop", "--name", "repo-research-1"]
+    )
+
+    assert result.exit_code != 0
+    assert str((repo_root / ".houmao").resolve()) in result.output
+    assert "uses non-creating resolution and did not bootstrap it" in result.output
+    assert not (repo_root / ".houmao").exists()
 
 
 def test_project_easy_instance_stop_rejects_instances_from_other_overlay(
@@ -1765,7 +1942,7 @@ def test_project_easy_instance_stop_rejects_instances_from_other_overlay(
     )
 
     assert result.exit_code != 0
-    assert "does not belong to the discovered project overlay" in result.output
+    assert "does not belong to the selected project overlay" in result.output
 
 
 def test_project_easy_instance_list_and_get_use_runtime_state(

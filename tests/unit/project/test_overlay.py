@@ -208,6 +208,21 @@ def test_resolve_project_overlay_does_not_cross_nearest_git_boundary(tmp_path: P
     assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
 
 
+def test_resolve_project_overlay_does_not_cross_nearest_git_directory_boundary(tmp_path: Path) -> None:
+    parent_root = (tmp_path / "parent").resolve()
+    nested_repo_root = (parent_root / "nested-repo").resolve()
+    nested_dir = (nested_repo_root / "app").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(parent_root)
+    (nested_repo_root / ".git").mkdir(parents=True, exist_ok=True)
+
+    resolution = resolve_project_overlay(cwd=nested_dir)
+
+    assert resolution.project_overlay is None
+    assert resolution.source == "default"
+    assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
+
+
 def test_resolve_project_aware_local_roots_reports_overlay_local_defaults(tmp_path: Path) -> None:
     repo_root = (tmp_path / "repo").resolve()
     nested_dir = (repo_root / "nested" / "child").resolve()
@@ -236,3 +251,24 @@ def test_ensure_project_aware_local_roots_bootstraps_missing_overlay(tmp_path: P
     assert roots.overlay_root == (workdir / ".houmao").resolve()
     assert (workdir / ".houmao" / "houmao-config.toml").is_file()
     assert roots.runtime_root == (workdir / ".houmao" / "runtime").resolve()
+
+
+def test_ensure_project_aware_local_roots_preserves_env_selected_overlay_source_on_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workdir = (tmp_path / "workspace").resolve()
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
+
+    roots = ensure_project_aware_local_roots(cwd=workdir)
+
+    assert roots.project_overlay is not None
+    assert roots.created_overlay is True
+    assert roots.overlay_root == overlay_root
+    assert roots.overlay_root_source == "env"
+    assert roots.runtime_root == (overlay_root / "runtime").resolve()
+    assert roots.jobs_root == (overlay_root / "jobs").resolve()
+    assert roots.mailbox_root == (overlay_root / "mailbox").resolve()
+    assert (overlay_root / "houmao-config.toml").is_file()

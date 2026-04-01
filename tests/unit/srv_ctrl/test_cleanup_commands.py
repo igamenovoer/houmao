@@ -115,6 +115,14 @@ def test_admin_cleanup_runtime_help_mentions_runtime_subcommands() -> None:
     assert "mailbox-credentials" in result.output
 
 
+def test_admin_cleanup_runtime_sessions_help_mentions_project_aware_runtime_root() -> None:
+    result = CliRunner().invoke(cli, ["admin", "cleanup", "runtime", "sessions", "--help"])
+
+    assert result.exit_code == 0
+    assert "this command uses the active project runtime" in result.output
+    assert "HOUMAO_GLOBAL_RUNTIME_DIR" in result.output
+
+
 def test_admin_cleanup_registry_help_mentions_no_tmux_check() -> None:
     result = CliRunner().invoke(cli, ["admin", "cleanup", "registry", "--help"])
 
@@ -367,6 +375,35 @@ def test_cleanup_runtime_builds_defaults_to_project_overlay_runtime_root(
     )
 
     assert payload["scope"]["runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
+    assert (
+        payload["resolution"]["runtime_root_detail"]
+        == "Selected the active project runtime root from the current project overlay."
+    )
+    assert (repo_root / ".houmao" / "houmao-config.toml").exists()
+
+
+def test_cleanup_runtime_builds_explicit_runtime_root_wins_over_project_overlay_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    explicit_runtime_root = (tmp_path / "shared-runtime").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    explicit_runtime_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    monkeypatch.chdir(repo_root)
+
+    payload = runtime_cleanup.cleanup_runtime_builds(
+        runtime_root=explicit_runtime_root,
+        older_than_seconds=0,
+        dry_run=True,
+    )
+
+    assert payload["scope"]["runtime_root"] == str(explicit_runtime_root)
+    assert (
+        payload["resolution"]["runtime_root_detail"]
+        == "Selected runtime root from the explicit `--runtime-root` override."
+    )
     assert (repo_root / ".houmao" / "houmao-config.toml").exists()
 
 

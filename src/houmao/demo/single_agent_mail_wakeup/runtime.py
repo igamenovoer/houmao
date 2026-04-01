@@ -32,8 +32,10 @@ from houmao.demo.legacy.mail_ping_pong_gateway_demo_pack.agents import (
     expose_runtime_skills_in_project,
 )
 from houmao.owned_paths import (
+    HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
     HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
     HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    HOUMAO_JOB_DIR_ENV_VAR,
     HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.project.catalog import PROJECT_CATALOG_FILENAME
@@ -105,11 +107,16 @@ def build_demo_environment(
     """Return the demo-owned environment for demo command invocations."""
 
     env = dict(os.environ if base_env is None else base_env)
-    env[HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR] = str(paths.runtime_root)
+    for env_var_name in (
+        AGENT_DEF_DIR_ENV_VAR,
+        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+        HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
+        HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
+        HOUMAO_JOB_DIR_ENV_VAR,
+    ):
+        env.pop(env_var_name, None)
     env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(paths.registry_root)
-    env[HOUMAO_LOCAL_JOBS_DIR_ENV_VAR] = str(paths.jobs_root)
     env[PROJECT_OVERLAY_DIR_ENV_VAR] = str(paths.overlay_dir)
-    env[AGENT_DEF_DIR_ENV_VAR] = str((paths.overlay_dir / "agents").resolve())
     return env
 
 

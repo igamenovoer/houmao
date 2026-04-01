@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any
 
 import click
 
@@ -50,6 +52,13 @@ from ..common import (
     resolve_managed_agent_selector,
 )
 from ..output import emit
+from ..project_aware_wording import (
+    describe_local_jobs_root_selection,
+    describe_mailbox_root_selection,
+    describe_overlay_bootstrap,
+    describe_overlay_root_selection_source,
+    describe_runtime_root_selection,
+)
 from ..renderers.agents import (
     render_agent_list_fancy,
     render_agent_list_plain,
@@ -93,6 +102,23 @@ _PROVIDER_BY_TOOL: dict[str, str] = {
     "codex": "codex",
     "gemini": "gemini_cli",
 }
+
+
+@dataclass(frozen=True)
+class LocalManagedAgentLaunchResult:
+    """Resolved local launch controller plus project-aware root detail fields."""
+
+    controller: Any
+    runtime_root: Path
+    jobs_root: Path
+    mailbox_root: Path
+    runtime_root_detail: str
+    jobs_root_detail: str
+    mailbox_root_detail: str
+    overlay_root: Path
+    overlay_root_detail: str
+    project_overlay_bootstrapped: bool
+    overlay_bootstrap_detail: str
 
 
 def _format_launch_policy_resolution_error(
@@ -156,7 +182,7 @@ def launch_managed_agent_locally(
 ):
     """Resolve, build, and start one managed agent locally."""
 
-    ensure_project_aware_local_roots(cwd=working_directory)
+    project_roots = ensure_project_aware_local_roots(cwd=working_directory)
     resolved_runtime_root = resolve_project_aware_runtime_root(cwd=working_directory)
     resolved_jobs_root = resolve_project_aware_local_jobs_root(cwd=working_directory)
     resolved_mailbox_root = (
@@ -233,18 +259,35 @@ def launch_managed_agent_locally(
     ) as exc:
         raise click.ClickException(str(exc)) from exc
 
-    return controller
+    return LocalManagedAgentLaunchResult(
+        controller=controller,
+        runtime_root=resolved_runtime_root,
+        jobs_root=resolved_jobs_root,
+        mailbox_root=resolved_mailbox_root,
+        runtime_root_detail=describe_runtime_root_selection(explicit_root=None),
+        jobs_root_detail=describe_local_jobs_root_selection(),
+        mailbox_root_detail=describe_mailbox_root_selection(explicit_root=mailbox_root),
+        overlay_root=project_roots.overlay_root,
+        overlay_root_detail=describe_overlay_root_selection_source(
+            overlay_root_source=project_roots.overlay_root_source
+        ),
+        project_overlay_bootstrapped=project_roots.created_overlay,
+        overlay_bootstrap_detail=describe_overlay_bootstrap(
+            created_overlay=project_roots.created_overlay
+        ),
+    )
 
 
 def emit_local_launch_completion(
     *,
-    controller,
+    launch_result: LocalManagedAgentLaunchResult,
     agent_name: str | None,
     session_name: str | None,
     headless: bool,
 ) -> None:
     """Print one successful local launch result and hand off to tmux when appropriate."""
 
+    controller = launch_result.controller
     emit(
         {
             "status": "Managed agent launch complete",
@@ -252,6 +295,16 @@ def emit_local_launch_completion(
             "agent_id": controller.agent_id or "unknown",
             "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
             "manifest_path": str(controller.manifest_path),
+            "runtime_root": str(launch_result.runtime_root),
+            "runtime_root_detail": launch_result.runtime_root_detail,
+            "jobs_root": str(launch_result.jobs_root),
+            "jobs_root_detail": launch_result.jobs_root_detail,
+            "mailbox_root": str(launch_result.mailbox_root),
+            "mailbox_root_detail": launch_result.mailbox_root_detail,
+            "overlay_root": str(launch_result.overlay_root),
+            "overlay_root_detail": launch_result.overlay_root_detail,
+            "project_overlay_bootstrapped": launch_result.project_overlay_bootstrapped,
+            "overlay_bootstrap_detail": launch_result.overlay_bootstrap_detail,
         },
         plain_renderer=render_launch_completion_plain,
         fancy_renderer=render_launch_completion_fancy,
@@ -305,7 +358,7 @@ def launch_agents_command(
     """Build and launch one managed agent locally without `houmao-server`."""
 
     working_directory = Path.cwd().resolve()
-    controller = launch_managed_agent_locally(
+    launch_result = launch_managed_agent_locally(
         agents=agents,
         agent_name=agent_name,
         agent_id=agent_id,
@@ -318,7 +371,7 @@ def launch_agents_command(
     )
 
     emit_local_launch_completion(
-        controller=controller,
+        launch_result=launch_result,
         agent_name=agent_name,
         session_name=session_name,
         headless=headless,
@@ -722,5 +775,13 @@ def _emit_join_result(
             "backend": "headless" if headless else "local_interactive",
             "tmux_session_name": tmux_session_name,
             "manifest_path": str(result.manifest_path),
+            "runtime_root": str(result.runtime_root),
+            "runtime_root_detail": result.runtime_root_detail,
+            "jobs_root": str(result.jobs_root),
+            "jobs_root_detail": result.jobs_root_detail,
+            "overlay_root": str(result.overlay_root),
+            "overlay_root_detail": result.overlay_root_detail,
+            "project_overlay_bootstrapped": result.project_overlay_bootstrapped,
+            "overlay_bootstrap_detail": result.overlay_bootstrap_detail,
         }
     )

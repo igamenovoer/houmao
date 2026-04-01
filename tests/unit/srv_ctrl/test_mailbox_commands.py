@@ -48,7 +48,19 @@ def test_generic_mailbox_init_bootstraps_project_overlay_root_by_default(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["mailbox_root"] == str((repo_root / ".houmao" / "mailbox").resolve())
+    assert (
+        payload["mailbox_root_detail"]
+        == "Selected the active project mailbox root from the current project overlay."
+    )
     assert (repo_root / ".houmao" / "houmao-config.toml").exists()
+
+
+def test_mailbox_help_describes_project_aware_mailbox_default() -> None:
+    result = CliRunner().invoke(cli, ["mailbox", "status", "--help"])
+
+    assert result.exit_code == 0
+    assert "active project mailbox root" in result.output
+    assert "shared mailbox-root override" in result.output
 
 
 def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
@@ -122,10 +134,18 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
     assert generic_list_result.exit_code == 0, generic_list_result.output
     assert project_list_result.exit_code == 0, project_list_result.output
     generic_accounts = json.loads(generic_list_result.output)["accounts"]
-    project_accounts = json.loads(project_list_result.output)["accounts"]
+    project_payload = json.loads(project_list_result.output)
+    project_accounts = project_payload["accounts"]
     assert [(item["address"], item["status"]) for item in generic_accounts] == [
         (item["address"], item["status"]) for item in project_accounts
     ]
+    assert project_payload["selected_overlay_root"] == str((repo_root / ".houmao").resolve())
+    assert project_payload["selected_overlay_detail"] == "Selected overlay root from nearest-ancestor project discovery."
+    assert (
+        project_payload["mailbox_root_detail"]
+        == "Selected `mailbox/` under the selected project overlay."
+    )
+    assert project_payload["project_overlay_bootstrapped"] is False
 
     generic_get_result = runner.invoke(
         cli,
@@ -610,7 +630,7 @@ def test_project_mailbox_uses_env_selected_overlay_root(
     ]
 
 
-def test_project_mailbox_env_selected_overlay_without_config_bootstraps_clearly(
+def test_project_mailbox_env_selected_overlay_without_config_fails_non_creating(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -626,10 +646,11 @@ def test_project_mailbox_env_selected_overlay_without_config_bootstraps_clearly(
         env={PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root)},
     )
 
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["mailbox_root"] == str((overlay_root / "mailbox").resolve())
-    assert (overlay_root / "houmao-config.toml").exists()
+    assert result.exit_code != 0
+    assert str(overlay_root) in result.output
+    assert "uses non-creating resolution and did not bootstrap it" in result.output
+    assert "did not fall back to the shared mailbox root" in result.output
+    assert not (overlay_root / "houmao-config.toml").exists()
 
 
 def test_project_mailbox_register_yes_overwrites_without_tty(

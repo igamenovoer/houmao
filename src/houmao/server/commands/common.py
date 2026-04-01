@@ -14,6 +14,7 @@ from houmao.project.overlay import (
     ensure_project_aware_local_roots,
     resolve_project_aware_runtime_root,
 )
+from houmao.srv_ctrl.commands.project_aware_wording import runtime_root_option_help
 from houmao.server.client import HoumaoServerClient
 from houmao.server.config import HoumaoServerConfig
 
@@ -93,10 +94,7 @@ def echo_json(payload: dict[str, Any]) -> None:
 def path_option_help() -> str:
     """Return shared runtime-root help text."""
 
-    return (
-        "Optional runtime root override for Houmao-owned server artifacts. Defaults to "
-        "`HOUMAO_GLOBAL_RUNTIME_DIR` or the active project runtime root."
-    )
+    return runtime_root_option_help()
 
 
 def _parse_supported_tui_processes(values: tuple[str, ...]) -> dict[str, tuple[str, ...]]:

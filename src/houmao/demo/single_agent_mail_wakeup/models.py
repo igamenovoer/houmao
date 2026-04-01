@@ -208,17 +208,18 @@ class DemoPaths:
 
         resolved_output_root = output_root.resolve()
         control_dir = resolved_output_root / "control"
+        overlay_dir = resolved_output_root / "overlay"
         return cls(
             output_root=resolved_output_root,
             control_dir=control_dir,
             logs_dir=resolved_output_root / "logs",
-            runtime_root=resolved_output_root / "runtime",
+            runtime_root=overlay_dir / "runtime",
             registry_root=resolved_output_root / "registry",
-            jobs_root=resolved_output_root / "jobs",
+            jobs_root=overlay_dir / "jobs",
             deliveries_dir=resolved_output_root / "deliveries",
             evidence_dir=resolved_output_root / "evidence",
             project_dir=resolved_output_root / "project",
-            overlay_dir=resolved_output_root / "overlay",
+            overlay_dir=overlay_dir,
             state_path=control_dir / "demo_state.json",
             project_init_path=control_dir / "project_init.json",
             auth_import_path=control_dir / "auth_import.json",

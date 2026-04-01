@@ -11,6 +11,7 @@ import click
 from houmao.agents.realm_controller.registry_storage import cleanup_stale_live_agent_records
 
 from .cleanup_support import CleanupAction, build_cleanup_payload, emit_cleanup_payload
+from .project_aware_wording import runtime_root_option_help
 from .runtime_cleanup import (
     CleanupResolutionError,
     cleanup_runtime_builds,
@@ -45,10 +46,7 @@ def _runtime_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
         "--runtime-root",
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
-        help=(
-            "Runtime root override. Defaults to `HOUMAO_GLOBAL_RUNTIME_DIR` or the active "
-            "project runtime root."
-        ),
+        help=runtime_root_option_help(),
     )(function)
 
 

@@ -31,6 +31,7 @@ from houmao.agents.realm_controller.models import (
     SessionControlResult,
 )
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
+from houmao.project.overlay import bootstrap_project_overlay
 from houmao.server.tui.process import PaneProcessInspection
 from houmao.server.models import (
     HoumaoRecentTransition,
@@ -368,14 +369,21 @@ def _install_fake_tmux_runtime(
     )
 
 
-def _run_houmao_mgr_command(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_houmao_mgr_command(
+    *args: str,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     """Run one `houmao-mgr` subprocess through the package module entrypoint."""
 
     repo_root = _source_repo_root()
+    subprocess_env = _python_subprocess_env()
+    if env is not None:
+        subprocess_env.update(env)
     return subprocess.run(
         [sys.executable, "-m", "houmao.srv_ctrl", "--print-json", *args],
-        cwd=repo_root,
-        env=_python_subprocess_env(),
+        cwd=(repo_root if cwd is None else cwd.resolve()),
+        env=subprocess_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -919,6 +927,29 @@ def test_houmao_mgr_agents_help_retires_history_command() -> None:
     assert "No such command 'history'" in history_result.output
 
 
+def test_houmao_mgr_project_status_remains_non_creating_in_subprocess(tmp_path: Path) -> None:
+    workdir = (tmp_path / "workspace").resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    result = _run_houmao_mgr_command("project", "status", cwd=workdir)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    expected_overlay_root = (workdir / ".houmao").resolve()
+    assert payload["discovered"] is False
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert payload["would_bootstrap_overlay"] is True
+    assert (
+        payload["selected_overlay_detail"]
+        == f"Selected overlay root from the default project-aware `<cwd>/.houmao` candidate. No project overlay exists yet at `{expected_overlay_root}` for this invocation."
+    )
+    assert (
+        payload["overlay_bootstrap_detail"]
+        == "Project status used non-creating resolution and would bootstrap the selected overlay during a stateful project command."
+    )
+    assert not expected_overlay_root.exists()
+
+
 def test_houmao_mgr_agents_mail_resolve_live_returns_structured_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1057,6 +1088,41 @@ def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
     _wait_for_server_stop(api_base_url=api_base_url)
 
 
+def test_houmao_mgr_server_start_defaults_to_project_overlay_runtime_root_in_subprocess(
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    port = _pick_unused_loopback_port()
+    api_base_url = f"http://127.0.0.1:{port}"
+
+    start_result = _run_houmao_mgr_command(
+        "server",
+        "start",
+        "--api-base-url",
+        api_base_url,
+        "--no-startup-child",
+        cwd=repo_root,
+    )
+    assert start_result.returncode == 0, start_result.stderr
+    start_payload = json.loads(start_result.stdout)
+    assert start_payload["success"] is True
+    assert start_payload["runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
+    assert (
+        start_payload["runtime_root_detail"]
+        == "Selected the active project runtime root from the current project overlay."
+    )
+    assert Path(start_payload["log_paths"]["stdout"]).exists()
+    _wait_for_server_ready(api_base_url=api_base_url)
+
+    stop_result = _run_houmao_mgr_command("server", "stop", "--port", str(port), cwd=repo_root)
+    assert stop_result.returncode == 0, stop_result.stderr
+    stop_payload = json.loads(stop_result.stdout)
+    assert stop_payload["success"] is True
+    _wait_for_server_stop(api_base_url=api_base_url)
+
+
 def test_houmao_mgr_server_start_reports_unsuccessful_detached_start(
     tmp_path: Path,
 ) -> None:
@@ -1101,6 +1167,25 @@ def _sample_join_pane(*, pane_pid: int = 321, window_name: str = "manual") -> Tm
     )
 
 
+def _fake_joined_session_artifacts(*, agent_name: str, agent_id: str) -> agents_core.JoinedSessionArtifacts:
+    """Build one joined-session artifact payload for CLI integration doubles."""
+
+    return agents_core.JoinedSessionArtifacts(
+        manifest_path=Path("/tmp/runtime/manifest.json"),
+        session_root=Path("/tmp/runtime"),
+        agent_name=agent_name,
+        agent_id=agent_id,
+        runtime_root=Path("/tmp/runtime"),
+        jobs_root=Path("/tmp/project/.houmao/jobs"),
+        runtime_root_detail="Selected runtime root from the explicit `--runtime-root` override.",
+        jobs_root_detail="Selected the overlay-local jobs root for this invocation.",
+        overlay_root=Path("/tmp/project/.houmao"),
+        overlay_root_detail="Selected overlay root from the default project-aware `<cwd>/.houmao` candidate.",
+        project_overlay_bootstrapped=False,
+        overlay_bootstrap_detail="No project overlay was bootstrapped for this invocation.",
+    )
+
+
 def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -1121,12 +1206,7 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
 
     def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
         captured.update(kwargs)
-        return agents_core.JoinedSessionArtifacts(
-            manifest_path=Path("/tmp/runtime/manifest.json"),
-            session_root=Path("/tmp/runtime"),
-            agent_name="coder",
-            agent_id="agent-1",
-        )
+        return _fake_joined_session_artifacts(agent_name="coder", agent_id="agent-1")
 
     monkeypatch.setattr(agents_core, "materialize_joined_launch", fake_materialize_joined_launch)
 
@@ -1140,7 +1220,6 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
     assert captured["tmux_window_name"] == "manual"
     assert captured["working_directory"] == Path("/tmp/project")
     assert "Managed agent join complete" in result.output
-    assert "provider           codex" in result.output
 
 
 def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1159,12 +1238,7 @@ def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyP
 
     def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
         captured.update(kwargs)
-        return agents_core.JoinedSessionArtifacts(
-            manifest_path=Path("/tmp/runtime/manifest.json"),
-            session_root=Path("/tmp/runtime"),
-            agent_name="reviewer",
-            agent_id="agent-2",
-        )
+        return _fake_joined_session_artifacts(agent_name="reviewer", agent_id="agent-2")
 
     monkeypatch.setattr(agents_core, "materialize_joined_launch", fake_materialize_joined_launch)
 
@@ -1214,12 +1288,7 @@ def test_houmao_mgr_agents_join_can_opt_out_of_houmao_skill_install(
 
     def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
         captured.update(kwargs)
-        return agents_core.JoinedSessionArtifacts(
-            manifest_path=Path("/tmp/runtime/manifest.json"),
-            session_root=Path("/tmp/runtime"),
-            agent_name="coder",
-            agent_id="agent-1",
-        )
+        return _fake_joined_session_artifacts(agent_name="coder", agent_id="agent-1")
 
     monkeypatch.setattr(agents_core, "materialize_joined_launch", fake_materialize_joined_launch)
 

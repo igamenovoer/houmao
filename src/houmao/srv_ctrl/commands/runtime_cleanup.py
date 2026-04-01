@@ -25,6 +25,7 @@ from houmao.project.overlay import (
 )
 
 from .cleanup_support import CleanupAction, build_cleanup_payload, remove_path
+from .project_aware_wording import describe_runtime_root_selection
 from .managed_agents import _resolve_local_managed_agent_record
 
 
@@ -61,6 +62,15 @@ def _resolve_effective_runtime_root(runtime_root: Path | None) -> Path:
     if runtime_root is None and not os.environ.get(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR):
         ensure_project_aware_local_roots(cwd=cwd)
     return resolve_project_aware_runtime_root(cwd=cwd, explicit_root=runtime_root)
+
+
+def _runtime_root_resolution_payload(runtime_root: Path | None) -> dict[str, object]:
+    """Return one structured cleanup resolution payload for runtime-root selection."""
+
+    return {
+        "authority": "runtime_root",
+        "runtime_root_detail": describe_runtime_root_selection(explicit_root=runtime_root),
+    }
 
 
 def resolve_managed_session_cleanup_target(
@@ -455,7 +465,7 @@ def cleanup_runtime_sessions(
             "older_than_seconds": older_than_seconds,
             "include_job_dir": include_job_dir,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,
@@ -656,7 +666,7 @@ def cleanup_runtime_builds(
             "runtime_root": str(resolved_runtime_root),
             "older_than_seconds": older_than_seconds,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,
@@ -702,7 +712,7 @@ def cleanup_runtime_logs(
             "runtime_root": str(resolved_runtime_root),
             "older_than_seconds": older_than_seconds,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,
@@ -782,7 +792,7 @@ def cleanup_runtime_mailbox_credentials(
             "runtime_root": str(resolved_runtime_root),
             "older_than_seconds": older_than_seconds,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,

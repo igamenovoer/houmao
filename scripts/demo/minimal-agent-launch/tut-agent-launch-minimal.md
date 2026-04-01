@@ -34,7 +34,7 @@ The tracked demo keeps only the secret-free part of the canonical layout:
 - one secret-free setup bundle per tool
 - an empty `skills/` root so the builder sees a valid skills repository even though the presets use `skills: []`
 
-At run time, the script copies those tracked inputs into a generated workdir, creates a demo-local `default` auth symlink for the selected provider, points Houmao at that generated `agents/` tree, and then chooses one of two flows:
+At run time, the script copies those tracked inputs into a generated workdir, creates a demo-local `default` auth symlink for the selected provider, points Houmao at one generated overlay root under `workdir/.houmao/`, and then chooses one of two flows:
 
 - default TUI: `launch -> state`, then leaves the agent alive and reports the tmux attach handoff for follow-up control
 - `--headless`: `launch -> prompt -> state -> stop`
@@ -56,9 +56,10 @@ else
   agent_name="minimal-launch-demo-${tool}"
 fi
 
-generated_agent_def_dir="${run_root}/workdir/.houmao/agents"
+overlay_root="${run_root}/workdir/.houmao"
+generated_agent_def_dir="${overlay_root}/agents"
 
-rm -rf "${run_root}/workdir" "${run_root}/runtime"
+rm -rf "${run_root}/workdir"
 mkdir -p "${generated_agent_def_dir}"
 cp -R scripts/demo/minimal-agent-launch/inputs/agents/. "${generated_agent_def_dir}/"
 
@@ -82,8 +83,8 @@ if [[ "${headless}" == "true" ]]; then
   launch_args+=(--headless)
 fi
 
-HOUMAO_AGENT_DEF_DIR="$PWD/${generated_agent_def_dir}" \
-HOUMAO_GLOBAL_RUNTIME_DIR="$PWD/${run_root}/runtime" \
+unset HOUMAO_AGENT_DEF_DIR HOUMAO_GLOBAL_RUNTIME_DIR HOUMAO_GLOBAL_MAILBOX_DIR HOUMAO_LOCAL_JOBS_DIR HOUMAO_JOB_DIR
+HOUMAO_PROJECT_OVERLAY_DIR="$PWD/${overlay_root}" \
 "${launch_args[@]}"
 ```
 
@@ -140,8 +141,10 @@ Each run writes generated artifacts under a lane-specific root:
 
 Important generated outputs for every lane:
 
+- `workdir/.houmao/`: generated overlay root for the lane
 - `workdir/.houmao/agents/`: generated launch tree with the demo-local auth alias
-- `runtime/`: built homes, manifests, and session artifacts
+- `workdir/.houmao/runtime/`: built homes, manifests, and session artifacts
+- `workdir/.houmao/jobs/`: project-aware local job metadata when launch flows materialize it
 - `logs/preflight-stop.log`: best-effort cleanup of a stale agent with the same demo name
 - `logs/launch.log`
 - `logs/state.log`
@@ -219,11 +222,11 @@ Observed verification results on 2026-03-28:
 
 What to confirm after a run:
 
-- `summary.json` records the selected `provider`, derived `transport`, and fixture auth source
+- `summary.json` records the selected `provider`, derived `transport`, fixture auth source, and generated overlay root
 - `logs/state.log` contains `"availability": "available"` with the expected `tool` and `transport`
 - headless lanes write both `logs/prompt.log` and `logs/stop.log`
 - default TUI lanes leave the agent alive and publish `tmux_session_name`, `terminal_handoff`, and `attach_command`
-- the generated workdir contains `tools/<tool>/auth/default` as a symlink to the expected fixture auth bundle
+- the generated workdir contains `tools/<tool>/auth/default` as a symlink to the expected fixture auth bundle under `workdir/.houmao/agents/`
 
 ## Appendix
 

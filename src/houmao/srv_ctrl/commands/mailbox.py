@@ -16,7 +16,6 @@ from houmao.project.overlay import (
 
 from .cleanup_support import emit_cleanup_payload
 from .common import build_destructive_confirmation_callback, overwrite_confirm_option
-from .output import emit
 from .mailbox_support import (
     cleanup_mailbox_root,
     get_mailbox_account,
@@ -28,6 +27,11 @@ from .mailbox_support import (
     register_mailbox_at_root,
     repair_mailbox_root,
     unregister_mailbox_at_root,
+)
+from .output import emit
+from .project_aware_wording import (
+    describe_mailbox_root_selection,
+    mailbox_root_option_help,
 )
 
 
@@ -47,11 +51,19 @@ def _mailbox_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
         "--mailbox-root",
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
-        help=(
-            "Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` "
-            "or the active project mailbox root."
-        ),
+        help=mailbox_root_option_help(),
     )(function)
+
+
+def _emit_mailbox_payload(*, mailbox_root: Path | None, payload: dict[str, object]) -> None:
+    """Emit one mailbox payload with project-aware root selection detail."""
+
+    emit(
+        {
+            **payload,
+            "mailbox_root_detail": describe_mailbox_root_selection(explicit_root=mailbox_root),
+        }
+    )
 
 
 @click.group(name="mailbox")
@@ -64,7 +76,10 @@ def mailbox_group() -> None:
 def init_mailbox_command(mailbox_root: Path | None) -> None:
     """Bootstrap or validate one filesystem mailbox root."""
 
-    emit(init_mailbox_root(_resolve_effective_mailbox_root(mailbox_root)))
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=init_mailbox_root(_resolve_effective_mailbox_root(mailbox_root)),
+    )
 
 
 @mailbox_group.command(name="status")
@@ -72,7 +87,10 @@ def init_mailbox_command(mailbox_root: Path | None) -> None:
 def status_mailbox_command(mailbox_root: Path | None) -> None:
     """Inspect one filesystem mailbox root and return a structured summary."""
 
-    emit(mailbox_root_status_payload(_resolve_effective_mailbox_root(mailbox_root)))
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=mailbox_root_status_payload(_resolve_effective_mailbox_root(mailbox_root)),
+    )
 
 
 @mailbox_group.command(name="register")
@@ -100,8 +118,9 @@ def register_mailbox_command(
 ) -> None:
     """Register one filesystem mailbox address under the resolved root."""
 
-    emit(
-        register_mailbox_at_root(
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=register_mailbox_at_root(
             mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
             principal_id=principal_id,
@@ -114,7 +133,7 @@ def register_mailbox_command(
                     "a non-destructive registration mode."
                 ),
             ),
-        )
+        ),
     )
 
 
@@ -135,12 +154,13 @@ def register_mailbox_command(
 def unregister_mailbox_command(mailbox_root: Path | None, address: str, mode: str) -> None:
     """Deactivate or purge one filesystem mailbox address."""
 
-    emit(
-        unregister_mailbox_at_root(
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=unregister_mailbox_at_root(
             mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
             mode=mode,
-        )
+        ),
     )
 
 
@@ -165,12 +185,13 @@ def repair_mailbox_command(
 ) -> None:
     """Rebuild filesystem mailbox index state locally."""
 
-    emit(
-        repair_mailbox_root(
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=repair_mailbox_root(
             mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             cleanup_staging=cleanup_staging,
             quarantine_staging=quarantine_staging,
-        )
+        ),
     )
 
 
@@ -204,12 +225,15 @@ def cleanup_mailbox_command(
     """Clean inactive or stashed mailbox registrations without deleting canonical mail."""
 
     emit_cleanup_payload(
-        cleanup_mailbox_root(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
-            inactive_older_than_seconds=inactive_older_than_seconds,
-            stashed_older_than_seconds=stashed_older_than_seconds,
-            dry_run=dry_run,
-        )
+        {
+            **cleanup_mailbox_root(
+                mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+                inactive_older_than_seconds=inactive_older_than_seconds,
+                stashed_older_than_seconds=stashed_older_than_seconds,
+                dry_run=dry_run,
+            ),
+            "mailbox_root_detail": describe_mailbox_root_selection(explicit_root=mailbox_root),
+        }
     )
 
 
@@ -223,7 +247,10 @@ def mailbox_accounts_group() -> None:
 def list_mailbox_accounts_command(mailbox_root: Path | None) -> None:
     """List mailbox registrations as operator-facing accounts."""
 
-    emit(list_mailbox_accounts(mailbox_root=_resolve_effective_mailbox_root(mailbox_root)))
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=list_mailbox_accounts(mailbox_root=_resolve_effective_mailbox_root(mailbox_root)),
+    )
 
 
 @mailbox_accounts_group.command(name="get")
@@ -239,7 +266,7 @@ def get_mailbox_account_command(mailbox_root: Path | None, address: str) -> None
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit(payload)
+    _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)
 
 
 @mailbox_group.group(name="messages")
@@ -260,7 +287,7 @@ def list_mailbox_messages_command(mailbox_root: Path | None, address: str) -> No
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit(payload)
+    _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)
 
 
 @mailbox_messages_group.command(name="get")
@@ -282,4 +309,4 @@ def get_mailbox_message_command(
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
-    emit(payload)
+    _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)

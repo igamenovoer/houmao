@@ -12,6 +12,7 @@ from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
 from houmao.passive_server.app import create_app
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.project.overlay import ensure_project_aware_local_roots
+from houmao.srv_ctrl.commands.project_aware_wording import runtime_root_option_help
 
 
 @click.group(name="houmao-passive-server")
@@ -26,10 +27,7 @@ def cli() -> None:
     "--runtime-root",
     default=None,
     type=click.Path(path_type=Path),
-    help=(
-        "Override the Houmao runtime root directory. Defaults to "
-        "`HOUMAO_GLOBAL_RUNTIME_DIR` or the active project runtime root."
-    ),
+    help=runtime_root_option_help(),
 )
 def serve_command(host: str, port: int, runtime_root: Path | None) -> None:
     """Start the passive server."""

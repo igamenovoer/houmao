@@ -12,6 +12,7 @@ from ..common import (
     overwrite_confirm_option,
 )
 from ..output import emit
+from ..project_aware_wording import mailbox_root_option_help
 from ..managed_agents import (
     mailbox_status,
     register_mailbox_binding,
@@ -39,10 +40,7 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     "--mailbox-root",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
     default=None,
-    help=(
-        "Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` "
-        "or the active project mailbox root."
-    ),
+    help=mailbox_root_option_help(),
 )
 @click.option(
     "--principal-id",

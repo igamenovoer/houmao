@@ -15,6 +15,7 @@ from houmao.agents.native_launch_resolver import resolve_native_launch_target, t
 from houmao.owned_paths import HOUMAO_JOB_DIR_ENV_VAR
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
+    resolve_project_aware_local_roots,
     resolve_project_aware_runtime_root,
     resolve_project_aware_session_job_dir,
 )
@@ -77,6 +78,12 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     unset_tmux_session_environment,
 )
 from houmao.server.models import HoumaoHeadlessLaunchRequest
+from houmao.srv_ctrl.commands.project_aware_wording import (
+    describe_local_jobs_root_selection,
+    describe_overlay_bootstrap,
+    describe_overlay_root_selection_source,
+    describe_runtime_root_selection,
+)
 
 _HOME_ENV_BY_TOOL: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
@@ -98,6 +105,14 @@ class JoinedSessionArtifacts:
     session_root: Path
     agent_name: str
     agent_id: str
+    runtime_root: Path
+    jobs_root: Path
+    runtime_root_detail: str
+    jobs_root_detail: str
+    overlay_root: Path
+    overlay_root_detail: str
+    project_overlay_bootstrapped: bool
+    overlay_bootstrap_detail: str
 
 
 def materialize_joined_launch(
@@ -117,8 +132,11 @@ def materialize_joined_launch(
 ) -> JoinedSessionArtifacts:
     """Materialize a manifest-first runtime envelope for one joined tmux session."""
 
-    if runtime_root is None:
+    project_roots = (
         ensure_project_aware_local_roots(cwd=working_directory)
+        if runtime_root is None
+        else resolve_project_aware_local_roots(cwd=working_directory)
+    )
     resolved_runtime_root = resolve_project_aware_runtime_root(
         cwd=working_directory,
         explicit_root=runtime_root,
@@ -285,6 +303,19 @@ def materialize_joined_launch(
             session_root=session_root,
             agent_name=normalized_agent_name,
             agent_id=resolved_agent_id,
+            runtime_root=resolved_runtime_root,
+            jobs_root=job_dir.parent.resolve(),
+            runtime_root_detail=describe_runtime_root_selection(explicit_root=runtime_root),
+            jobs_root_detail=describe_local_jobs_root_selection(),
+            overlay_root=project_roots.overlay_root,
+            overlay_root_detail=describe_overlay_root_selection_source(
+                overlay_root_source=project_roots.overlay_root_source
+            ),
+            project_overlay_bootstrapped=project_roots.created_overlay,
+            overlay_bootstrap_detail=describe_overlay_bootstrap(
+                created_overlay=project_roots.created_overlay,
+                overlay_exists=project_roots.project_overlay is not None,
+            ),
         )
     except Exception:
         if published_record:

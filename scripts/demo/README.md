@@ -21,7 +21,7 @@ The shared runner defaults to TUI and only needs `--headless` for the headless l
 scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider <claude_code|codex> [--headless]
 ```
 
-Headless lanes run a full `launch -> prompt -> state -> stop` cycle. TUI lanes run `launch -> state`, leave the agent alive, and surface the tmux attach handoff for non-interactive callers.
+Headless lanes run a full `launch -> prompt -> state -> stop` cycle. TUI lanes run `launch -> state`, leave the agent alive, and surface the tmux attach handoff for non-interactive callers. The runner materializes one generated overlay root under `outputs/<provider>[-headless]/workdir/.houmao/`, so agent definitions plus runtime and jobs state stay together without extra root overrides.
 
 Start here:
 
@@ -39,7 +39,7 @@ Start here:
 
 ### `single-agent-mail-wakeup/`
 
-Supported project-local gateway wake-up demo for one `houmao-mgr project easy` TUI specialist. The pack copies a tiny dummy project under `outputs/<tool>/project/`, redirects Houmao overlay state into the sibling `outputs/<tool>/overlay/` root through `HOUMAO_PROJECT_OVERLAY_DIR`, imports the local Claude or Codex fixture auth bundle, launches one project-easy TUI instance, attaches a gateway, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies artifact creation plus actor-scoped unread completion.
+Supported project-local gateway wake-up demo for one `houmao-mgr project easy` TUI specialist. The pack copies a tiny dummy project under `outputs/<tool>/project/`, redirects Houmao overlay state into the sibling `outputs/<tool>/overlay/` root through `HOUMAO_PROJECT_OVERLAY_DIR`, keeps runtime, jobs, and mailbox state under that overlay, imports the local Claude or Codex fixture auth bundle, launches one project-easy TUI instance, attaches a gateway, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies artifact creation plus actor-scoped unread completion.
 
 Supported lanes:
 

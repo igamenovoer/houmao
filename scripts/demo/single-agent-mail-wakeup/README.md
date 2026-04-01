@@ -6,7 +6,7 @@ It shows the maintained TUI flow from project creation through gateway notifier 
 
 1. use one canonical demo-owned state root under `outputs/`
 2. copy a fresh dummy project under `outputs/project/`
-3. redirect Houmao overlay state into `outputs/overlay/` with `HOUMAO_PROJECT_OVERLAY_DIR`
+3. redirect Houmao overlay state into `outputs/overlay/` with `HOUMAO_PROJECT_OVERLAY_DIR` so runtime, jobs, and mailbox state stay demo-local under that overlay
 4. preserve reusable project-easy specialist state under that overlay across fresh runs
 5. import the local Claude or Codex fixture auth bundle into that overlay and create or reuse one project-easy specialist
 6. initialize the project mailbox, register the agent and operator addresses, attach a live gateway, and enable mail-notifier polling
@@ -25,11 +25,11 @@ This demo is intentionally TUI-only. It does not claim headless or mixed-mode su
 The demo owns one canonical output root under `outputs/`:
 
 - `project/`: copied dummy project and visible worktree
-- `overlay/`: redirected Houmao overlay selected through `HOUMAO_PROJECT_OVERLAY_DIR`
-- `runtime/`, `registry/`, `jobs/`: demo-owned runtime state
+- `overlay/`: redirected Houmao overlay selected through `HOUMAO_PROJECT_OVERLAY_DIR`, including `agents/`, `runtime/`, `jobs/`, `mailbox/`, `content/`, and `easy/`
+- `registry/`: isolated shared-registry override kept local to the demo output root
 - `control/`, `logs/`, `deliveries/`, `evidence/`: persisted demo artifacts
 
-Fresh `start` runs reset the copied project, mailbox, runtime, logs, deliveries, and evidence while preserving reusable specialist/auth/setup state under `overlay/`.
+Fresh `start` runs reset the copied project plus overlay-local mailbox, runtime, jobs, logs, deliveries, and evidence while preserving reusable specialist/auth/setup state under `overlay/`.
 
 Generated outputs are ignored through [outputs/.gitignore](outputs/.gitignore).
 

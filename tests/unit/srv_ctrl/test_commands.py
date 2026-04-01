@@ -64,6 +64,23 @@ _ACTIONABLE_SELECTOR_ERROR = "\n".join(
 )
 
 
+def _decode_json_stream(output: str) -> list[dict[str, object]]:
+    """Decode one whitespace-separated JSON object stream."""
+
+    decoder = json.JSONDecoder()
+    payloads: list[dict[str, object]] = []
+    index = 0
+    length = len(output)
+    while index < length:
+        while index < length and output[index].isspace():
+            index += 1
+        if index >= length:
+            break
+        payload, index = decoder.raw_decode(output, index)
+        payloads.append(payload)
+    return payloads
+
+
 def _make_native_launch_target(
     *,
     working_directory: Path,
@@ -81,6 +98,7 @@ def _make_native_launch_target(
         setup=setup,
         auth=auth,
         launch_overrides=None,
+        launch_env_records=None,
         operator_prompt_mode=operator_prompt_mode,
         mailbox=None,
         extra={},
@@ -268,7 +286,7 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
     assert result.exit_code == 0
-    assert "local repo-local houmao project-overlay administration" in result.output.lower()
+    assert "selected houmao project overlay" in result.output.lower()
     assert "agents" in result.output
     assert "easy" in result.output
     assert "mailbox" in result.output
@@ -304,7 +322,7 @@ def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
             ["agents", "gateway", "tui", "state", "--agent-name", "agent-test"],
         ),
         (
-            "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_target",
+            "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target",
             ["agents", "mail", "status", "--agent-name", "agent-test"],
         ),
         (
@@ -1139,6 +1157,11 @@ def test_server_start_defaults_to_detached_startup_result(
     assert payload["api_base_url"] == "http://127.0.0.1:9999"
     assert payload["pid"] == 123
     assert payload["reused_existing"] is False
+    assert payload["runtime_root"] == str((tmp_path / "runtime").resolve())
+    assert (
+        payload["runtime_root_detail"]
+        == "Selected runtime root from the explicit `--runtime-root` override."
+    )
     assert payload["log_paths"]["stdout"].endswith("stdout.log")
     assert captured["config"] is not None
 
@@ -1174,6 +1197,139 @@ def test_server_start_foreground_keeps_direct_run_server_path(
     assert len(run_calls) == 1
     assert run_calls[0]["api_base_url"] == "http://127.0.0.1:9998"
     assert run_calls[0]["startup_child"] is False
+
+
+def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    working_directory = (tmp_path / "repo").resolve()
+    working_directory.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(working_directory)
+
+    build_result = SimpleNamespace(
+        home_id="brain-home-1",
+        home_path=(working_directory / "home").resolve(),
+        launch_helper_path=(working_directory / "launch.sh").resolve(),
+        manifest_path=(working_directory / "brain.json").resolve(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.brains.build_brain_home",
+        lambda request: build_result,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "brains",
+            "build",
+            "--tool",
+            "codex",
+            "--skill",
+            "notes",
+            "--setup",
+            "default",
+            "--auth",
+            "work",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    expected_overlay_root = (working_directory / ".houmao").resolve()
+    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
+    assert (
+        payload["runtime_root_detail"]
+        == "Selected the active project runtime root from the current project overlay."
+    )
+    assert payload["project_overlay_bootstrapped"] is True
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert (
+        payload["overlay_root_detail"]
+        == "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate."
+    )
+    assert (
+        payload["overlay_bootstrap_detail"]
+        == "Applied implicit bootstrap for the selected overlay root during this invocation."
+    )
+
+
+def test_agents_launch_reports_project_aware_root_details_in_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = _make_native_launch_target(
+        working_directory=working_directory,
+        tool="codex",
+        role_name="gpu-kernel-coder",
+        operator_prompt_mode="unattended",
+    )
+    controller = SimpleNamespace(
+        manifest_path=working_directory / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="gpu",
+        tmux_session_name="gpu-session",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: build_result,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: controller,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "codex",
+            "--headless",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    expected_overlay_root = (working_directory / ".houmao").resolve()
+    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
+    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert (
+        payload["runtime_root_detail"]
+        == "Selected the active project runtime root from the current project overlay."
+    )
+    assert (
+        payload["jobs_root_detail"] == "Selected the overlay-local jobs root for this invocation."
+    )
+    assert (
+        payload["mailbox_root_detail"]
+        == "Selected the active project mailbox root from the current project overlay."
+    )
+    assert payload["project_overlay_bootstrapped"] is True
+    assert (
+        payload["overlay_bootstrap_detail"]
+        == "Applied implicit bootstrap for the selected overlay root during this invocation."
+    )
 
 
 def test_server_sessions_shutdown_all_uses_pair_client(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1258,11 +1414,26 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     )
 
     assert result.exit_code == 0
-    assert "Managed agent launch complete:" in result.output
-    assert "agent_name=gpu" in result.output
-    assert "agent_id=agent-1234" in result.output
-    assert "tmux_session_name=gpu-session" in result.output
-    assert f"manifest_path={controller.manifest_path}" in result.output
+    payloads = _decode_json_stream(result.output)
+    assert payloads == [
+        {
+            "status": "Managed agent launch complete",
+            "agent_name": "gpu",
+            "agent_id": "agent-1234",
+            "tmux_session_name": "gpu-session",
+            "manifest_path": str(controller.manifest_path),
+            "runtime_root": str(working_directory / ".houmao" / "runtime"),
+            "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
+            "jobs_root": str(working_directory / ".houmao" / "jobs"),
+            "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
+            "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
+            "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
+            "overlay_root": str(working_directory / ".houmao"),
+            "overlay_root_detail": "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate.",
+            "project_overlay_bootstrapped": True,
+            "overlay_bootstrap_detail": "Applied implicit bootstrap for the selected overlay root during this invocation.",
+        }
+    ]
     assert captured["build_request"].operator_prompt_mode == "unattended"
     assert captured["build_request"].agent_name == "gpu"
     assert captured["build_request"].agent_id is None
@@ -1333,9 +1504,30 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
     )
 
     assert result.exit_code == 0
-    assert "Managed agent launch complete:" in result.output
-    assert "terminal_handoff=skipped_non_interactive" in result.output
-    assert "attach_command=tmux attach-session -t gpu-session" in result.output
+    payloads = _decode_json_stream(result.output)
+    assert payloads == [
+        {
+            "status": "Managed agent launch complete",
+            "agent_name": "gpu",
+            "agent_id": "agent-1234",
+            "tmux_session_name": "gpu-session",
+            "manifest_path": str(controller.manifest_path),
+            "runtime_root": str(working_directory / ".houmao" / "runtime"),
+            "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
+            "jobs_root": str(working_directory / ".houmao" / "jobs"),
+            "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
+            "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
+            "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
+            "overlay_root": str(working_directory / ".houmao"),
+            "overlay_root_detail": "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate.",
+            "project_overlay_bootstrapped": True,
+            "overlay_bootstrap_detail": "Applied implicit bootstrap for the selected overlay root during this invocation.",
+        },
+        {
+            "terminal_handoff": "skipped_non_interactive",
+            "attach_command": "tmux attach-session -t gpu-session",
+        },
+    ]
 
 
 def test_agents_launch_auth_override_wins_over_preset_default(
@@ -1452,7 +1644,8 @@ def test_agents_launch_allows_missing_agent_name(
     )
 
     assert result.exit_code == 0
-    assert "agent_name=HOUMAO-claude-gpu-kernel-coder" in result.output
+    payloads = _decode_json_stream(result.output)
+    assert payloads[0]["agent_name"] == "HOUMAO-claude-gpu-kernel-coder"
     assert captured["build_request"].agent_name is None
     assert captured["start_kwargs"]["agent_name"] is None
 

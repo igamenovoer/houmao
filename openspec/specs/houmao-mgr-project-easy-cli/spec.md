@@ -139,6 +139,12 @@ When a specialist has stored launch posture, `specialist get` SHALL report that 
 
 `houmao-mgr project easy specialist get` SHALL report persistent specialist env records separately from the credential selection and auth content path.
 
+Maintained `houmao-mgr project easy specialist list`, `get`, and `remove` flows SHALL resolve the active overlay through the shared non-creating project-aware resolver.
+
+When no active project overlay exists for the caller and no stronger overlay selection override applies, these commands SHALL fail clearly without bootstrapping a new overlay.
+
+`project easy specialist remove` SHALL remain non-creating even though it mutates existing specialist state.
+
 #### Scenario: Get reports semantic specialist metadata and content references
 - **WHEN** specialist `researcher` exists in the project-local catalog
 - **AND WHEN** an operator runs `houmao-mgr project easy specialist get --name researcher`
@@ -156,6 +162,18 @@ When a specialist has stored launch posture, `specialist get` SHALL report that 
 - **AND WHEN** an operator runs `houmao-mgr project easy specialist remove --name researcher`
 - **THEN** the command removes the persisted `researcher` specialist definition from the project-local catalog
 - **AND THEN** it does not delete that shared skill package or shared auth content only because `researcher` was removed
+
+#### Scenario: Specialist list fails clearly when no overlay exists
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs `houmao-mgr project easy specialist list`
+- **THEN** the command fails clearly because no project overlay was discovered for the current invocation
+- **AND THEN** it does not create `<cwd>/.houmao` only to return an empty specialist list
+
+#### Scenario: Specialist remove does not bootstrap an empty overlay
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs `houmao-mgr project easy specialist remove --name researcher`
+- **THEN** the command fails clearly before attempting specialist removal
+- **AND THEN** it does not create a new project overlay as a side effect of that remove command
 
 ### Requirement: `project easy instance launch` derives provider from one specialist and launches one runtime instance
 
@@ -243,6 +261,10 @@ This change SHALL NOT define `project easy instance stop` semantics that differ 
 
 The instance view SHALL be derived from existing managed-agent runtime state and SHALL NOT require a second persisted per-instance config contract in v1.
 
+Maintained `houmao-mgr project easy instance list`, `get`, and `stop` flows SHALL resolve the active overlay through the shared non-creating project-aware resolver before inspecting runtime state or verifying overlay ownership.
+
+When no active project overlay exists for the caller and no stronger overlay selection override applies, these commands SHALL fail clearly without bootstrapping a new overlay.
+
 When the resolved runtime state includes a mailbox association, `project easy instance get` SHALL report the effective mailbox summary, including:
 
 - the high-level mailbox transport,
@@ -280,6 +302,18 @@ The `instance` group SHALL own launch, stop, and runtime inspection, while the `
 - **THEN** the command fails clearly
 - **AND THEN** it does not delegate stop control for a managed agent outside the current project overlay
 
+#### Scenario: Instance list fails clearly when no overlay exists
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs `houmao-mgr project easy instance list`
+- **THEN** the command fails clearly because no project overlay was discovered for the current invocation
+- **AND THEN** it does not create `<cwd>/.houmao` as a side effect of that inspection command
+
+#### Scenario: Instance stop does not bootstrap before checking ownership
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs `houmao-mgr project easy instance stop --name repo-research-1`
+- **THEN** the command fails clearly before attempting runtime ownership verification or stop delegation
+- **AND THEN** it does not create a new project overlay only to reject or stop an existing instance
+
 ### Requirement: `project easy specialist create` persists explicit tool setup selection
 `houmao-mgr project easy specialist create` SHALL accept an optional `--setup <name>` input with a default of `default`.
 
@@ -306,4 +340,3 @@ This requirement SHALL apply to any project-easy specialist tool that uses setup
 - **THEN** the command persists specialist `reviewer` successfully
 - **AND THEN** the stored specialist metadata records `setup = default`
 - **AND THEN** later project-aware launch resolves that same stored setup without inferring a different setup from credentials
-
