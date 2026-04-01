@@ -163,10 +163,14 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         )
     )
 
+    visible_processing_skill = (
+        build_result.home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
+    )
     visible_gateway_skill = (
         build_result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
     )
     visible_skill = build_result.home_path / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_skill.is_file()
     assert not (
@@ -203,9 +207,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     mailbox = controller.launch_plan.mailbox
     assert mailbox is not None
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
-    assert (
-        mailbox.filesystem_root / "mailboxes/HOUMAO-research@agents.localhost/archive"
-    ).is_dir()
+    assert (mailbox.filesystem_root / "mailboxes/HOUMAO-research@agents.localhost/archive").is_dir()
     assert (
         mailbox.filesystem_root
         / "mailboxes"

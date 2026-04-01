@@ -65,15 +65,20 @@ MAILBOX_TRANSPORT_NONE = "none"
 MAILBOX_TRANSPORT_FILESYSTEM = "filesystem"
 MAILBOX_TRANSPORT_STALWART = "stalwart"
 MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
+MAILBOX_PROCESSING_SKILL_NAME = "houmao-process-emails-via-gateway"
 MAILBOX_GATEWAY_SKILL_NAME = "houmao-email-via-agent-gateway"
 MAILBOX_FILESYSTEM_SKILL_NAME = "houmao-email-via-filesystem"
 MAILBOX_STALWART_SKILL_NAME = "houmao-email-via-stalwart"
+MAILBOX_PROCESSING_SKILL_REFERENCE = (
+    f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_PROCESSING_SKILL_NAME}"
+)
 MAILBOX_GATEWAY_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_GATEWAY_SKILL_NAME}"
 MAILBOX_FILESYSTEM_SKILL_REFERENCE = (
     f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_FILESYSTEM_SKILL_NAME}"
 )
 MAILBOX_STALWART_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_STALWART_SKILL_NAME}"
 MAILBOX_PRIMARY_SKILL_REFERENCES = (
+    MAILBOX_PROCESSING_SKILL_REFERENCE,
     MAILBOX_GATEWAY_SKILL_REFERENCE,
     MAILBOX_FILESYSTEM_SKILL_REFERENCE,
     MAILBOX_STALWART_SKILL_REFERENCE,
@@ -597,11 +602,7 @@ def resolve_live_mailbox_binding_from_manifest_path(
     resolved_gateway = resolve_live_gateway_binding_from_manifest_path(
         manifest_path=handle.path,
         tmux_session_name=tmux_session_name,
-        source=(
-            gateway_source
-            if gateway_source is not None
-            else "current_instance_record"
-        ),
+        source=(gateway_source if gateway_source is not None else "current_instance_record"),
         process_env_reader=process_env_reader,
         tmux_env_reader=tmux_env_reader,
         gateway_client_factory=gateway_client_factory,
@@ -646,8 +647,12 @@ def _structured_live_mailbox_payload(mailbox: MailboxResolvedConfig) -> dict[str
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         mailbox_root = mailbox.filesystem_root.resolve()
         try:
-            mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=mailbox.address).resolve()
-            inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=mailbox.address).resolve()
+            mailbox_dir = resolve_active_mailbox_dir(
+                mailbox_root, address=mailbox.address
+            ).resolve()
+            inbox_dir = resolve_active_mailbox_inbox_dir(
+                mailbox_root, address=mailbox.address
+            ).resolve()
             local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
                 mailbox_root,
                 address=mailbox.address,
@@ -859,10 +864,22 @@ def mailbox_gateway_skill_reference() -> str:
     return MAILBOX_GATEWAY_SKILL_REFERENCE
 
 
+def mailbox_processing_skill_reference() -> str:
+    """Return the primary projected gateway email-processing skill reference."""
+
+    return MAILBOX_PROCESSING_SKILL_REFERENCE
+
+
 def mailbox_gateway_skill_name() -> str:
     """Return the stable shared-gateway mailbox skill name."""
 
     return MAILBOX_GATEWAY_SKILL_NAME
+
+
+def mailbox_processing_skill_name() -> str:
+    """Return the stable gateway email-processing skill name."""
+
+    return MAILBOX_PROCESSING_SKILL_NAME
 
 
 def mailbox_skill_document_path(
@@ -879,6 +896,12 @@ def mailbox_gateway_skill_document_path(*, skills_destination: str = "skills") -
     """Return the primary gateway mailbox skill document path."""
 
     return f"{skills_destination}/{mailbox_gateway_skill_reference()}/SKILL.md"
+
+
+def mailbox_processing_skill_document_path(*, skills_destination: str = "skills") -> str:
+    """Return the primary gateway email-processing skill document path."""
+
+    return f"{skills_destination}/{mailbox_processing_skill_reference()}/SKILL.md"
 
 
 def mailbox_skills_destination_for_tool(tool: str) -> str:
@@ -899,11 +922,16 @@ def projected_mailbox_skill_document_path(
     """Return one installed mailbox skill document path for a specific tool home."""
 
     return (
-        home_path.resolve() / mailbox_skills_destination_for_tool(tool) / skill_reference / "SKILL.md"
+        home_path.resolve()
+        / mailbox_skills_destination_for_tool(tool)
+        / skill_reference
+        / "SKILL.md"
     ).resolve()
 
 
-def install_runtime_mailbox_system_skills_for_tool(*, tool: str, home_path: Path) -> tuple[str, ...]:
+def install_runtime_mailbox_system_skills_for_tool(
+    *, tool: str, home_path: Path
+) -> tuple[str, ...]:
     """Project runtime-owned mailbox skills into one concrete tool home."""
 
     destination_root = (home_path.resolve() / mailbox_skills_destination_for_tool(tool)).resolve()

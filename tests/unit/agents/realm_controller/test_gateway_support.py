@@ -2825,6 +2825,7 @@ def _deliver_unread_mailbox_message(
     subject: str = "Gateway unread reminder",
     recipient_principal_id: str = "HOUMAO-gpu",
     recipient_address: str = "HOUMAO-gpu@agents.localhost",
+    body_markdown: str = "Body\n",
 ) -> str:
     mailbox_root = tmp_path / "mailbox"
     sender = MailboxPrincipal(
@@ -2864,7 +2865,7 @@ def _deliver_unread_mailbox_message(
             "headers": {},
         }
     )
-    _write_canonical_staged_message(staged_message, request)
+    _write_canonical_staged_message(staged_message, request, body_markdown=body_markdown)
     deliver_message(mailbox_root, request)
     return request.message_id
 
@@ -4081,9 +4082,7 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
     assert enqueued_rows
     assert len(enqueued_rows) >= 2
     assert not any(row.outcome == "dedup_skip" for row in audit_rows)
-    assert any(
-        row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows
-    )
+    assert any(row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows)
 
 
 def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway_skill(
@@ -4101,12 +4100,14 @@ def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway
         message_id="msg-20260316T090000Z-11111111111111111111111111111111",
         created_at_utc="2026-03-16T09:00:00Z",
         subject="Gateway unread reminder one",
+        body_markdown="TOP-SECRET-ONE\n",
     )
     second_message_id = _deliver_unread_mailbox_message(
         tmp_path,
         message_id="msg-20260316T090100Z-22222222222222222222222222222222",
         created_at_utc="2026-03-16T09:01:00Z",
         subject="Gateway unread reminder two",
+        body_markdown="TOP-SECRET-TWO\n",
     )
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
@@ -4136,13 +4137,28 @@ def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway
         prompt = fake_client.submitted_prompts[0][1]
         assert first_message_id in prompt
         assert second_message_id in prompt
+        assert "Unread email summaries in the current snapshot:" in prompt
+        assert prompt.index("Unread email summaries in the current snapshot:") < prompt.index(
+            "Gateway mailbox operations for this round use the exact live gateway base URL:"
+        )
+        assert "These summaries intentionally exclude message body content." in prompt
         assert "thread_ref: filesystem:" in prompt
         assert "from: HOUMAO-sender@agents.localhost" in prompt
         assert "subject: Gateway unread reminder one" in prompt
         assert "subject: Gateway unread reminder two" in prompt
+        assert "TOP-SECRET-ONE" not in prompt
+        assert "TOP-SECRET-TWO" not in prompt
         assert "Nominated unread target" not in prompt
         assert "Remaining unread after this target" not in prompt
-        assert "Use the installed Houmao mailbox gateway skill `houmao-email-via-agent-gateway`" in prompt
+        assert (
+            "Use the installed Houmao email-processing skill "
+            "`houmao-process-emails-via-gateway` for this round."
+        ) in prompt
+        assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" in prompt
+        assert "Use the installed Houmao mailbox gateway skill" not in prompt
+        assert (
+            "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway`"
+        ) in prompt
         assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" in prompt
         assert "houmao-email-via-filesystem" in prompt
         assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" in prompt
@@ -4150,11 +4166,12 @@ def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway
         assert "gateway.base_url" in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert "This matches the resolver's `gateway.base_url`" in prompt
-        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/check"' in prompt
-        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/send"' in prompt
-        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/reply"' in prompt
-        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/state"' in prompt
-        assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/check`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/send`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/reply`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/state`" in prompt
+        assert "curl -sS -X POST" not in prompt
+        assert "stop and wait for the next notification" in prompt
         assert "Houmao mailbox skills are not installed for this session." not in prompt
         assert "python -m houmao.agents.mailbox_runtime_support" not in prompt
         assert "deliver_message.py" not in prompt
@@ -4208,9 +4225,13 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
         assert "Houmao mailbox skills are not installed for this session." in prompt
-        assert "Use the resolver and curl contract below directly for this turn." in prompt
+        assert (
+            "Use the unread summaries plus the resolver and endpoint URLs below directly for this turn."
+            in prompt
+        )
         assert "pixi run houmao-mgr agents mail resolve-live" in prompt
         assert "http://127.0.0.1:43123" in prompt
+        assert "houmao-process-emails-via-gateway" not in prompt
         assert "houmao-email-via-agent-gateway" not in prompt
     finally:
         runtime.shutdown()
@@ -4309,9 +4330,11 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
         while time.monotonic() < deadline:
             audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
             outcomes = {row.outcome for row in audit_rows}
-            if "busy_skip" in outcomes and len(
-                [row for row in audit_rows if row.outcome == "enqueued"]
-            ) >= 2 and len(fake_client.submitted_prompts) >= 3:
+            if (
+                "busy_skip" in outcomes
+                and len([row for row in audit_rows if row.outcome == "enqueued"]) >= 2
+                and len(fake_client.submitted_prompts) >= 3
+            ):
                 break
             time.sleep(0.05)
 
@@ -4319,7 +4342,9 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
         assert len(fake_client.submitted_prompts) >= 3
         assert "stalwart:mail-1" in fake_client.submitted_prompts[1][1]
         assert "stalwart:mail-1" in fake_client.submitted_prompts[2][1]
-        assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/state"' in fake_client.submitted_prompts[1][1]
+        assert (
+            "- `POST http://127.0.0.1:43123/v1/mail/state`" in fake_client.submitted_prompts[1][1]
+        )
     finally:
         runtime.shutdown()
 

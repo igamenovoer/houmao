@@ -22,6 +22,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_support import (
+    mailbox_processing_skill_document_path,
+    mailbox_processing_skill_name,
+    mailbox_processing_skill_reference,
     mailbox_gateway_skill_document_path,
     mailbox_gateway_skill_name,
     mailbox_gateway_skill_reference,
@@ -235,34 +238,21 @@ def _optional_env_string(variable_name: str) -> str | None:
     return stripped or None
 
 
-def _render_mail_notifier_curl_examples(base_url: str) -> str:
-    """Return one markdown block with curl-first gateway mailbox examples."""
+def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
+    """Return one markdown block with full current mailbox endpoint URLs."""
 
     return "\n".join(
         [
-            "```bash",
-            f"curl -sS -X POST \"{base_url}/v1/mail/check\" \\",
-            "  -H 'content-type: application/json' \\",
-            "  --data '{\"schema_version\":1,\"unread_only\":true,\"limit\":10}'",
-            "",
-            f"curl -sS -X POST \"{base_url}/v1/mail/send\" \\",
-            "  -H 'content-type: application/json' \\",
-            "  --data '{\"schema_version\":1,\"to\":[\"recipient@agents.localhost\"],\"subject\":\"...\",\"body_content\":\"...\",\"attachments\":[]}'",
-            "",
-            f"curl -sS -X POST \"{base_url}/v1/mail/reply\" \\",
-            "  -H 'content-type: application/json' \\",
-            "  --data '{\"schema_version\":1,\"message_ref\":\"<opaque message_ref>\",\"body_content\":\"...\",\"attachments\":[]}'",
-            "",
-            f"curl -sS -X POST \"{base_url}/v1/mail/state\" \\",
-            "  -H 'content-type: application/json' \\",
-            "  --data '{\"schema_version\":1,\"message_ref\":\"<opaque message_ref>\",\"read\":true}'",
-            "```",
+            f"- `POST {base_url}/v1/mail/check`",
+            f"- `POST {base_url}/v1/mail/send`",
+            f"- `POST {base_url}/v1/mail/reply`",
+            f"- `POST {base_url}/v1/mail/state`",
         ]
     )
 
 
-def _render_unread_headers_block(unread_messages: list[_UnreadMailboxMessage]) -> str:
-    """Return one markdown summary block for all unread headers."""
+def _render_unread_email_summaries_block(unread_messages: list[_UnreadMailboxMessage]) -> str:
+    """Return one markdown summary block for all unread email metadata."""
 
     lines: list[str] = []
     for message in unread_messages:
@@ -1819,12 +1809,20 @@ class GatewayServiceRuntime:
         tool = payload.launch_plan.tool
         home_path = Path(payload.launch_plan.home_selector.home_path).resolve()
         skills_destination = mailbox_skills_destination_for_tool(tool)
+        processing_relative_path = mailbox_processing_skill_document_path(
+            skills_destination=skills_destination
+        )
         gateway_relative_path = mailbox_gateway_skill_document_path(
             skills_destination=skills_destination
         )
         transport_relative_path = mailbox_skill_document_path(
             mailbox,
             skills_destination=skills_destination,
+        )
+        processing_path = projected_mailbox_skill_document_path(
+            tool=tool,
+            home_path=home_path,
+            skill_reference=mailbox_processing_skill_reference(),
         )
         gateway_path = projected_mailbox_skill_document_path(
             tool=tool,
@@ -1837,21 +1835,27 @@ class GatewayServiceRuntime:
             skill_reference=mailbox_skill_reference(mailbox),
         )
 
-        if not gateway_path.is_file():
+        if not processing_path.is_file():
             return "\n".join(
                 [
                     "Houmao mailbox skills are not installed for this session.",
-                    "Use the resolver and curl contract below directly for this turn.",
+                    "Use the unread summaries plus the resolver and endpoint URLs below directly for this turn.",
                 ]
             )
 
         lines = [
             (
-                "Use the installed Houmao mailbox gateway skill "
-                f"`{mailbox_gateway_skill_name()}` for this turn."
+                "Use the installed Houmao email-processing skill "
+                f"`{mailbox_processing_skill_name()}` for this round."
             ),
-            f"Open `{gateway_relative_path}` directly instead of searching for it.",
+            f"Open `{processing_relative_path}` directly instead of searching for it.",
         ]
+        if gateway_path.is_file():
+            lines.append(
+                "Use the lower-level Houmao mailbox gateway skill "
+                f"`{mailbox_gateway_skill_name()}` at `{gateway_relative_path}` when you need "
+                "the exact `/v1/mail/*` operation contract for this round."
+            )
         if transport_path.is_file():
             lines.append(
                 "Use the transport-specific Houmao mailbox skill "
@@ -2064,8 +2068,10 @@ class GatewayServiceRuntime:
             "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
             "{{RESOLVE_LIVE_COMMAND}}": "pixi run houmao-mgr agents mail resolve-live",
             "{{GATEWAY_BASE_URL}}": base_url,
-            "{{CURL_EXAMPLES_BLOCK}}": _render_mail_notifier_curl_examples(base_url),
-            "{{UNREAD_HEADERS_BLOCK}}": _render_unread_headers_block(unread_messages),
+            "{{FULL_ENDPOINT_URLS_BLOCK}}": _render_mail_notifier_full_endpoint_urls(base_url),
+            "{{UNREAD_EMAIL_SUMMARIES_BLOCK}}": _render_unread_email_summaries_block(
+                unread_messages
+            ),
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)

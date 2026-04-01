@@ -166,7 +166,9 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
     visible_gateway_skill = home / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+    visible_processing_skill = home / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
     visible_mailbox_skill = home / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_skill.is_file()
     assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
@@ -288,7 +290,7 @@ def test_build_brain_home_rejects_persistent_env_records_owned_by_credentials(
 
 
 def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path: Path) -> None:
-    """Projected mailbox skills should lead with gateway-first routine actions."""
+    """Projected mailbox skills should include the workflow and lower-level gateway layers."""
 
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
@@ -312,6 +314,9 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
         )
     )
 
+    processing_skill = (
+        result.home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
+    ).read_text(encoding="utf-8")
     gateway_skill = (
         result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
@@ -326,14 +331,22 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
         / "skills/mailbox/houmao-email-via-agent-gateway/references/curl-examples.md"
     ).read_text(encoding="utf-8")
 
+    assert "houmao-process-emails-via-gateway" in processing_skill
+    assert "metadata-first triage" in processing_skill
+    assert "It is acceptable to defer unrelated unread emails" in processing_skill
+    assert "Mark only the successfully processed selected emails read." in processing_skill
+    assert "wait for the next notification" in processing_skill
     assert "houmao-email-via-agent-gateway" in gateway_skill
+    assert "houmao-process-emails-via-gateway" in gateway_skill
     assert "pixi run houmao-mgr agents mail resolve-live" in gateway_skill
     assert "The trigger word `houmao` is intentional." in gateway_skill
     assert '"schema_version":1,"message_ref":"<opaque message_ref>","read":true' in curl_reference
 
+    assert "houmao-process-emails-via-gateway" in filesystem_skill
     assert "houmao-email-via-agent-gateway" in filesystem_skill
     assert "gateway: null" in filesystem_skill
     assert "houmao-email-via-filesystem" in filesystem_skill
+    assert "houmao-process-emails-via-gateway" in stalwart_skill
     assert "houmao-email-via-agent-gateway" in stalwart_skill
     assert "gateway: null" in stalwart_skill
     assert "houmao-email-via-stalwart" in stalwart_skill

@@ -1,6 +1,6 @@
 ---
 name: houmao-email-via-stalwart
-description: Use Houmao's Stalwart mailbox transport guidance for transport-specific validation and fallback while delegating shared gateway mailbox operations to `houmao-email-via-agent-gateway`.
+description: Use Houmao's Stalwart mailbox transport guidance for transport-specific validation and fallback while delegating shared gateway workflow and operations to the Houmao gateway mailbox skills.
 license: MIT
 ---
 
@@ -12,7 +12,7 @@ Use this Houmao skill when the resolved mailbox transport is `stalwart`.
 
 - Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat that resolver output as the manager-owned discovery contract for this turn.
-- When the resolver returns a `gateway` object, use the installed Houmao skill `houmao-email-via-agent-gateway` for the live attached `/v1/mail/*` facade.
+- When the resolver returns a `gateway` object, use the installed Houmao skill `houmao-process-emails-via-gateway` for the round-oriented workflow and `houmao-email-via-agent-gateway` for the live attached `/v1/mail/*` contract.
 - When the resolver returns `gateway: null`, use `pixi run houmao-mgr agents mail check|send|reply|mark-read` as the fallback surface.
 - Ordinary mailbox work in this change means `check`, `send`, `reply`, and marking one processed message read.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive raw Stalwart object identifiers or transport-local structure from the visible prefix.
@@ -30,6 +30,8 @@ Use this Houmao skill when the resolved mailbox transport is `stalwart`.
 ## Direct Stalwart Guidance
 
 - Use direct Stalwart access only when no live shared gateway mailbox facade is available or when the task falls outside the shared gateway routine surface.
+- Use `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md` when `gateway.base_url` is present and the task is one gateway-notified email-processing round.
+- Use `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` when you need the exact shared `/v1/mail/*` route contract for that round.
 - Use the current `mailbox.stalwart.*` fields returned by the resolver for direct Stalwart-backed mailbox access.
 - Treat `mailbox.stalwart.credential_file` as secret material. Read it only when needed for authenticated mailbox access and do not print its contents.
 - Use `address` as the sender address for outbound mail.
@@ -40,4 +42,5 @@ Use this Houmao skill when the resolved mailbox transport is `stalwart`.
 - Do not assume filesystem mailbox `rules/`, mailbox-local SQLite, lock files, or projection symlinks exist for this transport.
 - Do not leak raw Stalwart object shapes into operator-facing behavior when a shared mailbox operation can stay transport-neutral.
 - Do not present direct env-backed transport access as the first-choice attached-session path when the shared gateway facade is available.
+- Do not restate the shared gateway round workflow here; use `houmao-process-emails-via-gateway` for that workflow surface.
 - Do not restate the shared gateway curl contract here; use `houmao-email-via-agent-gateway` for that operational surface.

@@ -1,6 +1,6 @@
 ---
 name: houmao-email-via-filesystem
-description: Use Houmao's filesystem mailbox transport guidance for transport-specific validation, layout, and no-gateway fallback while delegating shared gateway mailbox operations to `houmao-email-via-agent-gateway`.
+description: Use Houmao's filesystem mailbox transport guidance for transport-specific validation, layout, and no-gateway fallback while delegating shared gateway workflow and operations to the Houmao gateway mailbox skills.
 ---
 
 # Houmao Email Via Filesystem
@@ -9,7 +9,9 @@ description: Use Houmao's filesystem mailbox transport guidance for transport-sp
 
 Use this Houmao skill when the resolved mailbox transport is `filesystem`.
 
-For shared mailbox gateway work, use the installed Houmao gateway skill `houmao-email-via-agent-gateway`.
+For notifier-driven shared mailbox gateway work, use the installed Houmao workflow skill `houmao-process-emails-via-gateway`.
+
+Use `houmao-email-via-agent-gateway` as the lower-level route and curl contract when the workflow needs exact `/v1/mail/*` operation details.
 
 Use this transport-specific skill for:
 - validating that the resolved transport is `filesystem`,
@@ -23,13 +25,14 @@ Use the manager-owned discovery command `pixi run houmao-mgr agents mail resolve
 
 - Read [references/env-vars.md](references/env-vars.md) when validating resolver fields.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) when you need exact mailbox directories, projection layout, or canonical message storage structure.
-- Read `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` when `gateway.base_url` is present and the task is ordinary shared mailbox work.
+- Read `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md` when `gateway.base_url` is present and the task is one gateway-notified email-processing round.
+- Read `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` when you need the exact shared `/v1/mail/*` route contract for that round.
 
 ## Supported Workflow
 
 - Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat the resolver output as the supported discovery contract for this turn. Do not scrape tmux state directly.
-- When the resolver returns a `gateway` object, use the installed Houmao skill `houmao-email-via-agent-gateway` for the live attached `/v1/mail/*` facade.
+- When the resolver returns a `gateway` object, use the installed Houmao skill `houmao-process-emails-via-gateway` for the round-oriented workflow and `houmao-email-via-agent-gateway` for the live attached `/v1/mail/*` contract.
 - When the resolver returns `gateway: null`, use `pixi run houmao-mgr agents mail ...` as the fallback surface.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive filesystem `message_id`, thread ancestry, or path structure from the visible prefix.
 - After you successfully process one message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `pixi run houmao-mgr agents mail mark-read --message-ref ...` when it is not.
@@ -63,4 +66,5 @@ Use the manager-owned discovery command `pixi run houmao-mgr agents mail resolve
 - Do not bypass locking when creating or updating mailbox projections.
 - Do not copy delivered canonical message bodies into `inbox/` or `sent/`; those mailbox entries should be symlink projections to the canonical file.
 - Do not present `deliver_message.py` or `update_mailbox_state.py` as the ordinary workflow contract for this skill.
+- Do not restate the shared gateway round workflow here; use `houmao-process-emails-via-gateway` for that workflow surface.
 - Do not restate the shared gateway curl contract here; use `houmao-email-via-agent-gateway` for that operational surface.

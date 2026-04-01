@@ -170,9 +170,7 @@ def test_resolve_live_mailbox_binding_uses_targeted_filesystem_projection(
     assert resolution.mailbox == durable_mailbox
     assert "env" not in payload
     assert payload["mailbox"]["filesystem"]["root"] == str(durable_mailbox.filesystem_root)
-    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(
-        durable_mailbox.mailbox_path
-    )
+    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(durable_mailbox.mailbox_path)
 
 
 def test_resolve_live_mailbox_binding_preserves_symlink_filesystem_projection(
@@ -186,9 +184,7 @@ def test_resolve_live_mailbox_binding_preserves_symlink_filesystem_projection(
     assert resolution.source == "manifest_binding"
     assert resolution.mailbox == durable_mailbox
     assert payload["mailbox"]["filesystem"]["mailbox_kind"] == "symlink"
-    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(
-        durable_mailbox.mailbox_path
-    )
+    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(durable_mailbox.mailbox_path)
 
 
 def test_resolve_live_mailbox_binding_rejects_missing_active_registration(tmp_path: Path) -> None:
@@ -385,10 +381,12 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
 
     mailbox_root = home_path / mailbox_skills_destination_for_tool("codex") / "mailbox"
     assert set(references) == {
+        "mailbox/houmao-process-emails-via-gateway",
         "mailbox/houmao-email-via-agent-gateway",
         "mailbox/houmao-email-via-filesystem",
         "mailbox/houmao-email-via-stalwart",
     }
+    assert (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (mailbox_root / "houmao-email-via-agent-gateway/SKILL.md").is_file()
     assert (mailbox_root / "houmao-email-via-agent-gateway/actions/check.md").is_file()
     assert (mailbox_root / "houmao-email-via-agent-gateway/actions/reply.md").is_file()
@@ -404,6 +402,11 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
 
     install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=home_path)
 
+    assert (
+        home_path
+        / mailbox_skills_destination_for_tool("gemini")
+        / "mailbox/houmao-process-emails-via-gateway/SKILL.md"
+    ).is_file()
     assert (
         home_path
         / mailbox_skills_destination_for_tool("gemini")

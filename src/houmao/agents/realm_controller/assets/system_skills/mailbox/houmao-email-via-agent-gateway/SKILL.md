@@ -1,12 +1,14 @@
 ---
 name: houmao-email-via-agent-gateway
-description: Use Houmao's shared gateway mailbox facade through explicit `houmao` wording, manager-owned live discovery, and curl-first `/v1/mail/*` operations.
+description: Use Houmao's shared gateway mailbox facade as the lower-level protocol and reference skill for resolver usage, endpoint discovery, and `/v1/mail/*` operations.
 license: MIT
 ---
 
 # Houmao Email Via Agent Gateway
 
-Use this Houmao skill when the current mailbox resolver returns `gateway.base_url` and you need ordinary shared mailbox work through the live gateway facade.
+Use this Houmao skill when the current mailbox resolver returns `gateway.base_url` and you need the exact lower-level gateway contract for shared mailbox work through the live gateway facade.
+
+When a notifier or operator prompt tells you to use `houmao-process-emails-via-gateway`, treat this skill as supporting material for the exact route contract rather than as the round-planning workflow itself.
 
 The trigger word `houmao` is intentional. Use the `houmao-...` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -14,9 +16,10 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 
 1. Run `pixi run houmao-mgr agents mail resolve-live`.
 2. Read `gateway.base_url` from the resolver output.
-3. Use the action doc that matches the mailbox task you need.
-4. Use curl against that exact base URL for `/v1/mail/*`.
-5. Mark messages read only after the corresponding mailbox work succeeds.
+3. Open `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md` first when you are handling one notifier-driven email-processing round.
+4. Use the action doc that matches the exact mailbox task you need.
+5. Use curl against that exact base URL for `/v1/mail/*`.
+6. Mark messages read only after the corresponding mailbox action succeeds.
 
 ## Actions
 
@@ -38,3 +41,4 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 - Do not scrape tmux state directly when the manager-owned resolver is available.
 - Do not derive mailbox internals from visible `message_ref` or `thread_ref` prefixes.
 - Do not mark a message read before the corresponding mailbox action succeeds.
+- Do not treat this lower-level protocol skill as the whole notifier-round workflow when `houmao-process-emails-via-gateway` is available.
