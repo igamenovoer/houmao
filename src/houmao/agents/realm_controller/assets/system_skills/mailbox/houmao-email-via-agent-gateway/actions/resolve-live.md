@@ -1,9 +1,11 @@
-# Resolve Live Mailbox Bindings
+# Determine The Gateway Base URL
 
-Run:
+If the current prompt or recent mailbox context already provides the exact gateway base URL for this turn, use that value directly and do not rerun discovery.
+
+Otherwise run:
 
 ```bash
-pixi run houmao-mgr agents mail resolve-live
+houmao-mgr agents mail resolve-live
 ```
 
 Use the structured JSON output from that command as the discovery contract for this turn.

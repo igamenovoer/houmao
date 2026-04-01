@@ -1,12 +1,18 @@
 # Curl Examples
 
-Set the base URL from the manager-owned resolver output:
+Set the base URL from the current prompt or recent mailbox context when it is already available. Otherwise resolve it from the manager-owned helper:
 
 ```bash
-GATEWAY_BASE_URL="$(pixi run houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url')"
+GATEWAY_BASE_URL="$(houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url')"
 ```
 
 Then use curl:
+
+## Status
+
+```bash
+curl -sS "$GATEWAY_BASE_URL/v1/mail/status"
+```
 
 ## Check unread
 

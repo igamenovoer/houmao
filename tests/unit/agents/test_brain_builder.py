@@ -336,20 +336,32 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "It is acceptable to defer unrelated unread emails" in processing_skill
     assert "Mark only the successfully processed selected emails read." in processing_skill
     assert "wait for the next notification" in processing_skill
+    assert "Do not switch to `houmao-mgr agents mail resolve-live`" in processing_skill
+    assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
     assert "houmao-email-via-agent-gateway" in gateway_skill
     assert "houmao-process-emails-via-gateway" in gateway_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" in gateway_skill
+    assert (
+        "If the current prompt or recent mailbox context already provides the exact gateway base URL"
+        in gateway_skill
+    )
+    assert "houmao-mgr agents mail resolve-live" in gateway_skill
+    assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     assert "The trigger word `houmao` is intentional." in gateway_skill
+    assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
+    assert "houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
+    assert "pixi run houmao-mgr agents mail resolve-live" not in curl_reference
     assert '"schema_version":1,"message_ref":"<opaque message_ref>","read":true' in curl_reference
 
     assert "houmao-process-emails-via-gateway" in filesystem_skill
     assert "houmao-email-via-agent-gateway" in filesystem_skill
     assert "gateway: null" in filesystem_skill
     assert "houmao-email-via-filesystem" in filesystem_skill
+    assert "pixi run houmao-mgr agents mail resolve-live" not in filesystem_skill
     assert "houmao-process-emails-via-gateway" in stalwart_skill
     assert "houmao-email-via-agent-gateway" in stalwart_skill
     assert "gateway: null" in stalwart_skill
     assert "houmao-email-via-stalwart" in stalwart_skill
+    assert "pixi run houmao-mgr agents mail resolve-live" not in stalwart_skill
 
 
 def test_load_brain_recipe_accepts_default_agent_name(tmp_path: Path) -> None:

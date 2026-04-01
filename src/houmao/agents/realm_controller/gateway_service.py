@@ -243,36 +243,13 @@ def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
 
     return "\n".join(
         [
+            f"- `GET {base_url}/v1/mail/status`",
             f"- `POST {base_url}/v1/mail/check`",
             f"- `POST {base_url}/v1/mail/send`",
             f"- `POST {base_url}/v1/mail/reply`",
             f"- `POST {base_url}/v1/mail/state`",
         ]
     )
-
-
-def _render_unread_email_summaries_block(unread_messages: list[_UnreadMailboxMessage]) -> str:
-    """Return one markdown summary block for all unread email metadata."""
-
-    lines: list[str] = []
-    for message in unread_messages:
-        sender_label = (
-            f"{message.sender_display_name} <{message.sender_address}>"
-            if message.sender_display_name is not None
-            else message.sender_address
-        )
-        lines.append(f"- message_ref: {message.message_ref}")
-        if message.thread_ref is not None:
-            lines.append(f"  thread_ref: {message.thread_ref}")
-        lines.extend(
-            [
-                f"  from: {sender_label}",
-                f"  subject: {message.subject}",
-                f"  created_at_utc: {message.created_at_utc}",
-                "",
-            ]
-        )
-    return "\n".join(lines).rstrip()
 
 
 def _load_mail_notifier_template() -> str:
@@ -1839,7 +1816,7 @@ class GatewayServiceRuntime:
             return "\n".join(
                 [
                     "Houmao mailbox skills are not installed for this session.",
-                    "Use the unread summaries plus the resolver and endpoint URLs below directly for this turn.",
+                    "List unread mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
                 ]
             )
 
@@ -2030,7 +2007,7 @@ class GatewayServiceRuntime:
                 )
                 return
 
-            prompt = self._build_mail_notifier_prompt(unread_messages)
+            prompt = self._build_mail_notifier_prompt()
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
@@ -2058,7 +2035,7 @@ class GatewayServiceRuntime:
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
-    def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
+    def _build_mail_notifier_prompt(self) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         mailbox = self._load_mailbox_config()
@@ -2066,12 +2043,8 @@ class GatewayServiceRuntime:
         rendered = _load_mail_notifier_template()
         replacements = {
             "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
-            "{{RESOLVE_LIVE_COMMAND}}": "pixi run houmao-mgr agents mail resolve-live",
             "{{GATEWAY_BASE_URL}}": base_url,
             "{{FULL_ENDPOINT_URLS_BLOCK}}": _render_mail_notifier_full_endpoint_urls(base_url),
-            "{{UNREAD_EMAIL_SUMMARIES_BLOCK}}": _render_unread_email_summaries_block(
-                unread_messages
-            ),
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)

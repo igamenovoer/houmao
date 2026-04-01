@@ -1,13 +1,14 @@
 # Shared Gateway Mailbox Endpoint Contract
 
-Use these routes against the exact `gateway.base_url` returned by:
+Use these routes against the exact gateway base URL already present in the current prompt or recent mailbox context. When current context does not provide that URL, resolve it through:
 
 ```bash
-pixi run houmao-mgr agents mail resolve-live
+houmao-mgr agents mail resolve-live
 ```
 
 ## Routes
 
+- `GET /v1/mail/status`
 - `POST /v1/mail/check`
 - `POST /v1/mail/send`
 - `POST /v1/mail/reply`
@@ -15,6 +16,8 @@ pixi run houmao-mgr agents mail resolve-live
 
 ## Payload shapes
 
+- `GET /v1/mail/status`
+  no request body
 - `POST /v1/mail/check`
   `{"schema_version":1,"unread_only":true,"limit":10}`
 - `POST /v1/mail/send`

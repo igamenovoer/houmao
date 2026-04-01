@@ -393,6 +393,19 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert (mailbox_root / "houmao-email-via-agent-gateway/references/curl-examples.md").is_file()
     assert (mailbox_root / "houmao-email-via-filesystem/SKILL.md").is_file()
     assert (mailbox_root / "houmao-email-via-stalwart/SKILL.md").is_file()
+    processing_skill = (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    gateway_skill = (mailbox_root / "houmao-email-via-agent-gateway/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "shared gateway mailbox API" in processing_skill
+    assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
+    assert (
+        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        in gateway_skill
+    )
+    assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
 
 
 def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_destination(

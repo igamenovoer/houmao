@@ -7,6 +7,6 @@ Use `POST /v1/mail/check` to inspect the current unread queue, then choose which
 Treat `message_ref` and `thread_ref` as opaque identifiers.
 
 When multiple unread messages exist:
-- use the unread headers returned by the prompt and `check`,
+- use the unread metadata returned by `check`,
 - choose the message or messages to inspect,
 - re-check if the unread snapshot may have changed before taking more actions.

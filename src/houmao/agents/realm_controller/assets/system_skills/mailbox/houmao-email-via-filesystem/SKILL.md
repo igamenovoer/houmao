@@ -19,7 +19,7 @@ Use this transport-specific skill for:
 - deciding how to fall back when `gateway: null`,
 - transport-specific read-state verification or inspection.
 
-Use the manager-owned discovery command `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
+When current prompt or mailbox context does not already provide the exact gateway base URL or current binding set, use the manager-owned discovery command `houmao-mgr agents mail resolve-live` before mailbox work.
 
 ## References
 
@@ -30,13 +30,14 @@ Use the manager-owned discovery command `pixi run houmao-mgr agents mail resolve
 
 ## Supported Workflow
 
-- Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
+- When the current prompt or mailbox context already provides the exact `gateway.base_url`, use that value directly for shared gateway mailbox work and do not rerun manager discovery first.
+- Otherwise resolve current mailbox bindings through `houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat the resolver output as the supported discovery contract for this turn. Do not scrape tmux state directly.
 - When the resolver returns a `gateway` object, use the installed Houmao skill `houmao-process-emails-via-gateway` for the round-oriented workflow and `houmao-email-via-agent-gateway` for the live attached `/v1/mail/*` contract.
-- When the resolver returns `gateway: null`, use `pixi run houmao-mgr agents mail ...` as the fallback surface.
+- When the resolver returns `gateway: null`, use `houmao-mgr agents mail ...` as the fallback surface.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive filesystem `message_id`, thread ancestry, or path structure from the visible prefix.
-- After you successfully process one message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `pixi run houmao-mgr agents mail mark-read --message-ref ...` when it is not.
-- If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `pixi run houmao-mgr agents mail check`, `pixi run houmao-mgr agents mail status`, or transport-owned mailbox state before assuming the mutation completed.
+- After you successfully process one message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `houmao-mgr agents mail mark-read --message-ref ...` when it is not.
+- If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents mail check`, `houmao-mgr agents mail status`, or transport-owned mailbox state before assuming the mutation completed.
 
 ## Binding Checks
 

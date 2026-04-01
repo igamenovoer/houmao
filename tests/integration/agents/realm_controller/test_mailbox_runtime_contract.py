@@ -173,6 +173,13 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_skill.is_file()
+    assert "pixi run houmao-mgr agents mail resolve-live" not in visible_processing_skill.read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        in visible_gateway_skill.read_text(encoding="utf-8")
+    )
     assert not (
         build_result.home_path / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md"
     ).exists()

@@ -10,14 +10,15 @@ Use this Houmao skill when the resolved mailbox transport is `stalwart`.
 
 ## Supported Workflow
 
-- Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before mailbox work.
+- When the current prompt or mailbox context already provides the exact `gateway.base_url`, use that value directly for shared gateway mailbox work and do not rerun manager discovery first.
+- Otherwise resolve current mailbox bindings through `houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat that resolver output as the manager-owned discovery contract for this turn.
 - When the resolver returns a `gateway` object, use the installed Houmao skill `houmao-process-emails-via-gateway` for the round-oriented workflow and `houmao-email-via-agent-gateway` for the live attached `/v1/mail/*` contract.
-- When the resolver returns `gateway: null`, use `pixi run houmao-mgr agents mail check|send|reply|mark-read` as the fallback surface.
+- When the resolver returns `gateway: null`, use `houmao-mgr agents mail check|send|reply|mark-read` as the fallback surface.
 - Ordinary mailbox work in this change means `check`, `send`, `reply`, and marking one processed message read.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive raw Stalwart object identifiers or transport-local structure from the visible prefix.
-- After you successfully process one message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `pixi run houmao-mgr agents mail mark-read --message-ref ...` when it is not.
-- If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `pixi run houmao-mgr agents mail check`, `pixi run houmao-mgr agents mail status`, or transport-native mailbox state before assuming the mutation completed.
+- After you successfully process one message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `houmao-mgr agents mail mark-read --message-ref ...` when it is not.
+- If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents mail check`, `houmao-mgr agents mail status`, or transport-native mailbox state before assuming the mutation completed.
 
 ## Binding Checks
 

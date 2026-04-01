@@ -1419,9 +1419,9 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
         monkeypatch.setattr(
             GatewayServiceRuntime,
             "_tui_prompt_not_ready_reasons_locked",
-            lambda self: ["turn.phase='active'", "surface.accepting_input='no'"]
-            if readiness["busy"]
-            else [],
+            lambda self: (
+                ["turn.phase='active'", "surface.accepting_input='no'"] if readiness["busy"] else []
+            ),
         )
 
         runtime = GatewayServiceRuntime.from_gateway_root(
@@ -1438,7 +1438,13 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
 
             readiness["busy"] = False
             _wait_until(lambda: len(fake_cao.messages()) >= 1, timeout_seconds=5.0)
-            assert message_id in fake_cao.messages()[0][1]
+            first_prompt = fake_cao.messages()[0][1]
+            assert message_id not in first_prompt
+            assert (
+                "List unread mail through the shared gateway mailbox API for this round."
+                in first_prompt
+            )
+            assert f"GET http://127.0.0.1:{runtime.m_port}/v1/mail/status" in first_prompt
 
             readiness["busy"] = True
             prompt_count = len(fake_cao.messages())
@@ -1447,7 +1453,12 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
 
             readiness["busy"] = False
             _wait_until(lambda: len(fake_cao.messages()) >= prompt_count + 1, timeout_seconds=5.0)
-            assert message_id in fake_cao.messages()[-1][1]
+            repeated_prompt = fake_cao.messages()[-1][1]
+            assert message_id not in repeated_prompt
+            assert (
+                "List unread mail through the shared gateway mailbox API for this round."
+                in repeated_prompt
+            )
         finally:
             runtime.shutdown()
 
@@ -1457,9 +1468,7 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
         assert busy_rows
         assert len(enqueued_rows) >= 2
         assert not any(row.outcome == "dedup_skip" for row in audit_rows)
-        assert any(
-            row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows
-        )
+        assert any(row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows)
         assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
 
 
@@ -1812,7 +1821,12 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
             assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
             assert enqueued_rows[-1].enqueued_request_id is not None
             assert fake_cao.messages()
-            assert message_id in fake_cao.messages()[-1][1]
+            latest_prompt = fake_cao.messages()[-1][1]
+            assert message_id not in latest_prompt
+            assert (
+                "List unread mail through the shared gateway mailbox API for this round."
+                in latest_prompt
+            )
         finally:
             runtime.shutdown()
 

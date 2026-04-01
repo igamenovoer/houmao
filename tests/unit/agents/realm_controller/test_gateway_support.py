@@ -3953,8 +3953,15 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
 
         _wait_until(lambda: len(fake_client.submitted_prompts) >= 2, timeout_seconds=5.0)
 
-        assert message_id in fake_client.submitted_prompts[0][1]
-        assert message_id in fake_client.submitted_prompts[1][1]
+        first_prompt = fake_client.submitted_prompts[0][1]
+        repeated_prompt = fake_client.submitted_prompts[1][1]
+        assert message_id not in first_prompt
+        assert message_id not in repeated_prompt
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in first_prompt
+        )
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in first_prompt
     finally:
         runtime.shutdown()
 
@@ -4058,7 +4065,12 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
 
         readiness["busy"] = False
         _wait_until(lambda: len(fake_session.prompt_calls) >= 1, timeout_seconds=5.0)
-        assert message_id in fake_session.prompt_calls[0][0]
+        first_prompt = fake_session.prompt_calls[0][0]
+        assert message_id not in first_prompt
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in first_prompt
+        )
 
         readiness["busy"] = True
         prompt_count = len(fake_session.prompt_calls)
@@ -4067,7 +4079,12 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
 
         readiness["busy"] = False
         _wait_until(lambda: len(fake_session.prompt_calls) >= prompt_count + 1, timeout_seconds=5.0)
-        assert message_id in fake_session.prompt_calls[-1][0]
+        repeated_prompt = fake_session.prompt_calls[-1][0]
+        assert message_id not in repeated_prompt
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in repeated_prompt
+        )
     finally:
         runtime.shutdown()
 
@@ -4085,7 +4102,7 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
     assert any(row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows)
 
 
-def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway_skill(
+def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gateway_skill(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4135,17 +4152,20 @@ def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway
 
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
-        assert first_message_id in prompt
-        assert second_message_id in prompt
-        assert "Unread email summaries in the current snapshot:" in prompt
-        assert prompt.index("Unread email summaries in the current snapshot:") < prompt.index(
+        assert first_message_id not in prompt
+        assert second_message_id not in prompt
+        assert "Unread email summaries in the current snapshot:" not in prompt
+        assert prompt.index(
+            "List unread mail through the shared gateway mailbox API for this round."
+        ) < prompt.index(
             "Gateway mailbox operations for this round use the exact live gateway base URL:"
         )
-        assert "These summaries intentionally exclude message body content." in prompt
-        assert "thread_ref: filesystem:" in prompt
-        assert "from: HOUMAO-sender@agents.localhost" in prompt
-        assert "subject: Gateway unread reminder one" in prompt
-        assert "subject: Gateway unread reminder two" in prompt
+        assert "List unread mail through the shared gateway mailbox API for this round." in prompt
+        assert "Choose which unread email or emails are relevant to process" in prompt
+        assert "thread_ref: filesystem:" not in prompt
+        assert "from: HOUMAO-sender@agents.localhost" not in prompt
+        assert "subject: Gateway unread reminder one" not in prompt
+        assert "subject: Gateway unread reminder two" not in prompt
         assert "TOP-SECRET-ONE" not in prompt
         assert "TOP-SECRET-TWO" not in prompt
         assert "Nominated unread target" not in prompt
@@ -4162,10 +4182,9 @@ def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway
         assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" in prompt
         assert "houmao-email-via-filesystem" in prompt
         assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" in prompt
-        assert "pixi run houmao-mgr agents mail resolve-live" in prompt
-        assert "gateway.base_url" in prompt
+        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
-        assert "This matches the resolver's `gateway.base_url`" in prompt
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/check`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/send`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/reply`" in prompt
@@ -4226,11 +4245,12 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         prompt = fake_client.submitted_prompts[0][1]
         assert "Houmao mailbox skills are not installed for this session." in prompt
         assert (
-            "Use the unread summaries plus the resolver and endpoint URLs below directly for this turn."
+            "List unread mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn."
             in prompt
         )
-        assert "pixi run houmao-mgr agents mail resolve-live" in prompt
+        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
         assert "houmao-process-emails-via-gateway" not in prompt
         assert "houmao-email-via-agent-gateway" not in prompt
     finally:
@@ -4340,8 +4360,12 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
 
         assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
         assert len(fake_client.submitted_prompts) >= 3
-        assert "stalwart:mail-1" in fake_client.submitted_prompts[1][1]
-        assert "stalwart:mail-1" in fake_client.submitted_prompts[2][1]
+        assert "stalwart:mail-1" not in fake_client.submitted_prompts[1][1]
+        assert "stalwart:mail-1" not in fake_client.submitted_prompts[2][1]
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in fake_client.submitted_prompts[1][1]
+        )
         assert (
             "- `POST http://127.0.0.1:43123/v1/mail/state`" in fake_client.submitted_prompts[1][1]
         )
@@ -4475,7 +4499,11 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
 
         assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
         assert len(fake_client.submitted_prompts) == 2
-        assert message_id in fake_client.submitted_prompts[1][1]
+        assert message_id not in fake_client.submitted_prompts[1][1]
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in fake_client.submitted_prompts[1][1]
+        )
     finally:
         runtime.shutdown()
 
