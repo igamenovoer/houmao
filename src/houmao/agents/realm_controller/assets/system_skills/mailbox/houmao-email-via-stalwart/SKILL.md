@@ -31,8 +31,8 @@ Use this Houmao skill when the resolved mailbox transport is `stalwart`.
 ## Direct Stalwart Guidance
 
 - Use direct Stalwart access only when no live shared gateway mailbox facade is available or when the task falls outside the shared gateway routine surface.
-- Use `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md` when `gateway.base_url` is present and the task is one gateway-notified email-processing round.
-- Use `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` when you need the exact shared `/v1/mail/*` route contract for that round.
+- Use the installed `houmao-process-emails-via-gateway` skill when `gateway.base_url` is present and the task is one gateway-notified email-processing round.
+- Use the installed `houmao-email-via-agent-gateway` skill when you need the exact shared `/v1/mail/*` route contract for that round.
 - Use the current `mailbox.stalwart.*` fields returned by the resolver for direct Stalwart-backed mailbox access.
 - Treat `mailbox.stalwart.credential_file` as secret material. Read it only when needed for authenticated mailbox access and do not print its contents.
 - Use `address` as the sender address for outbound mail.

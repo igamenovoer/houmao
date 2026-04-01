@@ -25,8 +25,8 @@ When current prompt or mailbox context does not already provide the exact gatewa
 
 - Read [references/env-vars.md](references/env-vars.md) when validating resolver fields.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) when you need exact mailbox directories, projection layout, or canonical message storage structure.
-- Read `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md` when `gateway.base_url` is present and the task is one gateway-notified email-processing round.
-- Read `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` when you need the exact shared `/v1/mail/*` route contract for that round.
+- Use the installed `houmao-process-emails-via-gateway` skill when `gateway.base_url` is present and the task is one gateway-notified email-processing round.
+- Use the installed `houmao-email-via-agent-gateway` skill when you need the exact shared `/v1/mail/*` route contract for that round.
 
 ## Supported Workflow
 

@@ -320,19 +320,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     gateway_skill = (
         result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
-    filesystem_skill = (
-        result.home_path / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
-    ).read_text(encoding="utf-8")
-    stalwart_skill = (
-        result.home_path / "skills/mailbox/houmao-email-via-stalwart/SKILL.md"
-    ).read_text(encoding="utf-8")
-    curl_reference = (
-        result.home_path
-        / "skills/mailbox/houmao-email-via-agent-gateway/references/curl-examples.md"
-    ).read_text(encoding="utf-8")
 
     assert "houmao-process-emails-via-gateway" in processing_skill
     assert "metadata-first triage" in processing_skill
+    assert "stalled or interrupted" in processing_skill
     assert "It is acceptable to defer unrelated unread emails" in processing_skill
     assert "Mark only the successfully processed selected emails read." in processing_skill
     assert "wait for the next notification" in processing_skill
@@ -347,6 +338,62 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "houmao-mgr agents mail resolve-live" in gateway_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     assert "The trigger word `houmao` is intentional." in gateway_skill
+
+
+def test_build_brain_home_projects_claude_mailbox_skills_top_level(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            mailbox=FilesystemMailboxDeclarativeConfig(
+                transport="filesystem",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
+                filesystem_root="shared-mail",
+            ),
+            home_id="claude-home-mailbox",
+        )
+    )
+
+    skills_root = result.home_path / "skills"
+    processing_skill = (skills_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    gateway_skill = (skills_root / "houmao-email-via-agent-gateway/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    filesystem_skill = (skills_root / "houmao-email-via-filesystem/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    stalwart_skill = (skills_root / "houmao-email-via-stalwart/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    curl_reference = (
+        skills_root / "houmao-email-via-agent-gateway/references/curl-examples.md"
+    ).read_text(encoding="utf-8")
+
+    assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
+    assert (skills_root / "houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (skills_root / "houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (skills_root / "houmao-email-via-stalwart/SKILL.md").is_file()
+    assert not (skills_root / "mailbox").exists()
+    assert not (agent_def_dir / ".claude").exists()
+    assert "houmao-email-via-agent-gateway" in processing_skill
+    assert "installed Houmao skill `houmao-email-via-agent-gateway`" in processing_skill
+    assert "current prompt or recent mailbox context already provides the exact gateway base URL" in (
+        gateway_skill
+    )
+    assert "installed `houmao-process-emails-via-gateway` skill" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
     assert "houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
     assert "pixi run houmao-mgr agents mail resolve-live" not in curl_reference

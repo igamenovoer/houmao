@@ -180,14 +180,16 @@ def _sample_local_interactive_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
-def _sample_cao_plan(tmp_path: Path) -> LaunchPlan:
+def _sample_cao_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
+    executable = "claude" if tool == "claude" else "codex"
+    home_env_var = "CLAUDE_CONFIG_DIR" if tool == "claude" else "CODEX_HOME"
     return LaunchPlan(
         backend="cao_rest",
-        tool="codex",
-        executable="codex",
+        tool=tool,
+        executable=executable,
         args=[],
         working_directory=tmp_path,
-        home_env_var="CODEX_HOME",
+        home_env_var=home_env_var,
         home_path=tmp_path / "home",
         env={},
         env_var_names=[],
@@ -220,7 +222,7 @@ def _sample_houmao_server_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
-def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
+def _sample_cao_plan_with_mailbox(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
     principal_id = "HOUMAO-gpu"
     address = "HOUMAO-gpu@agents.localhost"
@@ -235,13 +237,15 @@ def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-16T08:00:00.000001Z",
     )
+    executable = "claude" if tool == "claude" else "codex"
+    home_env_var = "CLAUDE_CONFIG_DIR" if tool == "claude" else "CODEX_HOME"
     return LaunchPlan(
         backend="cao_rest",
-        tool="codex",
-        executable="codex",
+        tool=tool,
+        executable=executable,
         args=[],
         working_directory=tmp_path,
-        home_env_var="CODEX_HOME",
+        home_env_var=home_env_var,
         home_path=tmp_path / "home",
         env=mailbox_env_bindings(mailbox),
         env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
@@ -2324,10 +2328,13 @@ def _seed_cao_gateway_root(
     *,
     terminal_id: str = "term-123",
     mailbox_enabled: bool = False,
+    tool: str = "codex",
 ) -> Path:
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
     plan = (
-        _sample_cao_plan_with_mailbox(tmp_path) if mailbox_enabled else _sample_cao_plan(tmp_path)
+        _sample_cao_plan_with_mailbox(tmp_path, tool=tool)
+        if mailbox_enabled
+        else _sample_cao_plan(tmp_path, tool=tool)
     )
     payload = build_session_manifest_payload(
         SessionManifestRequest(
@@ -2355,7 +2362,7 @@ def _seed_cao_gateway_root(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,
             backend="cao_rest",
-            tool="codex",
+            tool=tool,
             session_id="cao-rest-1",
             tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
@@ -4100,6 +4107,9 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
     assert len(enqueued_rows) >= 2
     assert not any(row.outcome == "dedup_skip" for row in audit_rows)
     assert any(row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows)
+    log_text = paths.log_path.read_text(encoding="utf-8")
+    assert "mail notifier poll deferred because the managed session is not prompt-ready" in log_text
+    assert "suppressed" not in log_text
 
 
 def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gateway_skill(
@@ -4175,6 +4185,8 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
             "`houmao-process-emails-via-gateway` for this round."
         ) in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" in prompt
+        assert "not as a registered slash skill" not in prompt
+        assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
         assert (
             "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway`"
@@ -4207,6 +4219,54 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         f"filesystem:{first_message_id}",
         f"filesystem:{second_message_id}",
     ]
+
+
+def test_gateway_mail_notifier_renders_claude_top_level_skill_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True, tool="claude")
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=tmp_path / "home")
+    _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not fake_client.submitted_prompts:
+            time.sleep(0.05)
+
+        assert len(fake_client.submitted_prompts) == 1
+        prompt = fake_client.submitted_prompts[0][1]
+        assert "Claude Code this Houmao skill is installed natively" in prompt
+        assert "Invoke `houmao-process-emails-via-gateway` by name for this round" in prompt
+        assert "skills/houmao-process-emails-via-gateway/SKILL.md" in prompt
+        assert "skills/houmao-email-via-agent-gateway/SKILL.md" in prompt
+        assert "skills/houmao-email-via-filesystem/SKILL.md" in prompt
+        assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "not as a registered slash skill" not in prompt
+    finally:
+        runtime.shutdown()
 
 
 def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(

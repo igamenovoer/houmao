@@ -1787,29 +1787,32 @@ class GatewayServiceRuntime:
         home_path = Path(payload.launch_plan.home_selector.home_path).resolve()
         skills_destination = mailbox_skills_destination_for_tool(tool)
         processing_relative_path = mailbox_processing_skill_document_path(
-            skills_destination=skills_destination
+            skills_destination=skills_destination,
+            tool=tool,
         )
         gateway_relative_path = mailbox_gateway_skill_document_path(
-            skills_destination=skills_destination
+            skills_destination=skills_destination,
+            tool=tool,
         )
         transport_relative_path = mailbox_skill_document_path(
             mailbox,
             skills_destination=skills_destination,
+            tool=tool,
         )
         processing_path = projected_mailbox_skill_document_path(
             tool=tool,
             home_path=home_path,
-            skill_reference=mailbox_processing_skill_reference(),
+            skill_reference=mailbox_processing_skill_reference(tool=tool),
         )
         gateway_path = projected_mailbox_skill_document_path(
             tool=tool,
             home_path=home_path,
-            skill_reference=mailbox_gateway_skill_reference(),
+            skill_reference=mailbox_gateway_skill_reference(tool=tool),
         )
         transport_path = projected_mailbox_skill_document_path(
             tool=tool,
             home_path=home_path,
-            skill_reference=mailbox_skill_reference(mailbox),
+            skill_reference=mailbox_skill_reference(mailbox, tool=tool),
         )
 
         if not processing_path.is_file():
@@ -1825,8 +1828,20 @@ class GatewayServiceRuntime:
                 "Use the installed Houmao email-processing skill "
                 f"`{mailbox_processing_skill_name()}` for this round."
             ),
-            f"Open `{processing_relative_path}` directly instead of searching for it.",
         ]
+        if tool == "claude":
+            lines.append(
+                "In Claude Code this Houmao skill is installed natively. Invoke "
+                f"`{mailbox_processing_skill_name()}` by name for this round; the installed "
+                f"skill document is `{processing_relative_path}`."
+            )
+        else:
+            lines.extend(
+                [
+                    f"Open `{processing_relative_path}` directly instead of searching for it.",
+                    "Treat that path as a runtime-owned Houmao skill document.",
+                ]
+            )
         if gateway_path.is_file():
             lines.append(
                 "Use the lower-level Houmao mailbox gateway skill "
@@ -1960,10 +1975,7 @@ class GatewayServiceRuntime:
                     outcome="poll_error",
                     detail=str(exc),
                 )
-                self._log_rate_limited(
-                    "mail_notifier_error",
-                    f"mail notifier poll error: {exc}",
-                )
+                self._log(f"mail notifier poll error: {exc}")
                 return
 
             if not unread_messages:
@@ -1981,7 +1993,7 @@ class GatewayServiceRuntime:
                     unread_digest=None,
                     outcome="empty",
                 )
-                self._log_rate_limited("mail_notifier_empty", "mail notifier poll: no unread mail")
+                self._log("mail notifier poll: no unread mail")
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
@@ -2001,10 +2013,7 @@ class GatewayServiceRuntime:
                     outcome="busy_skip",
                     detail=block_detail,
                 )
-                self._log_rate_limited(
-                    "mail_notifier_busy",
-                    block_detail,
-                )
+                self._log(block_detail)
                 return
 
             prompt = self._build_mail_notifier_prompt()

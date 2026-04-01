@@ -569,7 +569,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         source = skills_root / skill_name
         destination = skill_destination_dir / skill_name
         _project_path(source, destination, mode=adapter.skills_mode)
-    project_runtime_mailbox_system_skills(skill_destination_dir)
+    project_runtime_mailbox_system_skills(skill_destination_dir, tool=request.tool)
 
     _validate_relative_path(adapter.auth_files_dir, field="auth_projection.files_dir")
     auth_files_dir = auth_dir / adapter.auth_files_dir

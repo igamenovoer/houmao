@@ -425,3 +425,25 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
         / mailbox_skills_destination_for_tool("gemini")
         / "mailbox/houmao-email-via-agent-gateway/SKILL.md"
     ).is_file()
+
+
+def test_install_runtime_mailbox_system_skills_for_tool_projects_claude_top_level_skills(
+    tmp_path: Path,
+) -> None:
+    home_path = tmp_path / "claude-home"
+
+    references = install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=home_path)
+
+    skills_root = home_path / mailbox_skills_destination_for_tool("claude")
+    assert set(references) == {
+        "houmao-process-emails-via-gateway",
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
+    }
+    assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
+    assert (skills_root / "houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (skills_root / "houmao-email-via-agent-gateway/actions/check.md").is_file()
+    assert (skills_root / "houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (skills_root / "houmao-email-via-stalwart/SKILL.md").is_file()
+    assert not (skills_root / "mailbox").exists()

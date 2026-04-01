@@ -17,7 +17,7 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 1. If the current prompt or recent mailbox context already provides the exact gateway base URL, use that value directly.
 2. Otherwise run `houmao-mgr agents mail resolve-live`.
 3. Read `gateway.base_url` from the resolver output when the resolver returns a `gateway` object.
-4. Open `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md` first when you are handling one notifier-driven email-processing round.
+4. Use the installed `houmao-process-emails-via-gateway` skill first when you are handling one notifier-driven email-processing round.
 5. Use the action doc that matches the exact mailbox task you need.
 6. Use curl against that exact base URL for `/v1/mail/*`.
 7. Mark messages read only after the corresponding mailbox action succeeds.

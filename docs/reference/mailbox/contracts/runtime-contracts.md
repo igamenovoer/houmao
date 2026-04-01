@@ -9,7 +9,7 @@ The runtime is the authority for mailbox attachment to a session.
 - Declarative config or CLI overrides choose the mailbox transport and identity.
 - The runtime resolves that into one `MailboxResolvedConfig`.
 - The session manifest persists that resolved mailbox binding as the durable mailbox authority reused by resume and gateway transport access.
-- The runtime projects the mailbox system skill into the built brain home under the visible `skills/mailbox/...` mailbox subtree.
+- The runtime projects the mailbox system skill into the built brain home under a visible tool-native mailbox skill surface: Claude uses top-level `skills/houmao-.../`, while current non-Claude adapters may continue to use a visible `mailbox/` subtree under their active skill destination.
 - Later mailbox work resolves current bindings through `pixi run houmao-mgr agents mail resolve-live` instead of assuming the provider process's inherited mailbox env snapshot is still current.
 - That same command is also the runtime-owned discovery path for the attached shared-mailbox gateway facade: when a valid live gateway is attached it returns a `gateway` object with `base_url`, `host`, `port`, `protocol_version`, and `state_path`; otherwise it returns `gateway: null`.
 
@@ -104,11 +104,13 @@ The filesystem transport splits durable state between a shared catalog and mailb
 
 ## Projected Skill Contract
 
-The runtime projects one shared Houmao gateway skill plus one transport-specific mailbox skill into the brain home during brain build. For current adapters whose active skill destination is `skills`, the primary discoverable mailbox skill surface is:
+The runtime projects one shared Houmao gateway skill plus one transport-specific mailbox skill into the brain home during brain build. The primary discoverable mailbox skill surface is tool-specific:
 
-- `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`
-- `skills/mailbox/houmao-email-via-filesystem/SKILL.md`
-- `skills/mailbox/houmao-email-via-stalwart/SKILL.md`
+- Claude native runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md`, `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`
+- Codex runtime homes: `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md`, `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `skills/mailbox/houmao-email-via-stalwart/SKILL.md`
+- Gemini runtime homes: `.gemini/skills/mailbox/houmao-process-emails-via-gateway/SKILL.md`, `.gemini/skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `.gemini/skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `.gemini/skills/mailbox/houmao-email-via-stalwart/SKILL.md`
+
+For Claude, these mailbox skills live under the isolated runtime-owned `CLAUDE_CONFIG_DIR` and not under the launched workdir's `.claude/skills/` tree.
 
 Shared runtime rules:
 

@@ -285,12 +285,12 @@ def _mail_prompt_instruction_lines(
     gateway_skill_path = projected_mailbox_skill_document_path(
         tool=launch_plan.tool,
         home_path=launch_plan.home_path,
-        skill_reference=mailbox_gateway_skill_reference(),
+        skill_reference=mailbox_gateway_skill_reference(tool=launch_plan.tool),
     )
     transport_skill_path = projected_mailbox_skill_document_path(
         tool=launch_plan.tool,
         home_path=launch_plan.home_path,
-        skill_reference=mailbox_skill_reference(mailbox),
+        skill_reference=mailbox_skill_reference(mailbox, tool=launch_plan.tool),
     )
     installed_skill_lines: list[str]
     if gateway_skill_path.is_file() and transport_skill_path.is_file():

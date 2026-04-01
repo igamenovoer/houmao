@@ -83,6 +83,7 @@ MAILBOX_PRIMARY_SKILL_REFERENCES = (
     MAILBOX_FILESYSTEM_SKILL_REFERENCE,
     MAILBOX_STALWART_SKILL_REFERENCE,
 )
+_MAILBOX_NATIVE_TOP_LEVEL_TOOLS = frozenset({"claude"})
 _TOOL_SKILLS_DESTINATION = {
     "claude": "skills",
     "codex": "skills",
@@ -842,12 +843,12 @@ def bootstrap_resolved_mailbox(
     )
 
 
-def mailbox_skill_reference(config: MailboxResolvedConfig) -> str:
+def mailbox_skill_reference(config: MailboxResolvedConfig, *, tool: str | None = None) -> str:
     """Return the primary projected mailbox skill reference for one transport."""
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
-        return MAILBOX_FILESYSTEM_SKILL_REFERENCE
-    return MAILBOX_STALWART_SKILL_REFERENCE
+        return _mailbox_skill_reference_for_name(MAILBOX_FILESYSTEM_SKILL_NAME, tool=tool)
+    return _mailbox_skill_reference_for_name(MAILBOX_STALWART_SKILL_NAME, tool=tool)
 
 
 def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
@@ -858,16 +859,16 @@ def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
     return MAILBOX_STALWART_SKILL_NAME
 
 
-def mailbox_gateway_skill_reference() -> str:
+def mailbox_gateway_skill_reference(*, tool: str | None = None) -> str:
     """Return the primary projected shared-gateway mailbox skill reference."""
 
-    return MAILBOX_GATEWAY_SKILL_REFERENCE
+    return _mailbox_skill_reference_for_name(MAILBOX_GATEWAY_SKILL_NAME, tool=tool)
 
 
-def mailbox_processing_skill_reference() -> str:
+def mailbox_processing_skill_reference(*, tool: str | None = None) -> str:
     """Return the primary projected gateway email-processing skill reference."""
 
-    return MAILBOX_PROCESSING_SKILL_REFERENCE
+    return _mailbox_skill_reference_for_name(MAILBOX_PROCESSING_SKILL_NAME, tool=tool)
 
 
 def mailbox_gateway_skill_name() -> str:
@@ -886,22 +887,31 @@ def mailbox_skill_document_path(
     config: MailboxResolvedConfig,
     *,
     skills_destination: str = "skills",
+    tool: str | None = None,
 ) -> str:
     """Return the primary mailbox skill document path for the active skill destination."""
 
-    return f"{skills_destination}/{mailbox_skill_reference(config)}/SKILL.md"
+    return f"{skills_destination}/{mailbox_skill_reference(config, tool=tool)}/SKILL.md"
 
 
-def mailbox_gateway_skill_document_path(*, skills_destination: str = "skills") -> str:
+def mailbox_gateway_skill_document_path(
+    *,
+    skills_destination: str = "skills",
+    tool: str | None = None,
+) -> str:
     """Return the primary gateway mailbox skill document path."""
 
-    return f"{skills_destination}/{mailbox_gateway_skill_reference()}/SKILL.md"
+    return f"{skills_destination}/{mailbox_gateway_skill_reference(tool=tool)}/SKILL.md"
 
 
-def mailbox_processing_skill_document_path(*, skills_destination: str = "skills") -> str:
+def mailbox_processing_skill_document_path(
+    *,
+    skills_destination: str = "skills",
+    tool: str | None = None,
+) -> str:
     """Return the primary gateway email-processing skill document path."""
 
-    return f"{skills_destination}/{mailbox_processing_skill_reference()}/SKILL.md"
+    return f"{skills_destination}/{mailbox_processing_skill_reference(tool=tool)}/SKILL.md"
 
 
 def mailbox_skills_destination_for_tool(tool: str) -> str:
@@ -911,6 +921,17 @@ def mailbox_skills_destination_for_tool(tool: str) -> str:
     if destination is None:
         raise ValueError(f"Unsupported tool `{tool}` for mailbox skill projection.")
     return destination
+
+
+def mailbox_primary_skill_references(*, tool: str | None = None) -> tuple[str, ...]:
+    """Return the visible mailbox skill references for one tool projection contract."""
+
+    return (
+        mailbox_processing_skill_reference(tool=tool),
+        mailbox_gateway_skill_reference(tool=tool),
+        _mailbox_skill_reference_for_name(MAILBOX_FILESYSTEM_SKILL_NAME, tool=tool),
+        _mailbox_skill_reference_for_name(MAILBOX_STALWART_SKILL_NAME, tool=tool),
+    )
 
 
 def projected_mailbox_skill_document_path(
@@ -935,10 +956,14 @@ def install_runtime_mailbox_system_skills_for_tool(
     """Project runtime-owned mailbox skills into one concrete tool home."""
 
     destination_root = (home_path.resolve() / mailbox_skills_destination_for_tool(tool)).resolve()
-    return project_runtime_mailbox_system_skills(destination_root)
+    return project_runtime_mailbox_system_skills(destination_root, tool=tool)
 
 
-def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, ...]:
+def project_runtime_mailbox_system_skills(
+    destination_root: Path,
+    *,
+    tool: str | None = None,
+) -> tuple[str, ...]:
     """Project packaged runtime-owned mailbox skills into one brain home.
 
     Project the packaged mailbox skill tree only into the visible mailbox path.
@@ -947,9 +972,38 @@ def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, 
     source_root = (
         resources.files("houmao.agents.realm_controller.assets") / "system_skills" / "mailbox"
     )
-    primary_root = destination_root / MAILBOX_PRIMARY_NAMESPACE_DIR
+    primary_root = _mailbox_skill_projection_root(destination_root=destination_root, tool=tool)
     _copy_resource_tree(source_root, primary_root)
-    return MAILBOX_PRIMARY_SKILL_REFERENCES
+    return mailbox_primary_skill_references(tool=tool)
+
+
+def _mailbox_primary_namespace_for_tool(*, tool: str | None) -> str | None:
+    """Return the mailbox namespace segment for one tool-aware skill projection."""
+
+    if tool is None:
+        return MAILBOX_PRIMARY_NAMESPACE_DIR
+    mailbox_skills_destination_for_tool(tool)
+    if tool in _MAILBOX_NATIVE_TOP_LEVEL_TOOLS:
+        return None
+    return MAILBOX_PRIMARY_NAMESPACE_DIR
+
+
+def _mailbox_skill_reference_for_name(skill_name: str, *, tool: str | None = None) -> str:
+    """Return the projected skill reference for one mailbox skill name."""
+
+    namespace = _mailbox_primary_namespace_for_tool(tool=tool)
+    if namespace is None:
+        return skill_name
+    return f"{namespace}/{skill_name}"
+
+
+def _mailbox_skill_projection_root(*, destination_root: Path, tool: str | None) -> Path:
+    """Return the concrete projection root for runtime-owned mailbox skills."""
+
+    namespace = _mailbox_primary_namespace_for_tool(tool=tool)
+    if namespace is None:
+        return destination_root
+    return destination_root / namespace
 
 
 def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:
