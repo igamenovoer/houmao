@@ -111,59 +111,52 @@ The catalog-backed overlay MAY create the managed content roots required by the 
 - **AND THEN** it still creates the default `skills/`, `roles/`, and `tools/` roots there
 
 ### Requirement: Project-aware agent-definition defaults discover the nearest project config
-Project-aware command paths that need an effective filesystem agent-definition root or compatibility-projection path and are invoked without explicit `--agent-def-dir` SHALL resolve that path in this order:
+Project-aware command paths that need an effective local Houmao project overlay or an effective filesystem agent-definition root and are invoked without explicit local-root overrides SHALL resolve that state in this order:
 
-1. explicit CLI `--agent-def-dir`,
-2. `HOUMAO_AGENT_DEF_DIR`,
-3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
-4. nearest ancestor `.houmao/houmao-config.toml`,
-5. default fallback `<cwd>/.houmao/agents`.
+1. explicit CLI overlay or agent-definition override,
+2. `HOUMAO_PROJECT_OVERLAY_DIR`,
+3. nearest ancestor `.houmao/houmao-config.toml` within the current Git worktree boundary,
+4. bootstrap `<cwd>/.houmao` when no project overlay exists and the command requires local Houmao-owned state.
 
+The current Git worktree boundary SHALL be inferred by walking ancestors until the nearest directory containing a `.git` file or directory. When no ancestor contains `.git`, discovery MAY continue to the filesystem root.
 When `HOUMAO_PROJECT_OVERLAY_DIR` is set, it SHALL be an absolute path.
-When `HOUMAO_PROJECT_OVERLAY_DIR` is set and `<overlay-root>/houmao-config.toml` exists, the command SHALL use that config as the active project discovery anchor and SHALL NOT prefer nearest-ancestor discovery from the caller's current working directory.
-When `HOUMAO_PROJECT_OVERLAY_DIR` is set and `<overlay-root>/houmao-config.toml` does not exist, the command SHALL use `<overlay-root>/agents` as the project-aware fallback and SHALL NOT prefer nearest-ancestor discovery from the caller's current working directory.
-
+When a project overlay is selected, the effective default agent-definition root SHALL be `<overlay-root>/agents` unless a discovered config resolves a different compatibility-projection path.
 When a project config is discovered, relative paths stored in that config SHALL resolve relative to the config file directory.
 When a project config is discovered for a catalog-backed overlay, pair-native build and launch paths SHALL materialize the compatibility projection from that overlay's catalog and managed content store before reading presets, role prompts, or tool content.
 Pure discovery and status paths MAY report the resolved compatibility-projection root without forcing materialization.
 
 At minimum, this project-aware defaulting SHALL apply to:
 
-- `houmao-mgr project status`
+- `houmao-mgr project ...`
 - `houmao-mgr brains build`
 - preset-backed `houmao-mgr agents launch`
+- maintained local mailbox, cleanup, and server command flows that need local Houmao-owned roots
 
-#### Scenario: Env-selected overlay uses its project config
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
-- **AND WHEN** `/tmp/ci-overlay/houmao-config.toml` exists
-- **AND WHEN** that config resolves `agent_def_dir = "team-agents"`
-- **AND WHEN** an operator runs `houmao-mgr brains build ...` from `/repo/subdir/nested` without `--agent-def-dir`
-- **THEN** the command discovers `/tmp/ci-overlay` as the active project overlay
-- **AND THEN** it resolves the compatibility-projection root as `/tmp/ci-overlay/team-agents`
-- **AND THEN** it materializes that compatibility projection before reading presets or role content
+#### Scenario: Nearest discovered overlay remains the default project anchor
+- **WHEN** no explicit CLI overlay root is supplied
+- **AND WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
+- **AND WHEN** `/repo/.houmao/houmao-config.toml` exists
+- **AND WHEN** an operator runs a project-aware local command from `/repo/subdir`
+- **THEN** the command resolves `/repo/.houmao` as the active project overlay
+- **AND THEN** it does not bootstrap `/repo/subdir/.houmao`
 
-#### Scenario: Env-selected overlay falls back to its local agents root
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
-- **AND WHEN** `/tmp/ci-overlay/houmao-config.toml` does not exist
-- **AND WHEN** `HOUMAO_AGENT_DEF_DIR` is unset
-- **AND WHEN** an operator runs a project-aware build or launch path from `/repo`
-- **THEN** the effective fallback agent-definition root is `/tmp/ci-overlay/agents`
-- **AND THEN** the command does not prefer nearest-ancestor project discovery from `/repo`
+#### Scenario: Nested Git repos do not inherit a parent repo overlay implicitly
+- **WHEN** no explicit CLI overlay root is supplied
+- **AND WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
+- **AND WHEN** `/parent/.houmao/houmao-config.toml` exists
+- **AND WHEN** `/parent/child/.git` exists
+- **AND WHEN** an operator runs a project-aware local command from `/parent/child/subdir`
+- **AND WHEN** `/parent/child/.houmao/houmao-config.toml` does not exist
+- **THEN** the command does not resolve `/parent/.houmao` as the active project overlay
+- **AND THEN** it bootstraps `/parent/child/.houmao` if the command requires local Houmao-owned state
 
-#### Scenario: Explicit agent-definition override wins over env-selected overlay
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
-- **AND WHEN** `/tmp/ci-overlay/houmao-config.toml` exists
-- **AND WHEN** an operator runs `houmao-mgr brains build --agent-def-dir /tmp/custom-agents ...` from `/repo`
-- **THEN** the command uses `/tmp/custom-agents` as the effective agent-definition root
-- **AND THEN** it does not replace that explicit override with the env-selected overlay root
-
-#### Scenario: Missing project config falls back to `.houmao`
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
+#### Scenario: Missing overlay bootstraps under the current working directory
+- **WHEN** no explicit CLI overlay root is supplied
+- **AND WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
 - **AND WHEN** no ancestor `.houmao/houmao-config.toml` exists
-- **AND WHEN** `HOUMAO_AGENT_DEF_DIR` is unset
-- **AND WHEN** an operator runs a project-aware build or launch path from `/repo`
-- **THEN** the effective fallback agent-definition root is `/repo/.houmao/agents`
-- **AND THEN** the command does not fall back to `/repo/.agentsys/agents`
+- **AND WHEN** an operator runs a project-aware local command that needs local Houmao-owned state from `/repo/app`
+- **THEN** the command bootstraps `/repo/app/.houmao`
+- **AND THEN** it uses `/repo/app/.houmao/agents` as the effective default agent-definition root
 
 ### Requirement: `houmao-mgr project status` reports discovered local project state
 `houmao-mgr project status` SHALL resolve the active overlay root in this order:
@@ -271,3 +264,48 @@ At minimum, this requirement SHALL apply to:
 - **AND WHEN** an operator runs `houmao-mgr project agents roles presets remove --role reviewer --tool codex`
 - **THEN** the command fails clearly before attempting removal
 - **AND THEN** it does not bootstrap a new project overlay only to report missing existing state
+
+### Requirement: Maintained local project-aware commands no longer require prior manual project init
+Maintained local command flows that require Houmao-owned project-local state SHALL ensure the active overlay exists before performing their primary work instead of requiring the operator to run `houmao-mgr project init` as a separate prerequisite step.
+
+This change SHALL NOT remove `houmao-mgr project init`; the command remains the explicit bootstrap and validation surface.
+
+#### Scenario: Build or launch can create the missing overlay on demand
+- **WHEN** no active project overlay exists for the caller
+- **AND WHEN** an operator runs a maintained local Houmao build or launch command that needs project-local state
+- **THEN** the command ensures the selected overlay exists before continuing
+- **AND THEN** the operator does not need to run `houmao-mgr project init` manually first
+
+### Requirement: `houmao-mgr project status` remains a read-only reporting surface
+`houmao-mgr project status` SHALL report the selected project overlay root and derived project-aware local roots without bootstrapping a missing overlay.
+
+When no overlay exists yet, the command SHALL report the would-bootstrap overlay root for the current invocation context rather than creating it.
+
+#### Scenario: Project status reports the would-bootstrap overlay without creating it
+- **WHEN** no explicit CLI overlay root is supplied
+- **AND WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
+- **AND WHEN** no ancestor `.houmao/houmao-config.toml` exists
+- **AND WHEN** an operator runs `houmao-mgr project status` from `/repo/app`
+- **THEN** the command reports `/repo/app/.houmao` as the selected or would-bootstrap overlay root
+- **AND THEN** it does not create `/repo/app/.houmao` during that status command
+
+### Requirement: Project command wording distinguishes selected overlays, non-creating resolution, and implicit bootstrap
+Maintained `houmao-mgr project ...` help text, failures, and structured payload wording SHALL distinguish among:
+
+- the selected overlay root for the current invocation,
+- non-creating resolution that intentionally does not create the selected or would-bootstrap overlay,
+- implicit bootstrap that created the selected overlay during the current invocation.
+
+Operator-facing wording for maintained project commands SHALL use `selected overlay root` or `selected project overlay` terminology rather than stale `discovered project overlay` wording when the command resolved an env-selected or explicitly bootstrapped overlay.
+
+#### Scenario: Non-creating project inspection reports the selected or would-bootstrap overlay
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs a maintained non-creating `houmao-mgr project ...` inspection or removal command
+- **THEN** the failure explains which overlay root was selected or would be bootstrapped for that invocation
+- **AND THEN** the failure states that the command remained non-creating instead of implying a discovery failure under a different root
+
+#### Scenario: Project-aware bootstrap result surfaces the created overlay explicitly
+- **WHEN** a maintained stateful `houmao-mgr project ...` command bootstraps the selected overlay during the current invocation
+- **THEN** the resulting operator-facing text or payload identifies the selected overlay root that was created
+- **AND THEN** the result does not require the operator to infer that bootstrap solely from later filesystem state
+

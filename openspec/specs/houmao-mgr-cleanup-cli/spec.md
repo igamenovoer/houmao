@@ -27,10 +27,21 @@ At minimum, that family SHALL include:
 
 These commands SHALL operate on local Houmao-owned runtime state and SHALL NOT require a running pair authority.
 
-#### Scenario: Operator sees host-scoped runtime cleanup commands
-- **WHEN** an operator runs `houmao-mgr admin cleanup runtime --help`
-- **THEN** the help output lists `sessions`, `builds`, `logs`, and `mailbox-credentials`
-- **AND THEN** the command family is presented as local runtime maintenance rather than a server-backed admin API
+When no stronger explicit runtime-root override exists and the command runs in project context, the effective runtime root SHALL default to `<active-overlay>/runtime`.
+Each cleanup invocation SHALL target exactly one effective runtime root.
+Operators who need to clean legacy shared-root artifacts under `~/.houmao/runtime` SHALL do so by supplying an explicit runtime-root override such as `--runtime-root ~/.houmao/runtime`.
+
+#### Scenario: Project-context runtime cleanup targets the overlay-local runtime root by default
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr admin cleanup runtime builds` without `--runtime-root`
+- **THEN** the command evaluates build artifacts under `/repo/.houmao/runtime`
+- **AND THEN** it does not instead default to a shared runtime root under `~/.houmao/runtime`
+
+#### Scenario: Explicit runtime-root override can still target legacy shared-root cleanup
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr admin cleanup runtime sessions --runtime-root ~/.houmao/runtime`
+- **THEN** the command evaluates runtime-session artifacts under `~/.houmao/runtime`
+- **AND THEN** it does not also sweep `/repo/.houmao/runtime` in that same invocation
 
 ### Requirement: `houmao-mgr agents cleanup` resolves one local managed session from explicit or current-session authority
 `houmao-mgr` SHALL expose a local `agents cleanup` command family for cleanup work that targets one managed-agent session envelope.
@@ -195,3 +206,21 @@ Human-oriented cleanup output SHALL NOT collapse populated action buckets into c
 - **WHEN** an operator runs a supported cleanup command with `--print-json`
 - **THEN** the output remains a structured JSON object containing the cleanup action arrays and summary fields
 - **AND THEN** the command does not replace that machine-readable payload with renderer-specific plain-text lines
+
+### Requirement: Runtime cleanup help and payload wording describe the resolved cleanup root consistently
+Maintained `houmao-mgr admin cleanup runtime ...` help text and structured cleanup results SHALL describe the resolved runtime scope consistently with the project-aware root contract.
+
+When no explicit runtime-root override wins and project context is active, help text SHALL describe the default cleanup scope as the active project runtime root.
+
+When an explicit runtime-root override or global runtime-root env override wins, help text and cleanup results SHALL describe that scope as an explicit runtime-root selection rather than as an active project runtime root.
+
+#### Scenario: Help text describes project-aware runtime cleanup defaults
+- **WHEN** an operator runs `houmao-mgr admin cleanup runtime --help`
+- **THEN** the help output explains that `--runtime-root` overrides the active project runtime root when project context is active
+- **AND THEN** it does not imply that the maintained default is always a shared runtime root
+
+#### Scenario: Cleanup result distinguishes explicit override from project-aware default
+- **WHEN** an operator runs `houmao-mgr admin cleanup runtime sessions --runtime-root /tmp/houmao-runtime --dry-run`
+- **THEN** the structured cleanup result identifies `/tmp/houmao-runtime` as the selected cleanup root for that invocation
+- **AND THEN** the operator-facing wording does not describe that explicit override as the active project runtime root
+

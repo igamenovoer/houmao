@@ -80,20 +80,17 @@ The effective mailbox root SHALL resolve from:
 
 1. explicit `--mailbox-root`,
 2. `HOUMAO_GLOBAL_MAILBOX_DIR`,
-3. the default shared mailbox root.
+3. the active project overlay mailbox root,
+4. bootstrap `<cwd>/.houmao/mailbox` when no overlay exists and no stronger override applies.
 
 A successful bootstrap SHALL create or validate the v1 filesystem mailbox layout, including protocol version, shared SQLite catalog, rules assets, mailbox directories root, locks root, and staging root.
 
-#### Scenario: Operator bootstraps a mailbox root explicitly
-- **WHEN** an operator runs `houmao-mgr mailbox init --mailbox-root /tmp/shared-mail`
-- **THEN** the command bootstraps or validates `/tmp/shared-mail` as a filesystem mailbox root
-- **AND THEN** the result reports that the mailbox root is ready for later mailbox registration workflows
-
-#### Scenario: Init fails clearly on a stale unsupported mailbox root
-- **WHEN** an operator runs `houmao-mgr mailbox init --mailbox-root /tmp/legacy-mail`
-- **AND WHEN** `/tmp/legacy-mail` uses an unsupported stale mailbox layout
-- **THEN** the command fails explicitly
-- **AND THEN** the error directs the operator to delete and re-bootstrap that mailbox root instead of attempting in-place migration
+#### Scenario: Init without overrides uses the active overlay mailbox root
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr mailbox init` without `--mailbox-root`
+- **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
+- **THEN** the command bootstraps or validates `/repo/.houmao/mailbox`
+- **AND THEN** it does not bootstrap a shared mailbox root under `~/.houmao/`
 
 ### Requirement: `houmao-mgr mailbox status` reports filesystem mailbox root health and summary state
 `houmao-mgr mailbox status` SHALL inspect one filesystem mailbox root and return a structured summary of its health and stored state.
@@ -214,3 +211,41 @@ The command SHALL accept `--dry-run`. In dry-run mode, it SHALL report matching 
 - **AND WHEN** the mailbox root still contains an active registration for one mailbox address
 - **THEN** the command preserves that active registration
 - **AND THEN** the cleanup result does not report the active mailbox as removed
+
+### Requirement: `houmao-mgr mailbox` resolves mailbox roots project-aware by default
+When a generic `houmao-mgr mailbox ...` command runs without an explicit `--mailbox-root` and without `HOUMAO_GLOBAL_MAILBOX_DIR`, the effective mailbox root SHALL resolve project-aware from the active project overlay as `<active-overlay>/mailbox`.
+
+When no active project overlay exists and the command requires local mailbox state, the command SHALL ensure `<cwd>/.houmao` exists and use `<cwd>/.houmao/mailbox` as the resulting default mailbox root.
+
+#### Scenario: Generic mailbox command uses the overlay-local mailbox root
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr mailbox status` without `--mailbox-root`
+- **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
+- **THEN** the command targets `/repo/.houmao/mailbox`
+- **AND THEN** it does not fall back to a shared mailbox root under `~/.houmao/`
+
+#### Scenario: Generic mailbox command bootstraps the missing overlay when mailbox state is needed
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs `houmao-mgr mailbox init` without `--mailbox-root`
+- **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
+- **THEN** the command ensures `<cwd>/.houmao` exists
+- **AND THEN** it bootstraps `<cwd>/.houmao/mailbox` as the effective mailbox root
+
+### Requirement: Generic mailbox help and rootless results describe project-aware mailbox selection
+Maintained `houmao-mgr mailbox ...` help text and rootless result wording SHALL distinguish between an active project mailbox root and an explicit shared mailbox-root override.
+
+When no explicit mailbox-root override wins and project context is active, operator-facing wording SHALL describe the resolved mailbox scope as the active project mailbox root.
+
+When `--mailbox-root` or `HOUMAO_GLOBAL_MAILBOX_DIR` wins, operator-facing wording SHALL describe that scope as an explicit mailbox-root selection or shared mailbox-root override rather than as the active project mailbox root.
+
+#### Scenario: Mailbox help text describes the active project mailbox root fallback
+- **WHEN** an operator runs `houmao-mgr mailbox --help` or inspects a mailbox subcommand help page with `--mailbox-root`
+- **THEN** the help output explains that rootless mailbox commands may default to the active project mailbox root
+- **AND THEN** it does not present the shared mailbox root as the only maintained default
+
+#### Scenario: Rootless mailbox bootstrap surfaces project-aware selection
+- **WHEN** an operator runs a maintained rootless mailbox command in project context without `--mailbox-root`
+- **AND WHEN** that invocation resolves mailbox state from the selected project overlay
+- **THEN** the operator-facing result describes the resolved mailbox scope as the active project mailbox root
+- **AND THEN** it does not describe that resolution as though the command had targeted an explicit shared mailbox-root override
+

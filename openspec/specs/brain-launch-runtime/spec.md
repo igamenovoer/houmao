@@ -489,12 +489,26 @@ For tmux-backed supported surfaces, the manifest SHALL be the stable authority f
 - **AND THEN** it does not require `gateway_manifest.json` or `attach.json` to remain authoritative for the resumed operation
 
 ### Requirement: Runtime defaults new build and session state to the Houmao runtime root
-When no explicit runtime-root override is supplied and `HOUMAO_GLOBAL_RUNTIME_DIR` is set to an absolute directory path, the runtime SHALL use that env-var value as the effective runtime root instead of the built-in default.
+The runtime SHALL default new build and session state to the effective project-aware runtime root when local command flows operate in project context.
 
-#### Scenario: Runtime-root env-var override relocates the effective runtime root
-- **WHEN** `HOUMAO_GLOBAL_RUNTIME_DIR` is set to `/tmp/houmao-runtime`
-- **AND WHEN** no explicit runtime-root override is supplied
-- **THEN** the effective Houmao runtime root is `/tmp/houmao-runtime`
+When a maintained local build or launch flow has an active project overlay and no stronger runtime-root override exists, the effective runtime root SHALL be `<active-overlay>/runtime`.
+
+When an explicit runtime-root override exists, that explicit override SHALL win.
+When no active project overlay exists for the flow and the command requires local Houmao-owned state, the command SHALL ensure `<cwd>/.houmao` exists and use `<cwd>/.houmao/runtime` as the resulting default runtime root unless a stronger override applies.
+
+Registry publication remains separate and SHALL continue to use the shared registry root rather than nesting registry state under the runtime root.
+
+#### Scenario: Project-context build uses overlay-local runtime root
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** a maintained local brain build or runtime launch runs without a stronger runtime-root override
+- **THEN** the effective runtime root is `/repo/.houmao/runtime`
+- **AND THEN** generated homes, manifests, and session envelopes are written under that overlay-local runtime root
+
+#### Scenario: Explicit runtime-root override still wins over project-aware defaulting
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** a maintained local build or launch flow is given explicit runtime-root override `/tmp/custom-runtime`
+- **THEN** the effective runtime root is `/tmp/custom-runtime`
+- **AND THEN** the overlay-local runtime default is not used for that operation
 
 ### Requirement: Runtime materializes canonical agent name and authoritative `agent_id` for system-owned association
 Runtime-owned session start SHALL materialize canonical agent names in `HOUMAO-<name>` form and SHALL derive the initial authoritative `agent_id` from that canonical name when no explicit or previously persisted `agent_id` exists.
@@ -531,15 +545,36 @@ When runtime-controlled logic needs to recover the true canonical agent name or 
 - **AND THEN** it does not assume the tmux session name itself equals the canonical agent name
 
 ### Requirement: Runtime creates and reuses a per-agent job dir for each started session
-When no explicit job-dir override is supplied and `HOUMAO_LOCAL_JOBS_DIR` is set to an absolute directory path for that launch or started agent, the runtime SHALL derive the effective per-agent job dir as `<HOUMAO_LOCAL_JOBS_DIR>/<session-id>/`.
+For maintained local launch flows operating in project context, the runtime SHALL derive the default per-agent job dir from the active project overlay as:
 
-The runtime SHALL create that directory before the session needs runtime-managed scratch space and SHALL expose its absolute path to the launched session through `HOUMAO_JOB_DIR`.
+- `<active-overlay>/jobs/<session-id>/`
 
-#### Scenario: Job-dir env override publishes the HOUMAO job-dir pointer
-- **WHEN** `HOUMAO_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
-- **AND WHEN** the runtime starts a session whose generated session id is `session-20260314-120000Z-abcd1234`
+When an explicit jobs-root override exists, that explicit override SHALL win.
+When `HOUMAO_LOCAL_JOBS_DIR` is set and no stronger explicit jobs-root override exists, that env-var override SHALL win.
+Maintained local launch boundaries SHALL resolve the effective jobs root before session startup and pass an explicit jobs-root or already resolved job dir into that startup path rather than relying on the caller's working directory as the implicit jobs anchor.
+
+The runtime SHALL persist the resolved job dir in the session manifest and publish it to the launched session environment as `HOUMAO_JOB_DIR`.
+
+#### Scenario: Project-context session derives its job dir under the overlay
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** the runtime starts a session with generated session id `session-20260314-120000Z-abcd1234`
+- **AND WHEN** no stronger jobs-root override exists
+- **THEN** the effective job dir is `/repo/.houmao/jobs/session-20260314-120000Z-abcd1234/`
+- **AND THEN** the session manifest records that resolved path as `job_dir`
+
+#### Scenario: Jobs env override still relocates the per-session job dir
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** `HOUMAO_LOCAL_JOBS_DIR=/tmp/houmao-jobs`
+- **AND WHEN** the runtime starts a session with generated session id `session-20260314-120000Z-abcd1234`
 - **THEN** the effective job dir is `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
-- **AND THEN** the started session environment includes `HOUMAO_JOB_DIR` pointing to that absolute path
+- **AND THEN** the overlay-local jobs default is not used for that session
+
+#### Scenario: Project-aware launch resolves jobs placement before session startup
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator starts a maintained local launch flow from working directory `/repo/subdir`
+- **AND WHEN** no stronger jobs-root override exists
+- **THEN** the launch boundary passes `/repo/.houmao/jobs` or the fully resolved `/repo/.houmao/jobs/<session-id>/` into session startup
+- **AND THEN** the session does not derive its default job dir from `/repo/subdir/.houmao/jobs`
 
 ### Requirement: Runtime-generated manifests/configs are schema-validated
 The system SHALL schema-validate all runtime-generated structured manifest/config artifacts on write and on read/load.
@@ -2359,3 +2394,22 @@ This rule SHALL apply equally to current tools such as Claude Code and Codex and
 - **AND WHEN** the caller also supplies low-level startup inputs that would weaken the unattended strategy's owned launch surfaces
 - **THEN** the runtime replaces or removes those conflicting effective startup inputs before provider start
 - **AND THEN** the resulting Claude launch still uses the unattended strategy's startup policy
+
+### Requirement: Project-aware build and launch results describe selected local roots explicitly
+Maintained project-aware build and launch surfaces SHALL describe overlay-local default roots, explicit root overrides, and implicit overlay bootstrap in operator-facing result text and machine-readable payload details.
+
+When a maintained build or launch flow resolves runtime or jobs state from the selected project overlay, the result SHALL describe that scope as the active project runtime root or overlay-local jobs scope rather than as a generic shared-root default.
+
+When a maintained build or launch flow implicitly bootstraps the selected overlay, the operator-facing result SHALL surface that bootstrap outcome explicitly instead of requiring the operator to infer it from created files on disk.
+
+#### Scenario: Project-aware build reports overlay-local runtime selection and bootstrap
+- **WHEN** an operator runs a maintained project-aware build or launch command without an explicit runtime-root override
+- **AND WHEN** the command bootstraps the selected overlay for that invocation
+- **THEN** the operator-facing result describes the resolved runtime scope as the active project runtime root under the selected overlay
+- **AND THEN** the result surfaces that the overlay was bootstrapped implicitly during that invocation
+
+#### Scenario: Explicit runtime override remains described as an explicit override
+- **WHEN** an operator runs a maintained build or launch command with an explicit runtime-root override
+- **THEN** the operator-facing result describes that root as an explicit runtime-root override
+- **AND THEN** it does not describe that path as though it were the active project runtime root selected from overlay-local defaults
+
