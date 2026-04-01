@@ -148,7 +148,8 @@ This demo keeps the existing gateway notifier contract unchanged:
 
 - unread truth is owned by Stalwart,
 - notifier polling is gateway-owned,
-- unchanged unread sets may deduplicate,
+- reminders are sent only when the managed prompt surface is ready for input,
+- unchanged unread mail may be reminded again after the session becomes ready again,
 - gateway bookkeeping does not mark mail as read,
 - reading a message in Cypht can change later unread results.
 

@@ -2823,6 +2823,8 @@ def _deliver_unread_mailbox_message(
     message_id: str = "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
     created_at_utc: str = "2026-03-16T09:00:00Z",
     subject: str = "Gateway unread reminder",
+    recipient_principal_id: str = "HOUMAO-gpu",
+    recipient_address: str = "HOUMAO-gpu@agents.localhost",
 ) -> str:
     mailbox_root = tmp_path / "mailbox"
     sender = MailboxPrincipal(
@@ -2830,10 +2832,11 @@ def _deliver_unread_mailbox_message(
         address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
+        principal_id=recipient_principal_id,
+        address=recipient_address,
     )
     bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
+    bootstrap_filesystem_mailbox(mailbox_root, principal=recipient)
 
     staged_message = mailbox_root / "staging" / "gateway-unread.md"
     request = DeliveryRequest.from_payload(
@@ -3121,6 +3124,21 @@ def test_gateway_service_accepts_requests_and_separates_health(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -3167,6 +3185,21 @@ def test_gateway_service_starts_from_manifest_when_internal_attach_contract_is_m
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -3256,6 +3289,21 @@ def test_gateway_service_restart_recovers_accepted_requests(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -3751,6 +3799,11 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
         "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
         _FakeStalwartJmapClient,
     )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -3865,7 +3918,7 @@ def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization
     assert "explicit boolean `unread` state" in response.json()["detail"]
 
 
-def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_restart(
+def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_restart(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3880,6 +3933,11 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -3892,14 +3950,10 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
         assert status.enabled is True
         assert status.supported is True
 
-        deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and not fake_client.submitted_prompts:
-            time.sleep(0.05)
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 2, timeout_seconds=5.0)
 
-        assert len(fake_client.submitted_prompts) == 1
         assert message_id in fake_client.submitted_prompts[0][1]
-        time.sleep(1.3)
-        assert len(fake_client.submitted_prompts) == 1
+        assert message_id in fake_client.submitted_prompts[1][1]
     finally:
         runtime.shutdown()
 
@@ -3911,8 +3965,7 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
     )
     runtime.start()
     try:
-        time.sleep(1.3)
-        assert fake_client.submitted_prompts == []
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
         status = runtime.get_mail_notifier()
         assert status.enabled is True
         assert status.last_notification_at_utc is not None
@@ -3924,27 +3977,68 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
     assert "mail notifier enqueued" in log_text
     audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
     enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
-    dedup_rows = [row for row in audit_rows if row.outcome == "dedup_skip"]
     assert enqueued_rows
-    assert dedup_rows
+    assert not any(row.outcome == "dedup_skip" for row in audit_rows)
+    assert len(enqueued_rows) >= 2
     assert enqueued_rows[-1].unread_count == 1
     assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
     assert enqueued_rows[-1].enqueued_request_id is not None
-    assert all(row.unread_digest == enqueued_rows[-1].unread_digest for row in dedup_rows)
 
 
-def test_gateway_mail_notifier_deduplicates_even_if_prompt_rendering_changes(
+def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_and_repeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
-    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
-    _deliver_unread_mailbox_message(tmp_path)
-    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    message_id = _deliver_unread_mailbox_message(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
-        lambda *args, **kwargs: fake_client,
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    readiness = {"busy": True}
+
+    def _tracking_state(self: _FakeGatewayTrackingRuntime) -> HoumaoTerminalStateResponse:
+        state = _sample_gateway_tracked_state(self.m_identity)
+        if not readiness["busy"]:
+            return state
+        return state.model_copy(
+            update={
+                "surface": state.surface.model_copy(
+                    update={"accepting_input": "no", "editing_input": "yes", "ready_posture": "no"}
+                ),
+                "turn": state.turn.model_copy(update={"phase": "active"}),
+                "stability": state.stability.model_copy(update={"stable": False}),
+            }
+        )
+
+    monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _tracking_state)
+
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="HOUMAO-gpu",
+        address="HOUMAO-gpu@agents.localhost",
+        filesystem_root=(tmp_path / "mailbox").resolve(),
+        bindings_version="2026-03-16T08:00:00.000001Z",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -3952,24 +4046,44 @@ def test_gateway_mail_notifier_deduplicates_even_if_prompt_rendering_changes(
         host="127.0.0.1",
         port=43123,
     )
+    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
+    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
         runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
 
-        deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and not fake_client.submitted_prompts:
-            time.sleep(0.05)
-
-        assert len(fake_client.submitted_prompts) == 1
-        monkeypatch.setattr(
-            runtime,
-            "_build_mail_notifier_prompt",
-            lambda unread_messages: "a completely rewritten notifier prompt",
-        )
         time.sleep(1.3)
-        assert len(fake_client.submitted_prompts) == 1
+        assert fake_session.prompt_calls == []
+
+        readiness["busy"] = False
+        _wait_until(lambda: len(fake_session.prompt_calls) >= 1, timeout_seconds=5.0)
+        assert message_id in fake_session.prompt_calls[0][0]
+
+        readiness["busy"] = True
+        prompt_count = len(fake_session.prompt_calls)
+        time.sleep(1.3)
+        assert len(fake_session.prompt_calls) == prompt_count
+
+        readiness["busy"] = False
+        _wait_until(lambda: len(fake_session.prompt_calls) >= prompt_count + 1, timeout_seconds=5.0)
+        assert message_id in fake_session.prompt_calls[-1][0]
     finally:
         runtime.shutdown()
+
+    paths = gateway_paths_from_manifest_path(
+        default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    )
+    assert paths is not None
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    assert busy_rows
+    assert enqueued_rows
+    assert len(enqueued_rows) >= 2
+    assert not any(row.outcome == "dedup_skip" for row in audit_rows)
+    assert any(
+        row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows
+    )
 
 
 def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway_skill(
@@ -3998,6 +4112,11 @@ def test_gateway_mail_notifier_renders_unread_summary_prompt_with_houmao_gateway
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -4067,6 +4186,11 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -4092,7 +4216,7 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         runtime.shutdown()
 
 
-def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates(
+def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchanged_unread_mail(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4144,6 +4268,21 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
         lambda *args, **kwargs: fake_client,
     )
     monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
         _FakeStalwartJmapClient,
     )
@@ -4170,15 +4309,16 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
         while time.monotonic() < deadline:
             audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
             outcomes = {row.outcome for row in audit_rows}
-            if {"busy_skip", "enqueued", "dedup_skip"} <= outcomes and len(
-                fake_client.submitted_prompts
-            ) >= 2:
+            if "busy_skip" in outcomes and len(
+                [row for row in audit_rows if row.outcome == "enqueued"]
+            ) >= 2 and len(fake_client.submitted_prompts) >= 3:
                 break
             time.sleep(0.05)
 
         assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
-        assert len(fake_client.submitted_prompts) == 2
+        assert len(fake_client.submitted_prompts) >= 3
         assert "stalwart:mail-1" in fake_client.submitted_prompts[1][1]
+        assert "stalwart:mail-1" in fake_client.submitted_prompts[2][1]
         assert 'curl -sS -X POST "http://127.0.0.1:43123/v1/mail/state"' in fake_client.submitted_prompts[1][1]
     finally:
         runtime.shutdown()
@@ -4186,10 +4326,10 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
     audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
     busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
     enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
-    dedup_rows = [row for row in audit_rows if row.outcome == "dedup_skip"]
     assert busy_rows
     assert enqueued_rows
-    assert dedup_rows
+    assert len(enqueued_rows) >= 2
+    assert not any(row.outcome == "dedup_skip" for row in audit_rows)
     assert enqueued_rows[-1].unread_summary[0].message_ref == "stalwart:mail-1"
 
 
@@ -4282,6 +4422,11 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(

@@ -116,12 +116,13 @@ scripts/demo/gateway-mail-wakeup-demo-pack/run_demo.sh stop
 
 The pack always stages Markdown and delivery payloads under `deliveries/` and delivers through the managed filesystem contract. It never mutates mailbox SQLite directly.
 
-## Unread-Set Semantics
+## Unread Reminder Semantics
 
-The gateway notifier is unread-set based, not one-prompt-per-message.
+The gateway notifier is readiness-gated, not one-prompt-per-message.
 
 - One prompt may summarize multiple unread messages.
-- The notifier may skip a poll when the session is busy.
+- The notifier skips polls while the managed prompt surface is not ready for input.
+- If unread mail remains and the session becomes prompt-ready again, the gateway may remind again even when the unread snapshot is unchanged.
 - Valid success means unread work was surfaced and processed, not that each message caused a unique prompt row.
 
 That is why the verification contract focuses on durable notifier audit and queue evidence plus final mailbox read-state, instead of exact per-poll sequencing.
@@ -168,4 +169,3 @@ scripts/demo/gateway-mail-wakeup-demo-pack/autotest/run_autotest.sh --case real-
 ```
 
 The harness writes machine-readable results under `outputs/autotest/.../control/autotest/` and preserves per-phase logs under `outputs/autotest/.../logs/autotest/`.
-

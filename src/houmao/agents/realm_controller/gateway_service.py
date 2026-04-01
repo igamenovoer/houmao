@@ -1390,6 +1390,22 @@ class GatewayServiceRuntime:
     def _require_tui_prompt_ready_locked(self, *, forced: bool) -> None:
         """Require a stable prompt-ready TUI posture for direct prompt control."""
 
+        reasons = self._tui_prompt_not_ready_reasons_locked()
+        if not reasons:
+            return
+        self._raise_prompt_control_http_error(
+            status_code=409,
+            forced=forced,
+            error_code="not_ready",
+            detail=(
+                "Gateway prompt rejected because the TUI is not submit-ready "
+                f"({', '.join(reasons)})."
+            ),
+        )
+
+    def _tui_prompt_not_ready_reasons_locked(self) -> list[str]:
+        """Return TUI prompt-readiness reasons when the tracked surface is not ready."""
+
         state = self._require_tui_tracking_locked().current_state()
         reasons: list[str] = []
         if state.turn.phase != "ready":
@@ -1408,17 +1424,72 @@ class GatewayServiceRuntime:
                 reasons.append(f"parsed_surface.business_state={parsed_surface.business_state!r}")
             if parsed_surface.input_mode != "freeform":
                 reasons.append(f"parsed_surface.input_mode={parsed_surface.input_mode!r}")
-        if not reasons:
-            return
-        self._raise_prompt_control_http_error(
-            status_code=409,
-            forced=forced,
-            error_code="not_ready",
-            detail=(
-                "Gateway prompt rejected because the TUI is not submit-ready "
-                f"({', '.join(reasons)})."
-            ),
-        )
+        return reasons
+
+    def _notifier_dispatch_mode_locked(
+        self,
+    ) -> Literal["tui", "local_headless", "server_headless"] | None:
+        """Return the notifier readiness mode for the attached backend."""
+
+        backend = self.m_attach_contract.backend
+        if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
+            return "tui"
+        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+            if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
+                return "server_headless"
+            if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
+                return "local_headless"
+        return None
+
+    def _notifier_block_detail_locked(self, *, status: GatewayStatusV1) -> str | None:
+        """Return one human-readable reason when notifier enqueueing must defer."""
+
+        if (
+            status.request_admission != "open"
+            or status.active_execution != "idle"
+            or status.queue_depth > 0
+        ):
+            return (
+                "mail notifier poll deferred because the managed session is busy "
+                f"(admission={status.request_admission}, "
+                f"active_execution={status.active_execution}, "
+                f"queue_depth={status.queue_depth})"
+            )
+
+        dispatch_mode = self._notifier_dispatch_mode_locked()
+        if dispatch_mode == "tui":
+            try:
+                reasons = self._tui_prompt_not_ready_reasons_locked()
+            except HTTPException as exc:
+                return (
+                    "mail notifier poll deferred because live TUI readiness is unavailable "
+                    f"({exc.detail})"
+                )
+            if reasons:
+                return (
+                    "mail notifier poll deferred because the managed session is not prompt-ready "
+                    f"({', '.join(reasons)})"
+                )
+            return None
+
+        if dispatch_mode == "local_headless":
+            active_turn_id = self._active_headless_turn_id_locked()
+            if active_turn_id is not None:
+                return (
+                    "mail notifier poll deferred because the managed session is not prompt-ready "
+                    f"(active_turn_id={active_turn_id!r})"
+                )
+            return None
+
+        if dispatch_mode == "server_headless":
+            if status.terminal_surface_eligibility != "ready":
+                return (
+                    "mail notifier poll deferred because the managed session is not prompt-ready "
+                    f"(terminal_surface_eligibility={status.terminal_surface_eligibility!r})"
+                )
+            return None
+
+        return None
 
     def _next_direct_headless_turn_id_locked(self) -> str:
         """Return the next direct-control headless turn id."""
@@ -1643,6 +1714,7 @@ class GatewayServiceRuntime:
                 self.m_paths.queue_path,
                 enabled=True,
                 interval_seconds=request_payload.interval_seconds,
+                last_notified_digest=None,
                 last_error=None,
             )
             self._log(f"mail notifier enabled interval_seconds={request_payload.interval_seconds}")
@@ -1932,38 +2004,8 @@ class GatewayServiceRuntime:
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
-            if unread_digest == record.last_notified_digest:
-                write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
-                    last_poll_at_utc=poll_time_utc,
-                    last_error=None,
-                )
-                self._append_notifier_audit_record(
-                    poll_time_utc=poll_time_utc,
-                    status=status,
-                    unread_messages=unread_messages,
-                    unread_count=len(unread_messages),
-                    unread_digest=unread_digest,
-                    outcome="dedup_skip",
-                    detail="Unread set matched the last delivered reminder digest.",
-                )
-                self._log_rate_limited(
-                    "mail_notifier_dedup",
-                    "mail notifier poll: unread mail unchanged; skipping duplicate reminder",
-                )
-                return
-
-            if (
-                status.request_admission != "open"
-                or status.active_execution != "idle"
-                or status.queue_depth > 0
-            ):
-                busy_detail = (
-                    "mail notifier poll deferred because the managed session is busy "
-                    f"(admission={status.request_admission}, "
-                    f"active_execution={status.active_execution}, "
-                    f"queue_depth={status.queue_depth})"
-                )
+            block_detail = self._notifier_block_detail_locked(status=status)
+            if block_detail is not None:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
                     last_poll_at_utc=poll_time_utc,
@@ -1976,11 +2018,11 @@ class GatewayServiceRuntime:
                     unread_count=len(unread_messages),
                     unread_digest=unread_digest,
                     outcome="busy_skip",
-                    detail=busy_detail,
+                    detail=block_detail,
                 )
                 self._log_rate_limited(
                     "mail_notifier_busy",
-                    busy_detail,
+                    block_detail,
                 )
                 return
 
@@ -1990,7 +2032,7 @@ class GatewayServiceRuntime:
                 self.m_paths.queue_path,
                 last_poll_at_utc=poll_time_utc,
                 last_notification_at_utc=poll_time_utc,
-                last_notified_digest=unread_digest,
+                last_notified_digest=None,
                 last_error=None,
             )
             self._append_notifier_audit_record(

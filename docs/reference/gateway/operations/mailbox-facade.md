@@ -101,9 +101,9 @@ That split is why the mailbox docs and gateway docs stay adjacent but separate. 
 The unread-mail notifier is gateway-owned, but unread truth is transport-owned.
 
 - The notifier checks unread mail through the same shared mailbox facade used for `check`.
-- The gateway still owns notifier cadence, deduplication, last-error bookkeeping, and per-poll audit history in `queue.sqlite`.
+- The gateway still owns notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and per-poll audit history in `queue.sqlite`.
 - This is what allows the notifier to work for both filesystem-backed and Stalwart-backed sessions without hard-wiring itself to filesystem mailbox-local SQLite.
-- Current reminder behavior is intentionally bounded: the notifier nominates the oldest actionable unread shared target, includes sender or thread context plus remaining-unread count, and expects the later turn to finish with `POST /v1/mail/state` after success.
+- Current reminder behavior is intentionally bounded: one reminder may summarize the full unread snapshot, the agent decides which unread messages to inspect and handle after checking current mailbox state, and the later turn still finishes with `POST /v1/mail/state` only after successful processing.
 
 Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the broader runtime-managed filesystem placement around `gateway/` and session-local secret material.
 

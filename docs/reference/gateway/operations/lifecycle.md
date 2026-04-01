@@ -250,7 +250,7 @@ That file is the operator-facing view for:
 - gateway start and stop,
 - request execution outcomes,
 - mail notifier enable or disable changes,
-- notifier poll decisions such as empty polls, dedup skips, and busy deferrals.
+- notifier poll decisions such as empty polls, prompt-readiness deferrals, and enqueued reminders.
 
 For detailed per-poll notifier evidence, inspect `queue.sqlite.gateway_notifier_audit` instead of relying on the human log alone.
 

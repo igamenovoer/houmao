@@ -44,6 +44,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailStateRequestV1,
     GatewayWakeupCreateV1,
 )
+from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
 from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
@@ -219,7 +220,12 @@ def _deliver_unread_mailbox_message(
         principal_id="HOUMAO-sender",
         address="HOUMAO-sender@agents.localhost",
     )
+    recipient = MailboxPrincipal(
+        principal_id=recipient_principal_id,
+        address=recipient_address,
+    )
     bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
+    bootstrap_filesystem_mailbox(mailbox_root, principal=recipient)
 
     staged_message = mailbox_root / "staging" / f"{message_id}.md"
     request = DeliveryRequest.from_payload(
@@ -1317,6 +1323,146 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
             _best_effort_cleanup_gateway(manifest_path)
 
 
+def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Manifest-backed notifier polling should repeat for unchanged unread mail."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    mailbox_root = tmp_path / "mailbox"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+
+    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
+        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
+        tmux_env = _FakeTmuxEnv()
+        _install_gateway_runtime_fakes(
+            monkeypatch=monkeypatch,
+            registry=registry,
+            tmux_env=tmux_env,
+            registry_root=tmp_path / "registry",
+        )
+
+        start_exit, start_payload, start_err = _run_cli_json(
+            capsys,
+            [
+                "start-session",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--runtime-root",
+                str(runtime_root),
+                "--brain-manifest",
+                str(brain_manifest_path),
+                "--role",
+                "r",
+                "--backend",
+                "houmao_server_rest",
+                "--workdir",
+                str(tmp_path),
+                "--houmao-base-url",
+                fake_cao.base_url,
+                "--mailbox-transport",
+                "filesystem",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--mailbox-address",
+                "HOUMAO-gateway@agents.localhost",
+            ],
+        )
+        assert start_exit == 0
+        assert start_err == ""
+
+        manifest_path = Path(str(start_payload["session_manifest"]))
+        captured_attach: dict[str, object] = {}
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.runtime._start_gateway_process",
+            lambda *, controller, paths, host, port, execution_mode: (
+                captured_attach.update(
+                    {
+                        "controller": controller,
+                        "paths": paths,
+                        "host": host,
+                        "port": port,
+                        "execution_mode": execution_mode,
+                    }
+                )
+                or port
+            ),
+        )
+
+        attach_exit, _attach_payload, attach_err = _run_cli_json(
+            capsys,
+            [
+                "attach-gateway",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--agent-identity",
+                str(manifest_path),
+                "--gateway-host",
+                "127.0.0.1",
+            ],
+        )
+        assert attach_exit == 0
+        assert attach_err == ""
+
+        paths = cast(Any, captured_attach["paths"])
+        message_id = _deliver_unread_mailbox_message(
+            mailbox_root,
+            message_id="msg-20260316T090000Z-33333333333333333333333333333333",
+            recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
+            recipient_address=str(start_payload["mailbox"]["address"]),
+        )
+
+        readiness = {"busy": True}
+        monkeypatch.setattr(
+            GatewayServiceRuntime,
+            "_tui_prompt_not_ready_reasons_locked",
+            lambda self: ["turn.phase='active'", "surface.accepting_input='no'"]
+            if readiness["busy"]
+            else [],
+        )
+
+        runtime = GatewayServiceRuntime.from_gateway_root(
+            gateway_root=paths.gateway_root,
+            host="127.0.0.1",
+            port=_pick_unused_loopback_port(),
+        )
+        runtime.start()
+        try:
+            runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+            time.sleep(1.3)
+            assert fake_cao.messages() == []
+
+            readiness["busy"] = False
+            _wait_until(lambda: len(fake_cao.messages()) >= 1, timeout_seconds=5.0)
+            assert message_id in fake_cao.messages()[0][1]
+
+            readiness["busy"] = True
+            prompt_count = len(fake_cao.messages())
+            time.sleep(1.3)
+            assert len(fake_cao.messages()) == prompt_count
+
+            readiness["busy"] = False
+            _wait_until(lambda: len(fake_cao.messages()) >= prompt_count + 1, timeout_seconds=5.0)
+            assert message_id in fake_cao.messages()[-1][1]
+        finally:
+            runtime.shutdown()
+
+        audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+        busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
+        enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+        assert busy_rows
+        assert len(enqueued_rows) >= 2
+        assert not any(row.outcome == "dedup_skip" for row in audit_rows)
+        assert any(
+            row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows
+        )
+        assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+
+
 def test_gateway_http_wakeup_routes_are_ephemeral_and_do_not_expand_request_kinds(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1595,40 +1741,59 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
         assert start_err == ""
 
         manifest_path = Path(str(start_payload["session_manifest"]))
-        paths = gateway_paths_from_manifest_path(manifest_path)
-        assert paths is not None
-        _force_detached_gateway_execution(manifest_path)
-
-        try:
-            attach_exit, attach_payload, attach_err = _run_cli_json(
-                capsys,
-                [
-                    "attach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--gateway-host",
-                    "127.0.0.1",
-                ],
-            )
-            assert attach_exit == 0
-            assert attach_err == ""
-
-            message_id = _deliver_unread_mailbox_message(
-                mailbox_root,
-                message_id="msg-20260316T090000Z-33333333333333333333333333333333",
-                recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
-                recipient_address=str(start_payload["mailbox"]["address"]),
-            )
-
-            client = GatewayClient(
-                endpoint=GatewayEndpoint(
-                    host="127.0.0.1",
-                    port=int(attach_payload["gateway_port"]),
+        captured_attach: dict[str, object] = {}
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.runtime._start_gateway_process",
+            lambda *, controller, paths, host, port, execution_mode: (
+                captured_attach.update(
+                    {
+                        "controller": controller,
+                        "paths": paths,
+                        "host": host,
+                        "port": port,
+                        "execution_mode": execution_mode,
+                    }
                 )
-            )
-            enabled_status = client.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+                or port
+            ),
+        )
+
+        attach_exit, _attach_payload, attach_err = _run_cli_json(
+            capsys,
+            [
+                "attach-gateway",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--agent-identity",
+                str(manifest_path),
+                "--gateway-host",
+                "127.0.0.1",
+            ],
+        )
+        assert attach_exit == 0
+        assert attach_err == ""
+
+        paths = cast(Any, captured_attach["paths"])
+        message_id = _deliver_unread_mailbox_message(
+            mailbox_root,
+            message_id="msg-20260316T090000Z-33333333333333333333333333333333",
+            recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
+            recipient_address=str(start_payload["mailbox"]["address"]),
+        )
+        monkeypatch.setattr(
+            GatewayServiceRuntime,
+            "_tui_prompt_not_ready_reasons_locked",
+            lambda self: [],
+        )
+
+        runtime = GatewayServiceRuntime.from_gateway_root(
+            gateway_root=paths.gateway_root,
+            host="127.0.0.1",
+            port=_pick_unused_loopback_port(),
+        )
+        runtime.start()
+        try:
+            enabled_status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
             assert enabled_status.enabled is True
 
             _wait_until(lambda: bool(fake_cao.messages()), timeout_seconds=5.0)
@@ -1649,7 +1814,7 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
             assert fake_cao.messages()
             assert message_id in fake_cao.messages()[-1][1]
         finally:
-            _best_effort_cleanup_gateway(manifest_path)
+            runtime.shutdown()
 
 
 def test_gateway_status_cleans_up_stale_live_bindings_after_gateway_crash(

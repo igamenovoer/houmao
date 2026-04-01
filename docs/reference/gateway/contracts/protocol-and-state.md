@@ -642,11 +642,11 @@ Support contract rules:
 - It validates current mailbox actionability from that manifest-backed binding and transport-local prerequisites before treating notifier behavior as supported.
 - The notifier wake-up prompt itself stays on the runtime-owned discovery contract for the agent turn: it points the agent at `resolve-live`, which derives current mailbox fields from the durable binding and returns optional `gateway.base_url` data when a valid live gateway is attached.
 - Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current manifest-backed binding is not actionable for notifier work.
-- Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
+- Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
-- Wake-up prompts nominate exactly one actionable unread target using the oldest unread message by `created_at_utc` with a stable tie-breaker.
-- The prompt includes the nominated `message_ref`, optional `thread_ref`, sender context, subject, and the remaining unread count beyond that nominated target.
-- Deduplication stays keyed to the full unread set rather than the prompt text or the nominated target alone, so reminder rewrites do not create duplicate wake-ups when mailbox truth is unchanged.
+- Wake-up prompts summarize the current unread snapshot and let the agent choose which unread message or messages to inspect and handle.
+- Each reminder includes the unread `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every unread message in that snapshot.
+- If unread mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on unread truth plus live prompt readiness rather than on reminder history.
 
 Detailed inspection note:
 
