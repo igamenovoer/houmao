@@ -94,7 +94,7 @@ When `--credential` is omitted, `project easy specialist create` derives the aut
 
 `--system-prompt` is optional for this higher-level workflow. If you omit both `--system-prompt` and `--system-prompt-file`, Houmao still writes the canonical role prompt file and treats that role as promptless.
 
-For maintained easy TUI paths such as Claude and Codex, `project easy specialist create` now persists `launch.prompt_mode: unattended` by default in both the catalog-backed specialist metadata and the generated compatibility preset. Use `--no-unattended` when you want the specialist to persist `launch.prompt_mode: as_is` instead.
+For maintained easy launch paths, `project easy specialist create` now persists `launch.prompt_mode: unattended` by default in both the catalog-backed specialist metadata and the generated compatibility preset for Claude, Codex, and Gemini. Use `--no-unattended` when you want the specialist to persist `launch.prompt_mode: as_is` instead. Gemini remains headless-only on `project easy instance launch`, so use `--headless` for Gemini specialists.
 
 Use repeatable `--env-set NAME=value` on `project easy specialist create` when the env is part of the specialist's durable launch semantics and should survive later relaunch. Those records are stored under `launch.env_records`, stay separate from credential env, and should not be used for secrets or auth-owned names such as `OPENAI_API_KEY`.
 
@@ -118,6 +118,7 @@ Gemini note:
 - `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini` both support `--api-key`, optional `--base-url`, and optional OAuth credentials via `--oauth-creds` or `--gemini-oauth-creds`.
 - OAuth-backed managed Gemini homes inject the supported Google-login selector automatically, so fresh runtime homes do not depend on a user-global Gemini `settings.json`.
 - Houmao-owned Gemini skills now project into `.agents/skills/`; treat `.gemini/skills/` as a compatibility path rather than the primary managed location.
+- `project easy specialist create --tool gemini` now persists unattended launch posture by default; keep `--no-unattended` for explicit `as_is`.
 
 ### Step 3: Inspect The Generated Role And Preset
 
@@ -193,6 +194,8 @@ pixi run houmao-mgr project easy instance launch \
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
+
+Gemini specialists remain headless-only on this surface. Use `--headless` when launching a Gemini easy specialist.
 
 Use repeatable `--env-set` on `project easy instance launch` for one-off env on the current live session. This form accepts both `NAME=value` and inherited `NAME`, resolves inherited names from the invoking shell environment, and does not persist into specialist config or survive a later relaunch.
 

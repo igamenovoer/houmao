@@ -40,6 +40,15 @@
       "specialist_name_prefix": "single-headless-mail-codex",
       "instance_name_prefix": "single-headless-mail-codex",
       "session_name_prefix": "hm-single-headless-mail-codex"
+    },
+    "gemini": {
+      "provider": "gemini_cli",
+      "setup": "default",
+      "auth_name": "personal-a-default",
+      "auth_fixture_dir": "tests/fixtures/agents/tools/gemini/auth/personal-a-default",
+      "specialist_name_prefix": "single-headless-mail-gemini",
+      "instance_name_prefix": "single-headless-mail-gemini",
+      "session_name_prefix": "hm-single-headless-mail-gemini"
     }
   }
 }

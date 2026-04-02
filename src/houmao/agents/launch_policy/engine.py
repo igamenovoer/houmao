@@ -308,15 +308,15 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     )
 
     owned_paths_payload = payload.get("owned_paths")
-    if not isinstance(owned_paths_payload, list) or not owned_paths_payload:
-        raise LaunchPolicyError(f"{source}.owned_paths must be a non-empty list.")
+    if not isinstance(owned_paths_payload, list):
+        raise LaunchPolicyError(f"{source}.owned_paths must be a list.")
     owned_paths = tuple(
         _parse_owned_path(item=item, source=f"{source}.owned_paths") for item in owned_paths_payload
     )
 
     actions_payload = payload.get("actions")
-    if not isinstance(actions_payload, list) or not actions_payload:
-        raise LaunchPolicyError(f"{source}.actions must be a non-empty list.")
+    if not isinstance(actions_payload, list):
+        raise LaunchPolicyError(f"{source}.actions must be a list.")
     actions = tuple(
         _parse_action(item=item, source=f"{source}.actions[{index}]")
         for index, item in enumerate(actions_payload)

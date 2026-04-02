@@ -71,6 +71,8 @@ Gemini-specific auth inputs now support two maintained lanes:
 - API-key lane: `--api-key` with optional `--base-url` to persist `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL`.
 - OAuth lane: `--gemini-oauth-creds /path/to/oauth_creds.json` to persist the Gemini CLI OAuth credential file. You can also combine this with the API-key lane in one specialist or auth bundle; Houmao preserves explicit API-key and endpoint settings instead of overwriting them.
 
+Gemini easy specialists now follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Gemini stays headless-only on the easy instance surface, so launch Gemini specialists with `houmao-mgr project easy instance launch --headless`.
+
 Example Gemini specialist:
 
 ```bash
@@ -104,6 +106,8 @@ Key options:
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
 | `--mail-transport` | None | Mailbox transport: `filesystem`. |
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
+
+Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project easy instance launch`.
 
 ## Managing Specialists and Instances
 

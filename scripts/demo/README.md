@@ -53,12 +53,15 @@ Start here:
 
 ### `single-agent-gateway-wakeup-headless/`
 
-Supported project-local gateway wake-up demo for one `houmao-mgr project easy` headless specialist. The pack keeps one canonical `outputs/` root, copies a tiny dummy project under `outputs/project/`, redirects Houmao overlay state into `outputs/overlay/`, imports the local Claude or Codex fixture auth bundle, launches one project-easy instance through `project easy instance launch --headless`, attaches a live gateway in a separate watchable tmux window, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies headless last-turn or durable turn-artifact evidence alongside artifact creation and actor-scoped unread completion.
+Supported project-local gateway wake-up demo for one `houmao-mgr project easy` headless specialist. The pack keeps one canonical `outputs/` root, copies a tiny dummy project under `outputs/project/`, redirects Houmao overlay state into `outputs/overlay/`, imports the local Claude, Codex, or Gemini fixture auth bundle, launches one project-easy instance through `project easy instance launch --headless`, attaches a live gateway in a separate watchable tmux window, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies headless last-turn or durable turn-artifact evidence alongside artifact creation and actor-scoped unread completion.
 
 Supported lanes:
 
 - `claude`
 - `codex`
+- `gemini`
+
+The canonical Gemini lane uses `tests/fixtures/agents/tools/gemini/auth/personal-a-default` so the supported pack validates the OAuth-backed unattended path.
 
 Start here:
 

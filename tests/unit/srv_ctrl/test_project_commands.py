@@ -1123,6 +1123,46 @@ def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
         ).output
     )
     assert specialist_payload["tool"] == "gemini"
+    assert specialist_payload["launch"] == {"prompt_mode": "unattended"}
+
+
+def test_project_easy_specialist_create_gemini_no_unattended_persists_as_is(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "gemini-reviewer",
+            "--tool",
+            "gemini",
+            "--system-prompt",
+            "You are a Gemini reviewer.",
+            "--api-key",
+            "sk-gemini",
+            "--no-unattended",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "gemini-reviewer"],
+        ).output
+    )
     assert specialist_payload["launch"] == {"prompt_mode": "as_is"}
 
 
@@ -1468,7 +1508,7 @@ def test_project_easy_specialist_create_persists_non_default_setup(
     assert specialist_payload["generated"]["preset"].endswith("/codex/yunwu-openai.yaml")
 
 
-@pytest.mark.parametrize("tool_name", ["claude", "codex"])
+@pytest.mark.parametrize("tool_name", ["claude", "codex", "gemini"])
 def test_project_easy_specialist_create_persists_default_setup_for_supported_tools(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1502,6 +1542,56 @@ def test_project_easy_specialist_create_persists_default_setup_for_supported_too
 
     assert payload["setup"] == "default"
     assert payload["generated"]["preset"].endswith(f"/{tool_name}/default.yaml")
+
+
+def test_project_easy_instance_launch_rejects_gemini_without_headless(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "gemini-reviewer",
+                "--tool",
+                "gemini",
+                "--system-prompt",
+                "You are a Gemini reviewer.",
+                "--api-key",
+                "sk-gemini",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "gemini-reviewer",
+            "--name",
+            "gemini-reviewer-1",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Gemini specialists are currently headless-only" in result.output
 
 
 def test_project_easy_instance_launch_uses_stored_specialist_setup(

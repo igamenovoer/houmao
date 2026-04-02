@@ -259,7 +259,7 @@ Project overlay notes:
 - repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
 - when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt/preset projection and accepts `--yes` for non-interactive replacement.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
-- maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset.
+- maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset, including Gemini's headless-only easy lane.
 - specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
 - Gemini credential lanes use the same project-tool contract in both `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini`: `--api-key`, optional `--base-url`, and optional `--oauth-creds` or `--gemini-oauth-creds`.
 - Gemini auth bundle updates are patch-preserving: setting `--base-url` or `--oauth-creds` does not implicitly delete other Gemini auth inputs that were already stored.
@@ -270,6 +270,7 @@ Project overlay notes:
 - `--specialist` selects the compiled specialist definition to launch from.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
+- Gemini specialists remain headless-only here and fail fast unless `--headless` is supplied.
 - repeatable `--env-set NAME=value|NAME` applies one-off env to the current live session, resolves inherited `NAME` bindings from the invoking shell, and does not survive relaunch.
 - `--mail-transport filesystem` requires `--mail-root` and optionally accepts `--mail-account-dir` for a symlink-backed private mailbox directory.
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.

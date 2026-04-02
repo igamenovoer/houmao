@@ -27,7 +27,7 @@ FIXED_DEMO_PROJECT_COMMIT_UTC = "2026-03-31T00:00:00Z"
 FIXED_DEMO_PROJECT_COMMIT_MESSAGE = "chore: seed demo fixture project"
 MANAGED_PROJECT_METADATA_NAME = ".houmao-demo-project.json"
 
-SupportedTool = Literal["claude", "codex"]
+SupportedTool = Literal["claude", "codex", "gemini"]
 
 
 class _DemoModel(BaseModel):
@@ -157,9 +157,9 @@ class DemoParameters(_DemoModel):
 
     @model_validator(mode="after")
     def _validate_tools(self) -> "DemoParameters":
-        expected = {"claude", "codex"}
+        expected = {"claude", "codex", "gemini"}
         if set(self.tools.keys()) != expected:
-            raise ValueError("tools must include exactly `claude` and `codex`")
+            raise ValueError("tools must include exactly `claude`, `codex`, and `gemini`")
         return self
 
     def tool_parameters(self, *, tool: SupportedTool) -> ToolParameters:

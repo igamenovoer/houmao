@@ -440,6 +440,50 @@ def test_codex_provider_start_repairs_blank_owned_toml_via_atomic_replace(
     assert config_path in replace_targets
 
 
+def test_gemini_registry_supports_zero_owned_paths_and_actions() -> None:
+    documents = load_registry_documents(tool="gemini")
+
+    assert len(documents) == 1
+    assert len(documents[0].strategies) == 1
+    strategy = documents[0].strategies[0]
+    assert strategy.strategy_id == "gemini-unattended-0.36.0"
+    assert strategy.owned_paths == ()
+    assert strategy.actions == ()
+
+
+def test_gemini_unattended_strategy_supports_fresh_oauth_home_without_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="0.36.0")
+    home = tmp_path / "gemini-home"
+    home.mkdir()
+    oauth_path = home / ".gemini" / "oauth_creds.json"
+    oauth_path.parent.mkdir(parents=True)
+    oauth_path.write_text('{"refresh_token":"token"}\n', encoding="utf-8")
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="gemini",
+            backend="gemini_headless",
+            executable="gemini",
+            base_args=("-p", "--output-format", "stream-json"),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={"GOOGLE_GENAI_USE_GCA": "true"},
+        )
+    )
+
+    assert result.args == ("-p", "--output-format", "stream-json")
+    assert result.provenance is not None
+    assert result.provenance.selected_strategy_id == "gemini-unattended-0.36.0"
+    assert result.strategy is not None
+    assert result.strategy.owned_paths == ()
+    assert result.strategy.actions == ()
+    assert oauth_path.read_text(encoding="utf-8") == '{"refresh_token":"token"}\n'
+
+
 def test_supported_version_spec_uses_dependency_style_matching() -> None:
     spec = SupportedVersionSpec.parse(">=2.1.81")
 
@@ -527,4 +571,24 @@ def test_installed_claude_version_is_covered_by_declared_supported_versions_when
         "Installed Claude version is not covered by exactly one declared unattended strategy "
         f"for backend={backend!r}: version={detected_version.raw!r}, "
         f"matches={[item.strategy_id for item in matches]!r}"
+    )
+
+
+def test_installed_gemini_version_is_covered_by_declared_supported_versions_when_available() -> None:
+    if shutil.which("gemini") is None:
+        pytest.skip("gemini is not available on PATH")
+
+    detected_version = detect_tool_version(executable="gemini")
+    matches = [
+        strategy
+        for document in load_registry_documents(tool="gemini")
+        for strategy in document.strategies
+        if strategy.operator_prompt_mode == "unattended"
+        and "gemini_headless" in strategy.backends
+        and strategy.supported_versions.contains(detected_version)
+    ]
+
+    assert len(matches) == 1, (
+        "Installed Gemini version is not covered by exactly one declared unattended strategy "
+        f"for version={detected_version.raw!r}, matches={[item.strategy_id for item in matches]!r}"
     )

@@ -10,6 +10,7 @@ from houmao.demo.single_agent_gateway_wakeup_headless.models import (
     DemoState,
     DeliveryState,
     build_demo_layout,
+    load_demo_parameters,
 )
 
 
@@ -162,6 +163,112 @@ def test_import_project_auth_from_fixture_shapes_codex_command(
     assert "--auth-json" in command
 
 
+def test_import_project_auth_from_fixture_shapes_gemini_oauth_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    fixture_root = repo_root / "fixtures/gemini/personal-a-default"
+    (fixture_root / "env").mkdir(parents=True)
+    (fixture_root / "files").mkdir(parents=True)
+    (fixture_root / "env/vars.env").write_text("GOOGLE_GENAI_USE_GCA=true\n", encoding="utf-8")
+    (fixture_root / "files/oauth_creds.json").write_text(
+        '{"refresh_token": "token"}\n',
+        encoding="utf-8",
+    )
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.project_dir.mkdir(parents=True)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_json_command(command: object, **kwargs: object) -> dict[str, object]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
+
+    runtime.import_project_auth_from_fixture(
+        paths=paths,
+        env={},
+        tool="gemini",
+        tool_parameters=type(
+            "_Tool",
+            (),
+            {
+                "auth_fixture_dir": Path("fixtures/gemini/personal-a-default"),
+                "auth_name": "personal-a-default",
+            },
+        )(),
+        repo_root=repo_root,
+        timeout_seconds=30.0,
+    )
+
+    command = captured["command"]
+    assert command[:9] == [
+        "pixi",
+        "run",
+        "houmao-mgr",
+        "--print-json",
+        "project",
+        "agents",
+        "tools",
+        "gemini",
+        "auth",
+    ]
+    assert "--name" in command
+    assert "personal-a-default" in command
+    assert "--oauth-creds" in command
+    assert str((fixture_root / "files/oauth_creds.json").resolve()) in command
+
+
+def test_import_project_auth_from_fixture_shapes_gemini_api_key_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    fixture_root = repo_root / "fixtures/gemini/api-key-a-default"
+    (fixture_root / "env").mkdir(parents=True)
+    (fixture_root / "files").mkdir(parents=True)
+    (fixture_root / "env/vars.env").write_text(
+        "GEMINI_API_KEY=sk-gemini\nGOOGLE_GEMINI_BASE_URL=https://gemini.example.test\n",
+        encoding="utf-8",
+    )
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.project_dir.mkdir(parents=True)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_json_command(command: object, **kwargs: object) -> dict[str, object]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
+
+    runtime.import_project_auth_from_fixture(
+        paths=paths,
+        env={},
+        tool="gemini",
+        tool_parameters=type(
+            "_Tool",
+            (),
+            {
+                "auth_fixture_dir": Path("fixtures/gemini/api-key-a-default"),
+                "auth_name": "api-key-a-default",
+            },
+        )(),
+        repo_root=repo_root,
+        timeout_seconds=30.0,
+    )
+
+    command = captured["command"]
+    assert "--api-key" in command
+    assert "sk-gemini" in command
+    assert "--base-url" in command
+    assert "https://gemini.example.test" in command
+
+
 def test_import_project_auth_from_fixture_reuses_existing_bundle_with_set(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -213,6 +320,7 @@ def test_driver_parser_accepts_supported_command_surface() -> None:
     parser = driver._build_parser()  # type: ignore[attr-defined]
 
     assert parser.parse_args(["start", "--tool", "claude"]).command == "start"
+    assert parser.parse_args(["start", "--tool", "gemini"]).command == "start"
     assert parser.parse_args(["send"]).command == "send"
     assert parser.parse_args(["manual-send"]).command == "manual-send"
     assert parser.parse_args(["attach"]).command == "attach"
@@ -231,7 +339,54 @@ def test_driver_parser_accepts_supported_command_surface() -> None:
     assert parser.parse_args(["verify"]).command == "verify"
     assert parser.parse_args(["stop"]).command == "stop"
     assert parser.parse_args(["auto", "--tool", "codex"]).command == "auto"
+    assert parser.parse_args(["auto", "--tool", "gemini"]).command == "auto"
     assert parser.parse_args(["matrix"]).command == "matrix"
+
+
+def test_tracked_demo_parameters_include_gemini_lane() -> None:
+    parameters = load_demo_parameters(
+        Path("scripts/demo/single-agent-gateway-wakeup-headless/inputs/demo_parameters.json")
+    )
+
+    assert set(parameters.tools.keys()) == {"claude", "codex", "gemini"}
+    gemini = parameters.tool_parameters(tool="gemini")
+    assert gemini.provider == "gemini_cli"
+    assert gemini.auth_name == "personal-a-default"
+
+
+def test_command_matrix_runs_all_supported_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    tool_calls: list[str] = []
+
+    def fake_run_auto(**kwargs: object) -> None:
+        tool = str(kwargs["tool"])
+        paths = kwargs["paths"]
+        tool_calls.append(tool)
+        paths.control_dir.mkdir(parents=True, exist_ok=True)
+        paths.report_path.write_text("{}\n", encoding="utf-8")
+        paths.sanitized_report_path.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(driver, "_repo_root", lambda: repo_root)
+    monkeypatch.setattr(driver, "_load_parameters", lambda args, repo_root: object())
+    monkeypatch.setattr(
+        driver,
+        "_resolve_paths",
+        lambda args, repo_root, tool: build_demo_layout(demo_output_dir=tmp_path / f"outputs-{tool}"),
+    )
+    monkeypatch.setattr(driver, "_run_auto", fake_run_auto)
+
+    args = driver._build_parser().parse_args(["matrix"])
+    exit_code = driver._command_matrix(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert tool_calls == ["claude", "codex", "gemini"]
+    assert [item["tool"] for item in payload["results"]] == ["claude", "codex", "gemini"]
 
 
 def test_attach_gateway_can_request_foreground_window(

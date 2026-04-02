@@ -359,6 +359,24 @@ def import_project_auth_from_fixture(
             raise DemoRuntimeError(
                 f"Codex fixture `{fixture_dir}` must set `OPENAI_API_KEY` in `{env_path}`."
             )
+    elif tool == "gemini":
+        _extend_if_present(command, "--api-key", env_values.get("GEMINI_API_KEY"))
+        _extend_if_present(command, "--base-url", env_values.get("GOOGLE_GEMINI_BASE_URL"))
+        _extend_if_present(command, "--google-api-key", env_values.get("GOOGLE_API_KEY"))
+        if env_values.get("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() == "true":
+            command.append("--use-vertex-ai")
+        oauth_creds = files_root / "oauth_creds.json"
+        if oauth_creds.is_file():
+            command.extend(["--oauth-creds", str(oauth_creds)])
+        if not (
+            env_values.get("GEMINI_API_KEY", "").strip()
+            or env_values.get("GOOGLE_API_KEY", "").strip()
+            or oauth_creds.is_file()
+        ):
+            raise DemoRuntimeError(
+                f"Gemini fixture `{fixture_dir}` must provide `oauth_creds.json`, "
+                "`GEMINI_API_KEY`, or `GOOGLE_API_KEY`."
+            )
     else:
         raise DemoRuntimeError(f"unsupported auth import tool: {tool}")
 

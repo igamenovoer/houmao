@@ -1350,7 +1350,9 @@ def create_easy_specialist_command(
         use_vertex_ai=use_vertex_ai,
         gemini_oauth_creds=gemini_oauth_creds,
     )
-    prompt_mode = "as_is" if no_unattended or tool_name not in {"claude", "codex"} else "unattended"
+    prompt_mode = (
+        "as_is" if no_unattended or tool_name not in {"claude", "codex", "gemini"} else "unattended"
+    )
     launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}
     if persistent_env_records:
         launch_mapping["env_records"] = dict(persistent_env_records)
