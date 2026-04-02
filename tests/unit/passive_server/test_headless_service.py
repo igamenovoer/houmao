@@ -528,7 +528,7 @@ class TestRestartResume:
                     kind="done",
                     message="turn completed",
                     turn_index=1,
-                    payload={"completion_source": "tmux_wait_for"},
+                    payload={"completion_source": "process_exit"},
                 )
             ]
 
@@ -655,7 +655,7 @@ class TestTurnFinalization:
                     kind="done",
                     message="turn completed",
                     turn_index=1,
-                    payload={"completion_source": "tmux_wait_for"},
+                    payload={"completion_source": "process_exit"},
                 )
             ]
 
@@ -688,7 +688,7 @@ class TestTurnFinalization:
 
         assert status.status == "completed"
         assert status.returncode == 0
-        assert status.completion_source == "tmux_wait_for"
+        assert status.completion_source == "process_exit"
         assert status.stdout_path is not None
         assert status.stderr_path is not None
         turn_record = svc.m_headless.m_store.read_turn_record(

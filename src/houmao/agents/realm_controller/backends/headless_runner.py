@@ -384,16 +384,13 @@ class HeadlessCliRunner:
             timeout_seconds=1.0,
         )
 
-        completion_source = "status_polling"
         try:
-            wait_result = wait_for_tmux_signal_shared(
+            wait_for_tmux_signal_shared(
                 signal_name=wait_signal,
                 timeout_seconds=completion_timeout_seconds,
             )
-            if wait_result.returncode == 0:
-                completion_source = "tmux_wait_for"
         except TmuxCommandError:
-            completion_source = "status_polling"
+            pass
 
         deadline = time.monotonic() + max(completion_timeout_seconds, 0.0)
         while True:
@@ -437,7 +434,7 @@ class HeadlessCliRunner:
                 status_path=status_path,
                 process_path=process_path,
                 process_metadata=process_metadata,
-                completion_source=completion_source,
+                completion_source="process_exit",
             )
         finally:
             self._active_tmux_session_name = None

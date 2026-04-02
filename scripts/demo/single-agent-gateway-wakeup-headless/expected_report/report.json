@@ -39,7 +39,7 @@
     "detail_tmux_session_live": true,
     "detail_transport": "headless",
     "last_turn_completed_at_utc_present": true,
-    "last_turn_completion_source_present": true,
+    "last_turn_completion_source_present": false,
     "last_turn_result": "success",
     "last_turn_returncode_zero": true,
     "last_turn_status": "completed",
@@ -68,7 +68,7 @@
   },
   "project_evidence": {
     "managed_project_metadata_present": true,
-    "visible_mailbox_skill_surface_present": true
+    "runtime_mailbox_skill_surface_present": true
   },
   "schema_version": 1,
   "session": {

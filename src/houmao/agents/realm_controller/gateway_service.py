@@ -1835,6 +1835,11 @@ class GatewayServiceRuntime:
                 f"`{mailbox_processing_skill_name()}` by name for this round; the installed "
                 f"skill document is `{processing_relative_path}`."
             )
+        elif tool == "gemini":
+            lines.append(
+                "In Gemini this Houmao skill is installed natively under `.agents/skills`. "
+                f"Invoke `{mailbox_processing_skill_name()}` by name for this round."
+            )
         else:
             lines.extend(
                 [
@@ -1843,17 +1848,31 @@ class GatewayServiceRuntime:
                 ]
             )
         if gateway_path.is_file():
-            lines.append(
-                "Use the lower-level Houmao mailbox gateway skill "
-                f"`{mailbox_gateway_skill_name()}` at `{gateway_relative_path}` when you need "
-                "the exact `/v1/mail/*` operation contract for this round."
-            )
+            if tool == "gemini":
+                lines.append(
+                    "Use the lower-level Houmao mailbox gateway skill "
+                    f"`{mailbox_gateway_skill_name()}` by name when you need the exact "
+                    "`/v1/mail/*` operation contract for this round."
+                )
+            else:
+                lines.append(
+                    "Use the lower-level Houmao mailbox gateway skill "
+                    f"`{mailbox_gateway_skill_name()}` at `{gateway_relative_path}` when you "
+                    "need the exact `/v1/mail/*` operation contract for this round."
+                )
         if transport_path.is_file():
-            lines.append(
-                "Use the transport-specific Houmao mailbox skill "
-                f"`{mailbox_skill_name(mailbox)}` at `{transport_relative_path}` only for "
-                "transport-local context and no-gateway fallback."
-            )
+            if tool == "gemini":
+                lines.append(
+                    "Use the transport-specific Houmao mailbox skill "
+                    f"`{mailbox_skill_name(mailbox)}` by name only for transport-local context "
+                    "and no-gateway fallback."
+                )
+            else:
+                lines.append(
+                    "Use the transport-specific Houmao mailbox skill "
+                    f"`{mailbox_skill_name(mailbox)}` at `{transport_relative_path}` only for "
+                    "transport-local context and no-gateway fallback."
+                )
         return "\n".join(lines)
 
     def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:

@@ -1053,12 +1053,16 @@ def provision_project_workdir(
 
 def expose_project_mailbox_skills(
     *,
+    tool: str,
     project_workdir: Path,
     brain_manifest_path: Path,
     brain_home_path: Path,
     launch_helper_path: Path,
 ) -> None:
-    """Mirror the runtime mailbox skill surface into the copied project."""
+    """Mirror runtime mailbox skills into the copied project when the demo still needs it."""
+
+    if tool == "gemini":
+        return
 
     build_result = BuildResult(
         home_id=brain_home_path.name,

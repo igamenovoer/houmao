@@ -11,7 +11,7 @@
   },
   "automatic": {
     "ready_timeout_seconds": 180,
-    "output_timeout_seconds": 180,
+    "output_timeout_seconds": 300,
     "output_dir_relative_path": "tmp/single-agent-gateway-wakeup-headless",
     "output_file_prefix": "processed",
     "output_content_prefix": "single-agent-gateway-wakeup-headless"

@@ -85,6 +85,10 @@ class DemoPackError(RuntimeError):
     """Raised when the demo pack cannot continue safely."""
 
 
+_VERIFY_SETTLE_TIMEOUT_SECONDS = 120.0
+_VERIFY_SETTLE_POLL_INTERVAL_SECONDS = 2.0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the demo-pack CLI."""
 
@@ -463,6 +467,7 @@ def _start_demo(
     session_manifest_path = Path(str(agent_show["identity"]["manifest_path"])).resolve()
     session_details = load_session_details(session_manifest_path=session_manifest_path)
     expose_project_mailbox_skills(
+        tool=tool,
         project_workdir=project_workdir,
         brain_manifest_path=session_details["brain_manifest_path"],
         brain_home_path=session_details["brain_home_path"],
@@ -895,8 +900,10 @@ def _verify_demo(
     """Build, sanitize, validate, and verify the demo report."""
 
     state = _require_demo_state(paths)
-    inspection = _inspect_demo(paths=paths)
-    report = build_report_snapshot(state=state, inspect_snapshot=inspection)
+    inspection, report = _collect_verification_snapshot(
+        paths=paths,
+        state=state,
+    )
     write_json(paths.report_path, report)
     validate_report_contract(report)
     sanitized = sanitize_report(report)
@@ -907,6 +914,44 @@ def _verify_demo(
         return
     expected = json.loads(expected_path.read_text(encoding="utf-8"))
     verify_sanitized_report(sanitized, expected)
+
+
+def _collect_verification_snapshot(
+    *,
+    paths: DemoPaths,
+    state: DemoState,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Collect one verification snapshot, waiting for post-delivery settle when active."""
+
+    deadline = (
+        None
+        if not state.active
+        else time.monotonic() + min(state.output_timeout_seconds, _VERIFY_SETTLE_TIMEOUT_SECONDS)
+    )
+    last_inspection: dict[str, Any] | None = None
+    last_report: dict[str, Any] | None = None
+
+    while True:
+        inspection = _inspect_demo(paths=paths)
+        last_inspection = inspection
+        last_report = build_report_snapshot(state=state, inspect_snapshot=inspection)
+        if _verification_snapshot_ready(report=last_report):
+            return inspection, last_report
+        if deadline is None or time.monotonic() >= deadline:
+            return inspection, last_report
+        time.sleep(_VERIFY_SETTLE_POLL_INTERVAL_SECONDS)
+
+
+def _verification_snapshot_ready(*, report: dict[str, Any]) -> bool:
+    """Return whether transient headless/gateway completion evidence has settled."""
+
+    gateway_evidence = report.get("gateway_evidence", {})
+    headless_runtime_evidence = report.get("headless_runtime_evidence", {})
+    return (
+        gateway_evidence.get("queue_completed_notifier_request") is True
+        and headless_runtime_evidence.get("last_turn_result") == "success"
+        and headless_runtime_evidence.get("last_turn_status") == "completed"
+    )
 
 
 def _command_stop(args: argparse.Namespace) -> int:

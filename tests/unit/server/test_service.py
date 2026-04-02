@@ -277,9 +277,7 @@ class _FakeKnownSessionRegistry:
 
 
 class _FakeHeadlessSession(HeadlessInteractiveSession):
-    def __init__(
-        self, *, turn_index: int = 0, tmux_session_name: str = "HOUMAO-headless"
-    ) -> None:
+    def __init__(self, *, turn_index: int = 0, tmux_session_name: str = "HOUMAO-headless") -> None:
         self._state = type(
             "HeadlessState",
             (),
@@ -2125,7 +2123,7 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
             stdout_path=str(stdout_path),
             stderr_path=str(stderr_path),
             status_path=str(status_path),
-            completion_source="tmux_wait_for",
+            completion_source="process_exit",
             returncode=0,
             history_summary="Turn turn-001 completed successfully.",
         )
@@ -2146,7 +2144,7 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
         service.shutdown()
 
     assert status.status == "completed"
-    assert status.completion_source == "tmux_wait_for"
+    assert status.completion_source == "process_exit"
     assert [event.kind for event in events.entries] == ["assistant"]
     assert events.entries[0].message == "hello from claude"
     assert stderr_text == "warning line\n"

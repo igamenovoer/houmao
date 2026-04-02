@@ -89,7 +89,7 @@ Runs Gemini CLI in headless mode (`gemini -p`).
 
 - API-key lane: create a Gemini auth bundle with `--api-key` and optional `--base-url`, build or launch a managed Gemini home, and confirm the effective launch environment exports `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL` when configured.
 - OAuth lane: create a Gemini auth bundle with `oauth_creds.json` only, build or launch a managed Gemini home, and confirm the runtime exports `GOOGLE_GENAI_USE_GCA=true` without depending on a user-global Gemini `settings.json`.
-- Skill projection: inspect the constructed home and confirm Houmao-owned Gemini skills land under `.agents/skills/mailbox/...`; treat `.gemini/skills` as compatibility-only.
+- Skill projection: inspect the constructed home and confirm Houmao-owned Gemini skills land under top-level `.agents/skills/houmao-.../`; treat `.gemini/skills` as compatibility-only.
 - First-turn capture: verify the first `stream-json` Gemini turn emits a `session_id` and that Houmao persists that id into the managed session manifest.
 - Resume behavior: send a follow-up Gemini prompt from the same working directory and confirm Houmao launches `gemini -p --resume <persisted-session-id>`; changing the working directory should fail explicitly instead of silently retargeting another Gemini project store.
 

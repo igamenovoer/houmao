@@ -108,6 +108,8 @@ Headless detail is execution-centric and intentionally does not fabricate TUI pa
 
 This route is the canonical rich inspection surface for managed headless agents when a caller needs current runtime posture without scraping `stdout`, `stderr`, or exit-code files.
 
+`tmux_session_live` is diagnostic only. Terminal headless status, readiness for the next managed prompt, and last-turn timestamps reconcile from authoritative active-turn state plus durable turn artifacts such as the persisted `exitcode` file. `last_turn_completion_source` remains optional diagnostic metadata when it can be recovered.
+
 For attached healthy headless gateways, the server reads live control posture from the gateway HTTP surface before building this response. Durable turn records and turn reconciliation still remain server-owned.
 
 ## Transport-Neutral Request Submission

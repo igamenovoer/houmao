@@ -6,9 +6,15 @@ import difflib
 import json
 import re
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.mailbox_runtime_support import (
+    mailbox_primary_skill_references,
+    mailbox_skills_destination_for_tool,
+    projected_mailbox_skill_document_path,
+)
 from houmao.agents.realm_controller.gateway_storage import read_gateway_notifier_audit_records
 
 from .models import MANAGED_PROJECT_METADATA_NAME, DemoState, REPORT_SCHEMA_VERSION, utc_now_iso
@@ -174,6 +180,57 @@ def collect_headless_runtime_snapshot(
     stdout_present = stdout_path is not None and stdout_path.is_file()
     stderr_present = stderr_path is not None and stderr_path.is_file()
     exitcode_present = exitcode_path is not None and exitcode_path.is_file()
+    artifact_returncode = _read_turn_exitcode(exitcode_path) if exitcode_present else None
+    artifact_completed_at_utc = (
+        _isoformat_from_mtime(exitcode_path)
+        if exitcode_present and exitcode_path is not None
+        else None
+    )
+    artifact_completion_source = (
+        _completion_source_from_stdout(stdout_path)
+        if stdout_present and stdout_path is not None
+        else None
+    )
+    detail_last_turn_status = None if detail is None else detail.get("last_turn_status")
+    detail_last_turn_completed_at_utc = (
+        None if detail is None else detail.get("last_turn_completed_at_utc")
+    )
+    detail_last_turn_completion_source = (
+        None if detail is None else detail.get("last_turn_completion_source")
+    )
+    detail_last_turn_returncode = None if detail is None else detail.get("last_turn_returncode")
+    detail_last_turn_result = None if last_turn is None else last_turn.get("result")
+
+    effective_last_turn_status = detail_last_turn_status
+    if artifact_returncode is not None:
+        effective_last_turn_status = "completed" if artifact_returncode == 0 else "failed"
+
+    effective_last_turn_completed_at_utc = detail_last_turn_completed_at_utc
+    if artifact_completed_at_utc is not None:
+        effective_last_turn_completed_at_utc = artifact_completed_at_utc
+
+    effective_last_turn_completion_source = detail_last_turn_completion_source
+    if (
+        effective_last_turn_completion_source in {None, ""}
+        and artifact_completion_source is not None
+    ):
+        effective_last_turn_completion_source = artifact_completion_source
+
+    effective_last_turn_returncode = detail_last_turn_returncode
+    if artifact_returncode is not None:
+        effective_last_turn_returncode = artifact_returncode
+
+    effective_last_turn_result = detail_last_turn_result
+    if artifact_returncode is not None:
+        effective_last_turn_result = "success" if artifact_returncode == 0 else "known_failure"
+
+    effective_can_accept_prompt_now = (
+        False if detail is None else bool(detail.get("can_accept_prompt_now"))
+    )
+    effective_interruptible = False if detail is None else bool(detail.get("interruptible"))
+    if effective_last_turn_status in {"completed", "failed"}:
+        effective_can_accept_prompt_now = True
+        effective_interruptible = False
 
     return {
         "detail_transport": None if detail is None else detail.get("transport"),
@@ -183,21 +240,15 @@ def collect_headless_runtime_snapshot(
         "detail_tmux_session_live": False
         if detail is None
         else bool(detail.get("tmux_session_live")),
-        "detail_can_accept_prompt_now": False
-        if detail is None
-        else bool(detail.get("can_accept_prompt_now")),
-        "detail_interruptible": False if detail is None else bool(detail.get("interruptible")),
-        "last_turn_result": None if last_turn is None else last_turn.get("result"),
+        "detail_can_accept_prompt_now": effective_can_accept_prompt_now,
+        "detail_interruptible": effective_interruptible,
+        "last_turn_result": effective_last_turn_result,
         "last_turn_turn_id": None if last_turn is None else last_turn.get("turn_id"),
         "last_turn_turn_index": None if last_turn is None else last_turn.get("turn_index"),
-        "last_turn_status": None if detail is None else detail.get("last_turn_status"),
-        "last_turn_completed_at_utc": (
-            None if detail is None else detail.get("last_turn_completed_at_utc")
-        ),
-        "last_turn_completion_source": (
-            None if detail is None else detail.get("last_turn_completion_source")
-        ),
-        "last_turn_returncode": None if detail is None else detail.get("last_turn_returncode"),
+        "last_turn_status": effective_last_turn_status,
+        "last_turn_completed_at_utc": effective_last_turn_completed_at_utc,
+        "last_turn_completion_source": effective_last_turn_completion_source,
+        "last_turn_returncode": effective_last_turn_returncode,
         "last_turn_history_summary": (
             None if detail is None else detail.get("last_turn_history_summary")
         ),
@@ -217,6 +268,40 @@ def collect_headless_runtime_snapshot(
         "latest_turn_exitcode_path": None if exitcode_path is None else str(exitcode_path),
         "latest_turn_exitcode_present": exitcode_present,
     }
+
+
+def _read_turn_exitcode(path: Path) -> int | None:
+    """Read one persisted headless turn exit code when available."""
+
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _completion_source_from_stdout(path: Path) -> str | None:
+    """Extract one completion-source hint from persisted stdout events."""
+
+    try:
+        for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+            if not line.strip():
+                continue
+            payload = _require_mapping(json.loads(line), context=str(path))
+            nested_payload = payload.get("payload")
+            if not isinstance(nested_payload, dict):
+                continue
+            value = nested_payload.get("completion_source")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _isoformat_from_mtime(path: Path) -> str:
+    """Return one UTC ISO-8601 timestamp from filesystem mtime."""
+
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(timespec="seconds")
 
 
 def build_inspect_snapshot(
@@ -243,7 +328,21 @@ def build_inspect_snapshot(
         agent_show=agent_show,
         agent_state=agent_state,
     )
-    visible_mailbox_dir = state.project_workdir / "skills" / "mailbox"
+    runtime_skill_destination_dir = state.brain_home_path / mailbox_skills_destination_for_tool(
+        state.selected_tool
+    )
+    runtime_skill_document_paths = [
+        projected_mailbox_skill_document_path(
+            tool=state.selected_tool,
+            home_path=state.brain_home_path,
+            skill_reference=skill_reference,
+        )
+        for skill_reference in mailbox_primary_skill_references(tool=state.selected_tool)
+    ]
+    runtime_mailbox_skill_surface_present = all(
+        skill_path.is_file() for skill_path in runtime_skill_document_paths
+    )
+    project_mailbox_skill_mirror_dir = state.project_workdir / "skills" / "mailbox"
     managed_project_metadata_path = state.project_workdir / MANAGED_PROJECT_METADATA_NAME
     return {
         "generated_at_utc": utc_now_iso(),
@@ -290,8 +389,10 @@ def build_inspect_snapshot(
             "project_workdir": str(state.project_workdir),
             "overlay_root": str(state.overlay_root),
             "project_mailbox_root": str(state.project_mailbox_root),
-            "visible_mailbox_dir": str(visible_mailbox_dir),
-            "visible_mailbox_skill_surface_present": visible_mailbox_dir.is_dir(),
+            "runtime_skill_destination_dir": str(runtime_skill_destination_dir),
+            "runtime_mailbox_skill_surface_present": runtime_mailbox_skill_surface_present,
+            "project_mailbox_skill_mirror_dir": str(project_mailbox_skill_mirror_dir),
+            "project_mailbox_skill_mirror_present": project_mailbox_skill_mirror_dir.is_dir(),
             "managed_project_metadata_path": str(managed_project_metadata_path),
             "managed_project_metadata_present": managed_project_metadata_path.is_file(),
         },
@@ -406,8 +507,8 @@ def build_report_snapshot(
         failures.append("runtime session root is not contained inside the selected output root")
     if not bool(inspect_snapshot["ownership"]["output_file_within_project_root"]):
         failures.append("output file is not contained inside the copied project root")
-    if not bool(inspect_snapshot["project"]["visible_mailbox_skill_surface_present"]):
-        failures.append("project-local mailbox skill surface is missing")
+    if not bool(inspect_snapshot["project"]["runtime_mailbox_skill_surface_present"]):
+        failures.append("runtime-owned mailbox skill surface is missing")
     if not bool(inspect_snapshot["project"]["managed_project_metadata_present"]):
         failures.append("managed project metadata is missing")
     if inspect_snapshot["specialist"] is None:
@@ -548,8 +649,8 @@ def build_report_snapshot(
             "managed_project_metadata_present": bool(
                 inspect_snapshot["project"]["managed_project_metadata_present"]
             ),
-            "visible_mailbox_skill_surface_present": bool(
-                inspect_snapshot["project"]["visible_mailbox_skill_surface_present"]
+            "runtime_mailbox_skill_surface_present": bool(
+                inspect_snapshot["project"]["runtime_mailbox_skill_surface_present"]
             ),
         },
         "deliveries": [

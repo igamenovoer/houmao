@@ -21,7 +21,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
 
-After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session. The visible mailbox skill surface is tool-specific: Claude uses top-level `skills/houmao-.../` directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, while current non-Claude tools keep their visible mailbox subtree such as `skills/mailbox/...`. `agents mail resolve-live` remains the supported current-mailbox discovery path for later work.
+After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session. The visible mailbox skill surface is tool-specific: Claude uses top-level `skills/houmao-.../` directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, Codex keeps the visible `skills/mailbox/...` subtree, and Gemini uses top-level `.agents/skills/houmao-.../` directories. `agents mail resolve-live` remains the supported current-mailbox discovery path for later work.
 
 When attached mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run houmao-mgr agents mail resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc. Inside the owning managed tmux session, selectors may be omitted; outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
 
@@ -196,7 +196,8 @@ Important details:
 `houmao-mgr agents mail ...` prefers manager-owned direct execution and gateway-backed execution. Only the local live-TUI fallback submits a mailbox prompt into the session.
 
 - Claude runtime homes use top-level Houmao skills under the isolated `CLAUDE_CONFIG_DIR`, such as `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`.
-- Current non-Claude runtime homes keep the visible mailbox subtree, such as `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `skills/mailbox/houmao-email-via-stalwart/SKILL.md`.
+- Codex runtime homes keep the visible mailbox subtree, such as `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `skills/mailbox/houmao-email-via-stalwart/SKILL.md`.
+- Gemini runtime homes use top-level Houmao-owned skills under `.agents/skills/`, such as `.agents/skills/houmao-email-via-agent-gateway/SKILL.md`, `.agents/skills/houmao-email-via-filesystem/SKILL.md`, and `.agents/skills/houmao-email-via-stalwart/SKILL.md`.
 - Houmao does not use the launched repo's `.claude/` tree as the runtime Claude config directory.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.

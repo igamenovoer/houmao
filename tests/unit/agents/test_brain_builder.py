@@ -808,9 +808,11 @@ def test_build_brain_home_projects_gemini_skills_under_agents_root_and_injects_o
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
 
     assert (result.home_path / ".agents/skills/skill-a").is_symlink()
+    assert (result.home_path / ".agents/skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
     assert (
-        result.home_path / ".agents/skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+        result.home_path / ".agents/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
+    assert not (result.home_path / ".agents/skills/mailbox").exists()
     assert not (result.home_path / ".gemini/skills").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script

@@ -453,7 +453,7 @@ class _AppServiceDouble:
             started_at_utc="2026-03-20T09:00:00+00:00",
             completed_at_utc="2026-03-20T09:01:00+00:00",
             returncode=0,
-            completion_source="tmux_wait_for",
+            completion_source="process_exit",
             stdout_path="/tmp/stdout.jsonl",
             stderr_path="/tmp/stderr.log",
             status_path="/tmp/exitcode",

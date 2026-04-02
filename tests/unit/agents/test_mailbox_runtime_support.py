@@ -413,19 +413,26 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
 ) -> None:
     home_path = tmp_path / "gemini-home"
 
-    install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=home_path)
+    references = install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=home_path)
 
     assert mailbox_skills_destination_for_tool("gemini") == ".agents/skills"
+    assert set(references) == {
+        "houmao-process-emails-via-gateway",
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
+    }
     assert (
         home_path
         / mailbox_skills_destination_for_tool("gemini")
-        / "mailbox/houmao-process-emails-via-gateway/SKILL.md"
+        / "houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
     assert (
         home_path
         / mailbox_skills_destination_for_tool("gemini")
-        / "mailbox/houmao-email-via-agent-gateway/SKILL.md"
+        / "houmao-email-via-agent-gateway/SKILL.md"
     ).is_file()
+    assert not (home_path / mailbox_skills_destination_for_tool("gemini") / "mailbox").exists()
 
 
 def test_install_runtime_mailbox_system_skills_for_tool_projects_claude_top_level_skills(

@@ -1112,7 +1112,7 @@ def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
                 kind="done",
                 message="turn completed",
                 turn_index=1,
-                payload={"completion_source": "tmux_wait_for"},
+                payload={"completion_source": "process_exit"},
             )
         ]
 

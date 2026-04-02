@@ -288,7 +288,9 @@ For Claude sessions, the discoverable tool-native mailbox skill surface SHALL us
 
 For Claude sessions, the isolated Claude skill root SHALL remain part of the runtime-owned `CLAUDE_CONFIG_DIR` rather than being rebound to the launched workdir's `.claude/` directory.
 
-For non-Claude sessions, the discoverable tool-native mailbox skill surface MAY continue to use the existing visible mailbox namespace subtree when that remains the active contract for that tool.
+For Codex and other non-Claude sessions whose active skill destination remains `skills`, the discoverable tool-native mailbox skill surface MAY continue to use the existing visible mailbox namespace subtree when that remains the active contract for that tool.
+
+For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL use top-level Houmao-owned skill directories under `.agents/skills/` rather than `.agents/skills/mailbox/...`.
 
 #### Scenario: Start Claude session projects mailbox system skills with a filesystem mailbox binding
 - **WHEN** a developer starts a Claude session with filesystem mailbox support enabled
@@ -308,9 +310,15 @@ For non-Claude sessions, the discoverable tool-native mailbox skill surface MAY 
 - **AND THEN** the runtime persists one secret-free `stalwart` mailbox binding for that session in the session manifest
 - **AND THEN** the runtime does not persist filesystem mailbox root or mailbox-path metadata for that Stalwart session
 
-#### Scenario: Start non-Claude session projects mailbox system skills through its current visible mailbox namespace
-- **WHEN** a developer starts a non-Claude agent session with mailbox support enabled
+#### Scenario: Start Codex session projects mailbox system skills through its current visible mailbox namespace
+- **WHEN** a developer starts a Codex session with mailbox support enabled
 - **THEN** the runtime projects the mailbox system skills for that session into the tool adapter's active skill destination through the current visible mailbox namespace for that tool
+- **AND THEN** the runtime persists the transport-appropriate mailbox binding for that session in the session manifest
+
+#### Scenario: Start Gemini session projects mailbox system skills through native top-level Houmao skill directories
+- **WHEN** a developer starts a Gemini session with mailbox support enabled
+- **THEN** the runtime projects the mailbox system skills for that session into `.agents/skills/` through top-level Houmao-owned skill directories
+- **AND THEN** the runtime does not rely on a `.agents/skills/mailbox/...` namespace subtree for the maintained Gemini contract
 - **AND THEN** the runtime persists the transport-appropriate mailbox binding for that session in the session manifest
 
 #### Scenario: Start session defaults the filesystem mailbox root from the Houmao mailbox root
@@ -2209,6 +2217,10 @@ The runtime SHALL execute each runtime-controlled headless turn on the stable pr
 
 The runtime SHALL launch each runtime-controlled headless turn through a same-pane fresh-process execution primitive on the stable primary surface rather than typing the command into a long-lived interactive shell.
 
+A runtime-controlled headless turn SHALL reach terminal state when the managed child process for that turn exits and the runtime persists that turn's durable terminal artifact state, including the exit-status artifact.
+
+The runtime SHALL reconcile terminal headless turn status, terminal timestamps, and next-turn readiness from the authoritative active-turn record plus durable turn artifacts rather than from tmux shell redraw or idle-prompt posture on window 0.
+
 After a runtime-controlled headless turn reaches terminal state, the runtime SHALL leave the stable primary surface attachable as the idle `agent` window for the next controlled turn.
 
 Turn identity, stdout, stderr, exit status, and process metadata SHALL remain per-turn durable artifacts on disk rather than being encoded through tmux window allocation.
@@ -2218,6 +2230,12 @@ Turn identity, stdout, stderr, exit status, and process metadata SHALL remain pe
 - **THEN** that turn executes on the stable window-0 agent surface
 - **AND THEN** rolling output remains visible on that same primary surface
 - **AND THEN** the runtime does not create a separate per-turn tmux window for that turn
+
+#### Scenario: Process exit finalizes terminal headless turn state
+- **WHEN** the managed child process for a runtime-controlled tmux-backed headless turn exits
+- **THEN** the runtime writes the durable terminal artifact state for that turn, including the exit-status artifact
+- **AND THEN** the runtime treats that turn as terminal from those artifacts without waiting for an idle shell redraw on window 0
+- **AND THEN** later inspection can reconcile that turn as completed or failed from the durable artifacts
 
 #### Scenario: Primary agent surface remains reusable after a controlled turn completes
 - **WHEN** a runtime-controlled headless turn completes on the stable primary surface

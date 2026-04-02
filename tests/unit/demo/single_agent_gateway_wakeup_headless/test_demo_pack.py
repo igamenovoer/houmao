@@ -376,7 +376,9 @@ def test_command_matrix_runs_all_supported_tools(
     monkeypatch.setattr(
         driver,
         "_resolve_paths",
-        lambda args, repo_root, tool: build_demo_layout(demo_output_dir=tmp_path / f"outputs-{tool}"),
+        lambda args, repo_root, tool: build_demo_layout(
+            demo_output_dir=tmp_path / f"outputs-{tool}"
+        ),
     )
     monkeypatch.setattr(driver, "_run_auto", fake_run_auto)
 
@@ -656,6 +658,94 @@ def test_collect_headless_runtime_snapshot_reads_latest_turn_artifacts(tmp_path:
     assert snapshot["latest_turn_exitcode_present"] is True
 
 
+def test_collect_headless_runtime_snapshot_prefers_completed_turn_artifacts_over_stale_detail(
+    tmp_path: Path,
+) -> None:
+    output_root = (tmp_path / "outputs").resolve()
+    project_root = output_root / "project"
+    overlay_root = output_root / "overlay"
+    session_root = output_root / "runtime/session-1"
+    manifest_path = session_root / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    turn_dir = session_root / "manifest.turn-artifacts" / "turn-0001"
+    turn_dir.mkdir(parents=True, exist_ok=True)
+    (turn_dir / "stdout.jsonl").write_text('{"kind":"turn.completed"}\n', encoding="utf-8")
+    (turn_dir / "exitcode").write_text("0\n", encoding="utf-8")
+
+    state = DemoState(
+        created_at_utc="2026-03-31T00:00:00Z",
+        repo_root=tmp_path.resolve(),
+        output_root=output_root,
+        selected_tool="gemini",
+        provider="gemini_cli",
+        setup_name="default",
+        run_id="single-agent-gateway-wakeup-headless-20260331T000000Z-demo",
+        project_fixture=tmp_path / "fixture",
+        project_workdir=project_root,
+        overlay_root=overlay_root,
+        agent_def_dir=overlay_root / "agents",
+        specialist_name="single-headless-mail-gemini",
+        instance_name="single-headless-mail-gemini-demo",
+        session_name="hm-single-headless-mail-gemini-demo",
+        auth_bundle_name="personal-a-default",
+        brain_manifest_path=session_root / "brain/manifest.json",
+        brain_home_path=session_root / "brain/home",
+        launch_helper_path=session_root / "brain/launch.sh",
+        session_manifest_path=manifest_path,
+        session_root=session_root,
+        tracked_agent_id="tracked-demo",
+        agent_name="single-headless-mail-gemini-demo",
+        agent_id="agent-demo",
+        tmux_session_name="tmux-demo",
+        mailbox_principal_id="single-headless-mail-gemini-demo",
+        mailbox_address="single-headless-mail-gemini-demo@agents.localhost",
+        operator_principal_id="operator",
+        operator_address="operator@agents.localhost",
+        gateway_root=session_root / "gateway",
+        gateway_host="127.0.0.1",
+        gateway_port=9911,
+        notifier_interval_seconds=5,
+        ready_timeout_seconds=180.0,
+        output_timeout_seconds=180.0,
+        output_file_path=project_root / "tmp/output.md",
+        output_file_expected_content="expected",
+        deliveries=[],
+    )
+
+    snapshot = reporting.collect_headless_runtime_snapshot(
+        state=state,
+        agent_show={
+            "detail": {
+                "transport": "headless",
+                "runtime_resumable": True,
+                "tmux_session_live": True,
+                "can_accept_prompt_now": False,
+                "interruptible": True,
+                "last_turn": {
+                    "result": "unknown",
+                    "turn_id": "turn-0001",
+                    "turn_index": 1,
+                },
+                "last_turn_status": "active",
+                "last_turn_completed_at_utc": None,
+                "last_turn_completion_source": None,
+                "last_turn_returncode": None,
+                "last_turn_history_summary": "turn-0001 active",
+                "last_turn_error": None,
+            }
+        },
+        agent_state={"last_turn": {"result": "unknown", "turn_id": "turn-0001", "turn_index": 1}},
+    )
+
+    assert snapshot["last_turn_result"] == "success"
+    assert snapshot["last_turn_status"] == "completed"
+    assert snapshot["last_turn_completed_at_utc"] is not None
+    assert snapshot["last_turn_returncode"] == 0
+    assert snapshot["detail_can_accept_prompt_now"] is True
+    assert snapshot["detail_interruptible"] is False
+
+
 def test_report_contract_accepts_structural_project_mailbox_without_read_state(
     tmp_path: Path,
 ) -> None:
@@ -666,7 +756,6 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
     output_file_path = project_root / "tmp/single-agent-gateway-wakeup-headless/processed-demo.md"
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     output_file_path.write_text("single-agent-gateway-wakeup-headless demo\n", encoding="utf-8")
-    (project_root / "skills/mailbox").mkdir(parents=True, exist_ok=True)
     (project_root / ".houmao-demo-project.json").write_text("{}\n", encoding="utf-8")
 
     delivery = DeliveryState(
@@ -687,8 +776,8 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
         created_at_utc="2026-03-31T00:00:00Z",
         repo_root=tmp_path.resolve(),
         output_root=output_root,
-        selected_tool="claude",
-        provider="claude_code",
+        selected_tool="gemini",
+        provider="gemini_headless",
         setup_name="default",
         run_id="single-agent-gateway-wakeup-headless-20260331T000000Z-e72b254f",
         project_fixture=tmp_path / "fixture",
@@ -775,7 +864,7 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
             "output_file_within_project_root": True,
         },
         "project": {
-            "visible_mailbox_skill_surface_present": True,
+            "runtime_mailbox_skill_surface_present": True,
             "managed_project_metadata_present": True,
         },
         "managed_agent": {
@@ -787,7 +876,7 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
                 "last_turn_result": "success",
                 "last_turn_status": "completed",
                 "last_turn_completed_at_utc": "2026-03-31T00:00:10Z",
-                "last_turn_completion_source": "process_exit",
+                "last_turn_completion_source": None,
                 "last_turn_returncode": 0,
                 "turn_artifacts_root_present": True,
                 "latest_turn_dir_present": True,
@@ -813,6 +902,123 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
     assert reporting.sanitize_report(report) == json.loads(
         expected_report_path.read_text(encoding="utf-8")
     )
+
+
+def test_expose_project_mailbox_skills_skips_gemini_project_mirror(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True, exist_ok=True)
+
+    runtime.expose_project_mailbox_skills(
+        tool="gemini",
+        project_workdir=project_root,
+        brain_manifest_path=tmp_path / "manifest.json",
+        brain_home_path=tmp_path / "brain-home",
+        launch_helper_path=tmp_path / "launch.sh",
+    )
+
+    assert not (project_root / "skills").exists()
+
+
+def test_collect_verification_snapshot_waits_for_headless_and_queue_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_root = (tmp_path / "outputs").resolve()
+    project_root = output_root / "project"
+    overlay_root = output_root / "overlay"
+    session_root = output_root / "runtime/session-1"
+    paths = build_demo_layout(demo_output_dir=output_root)
+    paths.control_dir.mkdir(parents=True, exist_ok=True)
+
+    state = DemoState(
+        created_at_utc="2026-03-31T00:00:00Z",
+        repo_root=tmp_path.resolve(),
+        output_root=output_root,
+        selected_tool="gemini",
+        provider="gemini_cli",
+        setup_name="default",
+        run_id="single-agent-gateway-wakeup-headless-20260331T000000Z-demo",
+        project_fixture=tmp_path / "fixture",
+        project_workdir=project_root,
+        overlay_root=overlay_root,
+        agent_def_dir=overlay_root / "agents",
+        specialist_name="single-headless-mail-gemini",
+        instance_name="single-headless-mail-gemini-demo",
+        session_name="hm-single-headless-mail-gemini-demo",
+        auth_bundle_name="personal-a-default",
+        brain_manifest_path=session_root / "brain/manifest.json",
+        brain_home_path=session_root / "brain/home",
+        launch_helper_path=session_root / "brain/launch.sh",
+        session_manifest_path=session_root / "manifest.json",
+        session_root=session_root,
+        tracked_agent_id="tracked-demo",
+        agent_name="single-headless-mail-gemini-demo",
+        agent_id="agent-demo",
+        tmux_session_name="tmux-demo",
+        mailbox_principal_id="single-headless-mail-gemini-demo",
+        mailbox_address="single-headless-mail-gemini-demo@agents.localhost",
+        operator_principal_id="operator",
+        operator_address="operator@agents.localhost",
+        gateway_root=session_root / "gateway",
+        gateway_host="127.0.0.1",
+        gateway_port=9911,
+        notifier_interval_seconds=5,
+        ready_timeout_seconds=180.0,
+        output_timeout_seconds=180.0,
+        output_file_path=project_root / "tmp/output.md",
+        output_file_expected_content="expected",
+        deliveries=[],
+    )
+
+    inspections = [
+        {
+            "gateway": {"queue_state": {"has_completed_notifier_request": False}},
+            "managed_agent": {
+                "headless": {"last_turn_result": "unknown", "last_turn_status": "active"}
+            },
+        },
+        {
+            "gateway": {"queue_state": {"has_completed_notifier_request": True}},
+            "managed_agent": {
+                "headless": {"last_turn_result": "success", "last_turn_status": "completed"}
+            },
+        },
+    ]
+    calls = {"count": 0}
+
+    def fake_inspect_demo(*, paths: object) -> dict[str, object]:
+        index = min(calls["count"], len(inspections) - 1)
+        calls["count"] += 1
+        return inspections[index]
+
+    def fake_build_report_snapshot(
+        *, state: object, inspect_snapshot: dict[str, object]
+    ) -> dict[str, object]:
+        headless = inspect_snapshot["managed_agent"]["headless"]
+        queue_state = inspect_snapshot["gateway"]["queue_state"]
+        return {
+            "gateway_evidence": {
+                "queue_completed_notifier_request": queue_state["has_completed_notifier_request"]
+            },
+            "headless_runtime_evidence": {
+                "last_turn_result": headless["last_turn_result"],
+                "last_turn_status": headless["last_turn_status"],
+            },
+        }
+
+    monkeypatch.setattr(driver, "_inspect_demo", fake_inspect_demo)
+    monkeypatch.setattr(driver, "build_report_snapshot", fake_build_report_snapshot)
+    monkeypatch.setattr(driver.time, "sleep", lambda *_args, **_kwargs: None)
+
+    inspection, report = driver._collect_verification_snapshot(  # type: ignore[attr-defined]
+        paths=paths,
+        state=state.model_copy(update={"active": True}),
+    )
+
+    assert calls["count"] == 2
+    assert inspection == inspections[-1]
+    assert report["gateway_evidence"]["queue_completed_notifier_request"] is True
+    assert report["headless_runtime_evidence"]["last_turn_status"] == "completed"
 
 
 def test_sanitize_report_normalizes_delivery_subject_run_token() -> None:

@@ -4170,6 +4170,7 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
             agent_def_dir=tmp_path / "agents",
         )
     ).gateway_root
+    install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=tmp_path / "home")
 
     output_path = tmp_path / "tmp" / "gateway-mail-processed.txt"
 
@@ -4241,10 +4242,21 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
         runtime.shutdown()
 
     assert fake_session.prompt_calls
+    prompt = fake_session.prompt_calls[0][0]
+    assert "List unread mail through the shared gateway mailbox API for this round." in prompt
+    assert "In Gemini this Houmao skill is installed natively under `.agents/skills`." in prompt
+    assert "Invoke `houmao-process-emails-via-gateway` by name for this round." in prompt
     assert (
-        "List unread mail through the shared gateway mailbox API for this round."
-        in fake_session.prompt_calls[0][0]
+        "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway` by name"
+    ) in prompt
+    assert (
+        "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` by name"
+        in prompt
     )
+    assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+    assert ".agents/skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+    assert ".agents/skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+    assert "Open `" not in prompt
     assert output_path.read_text(encoding="utf-8") == "processed by gemini notifier\n"
 
 

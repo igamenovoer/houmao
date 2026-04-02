@@ -1875,6 +1875,50 @@ def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
     assert calls == ["hello"]
 
 
+def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="gemini_headless", tool="gemini")
+    manifest_path = _write_manifest(
+        tmp_path=tmp_path,
+        launch_plan=launch_plan,
+        tmux_window_name="agent",
+    )
+    turn_dir = manifest_path.parent / "manifest.turn-artifacts" / "turn-0001"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "exitcode").write_text("0\n", encoding="utf-8")
+    controller = SimpleNamespace(
+        manifest_path=manifest_path,
+        tmux_session_name="join-sess",
+        launch_plan=launch_plan,
+        agent_identity="joined-agent",
+        agent_id="agent-joined",
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="agent-joined",
+        identity=managed_agents_module._identity_from_controller(controller),
+        controller=controller,
+    )
+
+    monkeypatch.setattr(managed_agents_module, "_local_gateway_summary", lambda _controller: None)
+    monkeypatch.setattr(managed_agents_module, "_local_mailbox_summary", lambda _controller: None)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
+        lambda *, session_name: session_name == "join-sess",
+    )
+
+    detail = managed_agent_detail_payload(target)
+
+    assert detail.detail.transport == "headless"
+    assert detail.detail.tmux_session_live is True
+    assert detail.detail.can_accept_prompt_now is True
+    assert detail.detail.interruptible is False
+    assert detail.detail.last_turn_status == "completed"
+    assert detail.summary_state.turn.phase == "ready"
+
+
 def test_attach_gateway_uses_local_runtime_controller(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

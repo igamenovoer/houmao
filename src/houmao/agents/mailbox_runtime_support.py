@@ -83,7 +83,7 @@ MAILBOX_PRIMARY_SKILL_REFERENCES = (
     MAILBOX_FILESYSTEM_SKILL_REFERENCE,
     MAILBOX_STALWART_SKILL_REFERENCE,
 )
-_MAILBOX_NATIVE_TOP_LEVEL_TOOLS = frozenset({"claude"})
+_MAILBOX_NATIVE_TOP_LEVEL_TOOLS = frozenset({"claude", "gemini"})
 _TOOL_SKILLS_DESTINATION = {
     "claude": "skills",
     "codex": "skills",

@@ -9,7 +9,9 @@ These mailbox system skills SHALL be projected into mailbox-enabled sessions in 
 
 For Claude sessions whose active skill destination root is `skills` under `CLAUDE_CONFIG_DIR`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `skills/mailbox/...`.
 
-For current non-Claude adapters whose active skill destination is `skills` or `.gemini/skills`, the mailbox system skill surface MAY continue to use the reserved visible mailbox subtree.
+For Codex and other non-Claude adapters whose active skill destination remains `skills`, the mailbox system skill surface MAY continue to use the reserved visible mailbox subtree.
+
+For Gemini sessions whose active skill destination root is `.agents/skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `.agents/skills/mailbox/...`.
 
 The projected mailbox skill set MAY vary by the selected mailbox transport, including filesystem-backed and real-mail-backed transports.
 
@@ -25,10 +27,16 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 - **AND THEN** the Stalwart mailbox skill is available through top-level Houmao-owned skill directories discoverable by Claude native skill lookup
 - **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
 
-#### Scenario: Non-Claude mailbox-enabled agent retains discoverable mailbox subtree
-- **WHEN** the runtime starts a non-Claude agent session with mailbox support enabled
+#### Scenario: Codex mailbox-enabled agent retains discoverable mailbox subtree
+- **WHEN** the runtime starts a Codex mailbox-enabled session
 - **THEN** the runtime projects the mailbox system skill set for that session from platform-owned templates into the active skill destination
 - **AND THEN** the mailbox skills remain available through the discoverable mailbox subtree rather than through hidden `.system` entries
+- **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
+
+#### Scenario: Gemini mailbox-enabled agent receives top-level Houmao-owned skills
+- **WHEN** the runtime starts a Gemini mailbox-enabled session
+- **THEN** the runtime projects the mailbox system skill set for that session from platform-owned templates into `.agents/skills/`
+- **AND THEN** the mailbox skills are available through top-level Houmao-owned Gemini skill directories rather than through `.agents/skills/mailbox/...`
 - **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
 
 #### Scenario: Runtime-owned mailbox skills stay separate from role-authored skills
@@ -40,6 +48,7 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 - **WHEN** the runtime projects mailbox system skills for a mailbox-enabled session
 - **THEN** the runtime does not create a parallel hidden `.system/mailbox/...` mailbox skill tree for that session
 - **AND THEN** Claude sessions do not rely on a parallel `skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
+- **AND THEN** Gemini sessions do not rely on a parallel `.agents/skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
 - **AND THEN** ordinary mailbox-skill discovery and prompting depend only on the visible tool-native mailbox skill surface
 
 ### Requirement: Runtime-owned mailbox skill projection separates gateway operations from transport-specific guidance and uses Houmao-owned skill naming
@@ -53,7 +62,13 @@ For Claude sessions whose active skill destination root is `skills`, the round-o
 
 For Claude sessions whose active skill destination root is `skills`, the lower-level common gateway mailbox skill SHALL be available at `skills/houmao-email-via-agent-gateway/`.
 
-For current non-Claude adapters whose active skill destination root remains namespaced, the round-oriented workflow skill and lower-level common gateway mailbox skill MAY continue to be available under the visible mailbox subtree.
+For Codex sessions whose active skill destination root remains `skills`, the round-oriented workflow skill and lower-level common gateway mailbox skill MAY continue to be available under the visible mailbox subtree.
+
+For Gemini sessions whose active skill destination root is `.agents/skills`, the round-oriented workflow skill SHALL be available at `.agents/skills/houmao-process-emails-via-gateway/`.
+
+For Gemini sessions whose active skill destination root is `.agents/skills`, the lower-level common gateway mailbox skill SHALL be available at `.agents/skills/houmao-email-via-agent-gateway/`.
+
+For Gemini sessions, ordinary runtime-owned mailbox prompts SHALL invoke installed Houmao mailbox skills by skill name and SHALL NOT require the agent to open `.agents/skills/.../SKILL.md` paths for ordinary mailbox rounds when those skills are already installed.
 
 The round-oriented workflow skill SHALL:
 - act as the default installed runtime-owned procedure for notifier-triggered shared mailbox processing rounds when a live gateway facade is available,
@@ -75,10 +90,15 @@ Transport-specific mailbox skills such as `houmao-email-via-filesystem` and `hou
 - **AND THEN** it also projects `skills/houmao-email-via-agent-gateway/` and the runtime-owned mailbox skill for the active transport
 - **AND THEN** Claude can discover all of those skills through native skill discovery without relying on a mailbox namespace subtree
 
-#### Scenario: Non-Claude mailbox-enabled session receives processing, gateway, and transport runtime-owned skills
-- **WHEN** the runtime starts a mailbox-enabled non-Claude session
+#### Scenario: Codex mailbox-enabled session receives processing, gateway, and transport runtime-owned skills
+- **WHEN** the runtime starts a mailbox-enabled Codex session
 - **THEN** it projects the processing, gateway, and transport mailbox skills into the active skill destination under the visible mailbox subtree
 - **AND THEN** the agent can discover all of those skills from that visible mailbox subtree without relying on hidden `.system` entries
+
+#### Scenario: Gemini mailbox-enabled session receives native top-level runtime-owned skills
+- **WHEN** the runtime starts a mailbox-enabled Gemini session
+- **THEN** it projects `.agents/skills/houmao-process-emails-via-gateway/`, `.agents/skills/houmao-email-via-agent-gateway/`, and the runtime-owned mailbox skill for the active transport into the active skill destination
+- **AND THEN** Gemini can discover all of those skills through native skill discovery without relying on a `mailbox/` namespace subtree
 
 #### Scenario: Houmao-owned mailbox skill naming requires explicit `houmao` invocation
 - **WHEN** a runtime-owned mailbox skill is intended to be triggered through agent instructions
@@ -90,6 +110,12 @@ Transport-specific mailbox skills such as `houmao-email-via-filesystem` and `hou
 - **WHEN** a mailbox-enabled session has the shared gateway mailbox facade available
 - **THEN** the runtime-owned `houmao-process-emails-via-gateway` skill is already projected into that session through the tool-native visible mailbox skill surface
 - **AND THEN** notifier prompts may instruct the agent to use that installed skill directly for the current mailbox round
+
+#### Scenario: Gemini notifier prompt invokes the installed skill by name
+- **WHEN** a mailbox-enabled Gemini session has the shared gateway mailbox facade available
+- **AND WHEN** the runtime submits a notifier-driven mailbox round prompt
+- **THEN** that prompt tells Gemini to use the installed `houmao-process-emails-via-gateway` skill by name
+- **AND THEN** the prompt does not require Gemini to open `.agents/skills/.../SKILL.md` for that ordinary mailbox round
 
 #### Scenario: Gateway mailbox skill remains the lower-level protocol reference
 - **WHEN** an agent opens the installed `houmao-email-via-agent-gateway` skill document from the visible mailbox skill surface for its tool

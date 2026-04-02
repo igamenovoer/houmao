@@ -380,6 +380,63 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
     assert not (tmp_path / ".claude").exists()
 
 
+def test_materialize_joined_launch_projects_gemini_top_level_skills(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gemini_home = (tmp_path / "gemini-home").resolve()
+    user_skill = gemini_home / ".agents/skills/custom-user-skill/SKILL.md"
+    user_skill.parent.mkdir(parents=True, exist_ok=True)
+    user_skill.write_text("user skill\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "ensure_gateway_capability",
+        lambda publication: None,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "set_tmux_session_environment",
+        lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "publish_live_agent_record",
+        lambda record: record,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: (
+            str(gemini_home) if variable_name == "GEMINI_HOME" else None
+        ),
+    )
+
+    runtime_artifacts_module.materialize_joined_launch(
+        runtime_root=tmp_path,
+        agent_name="gemini-coder",
+        agent_id=None,
+        provider="gemini_cli",
+        headless=False,
+        tmux_session_name="join-sess",
+        tmux_window_name="manual",
+        working_directory=tmp_path,
+        launch_args=(),
+        launch_env=(),
+        resume_selection=None,
+    )
+
+    processing_skill_path = (
+        gemini_home / ".agents/skills/houmao-process-emails-via-gateway/SKILL.md"
+    )
+    gateway_skill_path = gemini_home / ".agents/skills/houmao-email-via-agent-gateway/SKILL.md"
+    assert processing_skill_path.is_file()
+    assert gateway_skill_path.is_file()
+    assert (gemini_home / ".agents/skills/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert user_skill.is_file()
+    assert not (gemini_home / ".agents/skills/mailbox").exists()
+
+
 def test_materialize_joined_launch_skips_houmao_skill_install_when_opted_out(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

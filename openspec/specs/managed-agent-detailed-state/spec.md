@@ -78,9 +78,15 @@ The system SHALL treat the headless detailed state route as the canonical rich i
 ### Requirement: Headless detailed state treats tmux liveness as auxiliary diagnostics
 For managed headless agents, `GET /houmao/agents/{agent_ref}/state/detail` SHALL describe active-turn and last-turn posture from controller-owned execution state and durable turn records.
 
+For managed headless agents, terminal last-turn status SHALL reconcile from authoritative active-turn state plus durable per-turn artifact evidence. When a durable terminal artifact such as the exit-status artifact exists for the latest turn and no authoritative active turn remains, that terminal artifact evidence SHALL take precedence over stale tmux or live-posture observations for that same turn.
+
 The headless detail payload MAY expose tmux liveness fields for inspectability or degradation reporting, but those tmux fields SHALL NOT by themselves redefine active-turn status, last-turn result, or the durability of a terminal turn outcome.
 
 For managed headless agents, detail payloads SHALL surface the reconciled controller-owned terminal status even when execution evidence was missing or legacy metadata was insufficient; callers SHALL receive failed-with-diagnostic semantics rather than a tmux-driven `unknown` fallback.
+
+For managed headless agents, `can_accept_prompt_now` SHALL become true whenever no authoritative active turn remains and the latest turn has reconciled terminal evidence, even when the tmux surface has not yet redrawn a visibly idle shell.
+
+For managed headless agents, `completion_source` MAY remain present as diagnostic metadata when available, but its absence SHALL NOT prevent a turn from reconciling to `completed` or `failed` once durable terminal evidence exists.
 
 #### Scenario: Detail preserves reconciled last-turn result when tmux session is gone
 - **WHEN** a managed headless turn has already reconciled to a terminal failed or interrupted result
@@ -93,6 +99,14 @@ For managed headless agents, detail payloads SHALL surface the reconciled contro
 - **AND WHEN** no terminal execution evidence exists yet for that turn
 - **THEN** `GET /houmao/agents/{agent_ref}/state/detail` reports that turn as active from server-owned turn authority
 - **AND THEN** the caller does not need tmux watch semantics to determine that the agent is still busy
+
+#### Scenario: Detail reports terminal headless turn from durable exit artifact despite stale live posture
+- **WHEN** the latest managed headless turn has a durable exit-status artifact
+- **AND WHEN** no authoritative active turn remains for that agent
+- **AND WHEN** stale tmux or live-posture data still suggests the prior turn is active
+- **THEN** `GET /houmao/agents/{agent_ref}/state/detail` returns the reconciled terminal status for that turn
+- **AND THEN** the payload reports that the agent can accept a new managed prompt now
+- **AND THEN** the caller does not need to wait for tmux shell redraw or optional `completion_source` metadata to observe terminality
 
 #### Scenario: Detail preserves failed-with-diagnostic status for degraded evidence
 - **WHEN** a managed headless turn has already been reconciled to failed because execution evidence was missing or insufficient
