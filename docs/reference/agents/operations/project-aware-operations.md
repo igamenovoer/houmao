@@ -11,8 +11,10 @@ The project overlay directory is resolved in this order:
 | Priority | Source | Description |
 |---|---|---|
 | 1 | `HOUMAO_PROJECT_OVERLAY_DIR` | Environment variable. Must be an absolute path pointing directly at the overlay directory. |
-| 2 | Nearest ancestor `.houmao/houmao-config.toml` | Upward directory traversal from cwd, stopping at the Git repository boundary. |
-| 3 | `<cwd>/.houmao/` | Default fallback. May not exist on disk. |
+| 2 | Ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` | Defaults to `ancestor`, which searches the nearest ancestor `.houmao/houmao-config.toml` from cwd and stops at the Git repository boundary. Set `cwd_only` to inspect only `<cwd>/.houmao/houmao-config.toml`. |
+| 3 | `<cwd>/.houmao/` | Default fallback candidate when no overlay config is discovered. May not exist on disk. |
+
+`HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` affects ambient discovery only. It does not override `HOUMAO_PROJECT_OVERLAY_DIR`.
 
 ### Agent Definition Directory Resolution
 
@@ -24,7 +26,7 @@ Within the resolved project overlay, the agent definition directory is resolved 
 | 2 | `HOUMAO_AGENT_DEF_DIR` | Environment variable override. |
 | 3 | `houmao-config.toml` `[paths] agent_def_dir` | Setting from the project overlay configuration. |
 | 4 | `<overlay_root>/agents` | Fallback when overlay was found via env var but config wasn't loaded. |
-| 5 | `<cwd>/.houmao/agents` | Default when no project context exists. |
+| 5 | `<cwd>/.houmao/agents` | Default when no project context exists after ambient discovery under the effective discovery mode. |
 
 ## What Project Context Provides
 
@@ -75,6 +77,7 @@ The catalog is initialized automatically during `project init` and is the author
 In CI or controlled automation where no `.houmao/` directory exists on disk:
 
 - Set `HOUMAO_PROJECT_OVERLAY_DIR` to point at a pre-built overlay directory.
+- Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want subdirectory-local commands to ignore a parent overlay and consider only `<cwd>/.houmao`.
 - Or set `HOUMAO_AGENT_DEF_DIR` directly to bypass overlay discovery entirely and point at an agent definitions directory.
 - Set `HOUMAO_GLOBAL_RUNTIME_DIR` to use a shared runtime root instead of the project-local one.
 

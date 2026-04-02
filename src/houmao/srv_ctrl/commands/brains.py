@@ -171,7 +171,8 @@ def build_brain_command(
             "project_overlay_bootstrapped": project_roots.created_overlay,
             "overlay_root": str(project_roots.overlay_root),
             "overlay_root_detail": describe_overlay_root_selection_source(
-                overlay_root_source=project_roots.overlay_root_source
+                overlay_root_source=project_roots.overlay_root_source,
+                overlay_discovery_mode=project_roots.overlay_discovery_mode,
             ),
             "overlay_bootstrap_detail": describe_overlay_bootstrap(
                 created_overlay=project_roots.created_overlay

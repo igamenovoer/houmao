@@ -938,6 +938,7 @@ def test_houmao_mgr_project_status_remains_non_creating_in_subprocess(tmp_path: 
     expected_overlay_root = (workdir / ".houmao").resolve()
     assert payload["discovered"] is False
     assert payload["overlay_root"] == str(expected_overlay_root)
+    assert payload["overlay_discovery_mode"] == "ancestor"
     assert payload["would_bootstrap_overlay"] is True
     assert (
         payload["selected_overlay_detail"]
@@ -948,6 +949,34 @@ def test_houmao_mgr_project_status_remains_non_creating_in_subprocess(tmp_path: 
         == "Project status used non-creating resolution and would bootstrap the selected overlay during a stateful project command."
     )
     assert not expected_overlay_root.exists()
+
+
+def test_houmao_mgr_project_status_supports_cwd_only_discovery_mode_in_subprocess(
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = (repo_root / "nested").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+
+    result = _run_houmao_mgr_command(
+        "project",
+        "status",
+        cwd=nested_dir,
+        env={"HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE": "cwd_only"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    expected_overlay_root = (nested_dir / ".houmao").resolve()
+    assert payload["discovered"] is False
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert payload["overlay_root_source"] == "default"
+    assert payload["overlay_discovery_mode"] == "cwd_only"
+    assert (
+        payload["selected_overlay_detail"]
+        == f"Selected overlay root from the cwd-local project-aware `<cwd>/.houmao` candidate. No project overlay exists yet at `{expected_overlay_root}` for this invocation."
+    )
 
 
 def test_houmao_mgr_agents_mail_resolve_live_returns_structured_json(

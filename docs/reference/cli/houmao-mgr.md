@@ -174,10 +174,10 @@ houmao-mgr brains build [OPTIONS]
 1. `--agent-def-dir`
 2. `HOUMAO_AGENT_DEF_DIR`
 3. `HOUMAO_PROJECT_OVERLAY_DIR`
-4. nearest ancestor `.houmao/houmao-config.toml`
+4. ambient project-overlay discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`
 5. default `<pwd>/.houmao/agents`
 
-`HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly for CI or controlled automation. When env selection or discovery wins, `houmao-config.toml` inside that overlay is the discovery anchor and `agents/` under the same overlay is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
+`HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly for CI or controlled automation. `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` affects ambient discovery only when no explicit overlay root is set: `ancestor` is the default nearest-ancestor lookup bounded by the Git repository, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`. When env selection or discovery wins, `houmao-config.toml` inside that overlay is the discovery anchor and `agents/` under the same overlay is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
 
 When `--preset` resolves to a recipe that carries `launch.env_records`, `brains build` projects those records as durable non-credential launch env alongside the selected auth bundle. Those env records come from specialist launch config, not from one-off instance launch input.
 
@@ -220,8 +220,9 @@ Project overlay notes:
 
 - `project init` bootstraps `<pwd>/.houmao` by default.
 - `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` selects `/abs/path` as the overlay root directly and must be absolute.
+- `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=ancestor` is the default ambient lookup mode; `cwd_only` restricts ambient lookup to `<pwd>/.houmao/houmao-config.toml`.
 - The selected overlay root gets a local `.gitignore` containing `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
-- `project status` resolves the active overlay root from `HOUMAO_PROJECT_OVERLAY_DIR` first, then nearest-ancestor `.houmao/houmao-config.toml` discovery.
+- `project status` resolves the active overlay root from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, and reports the effective discovery mode in its JSON payload.
 - `project init` creates `catalog.sqlite` plus managed `content/prompts/`, `content/auth/`, `content/skills/`, and `content/setups/` under the selected overlay root.
 - `project init` does not create `agents/`, `agents/compatibility-profiles/`, `mailbox/`, or `easy/` under the selected overlay root by default.
 - `project init --with-compatibility-profiles` opts into pre-creating `agents/compatibility-profiles/` under the selected overlay root.

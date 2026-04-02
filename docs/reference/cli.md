@@ -167,10 +167,10 @@ For the dedicated mailbox quickstart, contracts, and operational guidance, see [
 
 Runtime commands use two agent-definition-directory resolution models:
 
-1. Build/start and manifest-path control: `--agent-def-dir`, then `HOUMAO_AGENT_DEF_DIR`, then `HOUMAO_PROJECT_OVERLAY_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then `<pwd>/.houmao/agents`.
+1. Build/start and manifest-path control: `--agent-def-dir`, then `HOUMAO_AGENT_DEF_DIR`, then `HOUMAO_PROJECT_OVERLAY_DIR`, then ambient project-overlay discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, then `<pwd>/.houmao/agents`.
 2. Name-based tmux-backed `send-prompt`, `send-keys`, `mail`, and `stop-session`: explicit `--agent-def-dir` override first, otherwise the addressed session's published `HOUMAO_AGENT_DEF_DIR`.
 
-`HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly. When that env var or nearest-ancestor discovery finds `houmao-config.toml`, the selected overlay directory becomes the project-overlay discovery anchor, and relative paths in that config resolve from the overlay directory itself. For current pair-native build and launch flows, Houmao materializes `agents/` under the selected catalog-backed overlay as the compatibility projection that file-tree consumers read.
+`HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly. `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` controls only ambient discovery when no explicit overlay root is set: `ancestor` is the default nearest-ancestor lookup bounded by the Git repository, while `cwd_only` inspects only `<cwd>/.houmao/houmao-config.toml`. When env selection or discovery finds `houmao-config.toml`, the selected overlay directory becomes the project-overlay discovery anchor, and relative paths in that config resolve from the overlay directory itself. For current pair-native build and launch flows, Houmao materializes `agents/` under the selected catalog-backed overlay as the compatibility projection that file-tree consumers read.
 
 ## Pixi Tasks
 

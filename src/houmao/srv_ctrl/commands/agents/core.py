@@ -269,7 +269,8 @@ def launch_managed_agent_locally(
         mailbox_root_detail=describe_mailbox_root_selection(explicit_root=mailbox_root),
         overlay_root=project_roots.overlay_root,
         overlay_root_detail=describe_overlay_root_selection_source(
-            overlay_root_source=project_roots.overlay_root_source
+            overlay_root_source=project_roots.overlay_root_source,
+            overlay_discovery_mode=project_roots.overlay_discovery_mode,
         ),
         project_overlay_bootstrapped=project_roots.created_overlay,
         overlay_bootstrap_detail=describe_overlay_bootstrap(

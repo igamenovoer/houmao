@@ -64,6 +64,7 @@ from .mailbox_support import (
 from .managed_agents import list_managed_agents, resolve_managed_agent_target, stop_managed_agent
 from .project_aware_wording import (
     describe_overlay_bootstrap,
+    describe_overlay_discovery_mode,
     describe_overlay_root_selection_source,
 )
 
@@ -130,6 +131,10 @@ def project_status_command() -> None:
             "project_root": str(overlay.project_root) if overlay is not None else None,
             "overlay_root": str(roots.overlay_root),
             "overlay_root_source": roots.overlay_root_source,
+            "overlay_discovery_mode": roots.overlay_discovery_mode,
+            "overlay_discovery_detail": describe_overlay_discovery_mode(
+                overlay_discovery_mode=roots.overlay_discovery_mode
+            ),
             "selected_overlay_detail": _selected_overlay_detail(roots),
             "config_path": str(overlay.config_path) if overlay is not None else None,
             "catalog_path": str(overlay.catalog_path) if overlay is not None else None,
@@ -196,7 +201,10 @@ def _resolve_existing_project_overlay(
 def _selected_overlay_detail(roots: ProjectAwareLocalRoots) -> str:
     """Describe the selected overlay root for one invocation."""
 
-    detail = describe_overlay_root_selection_source(overlay_root_source=roots.overlay_root_source)
+    detail = describe_overlay_root_selection_source(
+        overlay_root_source=roots.overlay_root_source,
+        overlay_discovery_mode=roots.overlay_discovery_mode,
+    )
     if roots.project_overlay is None:
         return (
             f"{detail} No project overlay exists yet at `{roots.overlay_root}` for this invocation."

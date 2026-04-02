@@ -309,7 +309,8 @@ def materialize_joined_launch(
             jobs_root_detail=describe_local_jobs_root_selection(),
             overlay_root=project_roots.overlay_root,
             overlay_root_detail=describe_overlay_root_selection_source(
-                overlay_root_source=project_roots.overlay_root_source
+                overlay_root_source=project_roots.overlay_root_source,
+                overlay_discovery_mode=project_roots.overlay_discovery_mode,
             ),
             project_overlay_bootstrapped=project_roots.created_overlay,
             overlay_bootstrap_detail=describe_overlay_bootstrap(

@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from houmao.project.overlay import (
+    PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR,
     PROJECT_OVERLAY_DIR_ENV_VAR,
     bootstrap_project_overlay,
     bootstrap_project_overlay_at_root,
@@ -188,6 +189,11 @@ def test_project_status_reports_discovered_overlay_from_nested_directory(
     assert payload["project_root"] == str(repo_root)
     assert payload["overlay_root"] == str((repo_root / ".houmao").resolve())
     assert payload["overlay_root_source"] == "discovered"
+    assert payload["overlay_discovery_mode"] == "ancestor"
+    assert (
+        payload["overlay_discovery_detail"]
+        == "Ambient overlay discovery uses nearest-ancestor lookup within the Git boundary."
+    )
     assert payload["config_path"] == str((repo_root / ".houmao" / "houmao-config.toml").resolve())
     assert payload["effective_agent_def_dir"] == str((repo_root / ".houmao" / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_config"
@@ -229,10 +235,42 @@ def test_project_status_reports_env_selected_overlay(
     assert payload["discovered"] is True
     assert payload["overlay_root"] == str(overlay_root)
     assert payload["overlay_root_source"] == "env"
+    assert payload["overlay_discovery_mode"] == "ancestor"
     assert payload["config_path"] == str((overlay_root / "houmao-config.toml").resolve())
     assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_config"
     assert payload["project_mailbox_root"] == str((overlay_root / "mailbox").resolve())
+
+
+def test_project_status_reports_env_selected_overlay_even_in_cwd_only_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    overlay_root = (tmp_path / "ci-overlay").resolve()
+    nested_dir = repo_root / "nested" / "child"
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    bootstrap_project_overlay_at_root(overlay_root)
+    monkeypatch.chdir(nested_dir)
+
+    result = runner.invoke(
+        cli,
+        ["project", "status"],
+        env={
+            PROJECT_OVERLAY_DIR_ENV_VAR: str(overlay_root),
+            PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR: "cwd_only",
+        },
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["discovered"] is True
+    assert payload["overlay_root"] == str(overlay_root)
+    assert payload["overlay_root_source"] == "env"
+    assert payload["overlay_discovery_mode"] == "cwd_only"
+    assert payload["config_path"] == str((overlay_root / "houmao-config.toml").resolve())
 
 
 def test_project_status_reports_missing_env_selected_overlay_clearly(
@@ -257,6 +295,7 @@ def test_project_status_reports_missing_env_selected_overlay_clearly(
     assert payload["project_root"] is None
     assert payload["overlay_root"] == str(overlay_root)
     assert payload["overlay_root_source"] == "env"
+    assert payload["overlay_discovery_mode"] == "ancestor"
     assert payload["config_path"] is None
     assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_overlay_env"
@@ -292,6 +331,7 @@ def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
     expected_overlay_root = (nested_dir / ".houmao").resolve()
     assert payload["discovered"] is False
     assert payload["overlay_root"] == str(expected_overlay_root)
+    assert payload["overlay_discovery_mode"] == "ancestor"
     assert payload["project_runtime_root"] == str((expected_overlay_root / "runtime").resolve())
     assert payload["project_jobs_root"] == str((expected_overlay_root / "jobs").resolve())
     assert payload["project_mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
@@ -306,6 +346,40 @@ def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
         == "Project status used non-creating resolution and would bootstrap the selected overlay during a stateful project command."
     )
     assert not expected_overlay_root.exists()
+
+
+def test_project_status_reports_cwd_only_mode_against_cwd_overlay_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = (repo_root / "app").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    monkeypatch.chdir(nested_dir)
+
+    result = runner.invoke(
+        cli,
+        ["project", "status"],
+        env={PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR: "cwd_only"},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    expected_overlay_root = (nested_dir / ".houmao").resolve()
+    assert payload["discovered"] is False
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert payload["overlay_root_source"] == "default"
+    assert payload["overlay_discovery_mode"] == "cwd_only"
+    assert (
+        payload["overlay_discovery_detail"]
+        == "Ambient overlay discovery is restricted to `<cwd>/.houmao/houmao-config.toml` for this invocation."
+    )
+    assert (
+        payload["selected_overlay_detail"]
+        == f"Selected overlay root from the cwd-local project-aware `<cwd>/.houmao` candidate. No project overlay exists yet at `{expected_overlay_root}` for this invocation."
+    )
 
 
 def test_project_agents_tool_auth_add_bootstraps_missing_overlay(

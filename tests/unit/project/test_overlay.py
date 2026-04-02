@@ -10,6 +10,7 @@ from houmao.project.overlay import (
     bootstrap_project_overlay,
     bootstrap_project_overlay_at_root,
     discover_project_overlay,
+    PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR,
     PROJECT_OVERLAY_DIR_ENV_VAR,
     resolve_project_aware_local_roots,
     ensure_project_aware_local_roots,
@@ -60,6 +61,7 @@ def test_resolve_project_aware_agent_def_dir_discovers_nearest_project_overlay(
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR, raising=False)
     monkeypatch.delenv(PROJECT_OVERLAY_DIR_ENV_VAR, raising=False)
     project_root = (tmp_path / "repo").resolve()
     nested_dir = project_root / "a" / "b" / "c"
@@ -79,6 +81,7 @@ def test_resolve_project_aware_agent_def_dir_falls_back_to_houmao_default(
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR, raising=False)
     monkeypatch.delenv(PROJECT_OVERLAY_DIR_ENV_VAR, raising=False)
     workdir = (tmp_path / "workspace").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
@@ -94,6 +97,7 @@ def test_resolve_project_aware_agent_def_dir_uses_overlay_env_before_ancestor_di
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv(AGENT_DEF_DIR_ENV_VAR, raising=False)
+    monkeypatch.setenv(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR, "cwd_only")
     repo_root = (tmp_path / "repo").resolve()
     nested_dir = repo_root / "nested"
     nested_dir.mkdir(parents=True, exist_ok=True)
@@ -137,10 +141,12 @@ def test_resolve_project_overlay_env_override_blocks_ancestor_discovery_when_mis
     bootstrap_project_overlay(repo_root)
     overlay_root = (tmp_path / "ci-overlay").resolve()
     monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
+    monkeypatch.setenv(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR, "cwd_only")
 
     resolution = resolve_project_overlay(cwd=nested_dir)
 
     assert resolution.source == "env"
+    assert resolution.discovery_mode == "cwd_only"
     assert resolution.overlay_root == overlay_root
     assert resolution.project_overlay is None
 
@@ -204,6 +210,7 @@ def test_resolve_project_overlay_does_not_cross_nearest_git_boundary(tmp_path: P
     resolution = resolve_project_overlay(cwd=nested_dir)
 
     assert resolution.project_overlay is None
+    assert resolution.discovery_mode == "ancestor"
     assert resolution.source == "default"
     assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
 
@@ -219,6 +226,7 @@ def test_resolve_project_overlay_does_not_cross_nearest_git_directory_boundary(t
     resolution = resolve_project_overlay(cwd=nested_dir)
 
     assert resolution.project_overlay is None
+    assert resolution.discovery_mode == "ancestor"
     assert resolution.source == "default"
     assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
 
@@ -233,6 +241,7 @@ def test_resolve_project_aware_local_roots_reports_overlay_local_defaults(tmp_pa
 
     assert isinstance(roots, ProjectAwareLocalRoots)
     assert roots.overlay_root == (repo_root / ".houmao").resolve()
+    assert roots.overlay_discovery_mode == "ancestor"
     assert roots.runtime_root == (repo_root / ".houmao" / "runtime").resolve()
     assert roots.jobs_root == (repo_root / ".houmao" / "jobs").resolve()
     assert roots.mailbox_root == (repo_root / ".houmao" / "mailbox").resolve()
@@ -249,6 +258,7 @@ def test_ensure_project_aware_local_roots_bootstraps_missing_overlay(tmp_path: P
     assert roots.project_overlay is not None
     assert roots.created_overlay is True
     assert roots.overlay_root == (workdir / ".houmao").resolve()
+    assert roots.overlay_discovery_mode == "ancestor"
     assert (workdir / ".houmao" / "houmao-config.toml").is_file()
     assert roots.runtime_root == (workdir / ".houmao" / "runtime").resolve()
 
@@ -268,7 +278,57 @@ def test_ensure_project_aware_local_roots_preserves_env_selected_overlay_source_
     assert roots.created_overlay is True
     assert roots.overlay_root == overlay_root
     assert roots.overlay_root_source == "env"
+    assert roots.overlay_discovery_mode == "ancestor"
     assert roots.runtime_root == (overlay_root / "runtime").resolve()
     assert roots.jobs_root == (overlay_root / "jobs").resolve()
     assert roots.mailbox_root == (overlay_root / "mailbox").resolve()
     assert (overlay_root / "houmao-config.toml").is_file()
+
+
+def test_resolve_project_overlay_cwd_only_ignores_parent_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = (repo_root / "nested" / "child").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    monkeypatch.setenv(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR, "cwd_only")
+
+    resolution = resolve_project_overlay(cwd=nested_dir)
+
+    assert resolution.discovery_mode == "cwd_only"
+    assert resolution.project_overlay is None
+    assert resolution.source == "default"
+    assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
+
+
+def test_resolve_project_overlay_cwd_only_discovers_cwd_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    nested_dir = (repo_root / "nested" / "child").resolve()
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    bootstrap_project_overlay(nested_dir)
+    monkeypatch.setenv(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR, "cwd_only")
+
+    resolution = resolve_project_overlay(cwd=nested_dir)
+
+    assert resolution.discovery_mode == "cwd_only"
+    assert resolution.project_overlay is not None
+    assert resolution.source == "discovered"
+    assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
+
+
+def test_resolve_project_overlay_rejects_invalid_discovery_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workdir = (tmp_path / "workspace").resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR, "sideways")
+
+    with pytest.raises(ValueError, match="HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE"):
+        resolve_project_overlay(cwd=workdir)

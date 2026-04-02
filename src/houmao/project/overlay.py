@@ -27,12 +27,14 @@ PROJECT_RUNTIME_DIRNAME = "runtime"
 PROJECT_JOBS_DIRNAME = "jobs"
 PROJECT_MAILBOX_DIRNAME = "mailbox"
 PROJECT_OVERLAY_DIR_ENV_VAR = "HOUMAO_PROJECT_OVERLAY_DIR"
+PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR = "HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE"
 DEFAULT_AGENT_DEF_DIR = Path(".houmao") / "agents"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
 _STARTER_ASSET_ROOT = "starter_agents"
 
 AgentDefDirSource = Literal["cli", "env", "project_config", "project_overlay_env", "default"]
 ProjectOverlaySource = Literal["env", "discovered", "default"]
+ProjectOverlayDiscoveryMode = Literal["ancestor", "cwd_only"]
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,7 @@ class ProjectOverlayResolution:
 
     overlay_root: Path
     source: ProjectOverlaySource
+    discovery_mode: ProjectOverlayDiscoveryMode
     project_overlay: HoumaoProjectOverlay | None = None
 
 
@@ -128,6 +131,7 @@ class ProjectAwareLocalRoots:
 
     overlay_root: Path
     overlay_root_source: ProjectOverlaySource
+    overlay_discovery_mode: ProjectOverlayDiscoveryMode
     project_overlay: HoumaoProjectOverlay | None
     agent_def_dir: Path
     agent_def_dir_source: AgentDefDirSource
@@ -242,20 +246,27 @@ def resolve_project_overlay(
         return ProjectOverlayResolution(
             overlay_root=overlay_root_override,
             source="env",
+            discovery_mode=_resolve_project_overlay_discovery_mode(env=env),
             project_overlay=project_overlay,
         )
 
-    project_overlay = _discover_nearest_project_overlay(resolved_cwd)
+    discovery_mode = _resolve_project_overlay_discovery_mode(env=env)
+    if discovery_mode == "ancestor":
+        project_overlay = _discover_nearest_project_overlay(resolved_cwd)
+    else:
+        project_overlay = _load_project_overlay_from_root((resolved_cwd / PROJECT_DIRNAME).resolve())
     if project_overlay is not None:
         return ProjectOverlayResolution(
             overlay_root=project_overlay.overlay_root,
             source="discovered",
+            discovery_mode=discovery_mode,
             project_overlay=project_overlay,
         )
 
     return ProjectOverlayResolution(
         overlay_root=(resolved_cwd / PROJECT_DIRNAME).resolve(),
         source="default",
+        discovery_mode=discovery_mode,
     )
 
 
@@ -354,6 +365,7 @@ def resolve_project_aware_local_roots(
     return ProjectAwareLocalRoots(
         overlay_root=overlay_root,
         overlay_root_source=overlay_resolution.source,
+        overlay_discovery_mode=overlay_resolution.discovery_mode,
         project_overlay=project_overlay,
         agent_def_dir=agent_def_resolution.agent_def_dir,
         agent_def_dir_source=agent_def_resolution.source,
@@ -411,6 +423,7 @@ def ensure_project_aware_local_roots(
     return replace(
         ensured_roots,
         overlay_root_source=roots.overlay_root_source,
+        overlay_discovery_mode=roots.overlay_discovery_mode,
         bootstrap_result=bootstrap_result,
     )
 
@@ -621,6 +634,25 @@ def _resolve_project_overlay_dir_env_override(
     if not candidate.is_absolute():
         raise ValueError(f"`{PROJECT_OVERLAY_DIR_ENV_VAR}` must be an absolute path.")
     return candidate.resolve()
+
+
+def _resolve_project_overlay_discovery_mode(
+    *,
+    env: Mapping[str, str] | None,
+) -> ProjectOverlayDiscoveryMode:
+    """Resolve the ambient project-overlay discovery mode from the environment."""
+
+    env_mapping = dict(os.environ) if env is None else dict(env)
+    env_value = env_mapping.get(PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR)
+    if env_value is None or not env_value.strip():
+        return "ancestor"
+
+    discovery_mode = env_value.strip()
+    if discovery_mode not in {"ancestor", "cwd_only"}:
+        raise ValueError(
+            f"`{PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR}` must be `ancestor` or `cwd_only`."
+        )
+    return cast(ProjectOverlayDiscoveryMode, discovery_mode)
 
 
 def ensure_project_agent_compatibility_tree(

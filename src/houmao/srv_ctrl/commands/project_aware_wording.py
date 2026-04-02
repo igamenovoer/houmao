@@ -81,14 +81,35 @@ def describe_overlay_bootstrap(*, created_overlay: bool, overlay_exists: bool = 
     return "No project overlay was bootstrapped for this invocation."
 
 
-def describe_overlay_root_selection_source(*, overlay_root_source: str) -> str:
+def describe_overlay_root_selection_source(
+    *,
+    overlay_root_source: str,
+    overlay_discovery_mode: str = "ancestor",
+) -> str:
     """Describe how one invocation selected its overlay root."""
 
     if overlay_root_source == "env":
         return "Selected overlay root from `HOUMAO_PROJECT_OVERLAY_DIR`."
     if overlay_root_source == "discovered":
+        if overlay_discovery_mode == "cwd_only":
+            return "Selected overlay root from cwd-local project discovery."
         return "Selected overlay root from nearest-ancestor project discovery."
+    if overlay_discovery_mode == "cwd_only":
+        return (
+            "Selected overlay root from the cwd-local project-aware `<cwd>/.houmao` candidate."
+        )
     return "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate."
+
+
+def describe_overlay_discovery_mode(*, overlay_discovery_mode: str) -> str:
+    """Describe the effective ambient overlay discovery mode."""
+
+    if overlay_discovery_mode == "cwd_only":
+        return (
+            "Ambient overlay discovery is restricted to `<cwd>/.houmao/houmao-config.toml` "
+            "for this invocation."
+        )
+    return "Ambient overlay discovery uses nearest-ancestor lookup within the Git boundary."
 
 
 def _has_env_override(env_var_name: str, *, env: Mapping[str, str] | None) -> bool:
