@@ -231,3 +231,4 @@ Omit `--mail-account-dir` to use the standard in-root mailbox under `mailboxes/<
 
 - [Architecture Overview](overview.md)
 - [Agent Definition Directory](agent-definitions.md)
+- [Easy Specialists Guide](easy-specialists.md) — when to use easy specialists vs full presets

@@ -18,6 +18,7 @@
 ## Build Phase
 
 - [Launch Overrides](build-phase/launch-overrides.md): Override system for launch parameters.
+- [Launch Policy](build-phase/launch-policy.md): Policy engine for operator prompt modes and unattended execution.
 
 ## Run Phase
 

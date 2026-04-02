@@ -69,6 +69,16 @@ Print the raw persisted stdout artifact for one managed headless turn.
 houmao-mgr agents turn stdout [OPTIONS] TURN_ID
 ```
 
+| Argument | Description |
+|---|---|
+| `TURN_ID` | Identifier of the turn to inspect. |
+
+| Option | Description |
+|---|---|
+| `--port INTEGER` | Houmao pair authority port to use. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
 ### `stderr`
 
 Print the raw persisted stderr artifact for one managed headless turn.
@@ -76,6 +86,16 @@ Print the raw persisted stderr artifact for one managed headless turn.
 ```
 houmao-mgr agents turn stderr [OPTIONS] TURN_ID
 ```
+
+| Argument | Description |
+|---|---|
+| `TURN_ID` | Identifier of the turn to inspect. |
+
+| Option | Description |
+|---|---|
+| `--port INTEGER` | Houmao pair authority port to use. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ## See Also
 

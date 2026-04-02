@@ -7,6 +7,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
 - [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, presets, and skills.
 - [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
+- [Easy Specialists](getting-started/easy-specialists.md): When to use easy specialists vs full role/preset definitions.
 
 ## Reference
 
@@ -20,6 +21,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 ### Build Phase
 
 - [Launch Overrides](reference/build-phase/launch-overrides.md): Override system for launch parameters.
+- [Launch Policy](reference/build-phase/launch-policy.md): Policy engine for operator prompt modes and unattended execution.
 
 ### Run Phase
 
