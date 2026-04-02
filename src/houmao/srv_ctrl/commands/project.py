@@ -750,6 +750,7 @@ def remove_gemini_project_auth_command(name: str) -> None:
 @gemini_auth_group.command(name="add")
 @click.option("--name", required=True, help="Auth bundle name.")
 @click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
+@click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
 @click.option("--google-api-key", default=None, help="Value for `GOOGLE_API_KEY`.")
 @click.option(
     "--use-vertex-ai",
@@ -759,15 +760,16 @@ def remove_gemini_project_auth_command(name: str) -> None:
 @click.option(
     "--oauth-creds",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    required=True,
-    help="Path to the Gemini CLI `oauth_creds.json` file required by the current adapter.",
+    default=None,
+    help="Optional path to the Gemini CLI `oauth_creds.json` file.",
 )
 def add_gemini_project_auth_command(
     name: str,
     api_key: str | None,
+    base_url: str | None,
     google_api_key: str | None,
     use_vertex_ai: bool,
-    oauth_creds: Path,
+    oauth_creds: Path | None,
 ) -> None:
     """Create one new Gemini auth bundle inside the active project overlay."""
 
@@ -775,6 +777,7 @@ def add_gemini_project_auth_command(
         operation="add",
         name=name,
         api_key=api_key,
+        base_url=base_url,
         google_api_key=google_api_key,
         use_vertex_ai=use_vertex_ai,
         oauth_creds=oauth_creds,
@@ -785,6 +788,7 @@ def add_gemini_project_auth_command(
 @gemini_auth_group.command(name="set")
 @click.option("--name", required=True, help="Auth bundle name.")
 @click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
+@click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
 @click.option("--google-api-key", default=None, help="Value for `GOOGLE_API_KEY`.")
 @click.option(
     "--use-vertex-ai",
@@ -799,6 +803,9 @@ def add_gemini_project_auth_command(
 )
 @click.option("--clear-api-key", is_flag=True, help="Remove `GEMINI_API_KEY` from the auth bundle.")
 @click.option(
+    "--clear-base-url", is_flag=True, help="Remove `GOOGLE_GEMINI_BASE_URL` from the auth bundle."
+)
+@click.option(
     "--clear-google-api-key", is_flag=True, help="Remove `GOOGLE_API_KEY` from the auth bundle."
 )
 @click.option(
@@ -809,10 +816,12 @@ def add_gemini_project_auth_command(
 def set_gemini_project_auth_command(
     name: str,
     api_key: str | None,
+    base_url: str | None,
     google_api_key: str | None,
     use_vertex_ai: bool,
     oauth_creds: Path | None,
     clear_api_key: bool,
+    clear_base_url: bool,
     clear_google_api_key: bool,
     clear_use_vertex_ai: bool,
 ) -> None:
@@ -822,12 +831,14 @@ def set_gemini_project_auth_command(
         operation="set",
         name=name,
         api_key=api_key,
+        base_url=base_url,
         google_api_key=google_api_key,
         use_vertex_ai=use_vertex_ai,
         oauth_creds=oauth_creds,
         clear_env_names=_flagged_items(
             {
                 "GEMINI_API_KEY": clear_api_key,
+                "GOOGLE_GEMINI_BASE_URL": clear_base_url,
                 "GOOGLE_API_KEY": clear_google_api_key,
                 "GOOGLE_GENAI_USE_VERTEXAI": clear_use_vertex_ai,
             }
@@ -2375,6 +2386,7 @@ def _run_gemini_auth_write(
     operation: str,
     name: str,
     api_key: str | None,
+    base_url: str | None,
     google_api_key: str | None,
     use_vertex_ai: bool,
     oauth_creds: Path | None,
@@ -2386,6 +2398,7 @@ def _run_gemini_auth_write(
     env_values = _compact_env_values(
         {
             "GEMINI_API_KEY": api_key,
+            "GOOGLE_GEMINI_BASE_URL": base_url,
             "GOOGLE_API_KEY": google_api_key,
             "GOOGLE_GENAI_USE_VERTEXAI": "true" if use_vertex_ai else None,
         }
@@ -2397,7 +2410,7 @@ def _run_gemini_auth_write(
             name=name,
             env_values=env_values,
             file_sources={"oauth_creds.json": oauth_creds} if oauth_creds is not None else {},
-            require_any_input=False,
+            require_any_input=True,
             operation=operation,
             clear_env_names=clear_env_names,
             clear_file_sources=set(),
@@ -2599,11 +2612,10 @@ def _ensure_specialist_auth_bundle(
         )
         file_sources = {"auth.json": codex_auth_json} if codex_auth_json is not None else {}
     elif tool == "gemini":
-        if base_url is not None and base_url.strip():
-            raise click.ClickException("Gemini auth bundles do not currently support `--base-url`.")
         env_values = _compact_env_values(
             {
                 "GEMINI_API_KEY": api_key,
+                "GOOGLE_GEMINI_BASE_URL": base_url,
                 "GOOGLE_API_KEY": google_api_key,
                 "GOOGLE_GENAI_USE_VERTEXAI": "true" if use_vertex_ai else None,
             }

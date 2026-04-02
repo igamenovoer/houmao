@@ -80,7 +80,11 @@ class BuildRequest:
     def effective_setup(self) -> str:
         """Return the resolved setup identifier for the build."""
 
-        if self.setup is not None and self.config_profile is not None and self.setup != self.config_profile:
+        if (
+            self.setup is not None
+            and self.config_profile is not None
+            and self.setup != self.config_profile
+        ):
             raise BuildError(
                 "BuildRequest.setup and BuildRequest.config_profile must match when both are set."
             )
@@ -92,7 +96,11 @@ class BuildRequest:
     def effective_auth(self) -> str | None:
         """Return the resolved auth identifier for the build."""
 
-        if self.auth is not None and self.credential_profile is not None and self.auth != self.credential_profile:
+        if (
+            self.auth is not None
+            and self.credential_profile is not None
+            and self.auth != self.credential_profile
+        ):
             raise BuildError(
                 "BuildRequest.auth and BuildRequest.credential_profile must match when both are set."
             )
@@ -101,7 +109,11 @@ class BuildRequest:
     def effective_preset_path(self) -> Path | None:
         """Return the resolved preset path for provenance."""
 
-        if self.preset_path is not None and self.recipe_path is not None and self.preset_path != self.recipe_path:
+        if (
+            self.preset_path is not None
+            and self.recipe_path is not None
+            and self.preset_path != self.recipe_path
+        ):
             raise BuildError(
                 "BuildRequest.preset_path and BuildRequest.recipe_path must match when both are set."
             )
@@ -215,7 +227,9 @@ def _parse_operator_prompt_mode(
     return cast(OperatorPromptMode, value)
 
 
-def _resolved_operator_prompt_mode(operator_prompt_mode: OperatorPromptMode | None) -> OperatorPromptMode:
+def _resolved_operator_prompt_mode(
+    operator_prompt_mode: OperatorPromptMode | None,
+) -> OperatorPromptMode:
     """Resolve the effective operator prompt mode for one build request."""
 
     return operator_prompt_mode or "unattended"
@@ -574,6 +588,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     _validate_relative_path(adapter.auth_files_dir, field="auth_projection.files_dir")
     auth_files_dir = auth_dir / adapter.auth_files_dir
     projected_credentials: list[dict[str, Any]] = []
+    projected_auth_files: set[str] = set()
     for mapping in adapter.auth_file_mappings:
         _validate_relative_path(
             mapping.source,
@@ -590,6 +605,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                     f"Missing auth file for mapping `{mapping.source}` in bundle {auth_dir}"
                 )
             continue
+        projected_auth_files.add(mapping.source)
         destination = home_path / mapping.destination
         _project_path(source, destination, mode=mapping.mode)
         projected_credentials.append(
@@ -605,6 +621,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     auth_env_file = auth_dir / adapter.auth_env_source
     env_values = _parse_env_file(auth_env_file)
     selected_env_names = [key for key in adapter.auth_env_allowlist if key in env_values]
+    derived_launch_env_records = _derive_tool_launch_env_records(
+        tool=request.tool,
+        projected_auth_files=projected_auth_files,
+        env_values=env_values,
+    )
     try:
         persistent_env_records = validate_persistent_env_records(
             request.persistent_env_records or {},
@@ -613,6 +634,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         )
     except ValueError as exc:
         raise BuildError(str(exc)) from exc
+    effective_launch_env_records = {
+        **derived_launch_env_records,
+        **persistent_env_records,
+    }
 
     if adapter.env_injection_mode == "home_dotenv":
         env_file_in_home = adapter.env_file_in_home or ".env"
@@ -631,7 +656,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         launch_args=launch_helper_args,
         env_exports={
             **{key: env_values[key] for key in selected_env_names},
-            **persistent_env_records,
+            **effective_launch_env_records,
         },
         operator_prompt_mode=resolved_operator_prompt_mode,
     )
@@ -686,7 +711,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                     ),
                 },
                 "tool_metadata": adapter.launch_metadata.to_payload(),
-                "env_records": dict(persistent_env_records),
+                "env_records": dict(effective_launch_env_records),
                 "construction_provenance": construction_provenance,
             },
         },
@@ -734,6 +759,51 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         launch_preview=launch_preview,
         manifest=manifest,
     )
+
+
+def _derive_tool_launch_env_records(
+    *,
+    tool: str,
+    projected_auth_files: set[str],
+    env_values: dict[str, str],
+) -> dict[str, str]:
+    """Return runtime-derived launch env overlays for one built home."""
+
+    if tool != "gemini":
+        return {}
+    return _derive_gemini_launch_env_records(
+        projected_auth_files=projected_auth_files,
+        env_values=env_values,
+    )
+
+
+def _derive_gemini_launch_env_records(
+    *,
+    projected_auth_files: set[str],
+    env_values: dict[str, str],
+) -> dict[str, str]:
+    """Return Gemini runtime env overlays derived from auth-bundle state."""
+
+    if "oauth_creds.json" not in projected_auth_files:
+        return {}
+    if any(
+        _has_non_empty_env_value(env_values, key)
+        for key in (
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "GOOGLE_GENAI_USE_GCA",
+            "GOOGLE_GENAI_USE_VERTEXAI",
+        )
+    ):
+        return {}
+    return {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def _has_non_empty_env_value(env_values: dict[str, str], key: str) -> bool:
+    """Return whether one parsed env mapping contains a non-empty value."""
+
+    value = env_values.get(key)
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

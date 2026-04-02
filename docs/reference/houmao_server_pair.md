@@ -55,6 +55,12 @@ houmao-mgr admin cleanup registry --grace-seconds 0
 houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 ```
 
+Gemini note:
+
+- Project-local Gemini auth bundles now support `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, and `oauth_creds.json` through `houmao-mgr project agents tools gemini auth add|set`.
+- `houmao-mgr project easy specialist create --tool gemini` exposes the same maintained Gemini inputs through `--api-key`, optional `--base-url`, and `--gemini-oauth-creds`.
+- Managed Gemini homes resume follow-up headless turns with the persisted Gemini `session_id` in the same recorded working directory instead of relying on `--resume latest`.
+
 Prompt-policy note:
 
 - current brain construction and preset-backed launch flows treat omitted prompt mode as the unattended default

@@ -138,6 +138,66 @@ auth_projection:
     )
 
 
+def _seed_gemini_repo(agent_def_dir: Path) -> None:
+    _write(
+        agent_def_dir / "tools/gemini/adapter.yaml",
+        """
+schema_version: 1
+tool: gemini
+home_selector:
+  env_var: GEMINI_CLI_HOME
+launch:
+  executable: gemini
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+setup_projection:
+  destination: .gemini
+skills_projection:
+  destination: .agents/skills
+  mode: symlink
+auth_projection:
+  files_dir: files
+  file_mappings:
+    - source: oauth_creds.json
+      destination: .gemini/oauth_creds.json
+      mode: symlink
+      required: false
+  env:
+    source: env/vars.env
+    allowlist:
+      - GEMINI_API_KEY
+      - GOOGLE_GEMINI_BASE_URL
+      - GOOGLE_GENAI_USE_GCA
+""".strip()
+        + "\n",
+    )
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "tools/gemini/setups/default/settings.json", "{}\n")
+    _write(agent_def_dir / "tools/gemini/auth/oauth-only/env/vars.env", "\n")
+    _write(
+        agent_def_dir / "tools/gemini/auth/oauth-only/files/oauth_creds.json",
+        '{"refresh_token": "oauth-only"}\n',
+    )
+    _write(
+        agent_def_dir / "tools/gemini/auth/hybrid/env/vars.env",
+        "\n".join(
+            [
+                "GEMINI_API_KEY=gm-test-123",
+                "GOOGLE_GEMINI_BASE_URL=https://gemini.example.test",
+            ]
+        )
+        + "\n",
+    )
+    _write(
+        agent_def_dir / "tools/gemini/auth/hybrid/files/oauth_creds.json",
+        '{"refresh_token": "hybrid"}\n',
+    )
+
+
 def test_build_brain_home_projects_selected_components_and_manifest(
     tmp_path: Path,
 ) -> None:
@@ -390,8 +450,9 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     assert not (agent_def_dir / ".claude").exists()
     assert "houmao-email-via-agent-gateway" in processing_skill
     assert "installed Houmao skill `houmao-email-via-agent-gateway`" in processing_skill
-    assert "current prompt or recent mailbox context already provides the exact gateway base URL" in (
-        gateway_skill
+    assert (
+        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        in (gateway_skill)
     )
     assert "installed `houmao-process-emails-via-gateway` skill" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
@@ -722,6 +783,67 @@ def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_
     assert "houmao.agents.launch_policy.cli" in launch_script
     assert "--requested-operator-prompt-mode unattended" in launch_script
     assert "--backend raw_launch" in launch_script
+
+
+def test_build_brain_home_projects_gemini_skills_under_agents_root_and_injects_oauth_selector(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            home_id="gemini-home-oauth",
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert (result.home_path / ".agents/skills/skill-a").is_symlink()
+    assert (
+        result.home_path / ".agents/skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+    ).is_file()
+    assert not (result.home_path / ".gemini/skills").exists()
+    assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
+    assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
+    assert "export GEMINI_API_KEY=" not in launch_script
+    assert manifest["runtime"]["launch_contract"]["env_records"] == {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def test_build_brain_home_gemini_preserves_explicit_api_key_and_base_url_with_oauth_file(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="hybrid",
+            home_id="gemini-home-hybrid",
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert "export GEMINI_API_KEY=gm-test-123" in launch_script
+    assert "export GOOGLE_GEMINI_BASE_URL=https://gemini.example.test" in launch_script
+    assert "GOOGLE_GENAI_USE_GCA=true" not in launch_script
+    assert manifest["runtime"]["launch_contract"]["env_records"] == {}
 
 
 def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:

@@ -27,7 +27,7 @@ flowchart LR
     LI["LocalInteractiveSession<br/>persistent TUI in tmux pane<br/>send_prompt via tmux paste<br/>captures pane output"]
     CH["ClaudeHeadlessSession<br/>claude -p per turn<br/>JSON streaming output<br/>--continue for resume"]
     CX["CodexHeadlessSession<br/>codex exec --json per turn<br/>resume via thread_id"]
-    GH["GeminiHeadlessSession<br/>gemini -p per turn<br/>--resume latest"]
+    GH["GeminiHeadlessSession<br/>gemini -p per turn<br/>--resume <session_id>"]
     LEG["Legacy backends<br/>cao_rest / houmao_server_rest<br/>delegate to external server"]
 
     LP -->|local_interactive| LI
@@ -79,9 +79,19 @@ Runs Codex CLI in headless mode (`codex exec --json`). Produces structured JSON 
 Runs Gemini CLI in headless mode (`gemini -p`).
 
 - **Session class:** `GeminiHeadlessSession` (extends `HeadlessInteractiveSession`)
-- **Resume:** `--resume latest` flag to resume the most recent conversation.
+- **Auth lanes:** managed Gemini homes support `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via projected `oauth_creds.json`. OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present.
+- **Managed skills:** Houmao-owned Gemini skills project into `.agents/skills`; `.gemini/skills` remains an upstream compatibility path rather than Houmao's target contract.
+- **Resume:** `--resume <session_id>` when the session manifest already persists a Gemini session id. Resume stays bound to the same recorded working directory/project context.
 - **Role injection:** bootstrap message sent as the first-turn prompt.
 - **Use case:** automated pipelines and non-interactive agent orchestration.
+
+#### Gemini validation checklist
+
+- API-key lane: create a Gemini auth bundle with `--api-key` and optional `--base-url`, build or launch a managed Gemini home, and confirm the effective launch environment exports `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL` when configured.
+- OAuth lane: create a Gemini auth bundle with `oauth_creds.json` only, build or launch a managed Gemini home, and confirm the runtime exports `GOOGLE_GENAI_USE_GCA=true` without depending on a user-global Gemini `settings.json`.
+- Skill projection: inspect the constructed home and confirm Houmao-owned Gemini skills land under `.agents/skills/mailbox/...`; treat `.gemini/skills` as compatibility-only.
+- First-turn capture: verify the first `stream-json` Gemini turn emits a `session_id` and that Houmao persists that id into the managed session manifest.
+- Resume behavior: send a follow-up Gemini prompt from the same working directory and confirm Houmao launches `gemini -p --resume <persisted-session-id>`; changing the working directory should fail explicitly instead of silently retargeting another Gemini project store.
 
 ### codex_app_server
 

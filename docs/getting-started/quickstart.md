@@ -113,6 +113,12 @@ This higher-level flow persists semantic state in the catalog and snapshots payl
 
 Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. For example, add or inspect auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, or scaffold roles and presets with `houmao-mgr project agents roles ...`.
 
+Gemini note:
+
+- `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini` both support `--api-key`, optional `--base-url`, and optional OAuth credentials via `--oauth-creds` or `--gemini-oauth-creds`.
+- OAuth-backed managed Gemini homes inject the supported Google-login selector automatically, so fresh runtime homes do not depend on a user-global Gemini `settings.json`.
+- Houmao-owned Gemini skills now project into `.agents/skills/`; treat `.gemini/skills/` as a compatibility path rather than the primary managed location.
+
 ### Step 3: Inspect The Generated Role And Preset
 
 If you want to inspect the compiled project-local source directly:

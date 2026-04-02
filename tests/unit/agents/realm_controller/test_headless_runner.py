@@ -101,6 +101,32 @@ def test_headless_runner_extracts_codex_thread_id_from_stream_json(
     assert result.session_id == "thread-abc"
 
 
+def test_headless_runner_prefers_first_stream_json_session_id_for_gemini_resume_identity(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "emit_gemini_jsonl.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        'echo \'{"type":"init","session_id":"sess-init"}\'\n'
+        'echo \'{"type":"delta","text":"hello"}\'\n'
+        'echo \'{"type":"final","session_id":"sess-final","text":"done"}\'\n',
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    runner = HeadlessCliRunner()
+    result = runner.run(
+        command=[str(script)],
+        env={},
+        cwd=tmp_path,
+        turn_index=1,
+        output_format="stream-json",
+    )
+
+    assert result.returncode == 0
+    assert result.session_id == "sess-init"
+
+
 def test_headless_runner_tmux_persists_process_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -164,8 +190,7 @@ def test_headless_runner_tmux_persists_process_metadata(
     assert persisted["launched_at_utc"]
     assert prepared_sessions == ["HOUMAO-headless-test"]
     assert any(
-        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-test:0.0"]
-        for call in tmux_calls
+        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-test:0.0"] for call in tmux_calls
     )
     assert not any(call[:1] == ["new-window"] for call in tmux_calls)
 

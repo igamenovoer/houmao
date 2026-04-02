@@ -113,6 +113,58 @@ def test_gemini_headless_surfaces_stderr_on_failure(tmp_path: Path) -> None:
         session.send_prompt("hello")
 
 
+def test_gemini_headless_builds_exact_resume_turn_command(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    session = GeminiHeadlessSession(
+        launch_plan=_sample_gemini_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            session_id="sess-1",
+            turn_index=1,
+            role_bootstrap_applied=True,
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-gemini",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="sess-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt("hello")
+
+    assert captured["command"] == [
+        "gemini",
+        "-p",
+        "--resume",
+        "sess-1",
+        "hello",
+        "--output-format",
+        "stream-json",
+    ]
+
+
 def test_claude_headless_uses_launch_plan_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

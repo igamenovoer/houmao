@@ -108,9 +108,10 @@ The runtime projects one shared Houmao gateway skill plus one transport-specific
 
 - Claude native runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md`, `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`
 - Codex runtime homes: `skills/mailbox/houmao-process-emails-via-gateway/SKILL.md`, `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `skills/mailbox/houmao-email-via-stalwart/SKILL.md`
-- Gemini runtime homes: `.gemini/skills/mailbox/houmao-process-emails-via-gateway/SKILL.md`, `.gemini/skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `.gemini/skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `.gemini/skills/mailbox/houmao-email-via-stalwart/SKILL.md`
+- Gemini runtime homes: `.agents/skills/mailbox/houmao-process-emails-via-gateway/SKILL.md`, `.agents/skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`, `.agents/skills/mailbox/houmao-email-via-filesystem/SKILL.md`, and `.agents/skills/mailbox/houmao-email-via-stalwart/SKILL.md`
 
 For Claude, these mailbox skills live under the isolated runtime-owned `CLAUDE_CONFIG_DIR` and not under the launched workdir's `.claude/skills/` tree.
+For Gemini, `.gemini/skills/...` remains an upstream compatibility path, but Houmao-owned projection now targets `.agents/skills/...`.
 
 Shared runtime rules:
 

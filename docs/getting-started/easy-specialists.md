@@ -66,6 +66,23 @@ Key options:
 
 Tool-specific credential options are also available: `--claude-auth-token`, `--claude-model`, `--codex-org-id`, `--google-api-key`, etc.
 
+Gemini-specific auth inputs now support two maintained lanes:
+
+- API-key lane: `--api-key` with optional `--base-url` to persist `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL`.
+- OAuth lane: `--gemini-oauth-creds /path/to/oauth_creds.json` to persist the Gemini CLI OAuth credential file. You can also combine this with the API-key lane in one specialist or auth bundle; Houmao preserves explicit API-key and endpoint settings instead of overwriting them.
+
+Example Gemini specialist:
+
+```bash
+houmao-mgr project easy specialist create \
+  --name gemini-reviewer \
+  --tool gemini \
+  --system-prompt "You are a Gemini-based code reviewer." \
+  --api-key "$GEMINI_API_KEY" \
+  --base-url https://gemini.example.test \
+  --gemini-oauth-creds ./secrets/oauth_creds.json
+```
+
 ## Launching an Instance
 
 ```bash

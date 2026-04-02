@@ -15,7 +15,7 @@ launch:
 setup_projection:
   destination: .gemini
 skills_projection:
-  destination: .gemini/skills
+  destination: .agents/skills
   mode: symlink
 auth_projection:
   files_dir: files
@@ -23,9 +23,12 @@ auth_projection:
     - source: oauth_creds.json
       destination: .gemini/oauth_creds.json
       mode: symlink
+      required: false
   env:
     source: env/vars.env
     allowlist:
       - GOOGLE_API_KEY
       - GEMINI_API_KEY
+      - GOOGLE_GEMINI_BASE_URL
       - GOOGLE_GENAI_USE_VERTEXAI
+      - GOOGLE_GENAI_USE_GCA

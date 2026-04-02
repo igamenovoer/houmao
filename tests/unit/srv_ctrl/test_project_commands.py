@@ -469,9 +469,10 @@ def test_project_agents_tools_auth_get_and_setups_flow(
                 "vertex",
                 "--api-key",
                 "sk-gemini",
+                "--base-url",
+                "https://gemini.example.test",
                 "--oauth-creds",
                 str(gemini_oauth_creds),
-                "--use-vertex-ai",
             ],
         ).exit_code
         == 0
@@ -518,6 +519,19 @@ def test_project_agents_tools_auth_get_and_setups_flow(
         "present": True,
         "value": "https://claude.example.test",
     }
+
+    gemini_get_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "gemini", "auth", "get", "--name", "vertex"],
+    )
+    assert gemini_get_result.exit_code == 0
+    gemini_get_payload = json.loads(gemini_get_result.output)
+    assert gemini_get_payload["env"]["GEMINI_API_KEY"] == {"present": True, "redacted": True}
+    assert gemini_get_payload["env"]["GOOGLE_GEMINI_BASE_URL"] == {
+        "present": True,
+        "value": "https://gemini.example.test",
+    }
+    assert gemini_get_payload["files"]["oauth_creds.json"]["present"] is True
 
     remove_setup_result = runner.invoke(
         cli,
@@ -908,6 +922,208 @@ def test_project_easy_specialist_create_can_persist_as_is_opt_out(
         "prompt_mode": "as_is"
     }
     assert preset_payload["launch"] == {"prompt_mode": "as_is"}
+
+
+def test_project_agents_gemini_auth_set_preserves_api_key_when_updating_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "gemini",
+            "auth",
+            "add",
+            "--name",
+            "proxy",
+            "--api-key",
+            "sk-gemini",
+            "--base-url",
+            "https://gemini.example.test",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    env_file = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "gemini"
+        / "auth"
+        / "proxy"
+        / "env"
+        / "vars.env"
+    )
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "GEMINI_API_KEY=sk-gemini",
+        "GOOGLE_GEMINI_BASE_URL=https://gemini.example.test",
+    ]
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "gemini",
+            "auth",
+            "set",
+            "--name",
+            "proxy",
+            "--base-url",
+            "https://gemini-alt.example.test",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "GEMINI_API_KEY=sk-gemini",
+        "GOOGLE_GEMINI_BASE_URL=https://gemini-alt.example.test",
+    ]
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "gemini",
+            "auth",
+            "set",
+            "--name",
+            "proxy",
+            "--clear-base-url",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+    assert env_file.read_text(encoding="utf-8").splitlines() == ["GEMINI_API_KEY=sk-gemini"]
+
+
+def test_project_agents_gemini_auth_add_supports_oauth_only_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    oauth_creds = tmp_path / "oauth_creds.json"
+    oauth_creds.write_text('{"refresh_token": "token"}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "gemini",
+            "auth",
+            "add",
+            "--name",
+            "personal",
+            "--oauth-creds",
+            str(oauth_creds),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    oauth_bundle_file = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "gemini"
+        / "auth"
+        / "personal"
+        / "files"
+        / "oauth_creds.json"
+    )
+    assert oauth_bundle_file.is_file()
+    assert oauth_bundle_file.read_text(encoding="utf-8") == '{"refresh_token": "token"}\n'
+
+
+def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    oauth_creds = tmp_path / "oauth_creds.json"
+    oauth_creds.write_text('{"refresh_token": "token"}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "gemini-reviewer",
+            "--tool",
+            "gemini",
+            "--system-prompt",
+            "You are a Gemini reviewer.",
+            "--api-key",
+            "sk-gemini",
+            "--base-url",
+            "https://gemini.example.test",
+            "--gemini-oauth-creds",
+            str(oauth_creds),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    env_file = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "gemini"
+        / "auth"
+        / "gemini-reviewer-creds"
+        / "env"
+        / "vars.env"
+    )
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "GEMINI_API_KEY=sk-gemini",
+        "GOOGLE_GEMINI_BASE_URL=https://gemini.example.test",
+    ]
+    assert (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "gemini"
+        / "auth"
+        / "gemini-reviewer-creds"
+        / "files"
+        / "oauth_creds.json"
+    ).is_file()
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "gemini-reviewer"],
+        ).output
+    )
+    assert specialist_payload["tool"] == "gemini"
+    assert specialist_payload["launch"] == {"prompt_mode": "as_is"}
 
 
 def test_project_easy_specialist_create_prompts_before_replacing_existing_specialist(

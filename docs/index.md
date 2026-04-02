@@ -2,6 +2,8 @@
 
 Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agents as real tmux-backed processes.
 
+> **New here?** Start with the [project README](https://github.com/igamenovoer/houmao#readme) for installation, quick-start workflows (`agents join`, easy specialists, preset launch), and runnable demos. This site covers the full reference, developer guides, and subsystem internals.
+
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.

@@ -23,10 +23,6 @@ The core idea is to **avoid a hard-coded orchestration model**.
 
 Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style orchestration), `Houmao` treats a team as a set of **independently runnable CLI agents** and provides lightweight primitives to construct, start, and manage them, while keeping “how the team coordinates” **flexible and context-driven**.
 
-> Note
-> Today, the primary construction paradigm is an **agent definition directory** (tools + roles + skills + presets).
-> The details of “tool setups vs skills vs roles” are implementation choices that may evolve; the stable goal is **maximum flexibility with real, inspectable CLI agent processes**.
-
 ### What The Framework Provides
 
 - **Zero-setup adoption**: wrap any running `claude`, `codex`, or `gemini` session with `houmao-mgr agents join` — no configuration, no restart. You keep your familiar coding-agent workflow and gain management, coordination, and team features on top.
@@ -57,43 +53,15 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 
 ## Installation
 
-Pixi (recommended):
+```bash
+uv tool install houmao
+```
+
+For development from source:
 
 ```bash
 pixi install
 pixi shell
-```
-
-## Documentation
-
-The repository docs under `docs/` are built with MkDocs and are intended for GitHub Pages publishing.
-
-Build the site locally:
-
-```bash
-pixi run docs-build
-```
-
-Serve the site locally with live reload:
-
-```bash
-pixi run docs-serve
-```
-
-Optional Postgres + pgvector environment (for future context hosting):
-
-- Intended future use: manage persistent agent context such as RAG knowledge bases, dialog history, and work artifacts.
-- Not required for current core runtime flows.
-
-```bash
-pixi install -e pg-hosting --manifest-path pyproject.toml
-pixi run -e pg-hosting pg-init
-```
-
-Or editable install:
-
-```bash
-pip install -e .
 ```
 
 ### tmux (required)
@@ -113,8 +81,8 @@ command -v tmux
 | Entrypoint | Purpose | Status |
 |---|---|---|
 | `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, server control | **Active** |
-| `houmao-server` | Houmao-owned REST server for multi-agent coordination | **Active** |
-| `houmao-passive-server` | Lightweight passive validation server (no CAO dependency) | **Active** |
+| `houmao-server` | Houmao-owned REST server for multi-agent coordination | **In development — not ready for use** |
+| `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **In development — not ready for use** |
 | `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
 | `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
 
@@ -181,322 +149,82 @@ Once `agents join` completes, the adopted session has the same management capabi
 
 The only difference: a joined agent has a *placeholder* brain manifest (no skills/configs were projected), and relaunch support depends on whether you provided `--launch-args` at join time.
 
-### 2. Initialize A Local Houmao Project Overlay
+### 2. Easy Specialists (`project easy`)
 
-The supported local workflow is `houmao-mgr project init`. It creates one repo-local `.houmao/` overlay, writes `.houmao/houmao-config.toml`, writes `.houmao/.gitignore` with `*`, creates `.houmao/catalog.sqlite`, and creates the managed `.houmao/content/{prompts,auth,skills,setups}/` roots. It does not materialize `.houmao/agents/` only because init ran.
-
-Commands that need agent definitions now resolve the directory with this precedence:
-
-1. CLI `--agent-def-dir`
-2. env `HOUMAO_AGENT_DEF_DIR`
-3. nearest ancestor `.houmao/houmao-config.toml`
-4. default `<pwd>/.houmao/agents`
-
-The project-local workflow looks like this:
+For a reusable, named agent without learning the full agent-definition-directory layout, use the easy specialist workflow. This is the natural next step after `agents join`.
 
 ```bash
-pixi run houmao-mgr project init
-pixi run houmao-mgr project agents tools claude auth add --name default --api-key your-api-key-here
+# Initialize a project overlay (one-time)
+houmao-mgr project init
+
+# Create a specialist (bundles role + tool + auth into one named definition)
+houmao-mgr project easy specialist create \
+  --name my-coder --tool claude \
+  --api-key sk-ant-... \
+  --system-prompt "You are a Python backend developer."
+
+# Launch an instance
+houmao-mgr project easy instance launch \
+  --specialist my-coder --name my-coder
+
+# Use the full management surface
+houmao-mgr agents prompt --agent-name my-coder --prompt "explain main.py"
+houmao-mgr project easy instance get --name my-coder
+houmao-mgr project easy instance stop --name my-coder
 ```
 
-`project init` does not touch the repository root `.gitignore`. The whole `.houmao/` overlay stays local-only by default because `.houmao/.gitignore` ignores the subtree.
+Specialists persist under `.houmao/` and survive across sessions. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full model (specialist vs preset, lifecycle, storage layout, and management commands).
 
-### 3. Prepare The Agent Definition Directory Contents
+### 3. Full Preset Launch
 
-When current builders or launchers need a file-backed agent definition tree, Houmao materializes `.houmao/agents/` as a compatibility projection from the catalog-backed overlay. That projected tree still uses the familiar `tools/`, `roles/`, and `skills/` layout:
-
-- `tools/`: per-tool build/launch contracts, secret-free setup bundles, and local-only auth bundles.
-- `roles/`: role prompt packages that define agent behavior/policy for a session, plus optional presets.
-- `skills/`: reusable capability modules; each agent selects a subset.
-
-High-level project workflows persist canonical data in `.houmao/catalog.sqlite` plus `.houmao/content/`, and low-level `project agents ...` commands operate on the compatibility projection directly.
-
-Within `.houmao/agents/tools/<tool>/`:
-
-- `adapter.yaml`: per-tool build/launch contract (executable, env injection, projection rules).
-- `setups/<setup>/`: secret-free config files projected into the runtime home.
-- `auth/<auth>/`: local-only auth bundles (gitignored).
-
-Within `.houmao/agents/roles/<role>/`:
-
-- `system-prompt.md`: the role prompt package.
-- `presets/<tool>/<setup>.yaml`: path-derived presets that bind a role to a tool + setup + skills.
-
-```text
-<repo>/
-  .houmao/
-    houmao-config.toml                  # discovery anchor + compatibility-projection config
-    .gitignore                          # contains `*`
-    catalog.sqlite                      # canonical semantic store
-    content/
-      prompts/
-      auth/
-      skills/
-      setups/
-    agents/
-      tools/
-        <tool>/
-          adapter.yaml                  # REQUIRED: per-tool build & launch contract
-          setups/<setup>/...            # REQUIRED (per preset): secret-free tool config
-          auth/<auth>/                  # REQUIRED (per preset): local-only auth bundle
-            env/vars.env
-            files/...
-      roles/
-        <role>/
-          system-prompt.md              # REQUIRED: role prompt package
-          presets/<tool>/<setup>.yaml   # OPTIONAL: path-derived presets (recommended)
-      skills/
-        <skill>/SKILL.md                # REQUIRED (per preset): reusable skill packages
-```
-
-#### `tools/<tool>/adapter.yaml` (required)
-
-Tool adapters are the per-tool contract between your source tree and the generated runtime home.
-
-- Purpose: define how `build-brain` materializes a runnable home for each tool (`codex`, `claude`, `gemini`).
-- Launch definition: executable, default args, and home selector env var (for example `CLAUDE_CONFIG_DIR`).
-- Projection rules: where selected `setups/`, `skills/`, and auth files land inside the runtime home.
-- Auth env policy: which keys from `env/vars.env` are allowlisted and how they are injected at launch.
-
-For the full agent definition model, see [Agent Definitions](docs/getting-started/agent-definitions.md).
-
-#### `skills/` (required by presets)
-
-Skills are reusable capability modules (each with a `SKILL.md` entrypoint) that presets select from.
-
-- Purpose: define composable behaviors and workflows that can be mixed per agent.
-- Agent shaping: each agent selects a subset of available skills, and that selected subset is what makes the resulting agent role-specific in practice.
-
-Skill example (`tests/fixtures/agents/skills/openspec-apply-change/SKILL.md`):
-
-```markdown
----
-name: openspec-apply-change
-description: Implement tasks from an OpenSpec change.
----
-
-Implement tasks from an OpenSpec change.
-```
-
-#### `tools/<tool>/setups/<setup>/` (required by presets, secret-free)
-
-Tool-specific setup bundles that the builder projects into the constructed runtime home.
-
-Codex default setup example (`tests/fixtures/agents/tools/codex/setups/default/config.toml`):
-
-```toml
-model = "gpt-5.4"
-model_reasoning_effort = "medium"
-personality = "friendly"
-```
-
-Claude default setup example (`tests/fixtures/agents/tools/claude/setups/default/settings.json`):
-
-```json
-{
-  "skipDangerousModePermissionPrompt": true
-}
-```
-
-#### `tools/<tool>/auth/<auth>/` (required by presets, local-only)
-
-Auth bundles must stay uncommitted. Use a `files/` directory plus an `env/vars.env` file.
-
-Template layout example:
-
-```text
-tools/codex/auth/personal-a-default/
-  files/auth.json
-  env/vars.env
-```
-
-`vars.env` example (`tests/fixtures/agents/tools/codex/auth/personal-a-default/env/vars.env`):
+For teams that need full control over roles, skills, presets, and tool configurations, use the preset-backed launch path. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout.
 
 ```bash
-# OPENAI_API_KEY=<unset>
-# OPENAI_BASE_URL=<unset>
-# OPENAI_ORG_ID=<unset>
-```
-
-Keep real auth files (like `files/auth.json`) local-only and gitignored.
-
-#### `roles/<role>/presets/<tool>/<setup>.yaml` (recommended, secret-free)
-
-Presets are path-derived: role, tool, and setup identity come from the file path. The preset file only contains data that cannot be derived from its location: skills, optional default auth, optional launch settings, and optional extra metadata.
-
-Example preset (`tests/fixtures/agents/roles/gpu-kernel-coder/presets/claude/default.yaml`):
-
-```yaml
-skills:
-- openspec-apply-change
-- openspec-verify-change
-auth: personal-a-default
-launch:
-  prompt_mode: unattended
-```
-
-#### `roles/` (required)
-
-Each role is a package directory with a required `system-prompt.md` (and optional `files/`).
-
-Role prompt excerpt (`tests/fixtures/agents/roles/gpu-kernel-coder/system-prompt.md`):
-
-```markdown
-# SYSTEM PROMPT: GPU KERNEL CODER
-
-You are the coding worker in a GPU kernel optimization loop.
-You implement bounded CUDA/C++ changes, run validation, and report reproducible results.
-```
-
-### 4. Basic Workflow (Local tmux)
-
-Build a brain and launch a managed agent:
-
-```bash
-# Launch a managed agent from a preset (build + start in one command)
 houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code
-
-# Send a prompt
-houmao-mgr agents prompt --agent-name gpu-kernel-coder \
-  --prompt "Review the latest commit for security issues"
-
-# Stop and clean up
+houmao-mgr agents prompt --agent-name gpu-kernel-coder --prompt "Review the latest commit"
 houmao-mgr agents stop --agent-name gpu-kernel-coder
 ```
 
-Or build separately and launch:
+For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](scripts/demo/minimal-agent-launch/).
+
+### Runnable Demos
+
+The repository ships two maintained runnable demos under `scripts/demo/`:
+
+- **[`minimal-agent-launch/`](scripts/demo/minimal-agent-launch/)** — Preset-backed headless launch with Claude or Codex. Shows the full build → launch → prompt → stop cycle and records reproducible outputs.
+
+  ```bash
+  scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code
+  ```
+
+- **[`single-agent-mail-wakeup/`](scripts/demo/single-agent-mail-wakeup/)** — Easy specialist + gateway + mailbox-notifier wake-up. Creates a specialist, attaches a gateway, enables mail-notifier polling, and verifies the agent wakes up on incoming mail. See the [demo README](scripts/demo/single-agent-mail-wakeup/README.md) for stepwise commands.
+
+  ```bash
+  scripts/demo/single-agent-mail-wakeup/run_demo.sh auto --tool claude
+  ```
+
+### Subsystems at a Glance
+
+| Subsystem | Description | Docs |
+|---|---|---|
+| Gateway | Per-agent FastAPI sidecar for session control, request queue, and mail facade | [Gateway Reference](docs/reference/gateway/index.md) |
+| Mailbox | Unified async message transport — filesystem and Stalwart JMAP backends | [Mailbox Reference](docs/reference/mailbox/index.md) |
+| TUI Tracking | State machine, detectors, and replay engine for tracking agent TUI state | [TUI Tracking Reference](docs/reference/tui-tracking/state-model.md) |
+
+## Full Documentation
+
+Complete reference, guides, and developer docs are published at **[igamenovoer.github.io/houmao](https://igamenovoer.github.io/houmao/)**.
+
+## Development
 
 ```bash
-# Build a runtime home from a preset
-houmao-mgr brains build \
-  --agent-def-dir tests/fixtures/agents \
-  --preset roles/gpu-kernel-coder/presets/claude/default.yaml
-
-# The build outputs JSON with home_path, manifest_path, and launch_helper_path.
-# You can run the tool manually via launch_helper_path inside your own tmux window;
-# managed lifecycle commands require a session started through houmao-mgr.
+pixi run format              # ruff format
+pixi run lint                # ruff check
+pixi run typecheck           # mypy --strict
+pixi run test-runtime        # runtime-focused test suites
+pixi run docs-serve          # local docs site with live reload
 ```
 
-### 5. Server-Backed Multi-Agent Coordination
+---
 
-For multi-agent workflows that need a shared gateway and mailbox, use the `houmao-server` + `houmao-mgr` pair:
-
-```bash
-# Start the Houmao server
-pixi run houmao-mgr server start --api-base-url http://127.0.0.1:9889
-
-# Launch a managed agent through the server
-pixi run houmao-mgr agents launch --agents gpu-kernel-coder --provider codex
-```
-
-See [docs/reference/houmao_server_pair.md](docs/reference/houmao_server_pair.md) for the full server-pair workflow.
-
-## Developer Guide
-
-### Architecture
-
-```mermaid
-flowchart TB
-    subgraph agentdef ["Agent Definition Directory"]
-        adapter["Tool Adapter<br/>(per-tool build & launch rules)"]
-        preset["Preset<br/>(role + tool + setup + skills)"]
-        role["Role<br/>(system prompt package)"]
-        setup["Setup Bundle<br/>(secret-free tool config)"]
-        auth["Auth Bundle<br/>(local credentials)"]
-    end
-
-    subgraph buildphase ["① Build Phase"]
-        builder["Brain Builder"]
-        artifact["Brain Manifest<br/>& Runtime Home"]
-        builder --> artifact
-    end
-
-    subgraph runphase ["② Run Phase"]
-        runtime["Session Driver<br/>(LaunchPlan)"]
-        subgraph backends ["Backend"]
-            direction LR
-            local["local_interactive<br/>(tmux — primary)"]
-            headless["Headless<br/>(codex · claude · gemini)"]
-        end
-        toolcli["Tool CLI Process"]
-        runtime --> local & headless --> toolcli
-    end
-
-    subgraph joinphase ["③ Join Phase (no build required)"]
-        existingtui["Existing Provider TUI<br/>(claude / codex / gemini<br/>running in tmux)"]
-        joincmd["agents join<br/>(detect provider,<br/>create placeholder manifest,<br/>attach gateway)"]
-        existingtui --> joincmd
-    end
-
-    mgrcli["houmao-mgr<br/>(build · launch · join · prompt · stop)"]
-    srvpair["houmao-server<br/>(multi-agent coordination)"]
-
-    adapter --> builder
-    preset --> builder
-    setup --> builder
-    auth --> builder
-
-    artifact --> runtime
-    role --> runtime
-
-    mgrcli --> builder
-    mgrcli --> runtime
-    mgrcli --> joincmd
-    joincmd -. "registry +<br/>gateway" .-> runtime
-    mgrcli -. "server control" .-> srvpair
-    srvpair -. "gateway + mailbox" .-> runtime
-```
-
-### Sequence (UML)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Op as Operator
-    participant Mgr as houmao-mgr
-    participant Bld as BrainBuilder
-    participant Drv as SessionDriver
-    participant Tmux as tmux
-    participant Tool as Tool CLI
-
-    Op->>Mgr: agents launch --agents R --provider P
-    Mgr->>Bld: resolve preset, project<br/>setups, skills, auth
-    Bld-->>Mgr: manifest_path, home_path
-
-    Mgr->>Drv: build LaunchPlan
-    Drv->>Tmux: create session/window
-    Drv->>Tool: exec tool CLI under tmux
-
-    Op->>Mgr: agents prompt --agent-name A
-    Mgr->>Drv: submit prompt
-    Drv->>Tool: paste prompt into tmux pane
-    Tool-->>Drv: (TUI state tracking detects turn completion)
-    Drv-->>Mgr: structured turn result
-
-    Op->>Mgr: agents stop --agent-name A
-    Mgr->>Drv: stop / cleanup
-    Drv->>Tmux: kill session
-```
-
-### Development Checks
-
-```bash
-pixi run format
-pixi run lint
-pixi run typecheck
-pixi run test-runtime
-```
-
-## Appendix
-
-### Legacy: CAO Integration
-
-Houmao was originally inspired by and built on [CAO (CLI Agent Orchestrator)](https://github.com/awslabs/cli-agent-orchestrator). Part of CAO's functionality has been integrated into Houmao's own runtime (the `cao_rest` and `houmao_server_rest` backends), but this integration is planned for removal in favor of Houmao's native `local_interactive` backend and the `houmao-server` + `houmao-mgr` pair.
-
-If you encounter legacy paths that reference CAO, prefer the native Houmao equivalents:
-
-| Legacy | Replacement |
-|---|---|
-| `houmao-cao-server` | `houmao-server` (managed via `houmao-mgr server start`) |
-| `houmao-cli` | `houmao-mgr` |
-| `cao_rest` backend | `local_interactive` backend (default) |
+> **Legacy note:** Houmao was originally inspired by [CAO (CLI Agent Orchestrator)](https://github.com/awslabs/cli-agent-orchestrator). Legacy `houmao-cli`, `houmao-cao-server`, and `cao_rest` backend paths are deprecated — use `houmao-mgr`, `houmao-server`, and `local_interactive` instead.

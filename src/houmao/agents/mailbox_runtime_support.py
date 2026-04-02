@@ -87,7 +87,7 @@ _MAILBOX_NATIVE_TOP_LEVEL_TOOLS = frozenset({"claude"})
 _TOOL_SKILLS_DESTINATION = {
     "claude": "skills",
     "codex": "skills",
-    "gemini": ".gemini/skills",
+    "gemini": ".agents/skills",
 }
 
 _MAILBOX_COMMON_ENV_VARS = (

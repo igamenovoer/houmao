@@ -18,7 +18,7 @@ Mailbox support spans build time, start time, resume time, and control time.
 `build_brain_home()` always projects the runtime-owned mailbox skills into the selected skills destination. The visible mailbox skill surface is tool-specific:
 
 - Claude uses top-level Houmao skill directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, such as `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`.
-- Current non-Claude adapters keep the visible mailbox subtree, such as `skills/mailbox/...` for Codex and `.gemini/skills/mailbox/...` for Gemini.
+- Current non-Claude adapters keep the visible mailbox subtree, such as `skills/mailbox/...` for Codex and `.agents/skills/mailbox/...` for Gemini. Gemini's upstream `.gemini/skills/...` path remains a compatibility alias, but Houmao no longer treats it as the primary managed destination.
 
 That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent, and tool-aware prompt construction can point directly at the visible mailbox skill files without assuming one layout for every tool. Houmao keeps Claude's isolated runtime home separate from the launched workdir and does not repurpose the repo's project-local `.claude/` tree for runtime-owned mailbox skills.
 
