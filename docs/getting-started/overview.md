@@ -112,3 +112,9 @@ houmao-mgr project
 - `project agents ...` maps directly to the canonical `.houmao/agents/` source tree.
 - `project easy ...` lets users author reusable specialists and view running instances without hand-editing the tree.
 - `project mailbox ...` mirrors the generic `houmao-mgr mailbox ...` operations, but automatically targets `<project-root>/.houmao/mailbox`.
+
+Project-aware commands select that overlay root through one shared contract:
+
+- `HOUMAO_PROJECT_OVERLAY_DIR` selects an overlay root directly and wins over ambient discovery.
+- Otherwise Houmao uses `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=ancestor` by default, which searches for the nearest ancestor `.houmao/houmao-config.toml` within the current Git boundary.
+- Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` to restrict ambient lookup to `<cwd>/.houmao/houmao-config.toml`.

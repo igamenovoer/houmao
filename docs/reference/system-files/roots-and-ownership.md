@@ -38,6 +38,8 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 | Launcher-selected CAO home | `<runtime-root>/cao_servers/<host>-<port>/home/` when `home_dir` is omitted | explicit launcher config or CLI `home_dir` override | Houmao-selected | Stable placement, opaque CAO-owned contents |
 | Mailbox root | `<active-overlay>/mailbox` for maintained project-aware command surfaces | `HOUMAO_GLOBAL_MAILBOX_DIR` or explicit mailbox-root override | Separate mailbox subsystem | Out of scope for this subtree |
 
+The active overlay root itself is selected from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`. `ancestor` remains the default nearest-ancestor lookup mode, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`.
+
 ## Root-Resolution Notes
 
 ### Houmao home anchor

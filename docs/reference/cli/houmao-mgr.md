@@ -279,7 +279,7 @@ Project overlay notes:
 
 #### `project mailbox`
 
-`project mailbox` mirrors the generic mailbox-root CLI, but automatically targets `mailbox/` under the active overlay root selected by `HOUMAO_PROJECT_OVERLAY_DIR` or nearest-ancestor discovery.
+`project mailbox` mirrors the generic mailbox-root CLI, but automatically targets `mailbox/` under the active overlay root selected by `HOUMAO_PROJECT_OVERLAY_DIR` or ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`.
 
 | Subcommand | Description |
 |---|---|

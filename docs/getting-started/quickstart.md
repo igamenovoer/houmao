@@ -7,6 +7,8 @@ This guide shows the two supported local entry points:
 
 For maintained local-state command families such as `brains build`, `agents launch`, `mailbox`, `admin cleanup runtime`, and `server start`, Houmao now resolves runtime, jobs, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/jobs`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
 
+Ambient overlay selection defaults to nearest-ancestor `.houmao/houmao-config.toml` discovery within the current Git boundary. Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want commands run from a subdirectory to ignore a parent overlay and consider only `<cwd>/.houmao`. `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` remains the stronger explicit overlay-root override.
+
 ## Prerequisites
 
 - Python 3.11+
@@ -74,6 +76,8 @@ If you need the optional compatibility metadata root pre-created, use:
 ```bash
 pixi run houmao-mgr project init --with-compatibility-profiles
 ```
+
+If you later run maintained project-aware commands from a nested subdirectory, the default behavior is still to reuse the nearest ancestor overlay you just initialized. Use `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want a nested directory to behave as an independent Houmao project root and bootstrap its own `.houmao/` instead of inheriting the parent one.
 
 ### Step 2: Create One Specialist Through `project easy`
 
