@@ -4112,6 +4112,142 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
     assert "suppressed" not in log_text
 
 
+def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unattended_args(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="HOUMAO-gpu",
+        address="HOUMAO-gpu@agents.localhost",
+        filesystem_root=(tmp_path / "mailbox").resolve(),
+        bindings_version="2026-04-02T12:00:00.000001Z",
+    )
+    launch_plan = LaunchPlan(
+        backend="gemini_headless",
+        tool="gemini",
+        executable="gemini",
+        args=["--approval-mode=yolo", "--sandbox=false"],
+        working_directory=tmp_path,
+        home_env_var="GEMINI_CLI_HOME",
+        home_path=tmp_path / "home",
+        env=mailbox_env_bindings(mailbox),
+        env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
+        role_injection=RoleInjectionPlan(
+            method="bootstrap_message",
+            role_name="role",
+            prompt="role prompt",
+            bootstrap_message="bootstrap",
+        ),
+        metadata={},
+        mailbox=mailbox,
+    )
+
+    manifest_path = default_manifest_path(tmp_path, "gemini_headless", "gemini-headless-1")
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=launch_plan,
+            role_name="role",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gemini",
+            session_id="gemini-headless-1",
+            agent_def_dir=(tmp_path / "agents").resolve(),
+            backend_state={"session_id": "sess-gemini-1"},
+        )
+    )
+    write_session_manifest(manifest_path, payload)
+    gateway_root = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="gemini_headless",
+            tool="gemini",
+            session_id="gemini-headless-1",
+            tmux_session_name="HOUMAO-gemini",
+            working_directory=tmp_path,
+            backend_state={"session_id": "sess-gemini-1"},
+            agent_def_dir=tmp_path / "agents",
+        )
+    ).gateway_root
+
+    output_path = tmp_path / "tmp" / "gateway-mail-processed.txt"
+
+    class _GeminiGatewayHeadlessSession:
+        def __init__(self) -> None:
+            self.backend = "gemini_headless"
+            self.state = type(
+                "State",
+                (),
+                {
+                    "turn_index": 0,
+                    "tmux_session_name": "HOUMAO-gemini",
+                    "session_id": "sess-gemini-1",
+                },
+            )()
+            self.prompt_calls: list[tuple[str, str | None]] = []
+
+        def send_prompt(
+            self, prompt: str, *, turn_artifact_dir_name: str | None = None
+        ) -> list[object]:
+            self.prompt_calls.append((prompt, turn_artifact_dir_name))
+            if (
+                "--approval-mode=yolo" in launch_plan.args
+                and "--sandbox=false" in launch_plan.args
+                and "List unread mail through the shared gateway mailbox API for this round."
+                in prompt
+            ):
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text("processed by gemini notifier\n", encoding="utf-8")
+            self.state.turn_index += 1
+            return []
+
+        def interrupt(self) -> SessionControlResult:
+            return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+    fake_session = _GeminiGatewayHeadlessSession()
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _GeminiGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-gemini",
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
+    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        _deliver_unread_mailbox_message(tmp_path)
+        _wait_until(lambda: output_path.exists(), timeout_seconds=5.0)
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls
+    assert (
+        "List unread mail through the shared gateway mailbox API for this round."
+        in fake_session.prompt_calls[0][0]
+    )
+    assert output_path.read_text(encoding="utf-8") == "processed by gemini notifier\n"
+
+
 def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gateway_skill(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

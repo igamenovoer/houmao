@@ -44,7 +44,7 @@ Generated outputs are ignored through [outputs/.gitignore](outputs/.gitignore).
 
 The demo fails early and names the missing fixture path when a required auth bundle is absent.
 
-The canonical supported Gemini lane uses the OAuth-backed fixture at `tests/fixtures/agents/tools/gemini/auth/personal-a-default`. The runtime importer also accepts `tests/fixtures/agents/tools/gemini/auth/api-key-a-default` for manual variation, but the maintained demo contract validates the OAuth-backed unattended path.
+The canonical supported Gemini lane uses the OAuth-backed fixture at `tests/fixtures/agents/tools/gemini/auth/personal-a-default`. The runtime importer also accepts `tests/fixtures/agents/tools/gemini/auth/api-key-a-default` for manual variation, but the maintained demo contract validates the OAuth-backed unattended path with runtime-owned full-permission Gemini startup.
 
 ## Commands
 

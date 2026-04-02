@@ -357,6 +357,76 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
     assert plan.redacted_payload()["launch_policy_provenance"]["selection_source"] == "registry"
 
 
+def test_build_launch_plan_applies_gemini_unattended_cli_ownership_and_settings_repair(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("GOOGLE_GENAI_USE_GCA=true\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    settings_path = tmp_path / "home/.gemini/settings.json"
+    _write(
+        settings_path,
+        '{"tools":{"sandbox":"docker","core":["read_file"]},"security":{"disableYoloMode":true}}\n',
+    )
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type(
+            "_Completed",
+            (),
+            {"stdout": "0.36.0", "stderr": "", "args": command},
+        )()
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_version,
+    )
+
+    manifest = _manifest(
+        tool="gemini",
+        executable="gemini",
+        home_env_var="GEMINI_CLI_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["GOOGLE_GENAI_USE_GCA"],
+        launch_args=[
+            "--model",
+            "gemini-2.5-pro",
+            "--approval-mode=default",
+            "--sandbox",
+            "docker",
+        ],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="gemini_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.args == [
+        "--model",
+        "gemini-2.5-pro",
+        "--approval-mode=yolo",
+        "--sandbox=false",
+    ]
+    assert plan.launch_policy_provenance is not None
+    assert plan.launch_policy_provenance.selected_strategy_id == "gemini-unattended-0.36.0"
+    assert '"sandbox": false' in settings_path.read_text(encoding="utf-8")
+
+
 def test_build_launch_plan_honors_process_env_strategy_override_without_projection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

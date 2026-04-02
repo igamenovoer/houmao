@@ -1,9 +1,4 @@
-# docs-launch-policy-reference Specification
-
-## Purpose
-Define the documentation requirements for the launch policy reference page.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Launch policy reference page exists
 

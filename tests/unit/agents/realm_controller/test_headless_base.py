@@ -20,6 +20,7 @@ from houmao.agents.realm_controller.backends.headless_base import (
 )
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessRunResult,
+    HeadlessCliRunner,
 )
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
@@ -163,6 +164,100 @@ def test_gemini_headless_builds_exact_resume_turn_command(tmp_path: Path) -> Non
         "--output-format",
         "stream-json",
     ]
+
+
+def test_gemini_headless_executes_direct_prompt_with_unattended_full_permission_args(
+    tmp_path: Path,
+) -> None:
+    fake_gemini = tmp_path / "fake-gemini.sh"
+    fake_gemini.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'if [[ \"${1:-}\" == \"--version\" ]]; then',
+                '  echo \"0.36.0\"',
+                "  exit 0",
+                "fi",
+                'if [[ \"$*\" != *\"--approval-mode=yolo\"* ]]; then',
+                '  echo \"missing approval mode\" >&2',
+                "  exit 41",
+                "fi",
+                'if [[ \"$*\" != *\"--sandbox=false\"* ]]; then',
+                '  echo \"missing sandbox override\" >&2',
+                "  exit 42",
+                "fi",
+                'if [[ \"$*\" == *\"write-direct-artifact\"* ]]; then',
+                "  mkdir -p tmp",
+                '  printf \"created by fake gemini\\n\" > tmp/direct-tool.txt',
+                "fi",
+                'echo \'{"type":"init","session_id":"sess-direct"}\'',
+                'echo \'{"type":"final","session_id":"sess-direct","text":"done"}\'',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    fake_gemini.chmod(0o755)
+
+    session = GeminiHeadlessSession(
+        launch_plan=LaunchPlan(
+            backend="gemini_headless",
+            tool="gemini",
+            executable=str(fake_gemini),
+            args=["--approval-mode=yolo", "--sandbox=false"],
+            working_directory=tmp_path,
+            home_env_var="GEMINI_CLI_HOME",
+            home_path=tmp_path / "home",
+            env={},
+            env_var_names=[],
+            role_injection=RoleInjectionPlan(
+                method="bootstrap_message",
+                role_name="gpu-kernel-coder",
+                prompt="role prompt",
+                bootstrap_message="bootstrap",
+            ),
+            metadata={},
+        ),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-gemini",
+        ),
+    )
+    direct_runner = HeadlessCliRunner()
+
+    class _DirectRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            turn_artifact_dir_name=None,
+        ) -> HeadlessRunResult:
+            del tmux_session_name, turn_artifacts_root, turn_artifact_dir_name
+            return direct_runner.run(
+                command=command,
+                env=env,
+                cwd=cwd,
+                turn_index=turn_index,
+                output_format=output_format,
+            )
+
+    session._runner = _DirectRunner()  # type: ignore[attr-defined]
+
+    events = session.send_prompt("write-direct-artifact")
+
+    assert (tmp_path / "tmp" / "direct-tool.txt").read_text(encoding="utf-8") == (
+        "created by fake gemini\n"
+    )
+    assert session.state.session_id == "sess-direct"
+    assert events[-1].kind == "done"
 
 
 def test_claude_headless_uses_launch_plan_environment(

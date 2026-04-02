@@ -70,6 +70,12 @@ _ACTION_KINDS: tuple[
     "validate.reject_conflicting_launch_args",
     "provider_hook.call",
 )
+_RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS: frozenset[str] = frozenset(
+    {
+        "codex.canonicalize_unattended_launch_inputs",
+        "gemini.canonicalize_unattended_launch_inputs",
+    }
+)
 
 
 def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
@@ -446,9 +452,10 @@ def _apply_action(
         return
     if action.kind == "provider_hook.call":
         hook_id = _require_non_blank_str(action.params, "hook_id", source=action.kind)
-        if request.application_kind != "provider_start" and hook_id not in {
-            "codex.canonicalize_unattended_launch_inputs"
-        }:
+        if (
+            request.application_kind != "provider_start"
+            and hook_id not in _RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS
+        ):
             return
         run_provider_hook(hook_id=hook_id, request=request, args=args)
         return

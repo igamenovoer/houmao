@@ -440,18 +440,35 @@ def test_codex_provider_start_repairs_blank_owned_toml_via_atomic_replace(
     assert config_path in replace_targets
 
 
-def test_gemini_registry_supports_zero_owned_paths_and_actions() -> None:
+def test_gemini_registry_declares_owned_startup_surfaces_and_actions() -> None:
     documents = load_registry_documents(tool="gemini")
 
     assert len(documents) == 1
     assert len(documents[0].strategies) == 1
     strategy = documents[0].strategies[0]
     assert strategy.strategy_id == "gemini-unattended-0.36.0"
-    assert strategy.owned_paths == ()
-    assert strategy.actions == ()
+    assert strategy.owned_paths == (
+        type(strategy.owned_paths[0])(
+            path=".gemini/settings.json",
+            keys=(
+                "tools.sandbox",
+                "tools.core",
+                "tools.exclude",
+                "security.disableYoloMode",
+                "security.toolSandboxing",
+                "admin.secureModeEnabled",
+            ),
+        ),
+    )
+    assert [action.kind for action in strategy.actions] == [
+        "provider_hook.call",
+        "cli_arg.ensure_present",
+        "cli_arg.ensure_present",
+        "provider_hook.call",
+    ]
 
 
-def test_gemini_unattended_strategy_supports_fresh_oauth_home_without_mutation(
+def test_gemini_unattended_strategy_applies_full_permission_launch_args_for_fresh_oauth_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -475,13 +492,149 @@ def test_gemini_unattended_strategy_supports_fresh_oauth_home_without_mutation(
         )
     )
 
-    assert result.args == ("-p", "--output-format", "stream-json")
+    assert result.args == (
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--approval-mode=yolo",
+        "--sandbox=false",
+    )
     assert result.provenance is not None
     assert result.provenance.selected_strategy_id == "gemini-unattended-0.36.0"
     assert result.strategy is not None
-    assert result.strategy.owned_paths == ()
-    assert result.strategy.actions == ()
+    assert result.strategy.owned_paths[0].path == ".gemini/settings.json"
+    assert [action.kind for action in result.strategy.actions] == [
+        "provider_hook.call",
+        "cli_arg.ensure_present",
+        "cli_arg.ensure_present",
+        "provider_hook.call",
+    ]
     assert oauth_path.read_text(encoding="utf-8") == '{"refresh_token":"token"}\n'
+    assert not (home / ".gemini" / "settings.json").exists()
+
+
+def test_gemini_unattended_strategy_canonicalizes_conflicting_inputs_and_repairs_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="0.36.0")
+    home = tmp_path / "gemini-home"
+    settings_path = home / ".gemini" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "tools": {
+                    "sandbox": "docker",
+                    "core": ["read_file"],
+                    "exclude": ["run_shell_command"],
+                    "allowed": ["run_shell_command(git status)"],
+                },
+                "security": {
+                    "disableYoloMode": True,
+                    "toolSandboxing": True,
+                },
+                "admin": {"secureModeEnabled": True},
+                "ui": {"theme": "light"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="gemini",
+            backend="gemini_headless",
+            executable="gemini",
+            base_args=(
+                "-p",
+                "--approval-mode=default",
+                "--approval-mode",
+                "auto_edit",
+                "--sandbox=true",
+                "--sandbox",
+                "docker",
+                "--yolo",
+                "--model",
+                "gemini-2.5-pro",
+            ),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={"GOOGLE_GENAI_USE_GCA": "true"},
+        )
+    )
+
+    assert result.args == (
+        "-p",
+        "--model",
+        "gemini-2.5-pro",
+        "--approval-mode=yolo",
+        "--sandbox=false",
+    )
+    payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert payload["tools"] == {
+        "sandbox": False,
+        "allowed": ["run_shell_command(git status)"],
+    }
+    assert payload["security"] == {
+        "disableYoloMode": False,
+        "toolSandboxing": False,
+    }
+    assert payload["admin"] == {"secureModeEnabled": False}
+    assert payload["ui"] == {"theme": "light"}
+
+
+def test_gemini_resume_control_preserves_owned_settings_file_while_reapplying_cli_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="0.36.0")
+    home = tmp_path / "gemini-home"
+    settings_path = home / ".gemini" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    original_settings = json.dumps(
+        {
+            "tools": {
+                "sandbox": "docker",
+                "core": ["read_file"],
+                "exclude": ["run_shell_command"],
+            },
+            "security": {"disableYoloMode": True},
+        }
+    )
+    settings_path.write_text(original_settings + "\n", encoding="utf-8")
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="gemini",
+            backend="gemini_headless",
+            executable="gemini",
+            base_args=(
+                "-p",
+                "--sandbox=podman",
+                "--approval-mode",
+                "default",
+                "--resume",
+                "sess-1",
+            ),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={"GOOGLE_GENAI_USE_GCA": "true"},
+            application_kind="resume_control",
+        )
+    )
+
+    assert result.args == (
+        "-p",
+        "--resume",
+        "sess-1",
+        "--approval-mode=yolo",
+        "--sandbox=false",
+    )
+    assert settings_path.read_text(encoding="utf-8") == original_settings + "\n"
 
 
 def test_supported_version_spec_uses_dependency_style_matching() -> None:

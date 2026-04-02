@@ -57,7 +57,20 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 | `codex.ensure_project_trust` | Seeds project trust level in `config.toml`. |
 | `codex.ensure_model_migration_state` | Seeds model migration state in `config.toml`. |
 
+### Gemini Hooks
+
+| Hook | Description |
+|---|---|
+| `gemini.canonicalize_unattended_launch_inputs` | Strips caller-supplied `--yolo`, `--approval-mode`, and `--sandbox` overrides so the maintained unattended Gemini posture can be re-applied deterministically. |
+| `gemini.ensure_unattended_runtime_state` | Repairs or patches `.gemini/settings.json` only when copied runtime-home settings would weaken unattended Gemini approval, sandbox, or tool-availability posture. |
+
 Hooks run within a provider state mutation lock for thread-safe file access.
+
+## Gemini Unattended Posture
+
+Maintained Gemini unattended startup is owned by launch policy rather than by copied setup defaults. For `gemini_headless`, the policy engine force-applies `--approval-mode=yolo` and `--sandbox=false` so non-interactive Gemini keeps shell and file-mutation tools available instead of falling back to Gemini CLI's default headless read-only posture.
+
+This ownership is authoritative for the unattended path. If adapter defaults, recipe overrides, direct launch args, or copied `.gemini/settings.json` content request a weaker approval mode, enable sandboxing, or restrict the built-in tool registry, launch policy replaces or repairs those owned surfaces before provider start. Non-unattended Gemini launches remain `as_is`.
 
 ## Versioned Registry
 
