@@ -39,7 +39,7 @@ Start here:
 
 ### `single-agent-mail-wakeup/`
 
-Supported project-local gateway wake-up demo for one `houmao-mgr project easy` TUI specialist. The pack copies a tiny dummy project under `outputs/<tool>/project/`, redirects Houmao overlay state into the sibling `outputs/<tool>/overlay/` root through `HOUMAO_PROJECT_OVERLAY_DIR`, keeps runtime, jobs, and mailbox state under that overlay, imports the local Claude or Codex fixture auth bundle, launches one project-easy TUI instance, attaches a gateway, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies artifact creation plus actor-scoped unread completion.
+Supported project-local gateway wake-up demo for one `houmao-mgr project easy` TUI specialist. The pack keeps one canonical `outputs/` root, copies a tiny dummy project under `outputs/project/`, redirects Houmao overlay state into the sibling `outputs/overlay/` root through `HOUMAO_PROJECT_OVERLAY_DIR`, keeps runtime, jobs, and mailbox state under that overlay, imports the local Claude or Codex fixture auth bundle, launches one project-easy TUI instance, attaches a gateway, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies artifact creation plus actor-scoped unread completion.
 
 Supported lanes:
 
@@ -50,6 +50,20 @@ Start here:
 
 - [Guide: single-agent-mail-wakeup/README.md](single-agent-mail-wakeup/README.md)
 - Runner: [single-agent-mail-wakeup/run_demo.sh](single-agent-mail-wakeup/run_demo.sh)
+
+### `single-agent-gateway-wakeup-headless/`
+
+Supported project-local gateway wake-up demo for one `houmao-mgr project easy` headless specialist. The pack keeps one canonical `outputs/` root, copies a tiny dummy project under `outputs/project/`, redirects Houmao overlay state into `outputs/overlay/`, imports the local Claude or Codex fixture auth bundle, launches one project-easy instance through `project easy instance launch --headless`, attaches a live gateway in a separate watchable tmux window, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies headless last-turn or durable turn-artifact evidence alongside artifact creation and actor-scoped unread completion.
+
+Supported lanes:
+
+- `claude`
+- `codex`
+
+Start here:
+
+- [Guide: single-agent-gateway-wakeup-headless/README.md](single-agent-gateway-wakeup-headless/README.md)
+- Runner: [single-agent-gateway-wakeup-headless/run_demo.sh](single-agent-gateway-wakeup-headless/run_demo.sh)
 
 ## Archived Reference
 

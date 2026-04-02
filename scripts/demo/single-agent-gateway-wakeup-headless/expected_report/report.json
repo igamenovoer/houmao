@@ -1,0 +1,86 @@
+{
+  "actor_mail_evidence": {
+    "delivered_message_read": true,
+    "delivered_message_visible": true,
+    "final_unread_count": 0,
+    "message_count": 1
+  },
+  "config": {
+    "notifier_interval_seconds": 5,
+    "provider": "<PROVIDER>",
+    "selected_tool": "<TOOL>",
+    "setup_name": "<SETUP_NAME>"
+  },
+  "counts": {
+    "delivery_count": 1,
+    "final_unread_count": 0,
+    "processed_delivery_count": 1
+  },
+  "deliveries": [
+    {
+      "delivery_index": 1,
+      "message_id": "<MESSAGE_ID>",
+      "processed": true,
+      "subject": "Single-agent gateway wake-up headless demo <RUN_ID>",
+      "thread_id": "<THREAD_ID>"
+    }
+  ],
+  "gateway_evidence": {
+    "attached": true,
+    "enqueued_mail_work": true,
+    "notifier_enabled": true,
+    "poll_errors_present": false,
+    "queue_completed_notifier_request": true,
+    "queue_has_notifier_request": true
+  },
+  "headless_runtime_evidence": {
+    "detail_can_accept_prompt_now": true,
+    "detail_runtime_resumable": true,
+    "detail_tmux_session_live": true,
+    "detail_transport": "headless",
+    "last_turn_completed_at_utc_present": true,
+    "last_turn_completion_source_present": true,
+    "last_turn_result": "success",
+    "last_turn_returncode_zero": true,
+    "last_turn_status": "completed",
+    "latest_turn_dir_present": true,
+    "latest_turn_exitcode_present": true,
+    "latest_turn_stdout_non_empty": true,
+    "latest_turn_stdout_present": true,
+    "turn_artifacts_root_present": true
+  },
+  "generated_at_utc": "<TIMESTAMP>",
+  "outcome": {
+    "failures": [],
+    "status": "complete"
+  },
+  "output_evidence": {
+    "exists": true,
+    "matches_expected_content": true,
+    "modified_after_delivery": true
+  },
+  "ownership": {
+    "output_file_within_project_root": true,
+    "output_root_pack_local": true,
+    "overlay_root_within_output_root": true,
+    "project_root_within_output_root": true,
+    "runtime_root_within_output_root": true
+  },
+  "project_evidence": {
+    "managed_project_metadata_present": true,
+    "visible_mailbox_skill_surface_present": true
+  },
+  "schema_version": 1,
+  "session": {
+    "agent_name": "<AGENT_NAME>",
+    "session_manifest_path": "<SESSION_MANIFEST_PATH>",
+    "specialist_name": "<SPECIALIST_NAME>",
+    "tracked_agent_id": "<TRACKED_AGENT_ID>"
+  },
+  "structural_mailbox_evidence": {
+    "canonical_path_present": true,
+    "delivered_message_visible": true,
+    "message_count": 1,
+    "projection_path_present": true
+  }
+}
