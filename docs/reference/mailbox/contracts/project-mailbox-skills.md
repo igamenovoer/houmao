@@ -29,6 +29,18 @@ The skill destination directory and namespace handling differ by tool:
 
 Claude and Gemini receive mailbox skills as first-class top-level skills because their maintained contracts rely on native skill discovery from the active skill destination. Codex keeps the `mailbox/` namespace prefix to avoid collisions with user-defined skills in `skills/`. Gemini's upstream `.gemini/skills/` path remains a compatibility alias, but Houmao-owned projection now targets `.agents/skills/`.
 
+## Maintained Contract
+
+Runtime-owned mailbox skills belong to the runtime home, not to copied project content. Maintained demos and runtime flows do not copy these Houmao mailbox skills into the launched project worktree just to make prompting succeed.
+
+Ordinary mailbox prompting should use the installed native skill surface instead:
+
+- Claude Code: invoke the installed skill through Claude's native skill surface, typically with `/houmao-...`.
+- Codex: invoke the installed skill through Codex's native skill surface, typically with `$houmao-...`.
+- Gemini: invoke the installed skill by name.
+
+Maintained prompts should not tell agents to open copied `skills/.../SKILL.md` files from the worktree for ordinary mailbox rounds.
+
 ## Skill Content
 
 ### `houmao-process-emails-via-gateway`

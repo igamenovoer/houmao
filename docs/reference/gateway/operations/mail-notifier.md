@@ -72,7 +72,7 @@ The notification prompt is rendered from a packaged template at `system_prompts/
 
 | Placeholder | Substitution |
 |---|---|
-| `{{SKILL_USAGE_BLOCK}}` | Paths to installed mailbox skill documentation. |
+| `{{SKILL_USAGE_BLOCK}}` | Native mailbox-skill usage guidance for the current tool and round. |
 | `{{GATEWAY_BASE_URL}}` | The gateway's HTTP base URL (e.g., `http://127.0.0.1:8000`). |
 | `{{FULL_ENDPOINT_URLS_BLOCK}}` | Available mail endpoint routes (`GET /v1/mail/status`, `POST /v1/mail/check`, etc.). |
 

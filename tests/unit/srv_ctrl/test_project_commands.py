@@ -15,7 +15,11 @@ from houmao.project.overlay import (
     bootstrap_project_overlay,
     bootstrap_project_overlay_at_root,
 )
-from houmao.server.models import HoumaoManagedAgentIdentity, HoumaoManagedAgentListResponse
+from houmao.server.models import (
+    HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentListResponse,
+)
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -2238,7 +2242,11 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
         "houmao.srv_ctrl.commands.project.stop_managed_agent",
         lambda resolved_target: (
             stop_calls.append(resolved_target)
-            or {"success": True, "agent_name": resolved_target.identity.agent_name}
+            or HoumaoManagedAgentActionResponse(
+                success=True,
+                tracked_agent_id=resolved_target.identity.tracked_agent_id,
+                detail=f"Stopped {resolved_target.identity.agent_name}",
+            )
         ),
     )
 
@@ -2250,7 +2258,8 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
     assert stop_calls == [target]
     payload = json.loads(result.output)
     assert payload["success"] is True
-    assert payload["agent_name"] == "repo-research-1"
+    assert payload["tracked_agent_id"] == "tracked-researcher"
+    assert payload["detail"] == "Stopped repo-research-1"
     assert payload["selected_overlay_root"] == str((repo_root / ".houmao").resolve())
     assert (
         payload["selected_overlay_detail"]

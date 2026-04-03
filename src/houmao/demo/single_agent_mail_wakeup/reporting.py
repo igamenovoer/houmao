@@ -9,6 +9,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.mailbox_runtime_support import (
+    mailbox_primary_skill_references,
+    mailbox_skills_destination_for_tool,
+    projected_mailbox_skill_document_path,
+)
 from houmao.agents.realm_controller.gateway_storage import read_gateway_notifier_audit_records
 
 from .models import MANAGED_PROJECT_METADATA_NAME, DemoState, REPORT_SCHEMA_VERSION, utc_now_iso
@@ -135,7 +140,21 @@ def build_inspect_snapshot(
 
     audit_rows = read_notifier_audit_rows(state)
     queue_state = read_queue_state(state.gateway_root)
-    visible_mailbox_dir = state.project_workdir / "skills" / "mailbox"
+    runtime_skill_destination_dir = state.brain_home_path / mailbox_skills_destination_for_tool(
+        state.selected_tool
+    )
+    runtime_skill_document_paths = [
+        projected_mailbox_skill_document_path(
+            tool=state.selected_tool,
+            home_path=state.brain_home_path,
+            skill_reference=skill_reference,
+        )
+        for skill_reference in mailbox_primary_skill_references(tool=state.selected_tool)
+    ]
+    runtime_mailbox_skill_surface_present = all(
+        skill_path.is_file() for skill_path in runtime_skill_document_paths
+    )
+    project_mailbox_skill_mirror_dir = state.project_workdir / "skills" / "mailbox"
     managed_project_metadata_path = state.project_workdir / MANAGED_PROJECT_METADATA_NAME
     return {
         "generated_at_utc": utc_now_iso(),
@@ -181,8 +200,10 @@ def build_inspect_snapshot(
             "project_workdir": str(state.project_workdir),
             "overlay_root": str(state.overlay_root),
             "project_mailbox_root": str(state.project_mailbox_root),
-            "visible_mailbox_dir": str(visible_mailbox_dir),
-            "visible_mailbox_skill_surface_present": visible_mailbox_dir.is_dir(),
+            "runtime_skill_destination_dir": str(runtime_skill_destination_dir),
+            "runtime_mailbox_skill_surface_present": runtime_mailbox_skill_surface_present,
+            "project_mailbox_skill_mirror_dir": str(project_mailbox_skill_mirror_dir),
+            "project_mailbox_skill_mirror_present": project_mailbox_skill_mirror_dir.is_dir(),
             "managed_project_metadata_path": str(managed_project_metadata_path),
             "managed_project_metadata_present": managed_project_metadata_path.is_file(),
         },
@@ -294,8 +315,10 @@ def build_report_snapshot(
         failures.append("runtime session root is not contained inside the selected output root")
     if not bool(inspect_snapshot["ownership"]["output_file_within_project_root"]):
         failures.append("output file is not contained inside the copied project root")
-    if not bool(inspect_snapshot["project"]["visible_mailbox_skill_surface_present"]):
-        failures.append("project-local mailbox skill surface is missing")
+    if not bool(inspect_snapshot["project"]["runtime_mailbox_skill_surface_present"]):
+        failures.append("runtime-owned mailbox skill surface is missing")
+    if bool(inspect_snapshot["project"]["project_mailbox_skill_mirror_present"]):
+        failures.append("copied project contains a deprecated mailbox skill mirror")
     if not bool(inspect_snapshot["project"]["managed_project_metadata_present"]):
         failures.append("managed project metadata is missing")
     if inspect_snapshot["specialist"] is None:
@@ -390,8 +413,11 @@ def build_report_snapshot(
             "managed_project_metadata_present": bool(
                 inspect_snapshot["project"]["managed_project_metadata_present"]
             ),
-            "visible_mailbox_skill_surface_present": bool(
-                inspect_snapshot["project"]["visible_mailbox_skill_surface_present"]
+            "runtime_mailbox_skill_surface_present": bool(
+                inspect_snapshot["project"]["runtime_mailbox_skill_surface_present"]
+            ),
+            "project_mailbox_skill_mirror_present": bool(
+                inspect_snapshot["project"]["project_mailbox_skill_mirror_present"]
             ),
         },
         "deliveries": [

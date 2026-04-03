@@ -68,25 +68,23 @@ class DemoPackError(RuntimeError):
     """Raised when the pack cannot continue safely."""
 
 
+def _legacy_mailbox_skill_contract_error() -> str:
+    """Return the archived-demo guard message for this entry point."""
+
+    return (
+        "Archived demo `tui_mail_gateway_demo_pack` is not runnable. "
+        "This legacy workflow depends on a deprecated project-local mailbox-skill "
+        "mirror and skill-path prompting contract. Use maintained demo surfaces "
+        "`scripts/demo/single-agent-mail-wakeup/` or "
+        "`scripts/demo/single-agent-gateway-wakeup-headless/` instead."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the demo-pack CLI."""
 
-    parser = _build_parser()
-    args = parser.parse_args(argv)
     try:
-        if args.command == "start":
-            return _command_start(args)
-        if args.command == "drive":
-            return _command_drive(args)
-        if args.command == "inspect":
-            return _command_inspect(args)
-        if args.command == "verify":
-            return _command_verify(args)
-        if args.command == "stop":
-            return _command_stop(args)
-        if args.command == "auto":
-            return _command_auto(args)
-        raise DemoPackError(f"unsupported command: {args.command}")
+        raise DemoPackError(_legacy_mailbox_skill_contract_error())
     except (DemoPackError, DemoRuntimeError, DemoMailboxError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

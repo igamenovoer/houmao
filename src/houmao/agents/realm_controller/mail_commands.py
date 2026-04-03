@@ -300,9 +300,9 @@ def _mail_prompt_instruction_lines(
                 "this mailbox operation."
             ),
             (
-                "Use the installed runtime-owned Houmao mailbox skills directly. Do not search "
-                "the repository for a `skills/.../SKILL.md` path and do not infer any skill "
-                "install location from the current working directory."
+                "Use the installed runtime-owned Houmao mailbox skills directly from the "
+                "tool's native skill surface. Do not inspect the current project, repository, "
+                "or runtime home to rediscover skill files or infer install locations."
             ),
             (
                 f"Use the transport-specific Houmao mailbox skill `{skill_name}` only for "

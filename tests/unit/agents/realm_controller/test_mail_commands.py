@@ -90,7 +90,10 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     assert "`houmao-email-via-agent-gateway`" in prompt_request.prompt
     assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt_request.prompt
     assert "skills/mailbox/email-via-filesystem/SKILL.md" not in prompt_request.prompt
-    assert "Do not search the repository for a `skills/.../SKILL.md` path" in prompt_request.prompt
+    assert (
+        "Do not inspect the current project, repository, or runtime home to rediscover skill "
+        "files or infer install locations."
+    ) in prompt_request.prompt
     assert "pixi run houmao-mgr agents mail resolve-live" in prompt_request.prompt
     assert "gateway.base_url" in prompt_request.prompt
     assert "attached gateway env vars" not in prompt_request.prompt
@@ -735,7 +738,7 @@ def _build_prompt_echo_surface() -> str:
     """
     return (
         "Use the installed Houmao mailbox gateway skill `houmao-email-via-agent-gateway` for this mailbox operation.\n"
-        "Use the installed runtime-owned Houmao mailbox skills directly. Do not search the repository for a `skills/.../SKILL.md` path and do not infer any skill install location from the current working directory.\n"
+        "Use the installed runtime-owned Houmao mailbox skills directly from the tool's native skill surface. Do not inspect the current project, repository, or runtime home to rediscover skill files or infer install locations.\n"
         "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` only for transport-local context and no-gateway fallback.\n"
         "Return exactly one JSON result between "
         f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"

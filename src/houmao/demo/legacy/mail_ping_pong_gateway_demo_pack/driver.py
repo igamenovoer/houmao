@@ -61,62 +61,23 @@ class DemoPackError(RuntimeError):
     """Raised when the demo pack cannot continue safely."""
 
 
+def _legacy_mailbox_skill_contract_error() -> str:
+    """Return the archived-demo guard message for this entry point."""
+
+    return (
+        "Archived demo `mail_ping_pong_gateway_demo_pack` is not runnable. "
+        "This legacy workflow depends on a deprecated project-local mailbox-skill "
+        "mirror and skill-path prompting contract. Use maintained demo surfaces "
+        "`scripts/demo/single-agent-mail-wakeup/` or "
+        "`scripts/demo/single-agent-gateway-wakeup-headless/` instead."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the demo-pack CLI."""
 
-    parser = argparse.ArgumentParser(description="Headless mail ping-pong gateway demo pack")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    for name in ("start", "kickoff", "pause", "continue", "inspect", "stop"):
-        command_parser = subparsers.add_parser(name)
-        _add_common_arguments(command_parser)
-
-    wait_parser = subparsers.add_parser("wait")
-    _add_common_arguments(wait_parser)
-    wait_parser.add_argument("--timeout-seconds", type=float, default=None)
-    wait_parser.add_argument("--poll-interval-seconds", type=float, default=None)
-
-    verify_parser = subparsers.add_parser("verify")
-    _add_common_arguments(verify_parser)
-    verify_parser.add_argument(
-        "--expected-report",
-        default=DEFAULT_EXPECTED_REPORT_RELATIVE,
-        help="Repository-relative or absolute expected report snapshot path.",
-    )
-    verify_parser.add_argument("--snapshot", action="store_true")
-
-    auto_parser = subparsers.add_parser("auto")
-    _add_common_arguments(auto_parser)
-    auto_parser.add_argument("--timeout-seconds", type=float, default=None)
-    auto_parser.add_argument("--poll-interval-seconds", type=float, default=None)
-    auto_parser.add_argument(
-        "--expected-report",
-        default=DEFAULT_EXPECTED_REPORT_RELATIVE,
-        help="Repository-relative or absolute expected report snapshot path.",
-    )
-    auto_parser.add_argument("--snapshot", action="store_true")
-
-    args = parser.parse_args(argv)
     try:
-        if args.command == "start":
-            return _command_start(args)
-        if args.command == "kickoff":
-            return _command_kickoff(args)
-        if args.command == "wait":
-            return _command_wait(args)
-        if args.command == "pause":
-            return _command_pause(args)
-        if args.command == "continue":
-            return _command_continue(args)
-        if args.command == "inspect":
-            return _command_inspect(args)
-        if args.command == "verify":
-            return _command_verify(args)
-        if args.command == "stop":
-            return _command_stop(args)
-        if args.command == "auto":
-            return _command_auto(args)
-        raise DemoPackError(f"unsupported command: {args.command}")
+        raise DemoPackError(_legacy_mailbox_skill_contract_error())
     except (DemoPackError, DemoServerError, ValueError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

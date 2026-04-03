@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from houmao.agents.mailbox_runtime_support import install_runtime_mailbox_system_skills_for_tool
 from houmao.demo.single_agent_mail_wakeup import driver, reporting, runtime
 from houmao.demo.single_agent_mail_wakeup.models import DemoState, DeliveryState, build_demo_layout
 
@@ -309,6 +310,20 @@ def test_capture_gateway_console_uses_authoritative_gateway_window(
     assert payload["text"] == "line-2\nline-3\n"
 
 
+def test_expose_project_mailbox_skills_skips_project_mirror(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+
+    runtime.expose_project_mailbox_skills(
+        project_workdir=project_root,
+        brain_manifest_path=tmp_path / "brain/manifest.json",
+        brain_home_path=tmp_path / "brain/home",
+        launch_helper_path=tmp_path / "brain/launch.sh",
+    )
+
+    assert not (project_root / "skills").exists()
+
+
 def test_report_contract_accepts_structural_project_mailbox_without_read_state(tmp_path: Path) -> None:
     output_root = (tmp_path / "outputs").resolve()
     project_root = output_root / "project"
@@ -317,8 +332,8 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(t
     output_file_path = project_root / "tmp/single-agent-mail-wakeup/processed-demo.md"
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     output_file_path.write_text("single-agent-mail-wakeup demo\n", encoding="utf-8")
-    (project_root / "skills/mailbox").mkdir(parents=True, exist_ok=True)
     (project_root / ".houmao-demo-project.json").write_text("{}\n", encoding="utf-8")
+    install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=session_root / "brain/home")
 
     delivery = DeliveryState(
         delivery_index=1,
@@ -424,7 +439,8 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(t
             "output_file_within_project_root": True,
         },
         "project": {
-            "visible_mailbox_skill_surface_present": True,
+            "runtime_mailbox_skill_surface_present": True,
+            "project_mailbox_skill_mirror_present": False,
             "managed_project_metadata_present": True,
         },
         "specialist": {"launch": {"prompt_mode": "unattended"}},
@@ -436,6 +452,8 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(t
     assert report["outcome"]["status"] == "complete"
     reporting.validate_report_contract(report)
     assert report["structural_mailbox_evidence"]["delivered_message_visible"] is True
+    assert report["project_evidence"]["runtime_mailbox_skill_surface_present"] is True
+    assert report["project_evidence"]["project_mailbox_skill_mirror_present"] is False
 
 
 def test_sanitize_report_normalizes_delivery_subject_run_token() -> None:

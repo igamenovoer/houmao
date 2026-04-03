@@ -1651,9 +1651,10 @@ def stop_easy_instance_command(name: str) -> None:
         raise click.ClickException(
             f"Managed agent `{name}` does not belong to the selected project overlay."
         )
+    action_payload = stop_managed_agent(target).model_dump(mode="json")
     emit(
         {
-            **stop_managed_agent(target),
+            **action_payload,
             "selected_overlay_root": str(roots.overlay_root),
             "selected_overlay_detail": _selected_overlay_detail(roots),
         }

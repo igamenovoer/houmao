@@ -12,8 +12,6 @@ from typing import Any, Iterator, Mapping, Sequence
 
 import click
 
-from houmao.agents.brain_builder import BuildResult
-from houmao.agents.mailbox_runtime_support import project_runtime_mailbox_system_skills
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
@@ -27,9 +25,6 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
     runtime_owned_session_root_from_manifest_path,
-)
-from houmao.demo.legacy.mail_ping_pong_gateway_demo_pack.agents import (
-    expose_runtime_skills_in_project,
 )
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
@@ -1036,20 +1031,19 @@ def expose_project_mailbox_skills(
     brain_home_path: Path,
     launch_helper_path: Path,
 ) -> None:
-    """Mirror the runtime mailbox skill surface into the copied project."""
+    """Keep the copied project free of mailbox skill mirrors.
 
-    build_result = BuildResult(
-        home_id=brain_home_path.name,
-        home_path=brain_home_path,
-        manifest_path=brain_manifest_path,
-        launch_helper_path=launch_helper_path,
-        launch_preview="",
-        manifest={},
-    )
-    try:
-        expose_runtime_skills_in_project(project_workdir=project_workdir, build_result=build_result)
-    except Exception:
-        project_runtime_mailbox_system_skills(project_workdir / "skills")
+    The runtime-owned mailbox skills are installed into the selected tool's
+    native runtime home. This supported demo intentionally avoids staging a
+    second project-local `skills/` mirror so the maintained contract stays on
+    the native skill surface.
+    """
+
+    del project_workdir
+    del brain_manifest_path
+    del brain_home_path
+    del launch_helper_path
+    return None
 
 
 def _write_managed_project_metadata(*, project_workdir: Path, fixture_dir: Path) -> None:

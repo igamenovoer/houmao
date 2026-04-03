@@ -22,16 +22,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_support import (
-    mailbox_processing_skill_document_path,
     mailbox_processing_skill_name,
     mailbox_processing_skill_reference,
-    mailbox_gateway_skill_document_path,
     mailbox_gateway_skill_name,
     mailbox_gateway_skill_reference,
     mailbox_skill_reference,
     mailbox_skill_name,
-    mailbox_skills_destination_for_tool,
-    mailbox_skill_document_path,
     projected_mailbox_skill_document_path,
     resolve_live_mailbox_binding,
     resolved_mailbox_config_from_payload,
@@ -1785,20 +1781,7 @@ class GatewayServiceRuntime:
         payload = self._load_manifest_payload_for_mailbox_support()
         tool = payload.launch_plan.tool
         home_path = Path(payload.launch_plan.home_selector.home_path).resolve()
-        skills_destination = mailbox_skills_destination_for_tool(tool)
-        processing_relative_path = mailbox_processing_skill_document_path(
-            skills_destination=skills_destination,
-            tool=tool,
-        )
-        gateway_relative_path = mailbox_gateway_skill_document_path(
-            skills_destination=skills_destination,
-            tool=tool,
-        )
-        transport_relative_path = mailbox_skill_document_path(
-            mailbox,
-            skills_destination=skills_destination,
-            tool=tool,
-        )
+        gateway_base_url = f"http://{self.m_host}:{self.m_port}"
         processing_path = projected_mailbox_skill_document_path(
             tool=tool,
             home_path=home_path,
@@ -1830,25 +1813,36 @@ class GatewayServiceRuntime:
             ),
         ]
         if tool == "claude":
-            lines.append(
-                "In Claude Code this Houmao skill is installed natively. Invoke "
-                f"`{mailbox_processing_skill_name()}` by name for this round; the installed "
-                f"skill document is `{processing_relative_path}`."
+            lines.extend(
+                [
+                    f"/{mailbox_processing_skill_name()}",
+                    "In Claude Code the standalone slash-skill line above invokes the installed "
+                    "Houmao skill for this gateway-notified round.",
+                ]
+            )
+        elif tool == "codex":
+            lines.extend(
+                [
+                    f"${mailbox_processing_skill_name()} {gateway_base_url}",
+                    "In Codex this Houmao skill is installed natively. The standalone line "
+                    "above is the native skill trigger for this gateway-notified round.",
+                ]
             )
         elif tool == "gemini":
             lines.append(
-                "In Gemini this Houmao skill is installed natively under `.agents/skills`. "
+                "In Gemini this Houmao skill is installed natively. "
                 f"Invoke `{mailbox_processing_skill_name()}` by name for this round."
             )
         else:
-            lines.extend(
-                [
-                    f"Open `{processing_relative_path}` directly instead of searching for it.",
-                    "Treat that path as a runtime-owned Houmao skill document.",
-                ]
+            lines.append(
+                "Invoke the installed Houmao email-processing skill by name for this round."
             )
+        lines.append(
+            "Use the installed Houmao skills directly from the native tool skill surface. "
+            "Do not inspect the current project or runtime home for skill files."
+        )
         if gateway_path.is_file():
-            if tool == "gemini":
+            if tool != "codex":
                 lines.append(
                     "Use the lower-level Houmao mailbox gateway skill "
                     f"`{mailbox_gateway_skill_name()}` by name when you need the exact "
@@ -1856,12 +1850,12 @@ class GatewayServiceRuntime:
                 )
             else:
                 lines.append(
-                    "Use the lower-level Houmao mailbox gateway skill "
-                    f"`{mailbox_gateway_skill_name()}` at `{gateway_relative_path}` when you "
-                    "need the exact `/v1/mail/*` operation contract for this round."
+                    "If you need the exact `/v1/mail/*` operation contract for this round, "
+                    f"use the lower-level Houmao mailbox gateway skill "
+                    f"`{mailbox_gateway_skill_name()}` after the round skill expands."
                 )
         if transport_path.is_file():
-            if tool == "gemini":
+            if tool != "codex":
                 lines.append(
                     "Use the transport-specific Houmao mailbox skill "
                     f"`{mailbox_skill_name(mailbox)}` by name only for transport-local context "
@@ -1870,8 +1864,8 @@ class GatewayServiceRuntime:
             else:
                 lines.append(
                     "Use the transport-specific Houmao mailbox skill "
-                    f"`{mailbox_skill_name(mailbox)}` at `{transport_relative_path}` only for "
-                    "transport-local context and no-gateway fallback."
+                    f"`{mailbox_skill_name(mailbox)}` only for transport-local context and "
+                    "no-gateway fallback."
                 )
         return "\n".join(lines)
 

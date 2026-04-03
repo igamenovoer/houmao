@@ -4244,7 +4244,7 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
     assert fake_session.prompt_calls
     prompt = fake_session.prompt_calls[0][0]
     assert "List unread mail through the shared gateway mailbox API for this round." in prompt
-    assert "In Gemini this Houmao skill is installed natively under `.agents/skills`." in prompt
+    assert "In Gemini this Houmao skill is installed natively." in prompt
     assert "Invoke `houmao-process-emails-via-gateway` by name for this round." in prompt
     assert (
         "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway` by name"
@@ -4332,16 +4332,20 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
             "Use the installed Houmao email-processing skill "
             "`houmao-process-emails-via-gateway` for this round."
         ) in prompt
-        assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" in prompt
+        assert "In Codex this Houmao skill is installed natively." in prompt
+        assert "$houmao-process-emails-via-gateway http://127.0.0.1:43123" in prompt
         assert "not as a registered slash skill" not in prompt
         assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
-        assert (
-            "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway`"
-        ) in prompt
-        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" in prompt
-        assert "houmao-email-via-filesystem" in prompt
-        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" in prompt
+        assert "use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway`" in prompt
+        assert "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem`" in prompt
+        assert "Do not inspect the current project or runtime home for skill files." in prompt
+        assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-filesystem/SKILL.md" not in prompt
         assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
@@ -4369,7 +4373,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
     ]
 
 
-def test_gateway_mail_notifier_renders_claude_top_level_skill_paths(
+def test_gateway_mail_notifier_renders_claude_native_skill_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4404,11 +4408,14 @@ def test_gateway_mail_notifier_renders_claude_top_level_skill_paths(
 
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
-        assert "Claude Code this Houmao skill is installed natively" in prompt
-        assert "Invoke `houmao-process-emails-via-gateway` by name for this round" in prompt
-        assert "skills/houmao-process-emails-via-gateway/SKILL.md" in prompt
-        assert "skills/houmao-email-via-agent-gateway/SKILL.md" in prompt
-        assert "skills/houmao-email-via-filesystem/SKILL.md" in prompt
+        assert "Claude Code the standalone slash-skill line above invokes the installed Houmao skill" in prompt
+        assert "/houmao-process-emails-via-gateway" in prompt
+        assert "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway` by name" in prompt
+        assert "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` by name" in prompt
+        assert "Do not inspect the current project or runtime home for skill files." in prompt
+        assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-filesystem/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt

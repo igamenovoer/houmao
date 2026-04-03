@@ -904,12 +904,16 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
     )
 
 
-def test_expose_project_mailbox_skills_skips_gemini_project_mirror(tmp_path: Path) -> None:
+@pytest.mark.parametrize("tool", ["claude", "codex", "gemini"])
+def test_expose_project_mailbox_skills_skips_project_mirror(
+    tmp_path: Path,
+    tool: str,
+) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True, exist_ok=True)
 
     runtime.expose_project_mailbox_skills(
-        tool="gemini",
+        tool=tool,
         project_workdir=project_root,
         brain_manifest_path=tmp_path / "manifest.json",
         brain_home_path=tmp_path / "brain-home",
