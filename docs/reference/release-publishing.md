@@ -15,11 +15,11 @@ The workflow contract is:
 - Publish behavior: publish the downloaded build artifacts to PyPI
 - Authentication: GitHub OIDC trusted publishing, using the GitHub environment `pypi`
 
-Because the workflow is release-driven, the workflow file must already exist on `main` before maintainers publish the first public release.
+Because the workflow is release-driven, the workflow file must already exist on `main` before maintainers publish a release.
 
 ## Trusted Publisher Setup
 
-Configure PyPI trusted publishing before creating the first public release.
+Configure PyPI trusted publishing before creating a release.
 
 ### GitHub Repository Setup
 
@@ -38,9 +38,7 @@ In the PyPI project settings for `houmao`, add a trusted publisher with these re
 
 PyPI must trust the workflow file name and the environment name used by the publish job. If either value changes, update the trusted publisher configuration to match before the next release.
 
-## First Public Release Procedure
-
-The first intended public release is `0.1.0`.
+## Release Procedure
 
 Recommended release flow:
 
@@ -58,19 +56,19 @@ Recommended release flow:
 ```bash
 git checkout main
 git pull --ff-only origin main
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-6. Create and publish the GitHub release for tag `v0.1.0`:
+6. Create and publish the GitHub release for tag `v0.2.0`:
 
 ```bash
-gh release create v0.1.0 --verify-tag --generate-notes
+gh release create v0.2.0 --verify-tag --generate-notes
 ```
 
 7. Confirm that the `pypi-release` workflow run completes successfully and that PyPI shows the new version.
 
-For clarity and conventional GitHub release handling, use `v0.1.0` as the public tag name.
+For clarity and conventional GitHub release handling, use `v0.2.0` as the public tag name.
 
 ## Release Artifact Scope
 

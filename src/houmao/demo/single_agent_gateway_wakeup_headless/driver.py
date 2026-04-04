@@ -928,12 +928,10 @@ def _collect_verification_snapshot(
         if not state.active
         else time.monotonic() + min(state.output_timeout_seconds, _VERIFY_SETTLE_TIMEOUT_SECONDS)
     )
-    last_inspection: dict[str, Any] | None = None
     last_report: dict[str, Any] | None = None
 
     while True:
         inspection = _inspect_demo(paths=paths)
-        last_inspection = inspection
         last_report = build_report_snapshot(state=state, inspect_snapshot=inspection)
         if _verification_snapshot_ready(report=last_report):
             return inspection, last_report

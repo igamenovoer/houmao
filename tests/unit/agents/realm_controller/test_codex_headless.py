@@ -92,6 +92,7 @@ def test_codex_headless_builds_new_turn_command(tmp_path: Path) -> None:
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             captured["command"] = command
             return HeadlessRunResult(
@@ -120,6 +121,7 @@ def test_codex_headless_builds_new_turn_command(tmp_path: Path) -> None:
         "tmux_session_name": "HOUMAO-codex",
         "stdout_path": None,
         "stderr_path": None,
+        "canonical_path": None,
         "completion_source": "direct_process",
     }
 
@@ -150,6 +152,7 @@ def test_codex_headless_builds_resume_turn_command(tmp_path: Path) -> None:
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             captured["command"] = command
             return HeadlessRunResult(
@@ -198,6 +201,7 @@ def test_codex_headless_skips_empty_developer_instructions(tmp_path: Path) -> No
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             captured["command"] = command
             return HeadlessRunResult(

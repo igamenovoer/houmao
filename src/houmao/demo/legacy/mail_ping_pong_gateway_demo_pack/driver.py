@@ -30,7 +30,6 @@ from .events import build_conversation_events, build_progress_summary, collect_c
 from .models import (
     ConversationProgressSummary,
     DEFAULT_DEMO_OUTPUT_DIR_RELATIVE,
-    DEFAULT_EXPECTED_REPORT_RELATIVE,
     DEFAULT_PARAMETERS_RELATIVE,
     DemoParameters,
     DemoPaths,

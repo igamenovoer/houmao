@@ -100,6 +100,7 @@ def test_gemini_headless_surfaces_stderr_on_failure(tmp_path: Path) -> None:
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             return HeadlessRunResult(
                 events=[],
@@ -141,6 +142,7 @@ def test_gemini_headless_builds_exact_resume_turn_command(tmp_path: Path) -> Non
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
             captured["command"] = list(command)
@@ -239,6 +241,7 @@ def test_gemini_headless_executes_direct_prompt_with_unattended_full_permission_
             tmux_session_name,
             turn_artifacts_root,
             turn_artifact_dir_name=None,
+            **_kwargs,
         ) -> HeadlessRunResult:
             del tmux_session_name, turn_artifacts_root, turn_artifact_dir_name
             return direct_runner.run(
@@ -286,6 +289,7 @@ def test_claude_headless_uses_launch_plan_environment(
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             captured["env"] = dict(env)
             return HeadlessRunResult(
@@ -327,6 +331,7 @@ def test_claude_headless_adds_verbose_for_stream_json_output(tmp_path: Path) -> 
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
             captured["command"] = list(command)
@@ -378,6 +383,7 @@ def test_claude_headless_skips_verbose_for_json_output(tmp_path: Path) -> None:
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
             captured["command"] = list(command)
@@ -428,6 +434,7 @@ def test_claude_headless_omits_empty_appended_system_prompt(tmp_path: Path) -> N
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
             captured["command"] = list(command)
@@ -519,6 +526,7 @@ def test_headless_env_injects_loopback_no_proxy_by_default(
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             del command, cwd, turn_index, output_format
             captured_env.update(env)
@@ -571,6 +579,7 @@ def test_headless_env_preserve_mode_leaves_no_proxy_untouched(
             output_format,
             tmux_session_name,
             turn_artifacts_root,
+            **_kwargs,
         ) -> HeadlessRunResult:
             del command, cwd, turn_index, output_format
             captured_env.update(env)
