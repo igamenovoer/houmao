@@ -15,11 +15,13 @@ from fastapi import APIRouter, FastAPI, Query, Response
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
+from houmao.cao.models import CaoSuccessResponse
 from houmao.version import get_version
 
 from .config import HoumaoServerConfig
@@ -34,6 +36,8 @@ from .models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    HoumaoManagedAgentGatewayNextPromptSessionRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
@@ -436,6 +440,32 @@ def create_app(
         request_model: HoumaoManagedAgentGatewayPromptControlRequest,
     ) -> HoumaoManagedAgentGatewayPromptControlResponse:
         return resolved_service.control_managed_agent_gateway_prompt(agent_ref, request_model)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/control/headless/state")
+    def get_managed_agent_gateway_headless_control_state(
+        agent_ref: str,
+    ) -> GatewayHeadlessControlStateV1:
+        return resolved_service.get_managed_agent_gateway_headless_control_state(agent_ref)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session")
+    def set_managed_agent_gateway_headless_next_prompt_session(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    ) -> GatewayHeadlessControlStateV1:
+        return resolved_service.set_managed_agent_gateway_headless_next_prompt_session(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/internal/headless-prompt")
+    def submit_managed_agent_gateway_internal_headless_prompt(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    ) -> CaoSuccessResponse:
+        return resolved_service.submit_managed_agent_gateway_internal_headless_prompt(
+            agent_ref,
+            request_model,
+        )
 
     @app.post("/houmao/agents/{agent_ref}/gateway/control/send-keys")
     def send_managed_agent_gateway_control_input(

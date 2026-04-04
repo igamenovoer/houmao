@@ -359,6 +359,19 @@ Representative request:
 }
 ```
 
+Headless prompt control also accepts an optional structured chat-session selector:
+
+```json
+{
+  "schema_version": 1,
+  "prompt": "hello",
+  "force": false,
+  "chat_session": {
+    "mode": "tool_last_or_new"
+  }
+}
+```
+
 Representative success response:
 
 ```json
@@ -389,7 +402,12 @@ Representative refusal payload (returned under an HTTP error status):
 Current behavior:
 
 - TUI-backed sessions (`cao_rest`, `houmao_server_rest`, and `local_interactive`) require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
+- TUI-backed sessions accept `chat_session.mode = "new"` as a reset-then-send workflow that submits `/clear`, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
+- TUI-backed sessions reject explicit `chat_session.mode = "auto" | "current" | "tool_last_or_new" | "exact"` with HTTP `422`
 - native local headless sessions require no active gateway-managed execution and no queued gateway work before prompt dispatch unless `force=true`
+- native headless sessions accept `chat_session.mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"`; `chat_session.id` is required only for `mode = "exact"`
+- omitted headless `chat_session` means `mode = "auto"`, which resolves in order as pending `next_prompt_override`, pinned `current`, persisted `startup_default`, then fresh `new`
+- `chat_session.mode = "current"` fails explicitly when the managed session has no pinned current provider session
 - server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`
 - `force=true` bypasses only readiness/busy posture; it does not bypass blank prompt validation, detached state, reconciliation blocking, or unsupported backends
 - `codex_app_server` direct gateway prompt control is not implemented
@@ -461,6 +479,23 @@ Current behavior:
 This route returns the read-optimized `GatewayHeadlessControlStateV1` for attached native headless backends.
 
 `local_interactive` sessions do not use this route. When attached, they expose gateway-owned live TUI state through `/v1/control/tui/*` instead.
+
+The headless control-state payload includes `chat_session` with:
+
+- `current`: the concrete provider session id currently pinned by the managed session, or `null`
+- `startup_default`: the first-chat fallback policy using `mode = "new" | "tool_last_or_new" | "exact"`
+- `next_prompt_override`: the one-shot live override consumed only by the next accepted direct prompt whose effective mode is `auto`
+
+`POST /v1/control/headless/next-prompt-session` stores that one-shot override. In v1 it accepts only:
+
+```json
+{
+  "schema_version": 1,
+  "mode": "new"
+}
+```
+
+That override is live gateway state only. It is not persisted across restart, it is ignored by queued `/v1/requests` prompt execution, and it remains pending when later direct prompts explicitly request `new`, `current`, `tool_last_or_new`, or `exact`.
 
 ### `GET /v1/mail/status`
 

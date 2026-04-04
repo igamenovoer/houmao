@@ -173,6 +173,7 @@ from .models import (
     BackendKind,
     CaoParsingMode,
     GatewayControlResult,
+    HeadlessTurnSessionSelection,
     InteractiveSession,
     LaunchPlan,
     RoleInjectionPlan,
@@ -334,11 +335,25 @@ class RuntimeSessionController:
 
         self.launch_plan = _without_retired_mailbox_metadata(self.launch_plan)
 
-    def send_prompt(self, prompt: str) -> list[SessionEvent]:
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> list[SessionEvent]:
         """Send a prompt and persist updated session state."""
 
         self._reset_operation_warnings()
-        events = self.backend_session.send_prompt(prompt)
+        if isinstance(self.backend_session, HeadlessInteractiveSession):
+            if session_selection is None:
+                events = self.backend_session.send_prompt(prompt)
+            else:
+                events = self.backend_session.send_prompt(
+                    prompt,
+                    session_selection=session_selection,
+                )
+        else:
+            events = self.backend_session.send_prompt(prompt)
         self.persist_manifest()
         return events
 

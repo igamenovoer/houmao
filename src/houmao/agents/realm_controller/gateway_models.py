@@ -32,6 +32,8 @@ GatewayWakeupMode = Literal["one_off", "repeat"]
 GatewayWakeupState = Literal["scheduled", "overdue", "executing"]
 GatewayHealthState = Literal["healthy", "not_attached"]
 GatewayConnectivityState = Literal["connected", "unavailable"]
+GatewayChatSessionSelectorMode = Literal["auto", "new", "current", "tool_last_or_new", "exact"]
+GatewayHeadlessStartupDefaultMode = Literal["new", "tool_last_or_new", "exact"]
 GatewayRecoveryState = Literal["idle", "awaiting_rebind", "reconciliation_required"]
 GatewayAdmissionState = Literal[
     "open",
@@ -61,6 +63,7 @@ GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION = 1
 GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
 GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 1
+GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION = 1
 GATEWAY_WAKEUP_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
@@ -543,11 +546,101 @@ class GatewayHealthResponseV1(_StrictGatewayModel):
     status: Literal["ok"] = "ok"
 
 
+class GatewayChatSessionSelectorV1(_StrictGatewayModel):
+    """Explicit chat-session selector for prompt submission."""
+
+    mode: GatewayChatSessionSelectorMode
+    id: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _optional_id_not_blank(cls, value: str | None) -> str | None:
+        """Validate one optional provider session id."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_selector(self) -> "GatewayChatSessionSelectorV1":
+        """Require `id` only for exact selector mode."""
+
+        if self.mode == "exact":
+            if self.id is None:
+                raise ValueError("chat_session.id is required when mode=exact")
+            return self
+        if self.id is not None:
+            raise ValueError("chat_session.id is only allowed when mode=exact")
+        return self
+
+
+class GatewayHeadlessCurrentChatSessionV1(_StrictGatewayModel):
+    """Pinned current provider session for one headless managed agent."""
+
+    id: str
+
+    @field_validator("id")
+    @classmethod
+    def _id_not_blank(cls, value: str) -> str:
+        """Validate one pinned provider session id."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class GatewayHeadlessStartupDefaultV1(_StrictGatewayModel):
+    """Persisted first-chat fallback for one headless managed agent."""
+
+    mode: GatewayHeadlessStartupDefaultMode
+    id: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _optional_id_not_blank(cls, value: str | None) -> str | None:
+        """Validate one optional exact startup session id."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_startup_default(self) -> "GatewayHeadlessStartupDefaultV1":
+        """Require `id` only for exact startup-default mode."""
+
+        if self.mode == "exact":
+            if self.id is None:
+                raise ValueError("startup_default.id is required when mode=exact")
+            return self
+        if self.id is not None:
+            raise ValueError("startup_default.id is only allowed when mode=exact")
+        return self
+
+
+class GatewayHeadlessNextPromptOverrideV1(_StrictGatewayModel):
+    """One-shot override for the next accepted auto prompt."""
+
+    mode: Literal["new"]
+
+
+class GatewayHeadlessChatSessionStateV1(_StrictGatewayModel):
+    """Live headless chat-session state exposed by the gateway."""
+
+    current: GatewayHeadlessCurrentChatSessionV1 | None = None
+    startup_default: GatewayHeadlessStartupDefaultV1
+    next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
+
+
 class GatewayRequestPayloadSubmitPromptV1(_StrictGatewayModel):
     """Public payload for `submit_prompt` requests."""
 
     prompt: str
     turn_id: str | None = None
+    chat_session: GatewayChatSessionSelectorV1 | None = None
 
     @field_validator("prompt", "turn_id")
     @classmethod
@@ -606,6 +699,7 @@ class GatewayPromptControlRequestV1(_StrictGatewayModel):
     schema_version: int = Field(default=GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION)
     prompt: str
     force: bool = False
+    chat_session: GatewayChatSessionSelectorV1 | None = None
 
     @field_validator("prompt")
     @classmethod
@@ -642,6 +736,23 @@ class GatewayPromptControlResultV1(_StrictGatewayModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+
+class GatewayHeadlessNextPromptSessionRequestV1(_StrictGatewayModel):
+    """`POST /v1/control/headless/next-prompt-session` request body."""
+
+    schema_version: int = Field(default=GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION)
+    mode: Literal["new"]
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayHeadlessNextPromptSessionRequestV1":
+        """Validate the next-prompt-session schema version."""
+
+        if self.schema_version != GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION:
+            raise ValueError(
+                f"schema_version must be {GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION}"
+            )
+        return self
 
 
 class GatewayPromptControlErrorV1(_StrictGatewayModel):
@@ -1390,6 +1501,7 @@ class GatewayHeadlessControlStateV1(_StrictGatewayModel):
     tmux_session_live: bool
     can_accept_prompt_now: bool
     interruptible: bool
+    chat_session: GatewayHeadlessChatSessionStateV1
     request_admission: GatewayAdmissionState
     active_execution: GatewayExecutionState
     queue_depth: int

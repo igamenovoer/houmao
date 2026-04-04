@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from houmao.agents.realm_controller.gateway_models import GatewayChatSessionSelectorV1
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxOptions,
     HoumaoHeadlessTurnEvent,
@@ -190,6 +191,7 @@ class PassiveHeadlessTurnRequest(_PassiveModel):
     """Request body for ``POST /houmao/agents/{agent_ref}/turns``."""
 
     prompt: str
+    chat_session: GatewayChatSessionSelectorV1 | None = None
 
     @field_validator("prompt")
     @classmethod

@@ -291,6 +291,9 @@ The pair exposes three public server surfaces:
   - `GET /houmao/agents/{agent_ref}/gateway`
   - `POST /houmao/agents/{agent_ref}/gateway/attach`
   - `POST /houmao/agents/{agent_ref}/gateway/detach`
+  - `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
+  - `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`
+  - `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`
   - `POST /houmao/agents/{agent_ref}/gateway/requests`
   - `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`

@@ -15,6 +15,7 @@ from ..errors import BackendExecutionError
 from ..models import (
     BackendKind,
     HeadlessResumeSelectionKind,
+    HeadlessTurnSessionSelection,
     LaunchPlan,
     SessionControlResult,
     SessionEvent,
@@ -116,6 +117,7 @@ class HeadlessInteractiveSession:
         prompt: str,
         *,
         turn_artifact_dir_name: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
     ) -> list[SessionEvent]:
         """Send one prompt turn to the headless backend."""
 
@@ -124,7 +126,10 @@ class HeadlessInteractiveSession:
 
         session_name = self._require_tmux_session_name()
         turn_index = self._state.turn_index + 1
-        command, input_prompt = self._build_command(prompt=prompt)
+        command, input_prompt = self._build_command(
+            prompt=prompt,
+            session_selection=session_selection,
+        )
         env = os.environ.copy()
         env.update(self._plan.env)
         env[self._plan.home_env_var] = str(self._plan.home_path)
@@ -272,13 +277,32 @@ class HeadlessInteractiveSession:
             ),
         )
 
-    def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
+    def _build_command(
+        self,
+        *,
+        prompt: str,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args]
         if not self._uses_joined_operator_launch_args():
             command.extend(self._base_command_args())
         effective_prompt = prompt
 
-        if self._state.session_id:
+        if session_selection is not None:
+            if session_selection.mode == "exact":
+                assert session_selection.session_id is not None
+                command.extend(self._resume_args(session_selection.session_id))
+            elif session_selection.mode == "tool_last_or_new":
+                latest_resume_args = self._latest_resume_args()
+                if latest_resume_args:
+                    command.extend(latest_resume_args)
+                else:
+                    command.extend(self._bootstrap_args())
+                    effective_prompt = self._bootstrap_prompt(prompt)
+            else:
+                command.extend(self._bootstrap_args())
+                effective_prompt = self._bootstrap_prompt(prompt)
+        elif self._state.session_id:
             command.extend(self._resume_args(self._state.session_id))
         else:
             resume_selector_args = self._initial_resume_selector_args()

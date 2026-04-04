@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .headless_base import HeadlessInteractiveSession, HeadlessSessionState
-from ..models import LaunchPlan
+from ..models import HeadlessTurnSessionSelection, LaunchPlan
 
 
 class CodexHeadlessSession(HeadlessInteractiveSession):
@@ -33,10 +33,21 @@ class CodexHeadlessSession(HeadlessInteractiveSession):
             output_format=output_format,
         )
 
-    def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
+    def _build_command(
+        self,
+        *,
+        prompt: str,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> tuple[list[str], str]:
         if self._uses_joined_operator_launch_args():
             command = [self._plan.executable, *self._plan.args]
-            if self._state.session_id:
+            if session_selection is not None:
+                if session_selection.mode == "exact":
+                    assert session_selection.session_id is not None
+                    command.extend(self._resume_args(session_selection.session_id))
+                elif session_selection.mode == "tool_last_or_new":
+                    command.extend(self._latest_resume_args())
+            elif self._state.session_id:
                 command.extend(self._resume_args(self._state.session_id))
             else:
                 command.extend(self._initial_resume_selector_args())
@@ -50,7 +61,13 @@ class CodexHeadlessSession(HeadlessInteractiveSession):
         ):
             command.extend(["-c", f"developer_instructions={self._plan.role_injection.prompt}"])
         command.extend(["exec", "--json"])
-        if self._state.session_id:
+        if session_selection is not None:
+            if session_selection.mode == "exact":
+                assert session_selection.session_id is not None
+                command.extend(self._resume_args(session_selection.session_id))
+            elif session_selection.mode == "tool_last_or_new":
+                command.extend(self._latest_resume_args())
+        elif self._state.session_id:
             command.extend(self._resume_args(self._state.session_id))
         command.append(prompt)
         return command, prompt

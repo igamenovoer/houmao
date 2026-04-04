@@ -15,6 +15,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
     GatewayHeadlessControlStateV1,
+    GatewayHeadlessNextPromptSessionRequestV1,
     GatewayHealthResponseV1,
     GatewayHost,
     GatewayJsonObject,
@@ -234,6 +235,19 @@ class GatewayClient:
             "GET",
             "/v1/control/headless/state",
             GatewayHeadlessControlStateV1,
+        )
+
+    def set_headless_next_prompt_session(
+        self,
+        payload: GatewayHeadlessNextPromptSessionRequestV1,
+    ) -> GatewayHeadlessControlStateV1:
+        """Call `POST /v1/control/headless/next-prompt-session`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/control/headless/next-prompt-session",
+            GatewayHeadlessControlStateV1,
+            body=payload.model_dump(mode="json"),
         )
 
     def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:

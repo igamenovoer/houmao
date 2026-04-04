@@ -39,6 +39,7 @@ JoinedLaunchPostureKind = Literal[
 ]
 JoinedLaunchEnvBindingMode = Literal["literal", "inherit"]
 HeadlessResumeSelectionKind = Literal["none", "last", "exact"]
+HeadlessTurnSessionSelectionMode = Literal["new", "tool_last_or_new", "exact"]
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,24 @@ class HeadlessResumeSelection:
 
     kind: HeadlessResumeSelectionKind
     value: str | None = None
+
+
+@dataclass(frozen=True)
+class HeadlessTurnSessionSelection:
+    """Resolved per-turn session selection for native headless execution."""
+
+    mode: HeadlessTurnSessionSelectionMode
+    session_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate one resolved headless turn-session selection."""
+
+        if self.mode == "exact":
+            if self.session_id is None or not self.session_id.strip():
+                raise ValueError("exact headless turn selection requires session_id")
+            return
+        if self.session_id is not None:
+            raise ValueError("only exact headless turn selection may include session_id")
 
 
 @dataclass(frozen=True)

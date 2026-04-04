@@ -47,13 +47,19 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHeadlessV1,
     GatewayAttachContractV1,
     GatewayAttachBackendMetadataHoumaoServerV1,
+    GatewayChatSessionSelectorV1,
     GatewayConnectivityState,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
     GatewayCurrentInstanceV1,
     GatewayExecutionState,
+    GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
+    GatewayHeadlessCurrentChatSessionV1,
     GatewayHealthResponseV1,
+    GatewayHeadlessNextPromptOverrideV1,
+    GatewayHeadlessNextPromptSessionRequestV1,
+    GatewayHeadlessStartupDefaultV1,
     GatewayHost,
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
@@ -108,12 +114,14 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
+from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     tmux_session_exists,
 )
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
 from houmao.server.models import (
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoTerminalSnapshotHistoryResponse,
@@ -132,6 +140,9 @@ _QUEUE_POLL_INTERVAL_SECONDS = 0.2
 _WAKEUP_BUSY_RETRY_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
+_TUI_RESET_PROMPT = "/clear"
+_TUI_RESET_READY_WAIT_SECONDS = 15.0
+_TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _GatewayRequestTerminalState = Literal["completed", "failed"]
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
@@ -266,7 +277,13 @@ class GatewayExecutionAdapter(Protocol):
     def inspect_target(self) -> _GatewayTargetState:
         """Return current target posture for status and reconciliation."""
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt to the addressed managed target."""
 
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
@@ -346,10 +363,16 @@ class _RestBackedGatewayAdapter:
             prompt_admission_open=connectivity == "connected",
         )
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt to the current runtime-owned terminal."""
 
-        del turn_id
+        del turn_id, session_selection
         terminal_id = self._read_current_terminal_id()
         result = self.m_client.send_terminal_input(terminal_id, prompt)
         if not result.success:
@@ -504,7 +527,13 @@ class _LocalHeadlessGatewayAdapter:
             prompt_admission_open=connected,
         )
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt through resumed local tmux-backed runtime control."""
 
         self._require_live_tmux_session()
@@ -518,7 +547,12 @@ class _LocalHeadlessGatewayAdapter:
                     "Resumed local tmux-backed controller is missing a resumable "
                     "interactive backend."
                 )
-            backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
+            self._send_headless_prompt(
+                backend_session=backend_session,
+                prompt=prompt,
+                turn_id=turn_id,
+                session_selection=session_selection,
+            )
             controller.persist_manifest(refresh_registry=False)
         except RuntimeError as exc:
             raise GatewayError(f"Local tmux-backed prompt submission failed: {exc}") from exc
@@ -542,6 +576,36 @@ class _LocalHeadlessGatewayAdapter:
         if result.status != "ok":
             raise GatewayError(result.detail)
         return result.detail
+
+    def _send_headless_prompt(
+        self,
+        *,
+        backend_session: HeadlessInteractiveSession,
+        prompt: str,
+        turn_id: str | None,
+        session_selection: HeadlessTurnSessionSelection | None,
+    ) -> None:
+        """Call one resumable headless backend with backward-compatible selector support."""
+
+        if session_selection is None:
+            backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_id,
+            )
+            return
+        try:
+            backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_id,
+                session_selection=session_selection,
+            )
+        except TypeError as exc:
+            if "session_selection" not in str(exc):
+                raise
+            backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_id,
+            )
 
     def _resume_controller(self) -> RuntimeSessionController:
         """Return the resumed local runtime controller, materializing it lazily."""
@@ -633,11 +697,38 @@ class _ServerManagedHeadlessGatewayAdapter:
             prompt_admission_open=can_accept_prompt_now,
         )
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt through the managed-agent server API."""
 
-        del turn_id
-        response = self._resolve_client().submit_managed_agent_request(
+        client = self._resolve_client()
+        internal_submit = getattr(
+            client,
+            "submit_managed_agent_gateway_internal_headless_prompt",
+            None,
+        )
+        if callable(internal_submit):
+            response = internal_submit(
+                self.m_managed_agent_ref,
+                HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(
+                    prompt=prompt,
+                    turn_id=turn_id,
+                    chat_session=self._selector_payload(session_selection),
+                ),
+            )
+            if not response.success:
+                raise GatewayError(
+                    f"Managed-agent internal headless prompt did not execute: {response.detail}"
+                )
+            return
+
+        del turn_id, session_selection
+        response = client.submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
         )
@@ -674,6 +765,20 @@ class _ServerManagedHeadlessGatewayAdapter:
                 f"Failed to resolve managed pair authority `{self.m_managed_api_base_url}`: {exc}"
             ) from exc
         return self.m_client
+
+    def _selector_payload(
+        self,
+        session_selection: HeadlessTurnSessionSelection | None,
+    ) -> GatewayChatSessionSelectorV1 | None:
+        """Convert one resolved headless selector into the gateway payload shape."""
+
+        if session_selection is None:
+            return None
+        if session_selection.mode == "exact":
+            assert session_selection.session_id is not None
+            return GatewayChatSessionSelectorV1(mode="exact", id=session_selection.session_id)
+        return GatewayChatSessionSelectorV1(mode=session_selection.mode)
+
 
 
 def _build_gateway_execution_adapter(
@@ -750,6 +855,7 @@ class GatewayServiceRuntime:
         self.m_tui_tracking: SingleSessionTrackingRuntime | None = None
         self.m_direct_prompt_thread: threading.Thread | None = None
         self.m_direct_prompt_turn_id: str | None = None
+        self.m_headless_next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
         self.m_wakeup_jobs: dict[str, _GatewayWakeupJobRecord] = {}
         self.m_active_wakeup_job_id: str | None = None
 
@@ -883,39 +989,117 @@ class GatewayServiceRuntime:
             tracking = self._require_tui_tracking_locked()
         return tracking.note_prompt_submission(message=prompt)
 
+    def set_headless_next_prompt_session(
+        self,
+        request_payload: GatewayHeadlessNextPromptSessionRequestV1,
+    ) -> GatewayHeadlessControlStateV1:
+        """Store one one-shot override for the next accepted auto headless prompt."""
+
+        del request_payload
+        with self.m_lock:
+            self._require_native_headless_backend_locked()
+            self.m_headless_next_prompt_override = GatewayHeadlessNextPromptOverrideV1(mode="new")
+            return self._build_headless_control_state_locked()
+
     def get_headless_control_state(self) -> GatewayHeadlessControlStateV1:
         """Return read-optimized live headless control posture."""
 
         with self.m_lock:
-            if self.m_attach_contract.backend not in {
-                "claude_headless",
-                "codex_headless",
-                "gemini_headless",
-            }:
+            self._require_native_headless_backend_locked()
+            return self._build_headless_control_state_locked()
+
+    def _build_headless_control_state_locked(self) -> GatewayHeadlessControlStateV1:
+        """Build the current live headless control-state payload."""
+
+        status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+        active_turn_id = self._active_headless_turn_id_locked()
+        tmux_session_live = status.managed_agent_connectivity == "connected"
+        active_execution = status.active_execution
+        can_accept_prompt_now = (
+            tmux_session_live
+            and status.request_admission == "open"
+            and active_execution == "idle"
+            and active_turn_id is None
+        )
+        return GatewayHeadlessControlStateV1(
+            runtime_resumable=tmux_session_live,
+            tmux_session_live=tmux_session_live,
+            can_accept_prompt_now=can_accept_prompt_now,
+            interruptible=active_execution == "running" or active_turn_id is not None,
+            chat_session=self._headless_chat_session_state_locked(),
+            request_admission=status.request_admission,
+            active_execution=active_execution,
+            queue_depth=status.queue_depth,
+            active_turn_id=active_turn_id,
+        )
+
+    def _require_native_headless_backend_locked(self) -> None:
+        """Require a native headless attach backend for headless-only routes."""
+
+        if self.m_attach_contract.backend not in {
+            "claude_headless",
+            "codex_headless",
+            "gemini_headless",
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail="Gateway headless live-state routes are only available for headless backends.",
+            )
+
+    def _headless_chat_session_state_locked(self) -> GatewayHeadlessChatSessionStateV1:
+        """Return the current headless chat-session state from the persisted manifest."""
+
+        manifest_path_value = self.m_attach_contract.manifest_path
+        if manifest_path_value is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Gateway headless chat-session state is unavailable without manifest_path.",
+            )
+        try:
+            handle = load_session_manifest(Path(manifest_path_value).expanduser().resolve())
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        except (OSError, SessionManifestError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Gateway headless chat-session state is unavailable: {exc}",
+            ) from exc
+        if payload.headless is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Gateway headless chat-session state is only available for headless manifests.",
+            )
+        current = (
+            GatewayHeadlessCurrentChatSessionV1(id=payload.headless.session_id)
+            if payload.headless.session_id is not None
+            else None
+        )
+        return GatewayHeadlessChatSessionStateV1(
+            current=current,
+            startup_default=self._startup_default_from_manifest_locked(
+                resume_selection_kind=payload.headless.resume_selection_kind,
+                resume_selection_value=payload.headless.resume_selection_value,
+            ),
+            next_prompt_override=self.m_headless_next_prompt_override,
+        )
+
+    def _startup_default_from_manifest_locked(
+        self,
+        *,
+        resume_selection_kind: str,
+        resume_selection_value: str | None,
+    ) -> GatewayHeadlessStartupDefaultV1:
+        """Map persisted joined-launch selector state into startup-default state."""
+
+        if resume_selection_kind == "last":
+            return GatewayHeadlessStartupDefaultV1(mode="tool_last_or_new")
+        if resume_selection_kind == "exact":
+            if resume_selection_value is None:
                 raise HTTPException(
-                    status_code=422,
-                    detail="Gateway headless live-state routes are only available for headless backends.",
+                    status_code=503,
+                    detail="Headless manifest is missing resume_selection_value for exact startup.",
                 )
-            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
-            active_turn_id = self._active_headless_turn_id_locked()
-            tmux_session_live = status.managed_agent_connectivity == "connected"
-            active_execution = status.active_execution
-            can_accept_prompt_now = (
-                tmux_session_live
-                and status.request_admission == "open"
-                and active_execution == "idle"
-                and active_turn_id is None
-            )
-            return GatewayHeadlessControlStateV1(
-                runtime_resumable=isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter),
-                tmux_session_live=tmux_session_live,
-                can_accept_prompt_now=can_accept_prompt_now,
-                interruptible=active_execution == "running" or active_turn_id is not None,
-                request_admission=status.request_admission,
-                active_execution=active_execution,
-                queue_depth=status.queue_depth,
-                active_turn_id=active_turn_id,
-            )
+            return GatewayHeadlessStartupDefaultV1(mode="exact", id=resume_selection_value)
+        return GatewayHeadlessStartupDefaultV1(mode="new")
 
     def create_request(self, request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
         """Validate admission and persist one gateway-managed request."""
@@ -1160,7 +1344,11 @@ class GatewayServiceRuntime:
     ) -> GatewayPromptControlResultV1:
         """Dispatch one prompt immediately when the addressed target is ready."""
 
+        dispatch_mode: Literal["tui", "local_headless", "server_headless"]
+        consume_headless_override = False
+        headless_session_selection: HeadlessTurnSessionSelection | None = None
         tracking: SingleSessionTrackingRuntime | None = None
+        use_tui_reset_workflow = False
         prompt = request_payload.prompt
         forced = request_payload.force
 
@@ -1171,6 +1359,7 @@ class GatewayServiceRuntime:
                 status=status,
                 forced=forced,
                 dispatch_mode=dispatch_mode,
+                request_chat_session=request_payload.chat_session,
             )
             if not forced:
                 self._require_prompt_ready_locked(
@@ -1179,17 +1368,37 @@ class GatewayServiceRuntime:
                     forced=forced,
                 )
 
+            if dispatch_mode in {"local_headless", "server_headless"}:
+                (
+                    headless_session_selection,
+                    consume_headless_override,
+                ) = self._resolve_headless_prompt_selection_locked(
+                    request_chat_session=request_payload.chat_session,
+                    allow_next_prompt_override=True,
+                    forced=forced,
+                )
             if dispatch_mode == "local_headless":
                 turn_id = self._next_direct_headless_turn_id_locked()
                 return self._start_direct_headless_prompt_locked(
                     prompt=prompt,
                     turn_id=turn_id,
                     forced=forced,
+                    session_selection=headless_session_selection,
+                    consume_next_prompt_override=consume_headless_override,
                 )
             tracking = self.m_tui_tracking
+            use_tui_reset_workflow = (
+                dispatch_mode == "tui" and request_payload.chat_session is not None
+            )
 
         try:
-            self.m_adapter.submit_prompt(prompt=prompt)
+            if use_tui_reset_workflow:
+                self._dispatch_tui_new_prompt_workflow(prompt=prompt)
+            else:
+                self.m_adapter.submit_prompt(
+                    prompt=prompt,
+                    session_selection=headless_session_selection,
+                )
         except (GatewayError, CaoApiError, ValidationError) as exc:
             self._raise_prompt_control_http_error(
                 status_code=422,
@@ -1198,7 +1407,11 @@ class GatewayServiceRuntime:
                 detail=str(exc),
             )
 
-        if tracking is not None:
+        if consume_headless_override:
+            with self.m_lock:
+                self.m_headless_next_prompt_override = None
+
+        if tracking is not None and not use_tui_reset_workflow:
             tracking.note_prompt_submission(message=prompt)
         append_gateway_event(
             self.m_paths,
@@ -1251,6 +1464,94 @@ class GatewayServiceRuntime:
         )
         return GatewayControlInputResultV1(detail=detail)
 
+    def _dispatch_tui_new_prompt_workflow(self, *, prompt: str) -> None:
+        """Clear the current TUI conversation, wait for readiness, then send the prompt."""
+
+        tracking = self.m_tui_tracking
+        if tracking is None:
+            raise GatewayError("Gateway TUI tracking is unavailable for reset-based prompt control.")
+        self.m_adapter.submit_prompt(prompt=_TUI_RESET_PROMPT)
+        tracking.note_prompt_submission(message=_TUI_RESET_PROMPT)
+        self._wait_for_tui_ready_after_reset(tracking=tracking)
+        self.m_adapter.submit_prompt(prompt=prompt)
+        tracking.note_prompt_submission(message=prompt)
+
+    def _wait_for_tui_ready_after_reset(
+        self,
+        *,
+        tracking: SingleSessionTrackingRuntime,
+    ) -> None:
+        """Wait for the tracked TUI surface to stabilize back to prompt-ready."""
+
+        deadline = time.monotonic() + _TUI_RESET_READY_WAIT_SECONDS
+        # Give the reset prompt one poll cycle to take effect before accepting ready again.
+        time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
+        while time.monotonic() < deadline:
+            tracking.refresh_once()
+            with self.m_lock:
+                reasons = self._tui_prompt_not_ready_reasons_locked()
+            if not reasons:
+                return
+            time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
+        raise GatewayError(
+            "TUI reset prompt was submitted, but the surface did not stabilize back to "
+            "prompt-ready posture in time."
+        )
+
+    def _resolve_headless_prompt_selection_locked(
+        self,
+        *,
+        request_chat_session: GatewayChatSessionSelectorV1 | None,
+        allow_next_prompt_override: bool,
+        forced: bool,
+    ) -> tuple[HeadlessTurnSessionSelection, bool]:
+        """Resolve one headless prompt selector into the backend execution selection."""
+        chat_session_state = self._headless_chat_session_state_locked()
+        requested_mode = request_chat_session.mode if request_chat_session is not None else "auto"
+
+        if requested_mode == "new":
+            return HeadlessTurnSessionSelection(mode="new"), False
+        if requested_mode == "tool_last_or_new":
+            return HeadlessTurnSessionSelection(mode="tool_last_or_new"), False
+        if requested_mode == "exact":
+            assert request_chat_session is not None and request_chat_session.id is not None
+            return (
+                HeadlessTurnSessionSelection(
+                    mode="exact",
+                    session_id=request_chat_session.id,
+                ),
+                False,
+            )
+        if requested_mode == "current":
+            current = chat_session_state.current
+            if current is None:
+                self._raise_prompt_control_http_error(
+                    status_code=409,
+                    forced=False,
+                    error_code="missing_current_chat_session",
+                    detail=(
+                        "chat_session.mode=`current` requires a pinned current provider "
+                        "session, but none is available."
+                    ),
+                )
+            return HeadlessTurnSessionSelection(mode="exact", session_id=current.id), False
+
+        if allow_next_prompt_override and chat_session_state.next_prompt_override is not None:
+            return HeadlessTurnSessionSelection(mode="new"), True
+        if chat_session_state.current is not None:
+            return (
+                HeadlessTurnSessionSelection(
+                    mode="exact",
+                    session_id=chat_session_state.current.id,
+                ),
+                False,
+            )
+        startup_default = chat_session_state.startup_default
+        if startup_default.mode == "exact":
+            assert startup_default.id is not None
+            return HeadlessTurnSessionSelection(mode="exact", session_id=startup_default.id), False
+        return HeadlessTurnSessionSelection(mode=startup_default.mode), False
+
     def _prompt_dispatch_mode_locked(
         self,
         *,
@@ -1279,10 +1580,10 @@ class GatewayServiceRuntime:
         status: GatewayStatusV1,
         forced: bool,
         dispatch_mode: Literal["tui", "local_headless", "server_headless"],
+        request_chat_session: GatewayChatSessionSelectorV1 | None,
     ) -> None:
         """Reject prompt control for unavailable or reconciliation-blocked gateway state."""
 
-        del dispatch_mode
         if status.request_admission == "blocked_reconciliation":
             self._raise_prompt_control_http_error(
                 status_code=409,
@@ -1297,6 +1598,28 @@ class GatewayServiceRuntime:
                 error_code="unavailable",
                 detail="Gateway prompt control is unavailable because the managed agent is detached.",
             )
+        if request_chat_session is None:
+            return
+        if dispatch_mode == "tui":
+            if request_chat_session.mode != "new":
+                self._raise_prompt_control_http_error(
+                    status_code=422,
+                    forced=forced,
+                    error_code="invalid_chat_session",
+                    detail=(
+                        "TUI prompt control only supports chat_session.mode=`new`; "
+                        f"got `{request_chat_session.mode}`."
+                    ),
+                )
+            return
+        if dispatch_mode in {"local_headless", "server_headless"}:
+            return
+        self._raise_prompt_control_http_error(
+            status_code=422,
+            forced=forced,
+            error_code="invalid_chat_session",
+            detail="chat_session is unsupported for this gateway target.",
+        )
 
     def _require_prompt_ready_locked(
         self,
@@ -1466,18 +1789,26 @@ class GatewayServiceRuntime:
         prompt: str,
         turn_id: str,
         forced: bool,
+        session_selection: HeadlessTurnSessionSelection | None,
+        consume_next_prompt_override: bool,
     ) -> GatewayPromptControlResultV1:
         """Start one native headless prompt in the background and return immediately."""
 
         self.m_direct_prompt_turn_id = turn_id
         thread = threading.Thread(
             target=self._run_direct_headless_prompt,
-            kwargs={"prompt": prompt, "turn_id": turn_id},
+            kwargs={
+                "prompt": prompt,
+                "turn_id": turn_id,
+                "session_selection": session_selection,
+            },
             name=f"gateway-direct-prompt-{turn_id}",
             daemon=True,
         )
         self.m_direct_prompt_thread = thread
         thread.start()
+        if consume_next_prompt_override:
+            self.m_headless_next_prompt_override = None
         append_gateway_event(
             self.m_paths,
             {
@@ -1493,11 +1824,21 @@ class GatewayServiceRuntime:
             detail="Prompt dispatched.",
         )
 
-    def _run_direct_headless_prompt(self, *, prompt: str, turn_id: str) -> None:
+    def _run_direct_headless_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        session_selection: HeadlessTurnSessionSelection | None,
+    ) -> None:
         """Execute one native headless direct prompt in a background thread."""
 
         try:
-            self.m_adapter.submit_prompt(prompt=prompt, turn_id=turn_id)
+            self.m_adapter.submit_prompt(
+                prompt=prompt,
+                turn_id=turn_id,
+                session_selection=session_selection,
+            )
         except (GatewayError, CaoApiError, ValidationError) as exc:
             append_gateway_event(
                 self.m_paths,
@@ -2195,6 +2536,7 @@ class GatewayServiceRuntime:
                 self._submit_prompt_via_adapter(
                     prompt=wakeup_job.prompt,
                     turn_id=None,
+                    session_selection=None,
                     note_prompt_submission=False,
                 )
             except (GatewayError, CaoApiError, ValidationError) as exc:
@@ -2336,11 +2678,16 @@ class GatewayServiceRuntime:
         *,
         prompt: str,
         turn_id: str | None,
+        session_selection: HeadlessTurnSessionSelection | None,
         note_prompt_submission: bool,
     ) -> None:
         """Submit one prompt through the shared gateway execution adapter."""
 
-        self.m_adapter.submit_prompt(prompt=prompt, turn_id=turn_id)
+        self.m_adapter.submit_prompt(
+            prompt=prompt,
+            turn_id=turn_id,
+            session_selection=session_selection,
+        )
         if note_prompt_submission and self.m_tui_tracking is not None:
             self.m_tui_tracking.note_prompt_submission(message=prompt)
 
@@ -2441,9 +2788,27 @@ class GatewayServiceRuntime:
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
+                session_selection: HeadlessTurnSessionSelection | None = None
+                with self.m_lock:
+                    dispatch_mode = self._prompt_dispatch_mode_locked(forced=False)
+                    if payload.chat_session is not None:
+                        if dispatch_mode not in {"local_headless", "server_headless"}:
+                            raise GatewayError(
+                                "Queued prompt chat_session selection is only supported for "
+                                "headless gateway targets."
+                            )
+                        try:
+                            session_selection, _ = self._resolve_headless_prompt_selection_locked(
+                                request_chat_session=payload.chat_session,
+                                allow_next_prompt_override=False,
+                                forced=False,
+                            )
+                        except HTTPException as exc:
+                            raise GatewayError(str(exc.detail)) from exc
                 self._submit_prompt_via_adapter(
                     prompt=payload.prompt,
                     turn_id=payload.turn_id,
+                    session_selection=session_selection,
                     note_prompt_submission=request_kind == "submit_prompt",
                 )
             elif request_kind == "interrupt":
@@ -2878,6 +3243,17 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Serve read-optimized live headless control posture."""
 
         return runtime.get_headless_control_state()
+
+    @app.post(
+        "/v1/control/headless/next-prompt-session",
+        response_model=GatewayHeadlessControlStateV1,
+    )
+    def _headless_next_prompt_session(
+        request_payload: GatewayHeadlessNextPromptSessionRequestV1,
+    ) -> GatewayHeadlessControlStateV1:
+        """Store one one-shot override for the next accepted auto headless prompt."""
+
+        return runtime.set_headless_next_prompt_session(request_payload)
 
     @app.post("/v1/requests", response_model=GatewayAcceptedRequestV1)
     def _create_request(request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
