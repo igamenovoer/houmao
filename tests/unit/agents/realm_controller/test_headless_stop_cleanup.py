@@ -74,7 +74,7 @@ def test_headless_terminate_preserves_tmux_by_default(tmp_path: Path) -> None:
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-codex",
+            tmux_session_name="HOUMAO-codex",
         ),
     )
 
@@ -91,7 +91,7 @@ def test_headless_terminate_preserves_tmux_by_default(tmp_path: Path) -> None:
 
     assert result.status == "ok"
     assert "preserved tmux session" in result.detail
-    assert session.state.tmux_session_name == "AGENTSYS-codex"
+    assert session.state.tmux_session_name == "HOUMAO-codex"
 
 
 def test_headless_terminate_force_cleanup_kills_tmux(
@@ -103,7 +103,7 @@ def test_headless_terminate_force_cleanup_kills_tmux(
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="AGENTSYS-codex",
+            tmux_session_name="HOUMAO-codex",
         ),
     )
     captured: dict[str, str] = {}
@@ -127,5 +127,5 @@ def test_headless_terminate_force_cleanup_kills_tmux(
 
     assert result.status == "ok"
     assert "deleted tmux session" in result.detail
-    assert captured["session_name"] == "AGENTSYS-codex"
+    assert captured["session_name"] == "HOUMAO-codex"
     assert session.state.tmux_session_name is None

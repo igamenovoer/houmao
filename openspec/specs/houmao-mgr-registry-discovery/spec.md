@@ -4,7 +4,7 @@ Define registry-first managed-agent discovery and control for `houmao-mgr agents
 ## Requirements
 
 ### Requirement: Agent post-launch commands use registry-first discovery
-`houmao-mgr agents` post-launch commands (prompt, stop, interrupt, show, state, history, and subgroup commands) SHALL resolve `<agent_ref>` by first looking up the agent in the shared registry before contacting a server.
+`houmao-mgr agents` post-launch commands (prompt, stop, interrupt, state, and subgroup commands) SHALL resolve `<agent_ref>` by first looking up the agent in the shared registry before contacting a server.
 
 The discovery chain SHALL be:
 1. Look up `<agent_ref>` in the shared registry (`~/.houmao/registry/live_agents/`)
@@ -14,13 +14,13 @@ The discovery chain SHALL be:
 5. If registry lookup fails: fall back to `--port` flag, then `CAO_PORT` environment variable, then default server URL
 
 #### Scenario: Post-launch command discovers agent via shared registry
-- **WHEN** an operator runs `houmao-mgr agents show <agent_ref>`
+- **WHEN** an operator runs `houmao-mgr agents state <agent_ref>`
 - **AND WHEN** the agent has a live shared registry record
 - **THEN** `houmao-mgr` resolves the agent's backend type and control path from the registry record
 - **AND THEN** the command does not require an explicit `--port` flag
 
 #### Scenario: Post-launch command falls back to port when registry lookup fails
-- **WHEN** an operator runs `houmao-mgr agents show <agent_ref>`
+- **WHEN** an operator runs `houmao-mgr agents state <agent_ref>`
 - **AND WHEN** no shared registry record exists for that agent
 - **THEN** `houmao-mgr` falls back to the `--port` flag, then `CAO_PORT` env var, then the default server URL
 - **AND THEN** the command succeeds if the server is reachable and knows the agent
@@ -54,7 +54,7 @@ All `houmao-mgr agents` commands that currently accept `--port` SHALL continue t
 When `--port` is explicitly provided, the command SHALL contact the server at that port directly without attempting registry lookup first.
 
 #### Scenario: Explicit port overrides registry discovery
-- **WHEN** an operator runs `houmao-mgr agents show <agent_ref> --port 9889`
+- **WHEN** an operator runs `houmao-mgr agents state <agent_ref> --port 9889`
 - **THEN** `houmao-mgr` contacts the server at port 9889 directly
 - **AND THEN** registry lookup is skipped for this invocation
 
@@ -101,7 +101,7 @@ When friendly-name lookup or tmux-session alias lookup matches more than one fre
 
 #### Scenario: Ambiguous friendly-name lookup fails closed
 
-- **WHEN** an operator runs `houmao-mgr agents show --agent-name gpu`
+- **WHEN** an operator runs `houmao-mgr agents state --agent-name gpu`
 - **AND WHEN** more than one fresh shared-registry record stores `agent_name = "gpu"`
 - **THEN** `houmao-mgr` fails that resolution explicitly
 - **AND THEN** the error lists candidate `agent_id`, `agent_name`, and `terminal.session_name` values rather than silently choosing one
@@ -115,6 +115,6 @@ When friendly-name lookup or tmux-session alias lookup matches more than one fre
 
 #### Scenario: Pair-managed explicit port bypass keeps server authority semantics
 
-- **WHEN** an operator runs `houmao-mgr agents show --agent-id abc123 --port 9889`
+- **WHEN** an operator runs `houmao-mgr agents state --agent-id abc123 --port 9889`
 - **THEN** `houmao-mgr` bypasses local registry resolution and contacts the server authority at port `9889`
 - **AND THEN** the command does not rely on tmux-local alias semantics for that invocation

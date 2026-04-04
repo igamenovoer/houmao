@@ -30,6 +30,7 @@ from houmao.terminal_record.service import (
     stop_terminal_record,
 )
 
+from .agent_assets import materialize_generated_agent_tree
 from .comparison import TimelineComparison, compare_timelines
 from .config import ResolvedDemoConfig
 from .groundtruth import expand_labels_to_groundtruth_timeline, load_fixture_inputs
@@ -120,6 +121,11 @@ def start_live_watch(
             if recipe_path is not None
             else tool_metadata.interactive_watch_recipe_path
         )
+        generated_agent_def_dir = materialize_generated_agent_tree(
+            repo_root=repo_root,
+            workdir=paths.workdir,
+            tool=tool,
+        )
         recipe = load_brain_recipe(selected_recipe_path)
         if recipe.tool != tool:
             raise RuntimeError(
@@ -127,7 +133,7 @@ def start_live_watch(
             )
         build_result = build_brain_home(
             BuildRequest(
-                agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
+                agent_def_dir=generated_agent_def_dir,
                 tool=recipe.tool,
                 skills=list(recipe.skills),
                 config_profile=recipe.config_profile,
@@ -140,6 +146,7 @@ def start_live_watch(
                 launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode
                 or recipe.operator_prompt_mode,
+                persistent_env_records=recipe.launch_env_records,
             )
         )
         observed_version = detect_tool_version(tool=tool)

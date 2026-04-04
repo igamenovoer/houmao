@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 from typing import Any, cast
 import uuid
 
 import click
+from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessProvider,
+    resolve_headless_provider,
+)
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessProcessMetadata,
     load_headless_process_metadata,
@@ -28,16 +35,30 @@ from houmao.agents.realm_controller.errors import (
     MailboxCommandError,
     SessionManifestError,
 )
+from houmao.agents.realm_controller.gateway_mailbox import (
+    GatewayMailboxError,
+    GatewayMailboxAdapter,
+    build_gateway_mailbox_adapter,
+)
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayMailActionResponseV1,
     GatewayMailAttachmentUploadV1,
+    GatewayMailCheckResponseV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailReplyRequestV1,
+    GatewayMailSendRequestV1,
+    GatewayMailStateRequestV1,
+    GatewayMailStateResponseV1,
+    GatewayMailStatusV1,
+    GatewayPromptControlErrorV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRequestPayloadInterruptV1,
-    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
@@ -48,6 +69,7 @@ from houmao.agents.realm_controller.gateway_storage import (
 )
 from houmao.agents.realm_controller.mail_commands import (
     MailPromptRequest,
+    build_verified_mail_command_result,
     ensure_mailbox_command_ready,
     prepare_mail_prompt,
     run_mail_prompt,
@@ -66,6 +88,8 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.cao.rest_client import CaoApiError
+from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
+from houmao.mailbox.managed import ManagedMailboxOperationError
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -76,6 +100,7 @@ from houmao.server.models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentHeadlessDetailView,
@@ -83,6 +108,7 @@ from houmao.server.models import (
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailboxSummaryView,
+    HoumaoManagedAgentMailStateRequest,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTuiDetailView,
@@ -123,6 +149,22 @@ class ManagedAgentTarget:
     client: PairAuthorityClientProtocol | None = None
     controller: RuntimeSessionController | None = None
     record: LiveAgentRegistryRecordV2 | None = None
+
+
+class GatewayPromptControlCliError(RuntimeError):
+    """Structured CLI failure raised by gateway direct prompt control."""
+
+    def __init__(self, payload: GatewayPromptControlErrorV1) -> None:
+        self.payload = payload
+        super().__init__(payload.detail)
+
+
+@dataclass(frozen=True)
+class _LocalManagedAgentSelectorMiss:
+    """One preserved local friendly-name selector miss."""
+
+    agent_name: str
+    alias_match: LiveAgentRegistryRecordV2 | None = None
 
 
 @dataclass(frozen=True)
@@ -189,7 +231,7 @@ def resolve_managed_agent_target(
             client=client,
         )
 
-    record = _resolve_local_managed_agent_record(
+    record, miss_context = _resolve_local_managed_agent_record_with_miss_context(
         agent_id=normalized_agent_id,
         agent_name=normalized_agent_name,
     )
@@ -214,6 +256,12 @@ def resolve_managed_agent_target(
             record=record,
         )
 
+    if miss_context is not None:
+        return _resolve_default_pair_target_with_local_miss(
+            agent_ref=normalized_ref,
+            miss_context=miss_context,
+        )
+
     client = require_supported_houmao_pair(base_url=resolve_server_base_url())
     identity = resolve_managed_agent_identity(client, agent_ref=normalized_ref)
     return ManagedAgentTarget(
@@ -224,6 +272,49 @@ def resolve_managed_agent_target(
     )
 
 
+def resolve_managed_agent_mail_target(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    port: int | None,
+) -> ManagedAgentTarget:
+    """Resolve one `agents mail` target using explicit or current-session selectors."""
+
+    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        allow_missing=True,
+    )
+    if selected_agent_id is not None or selected_agent_name is not None:
+        return resolve_managed_agent_target(
+            agent_id=selected_agent_id,
+            agent_name=selected_agent_name,
+            port=port,
+        )
+
+    if port is not None:
+        raise click.ClickException(
+            "`--port` is only supported with an explicit `--agent-id` or `--agent-name` "
+            "`agents mail` target."
+        )
+
+    gateway_commands = _gateway_command_helpers()
+    session_name = gateway_commands._try_current_tmux_session_name()
+    if session_name is None:
+        raise click.ClickException(
+            "Exactly one of `--agent-id` or `--agent-name` is required unless the command is "
+            "run inside the target tmux session."
+        )
+    resolved_target = gateway_commands._resolve_gateway_current_session_target(
+        session_name=session_name
+    )
+    if resolved_target is None:
+        raise click.ClickException(
+            "Current tmux session is not registered as a managed agent in the gateway runtime."
+        )
+    return cast(ManagedAgentTarget, resolved_target)
+
+
 def _resolve_local_managed_agent_record(
     *,
     agent_id: str | None,
@@ -231,8 +322,22 @@ def _resolve_local_managed_agent_record(
 ) -> LiveAgentRegistryRecordV2 | None:
     """Resolve one local registry-backed managed-agent record."""
 
+    record, _ = _resolve_local_managed_agent_record_with_miss_context(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    return record
+
+
+def _resolve_local_managed_agent_record_with_miss_context(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> tuple[LiveAgentRegistryRecordV2 | None, _LocalManagedAgentSelectorMiss | None]:
+    """Resolve one local record and preserve friendly-name miss diagnostics."""
+
     if agent_id is not None:
-        return resolve_live_agent_record_by_agent_id(agent_id)
+        return resolve_live_agent_record_by_agent_id(agent_id), None
 
     assert agent_name is not None
     name_matches = resolve_live_agent_records_by_name(agent_name)
@@ -246,8 +351,84 @@ def _resolve_local_managed_agent_record(
             )
         )
     if len(name_matches) == 1:
-        return name_matches[0]
+        return name_matches[0], None
+    return (
+        None,
+        _LocalManagedAgentSelectorMiss(
+            agent_name=agent_name,
+            alias_match=_resolve_local_managed_agent_alias_hint(agent_name),
+        ),
+    )
+
+
+def _resolve_local_managed_agent_alias_hint(
+    agent_name: str,
+) -> LiveAgentRegistryRecordV2 | None:
+    """Return one exact unique tmux/session alias hint for a missed friendly name."""
+
+    alias_matches = [
+        record for record in _list_registry_records() if record.terminal.session_name == agent_name
+    ]
+    if len(alias_matches) == 1:
+        return alias_matches[0]
     return None
+
+
+def _resolve_default_pair_target_with_local_miss(
+    *,
+    agent_ref: str,
+    miss_context: _LocalManagedAgentSelectorMiss,
+) -> ManagedAgentTarget:
+    """Resolve default pair fallback while preserving one local friendly-name miss."""
+
+    try:
+        client = require_supported_houmao_pair(base_url=resolve_server_base_url())
+        identity = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    except click.ClickException as exc:
+        raise click.ClickException(
+            _format_local_managed_agent_selector_failure(
+                miss_context=miss_context,
+                remote_detail=str(exc),
+            )
+        ) from exc
+    return ManagedAgentTarget(
+        mode="server",
+        agent_ref=agent_ref,
+        identity=identity,
+        client=client,
+    )
+
+
+def _format_local_managed_agent_selector_failure(
+    *,
+    miss_context: _LocalManagedAgentSelectorMiss,
+    remote_detail: str,
+) -> str:
+    """Format one local friendly-name miss with one failed default pair fallback."""
+
+    lines = [
+        f"No local managed agent matched friendly name `{miss_context.agent_name}`.",
+    ]
+    if miss_context.alias_match is not None:
+        lines.append(
+            "`--agent-name` expects the published friendly managed-agent name. "
+            f"`{miss_context.agent_name}` matches the live local tmux/session alias for "
+            f"agent_name `{miss_context.alias_match.agent_name}` "
+            f"(agent_id `{miss_context.alias_match.agent_id}`)."
+        )
+        retry_guidance = (
+            f"Retry with `--agent-name {miss_context.alias_match.agent_name}`, "
+            f"`--agent-id {miss_context.alias_match.agent_id}`, "
+            "or inspect `houmao-mgr agents list`."
+        )
+    else:
+        retry_guidance = (
+            "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+            "or `--agent-id <id>`."
+        )
+    lines.append(f"Fallback lookup through the default pair authority also failed: {remote_detail}")
+    lines.append(retry_guidance)
+    return "\n".join(lines)
 
 
 def resolve_live_agent_record(agent_identity: str) -> LiveAgentRegistryRecordV2 | None:
@@ -486,22 +667,128 @@ def detach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
     return _gateway_status_for_controller(target.controller)
 
 
-def gateway_prompt(target: ManagedAgentTarget, *, prompt: str) -> GatewayAcceptedRequestV1:
-    """Submit a gateway prompt for one managed agent."""
+def gateway_prompt(
+    target: ManagedAgentTarget,
+    *,
+    prompt: str,
+    force: bool = False,
+) -> GatewayPromptControlResultV1:
+    """Submit one direct gateway prompt for a managed agent."""
 
     if target.mode == "server":
         assert target.client is not None
-        return pair_request(
-            target.client.submit_managed_agent_gateway_request,
-            target.agent_ref,
-            HoumaoManagedAgentGatewayRequestCreate(
-                kind="submit_prompt",
-                payload=GatewayRequestPayloadSubmitPromptV1(prompt=prompt),
-            ),
-        )
+        try:
+            return target.client.control_managed_agent_gateway_prompt(
+                target.agent_ref,
+                HoumaoManagedAgentGatewayPromptControlRequest(
+                    prompt=prompt,
+                    force=force,
+                ),
+            )
+        except CaoApiError as exc:
+            raise GatewayPromptControlCliError(
+                _prompt_control_error_from_cao(exc, forced=force)
+            ) from exc
 
     assert target.controller is not None
-    return target.controller.send_prompt_via_gateway(prompt)
+    try:
+        client = _require_live_gateway_client_for_controller(target.controller)
+        return client.control_prompt(
+            GatewayPromptControlRequestV1(
+                prompt=prompt,
+                force=force,
+            )
+        )
+    except GatewayHttpError as exc:
+        raise GatewayPromptControlCliError(
+            _prompt_control_error_from_gateway_http(exc, forced=force)
+        ) from exc
+    except click.ClickException as exc:
+        raise GatewayPromptControlCliError(
+            GatewayPromptControlErrorV1(
+                forced=force,
+                error_code="unavailable",
+                detail=exc.message or str(exc),
+            )
+        ) from exc
+
+
+def _prompt_control_error_from_cao(
+    exc: CaoApiError,
+    *,
+    forced: bool,
+) -> GatewayPromptControlErrorV1:
+    """Normalize one pair-server prompt-control failure into structured JSON."""
+
+    payload = exc.payload if isinstance(exc.payload, dict) else None
+    detail_payload = payload.get("detail") if isinstance(payload, dict) else None
+    return _coerce_prompt_control_error(
+        payload=detail_payload,
+        forced=forced,
+        status_code=exc.status_code,
+        fallback_detail=exc.detail,
+    )
+
+
+def _prompt_control_error_from_gateway_http(
+    exc: GatewayHttpError,
+    *,
+    forced: bool,
+) -> GatewayPromptControlErrorV1:
+    """Normalize one direct gateway HTTP failure into structured JSON."""
+
+    try:
+        payload = json.loads(exc.detail)
+    except json.JSONDecodeError:
+        payload = None
+    return _coerce_prompt_control_error(
+        payload=payload,
+        forced=forced,
+        status_code=exc.status_code,
+        fallback_detail=exc.detail,
+    )
+
+
+def _coerce_prompt_control_error(
+    *,
+    payload: object,
+    forced: bool,
+    status_code: int | None,
+    fallback_detail: str,
+) -> GatewayPromptControlErrorV1:
+    """Return one strict prompt-control error payload from a best-effort source payload."""
+
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = None
+    if isinstance(payload, dict):
+        try:
+            return GatewayPromptControlErrorV1.model_validate(payload)
+        except ValidationError:
+            detail_value = payload.get("detail")
+            if isinstance(detail_value, str) and detail_value.strip():
+                fallback_detail = detail_value
+    return GatewayPromptControlErrorV1(
+        forced=forced,
+        error_code=_prompt_control_error_code_from_status(status_code),
+        detail=fallback_detail,
+    )
+
+
+def _prompt_control_error_code_from_status(status_code: int | None) -> str:
+    """Map one HTTP status code to a conservative prompt-control error code."""
+
+    if status_code == 409:
+        return "not_ready"
+    if status_code == 501:
+        return "unsupported_backend"
+    if status_code == 503:
+        return "unavailable"
+    if status_code == 422:
+        return "dispatch_failed"
+    return "dispatch_failed"
 
 
 def gateway_interrupt(target: ManagedAgentTarget) -> GatewayAcceptedRequestV1:
@@ -689,7 +976,6 @@ def mailbox_status(target: ManagedAgentTarget) -> dict[str, object]:
         "registered": mailbox is not None,
         "activation_state": activation_state,
         "runtime_mailbox_enabled": mailbox is not None and activation_state == "active",
-        "relaunch_required": activation_state == "pending_relaunch",
     }
     if mailbox is not None:
         payload.update(
@@ -711,6 +997,7 @@ def register_mailbox_binding(
     principal_id: str | None,
     address: str | None,
     mode: str,
+    confirm_destructive_replace: Callable[[str], bool] | None = None,
 ) -> dict[str, object]:
     """Register one late filesystem mailbox binding for a local managed agent."""
 
@@ -721,8 +1008,9 @@ def register_mailbox_binding(
             principal_id=principal_id,
             address=address,
             mode=cast(Any, mode),
+            confirm_destructive_replace=confirm_destructive_replace,
         )
-    except SessionManifestError as exc:
+    except (MailboxBootstrapError, ManagedMailboxOperationError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
     mailbox = result.mailbox
     assert mailbox is not None
@@ -737,7 +1025,6 @@ def register_mailbox_binding(
         "mailbox_root": str(mailbox.filesystem_root),
         "bindings_version": mailbox.bindings_version,
         "activation_state": result.activation_state,
-        "relaunch_required": result.activation_state == "pending_relaunch",
         "shared_registration": result.shared_lifecycle_result,
     }
 
@@ -772,9 +1059,203 @@ def unregister_mailbox_binding(
         "address": previous_mailbox.address,
         "mailbox_root": str(previous_mailbox.filesystem_root),
         "activation_state": result.activation_state,
-        "relaunch_required": result.activation_state == "pending_relaunch",
         "shared_unregistration": result.shared_lifecycle_result,
     }
+
+
+def _local_manager_mail_status(controller: RuntimeSessionController) -> GatewayMailStatusV1:
+    """Return authoritative local mailbox status through manager-owned execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        return adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _local_manager_mail_check(
+    controller: RuntimeSessionController,
+    *,
+    unread_only: bool,
+    limit: int | None,
+    since: str | None,
+) -> GatewayMailCheckResponseV1:
+    """Check mailbox contents through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        messages = adapter.check(unread_only=unread_only, limit=limit, since=since)
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    unread_count = sum(1 for message in messages if message.unread is True)
+    return GatewayMailCheckResponseV1(
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        unread_only=unread_only,
+        message_count=len(messages),
+        unread_count=unread_count,
+        messages=messages,
+    )
+
+
+def _local_manager_mail_send(
+    controller: RuntimeSessionController,
+    *,
+    to_recipients: Sequence[str],
+    cc_recipients: Sequence[str],
+    subject: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Send mail through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        message = adapter.send(
+            to_addresses=to_recipients,
+            cc_addresses=cc_recipients,
+            subject=subject,
+            body_content=body_content,
+            attachments=attachments,
+        )
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return GatewayMailActionResponseV1(
+        operation="send",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message=message,
+    )
+
+
+def _local_manager_mail_reply(
+    controller: RuntimeSessionController,
+    *,
+    message_ref: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Reply through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        message = adapter.reply(
+            message_ref=message_ref,
+            body_content=body_content,
+            attachments=attachments,
+        )
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return GatewayMailActionResponseV1(
+        operation="reply",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message=message,
+    )
+
+
+def _local_manager_mail_mark_read(
+    controller: RuntimeSessionController,
+    *,
+    message_ref: str,
+) -> GatewayMailStateResponseV1:
+    """Mark one mailbox message read through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        return adapter.update_read_state(message_ref=message_ref, read=True)
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _local_mailbox_adapter_for_controller(
+    controller: RuntimeSessionController,
+) -> GatewayMailboxAdapter:
+    """Return one live local mailbox adapter or fail with CLI-friendly detail."""
+
+    try:
+        mailbox = ensure_mailbox_command_ready(
+            controller.launch_plan,
+            tmux_session_name=controller.tmux_session_name,
+        )
+    except MailboxCommandError as exc:
+        if controller.launch_plan.mailbox is None:
+            raise click.ClickException("Target session is not mailbox-enabled.") from exc
+        raise click.ClickException(str(exc)) from exc
+    try:
+        return build_gateway_mailbox_adapter(mailbox)
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _gateway_mail_send(
+    client: GatewayClient,
+    *,
+    to_recipients: Sequence[str],
+    cc_recipients: Sequence[str],
+    subject: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Send mail through one live loopback gateway client."""
+
+    try:
+        return client.send_mail(
+            GatewayMailSendRequestV1(
+                to=list(to_recipients),
+                cc=list(cc_recipients),
+                subject=subject,
+                body_content=body_content,
+                attachments=list(attachments),
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def _gateway_mail_reply(
+    client: GatewayClient,
+    *,
+    message_ref: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Reply through one live loopback gateway client."""
+
+    try:
+        return client.reply_mail(
+            GatewayMailReplyRequestV1(
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=list(attachments),
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def _gateway_mail_mark_read(
+    client: GatewayClient,
+    *,
+    message_ref: str,
+) -> GatewayMailStateResponseV1:
+    """Mark one mailbox message read through one live loopback gateway client."""
+
+    try:
+        return client.update_mail_state(
+            GatewayMailStateRequestV1(
+                message_ref=message_ref,
+                read=True,
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
 
 
 def mail_status(target: ManagedAgentTarget) -> object:
@@ -782,27 +1263,18 @@ def mail_status(target: ManagedAgentTarget) -> object:
 
     if target.mode == "server":
         assert target.client is not None
-        return pair_request(target.client.get_managed_agent_mail_status, target.agent_ref)
+        return build_verified_mail_command_result(
+            operation="status",
+            execution_path="gateway_backed",
+            payload=pair_request(target.client.get_managed_agent_mail_status, target.agent_ref),
+        )
 
     assert target.controller is not None
-    try:
-        mailbox = ensure_mailbox_command_ready(
-            target.controller.launch_plan,
-            tmux_session_name=target.controller.tmux_session_name,
-        )
-    except MailboxCommandError as exc:
-        if target.controller.launch_plan.mailbox is None:
-            raise click.ClickException("Target session is not mailbox-enabled.") from exc
-        raise click.ClickException(str(exc)) from exc
-    if mailbox is None:
-        raise click.ClickException("Target session is not mailbox-enabled.")
-    return {
-        "schema_version": 1,
-        "transport": mailbox.transport,
-        "principal_id": mailbox.principal_id,
-        "address": mailbox.address,
-        "bindings_version": mailbox.bindings_version,
-    }
+    return build_verified_mail_command_result(
+        operation="status",
+        execution_path="manager_direct",
+        payload=_local_manager_mail_status(target.controller),
+    )
 
 
 def mail_check(
@@ -818,25 +1290,30 @@ def mail_check(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailCheckRequest
 
-        return pair_request(
-            target.client.check_managed_agent_mail,
-            target.agent_ref,
-            HoumaoManagedAgentMailCheckRequest(
-                unread_only=unread_only,
-                limit=limit,
-                since=since,
+        return build_verified_mail_command_result(
+            operation="check",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.check_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailCheckRequest(
+                    unread_only=unread_only,
+                    limit=limit,
+                    since=since,
+                ),
             ),
         )
 
     assert target.controller is not None
-    return _run_local_mail_prompt(
-        controller=target.controller,
+    return build_verified_mail_command_result(
         operation="check",
-        args={
-            "unread_only": unread_only,
-            "limit": limit,
-            "since": since,
-        },
+        execution_path="manager_direct",
+        payload=_local_manager_mail_check(
+            target.controller,
+            unread_only=unread_only,
+            limit=limit,
+            since=since,
+        ),
     )
 
 
@@ -855,19 +1332,68 @@ def mail_send(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailSendRequest
 
-        return pair_request(
-            target.client.send_managed_agent_mail,
-            target.agent_ref,
-            HoumaoManagedAgentMailSendRequest(
-                to=to_recipients,
-                cc=cc_recipients,
-                subject=subject,
-                body_content=body_content,
-                attachments=list(attachments),
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.send_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailSendRequest(
+                    to=to_recipients,
+                    cc=cc_recipients,
+                    subject=subject,
+                    body_content=body_content,
+                    attachments=list(attachments),
+                ),
             ),
         )
 
     assert target.controller is not None
+    if target.identity.transport != "tui":
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_send(
+                target.controller,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    direct_mail_error = _local_manager_mail_authority_error(target.controller)
+    if direct_mail_error is None:
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_send(
+                target.controller,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    gateway_client = _live_gateway_client_for_controller(target.controller)
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_send(
+                gateway_client,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+    # Preserve the submission-only fallback when verified direct or gateway-backed
+    # execution is unavailable for a live TUI-managed session.
     return _run_local_mail_prompt(
         controller=target.controller,
         operation="send",
@@ -894,17 +1420,58 @@ def mail_reply(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailReplyRequest
 
-        return pair_request(
-            target.client.reply_managed_agent_mail,
-            target.agent_ref,
-            HoumaoManagedAgentMailReplyRequest(
-                message_ref=message_ref,
-                body_content=body_content,
-                attachments=list(attachments),
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.reply_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailReplyRequest(
+                    message_ref=message_ref,
+                    body_content=body_content,
+                    attachments=list(attachments),
+                ),
             ),
         )
 
     assert target.controller is not None
+    if target.identity.transport != "tui":
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_reply(
+                target.controller,
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    direct_mail_error = _local_manager_mail_authority_error(target.controller)
+    if direct_mail_error is None:
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_reply(
+                target.controller,
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    gateway_client = _live_gateway_client_for_controller(target.controller)
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_reply(
+                gateway_client,
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
     return _run_local_mail_prompt(
         controller=target.controller,
         operation="reply",
@@ -914,6 +1481,148 @@ def mail_reply(
             "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
         },
     )
+
+
+def mail_mark_read(
+    target: ManagedAgentTarget,
+    *,
+    message_ref: str,
+) -> object:
+    """Mark one mailbox message read for a managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.update_managed_agent_mail_state,
+                target.agent_ref,
+                HoumaoManagedAgentMailStateRequest(
+                    message_ref=message_ref,
+                    read=True,
+                ),
+            ),
+        )
+
+    assert target.controller is not None
+    if target.identity.transport != "tui":
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_mark_read(
+                target.controller,
+                message_ref=message_ref,
+            ),
+        )
+
+    direct_mail_error = _local_manager_mail_authority_error(target.controller)
+    if direct_mail_error is None:
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_mark_read(
+                target.controller,
+                message_ref=message_ref,
+            ),
+        )
+
+    gateway_client = _live_gateway_client_for_controller(target.controller)
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="mark-read",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_mark_read(
+                gateway_client,
+                message_ref=message_ref,
+            ),
+        )
+    return _run_local_mail_prompt(
+        controller=target.controller,
+        operation="mark-read",
+        args={
+            "message_ref": message_ref,
+            "read": True,
+        },
+    )
+
+
+def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
+    """Resolve one managed agent's live mailbox bindings and gateway metadata."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        payload = pair_request(target.client.get_managed_agent_mail_resolve_live, target.agent_ref)
+        return _normalized_live_mail_payload(
+            target=target,
+            payload=payload,
+            source_override="pair_authority",
+        )
+
+    assert target.controller is not None
+    if target.controller.launch_plan.mailbox is None:
+        raise click.ClickException("Target session is not mailbox-enabled.")
+    try:
+        resolution = resolve_live_mailbox_binding_from_manifest_path(
+            manifest_path=target.controller.manifest_path,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return _normalized_live_mail_payload(target=target, payload=resolution.payload())
+
+
+def _local_manager_mail_authority_error(
+    controller: RuntimeSessionController,
+) -> click.ClickException | None:
+    """Return one direct-mail authority error, or `None` when direct execution is ready."""
+
+    try:
+        _local_mailbox_adapter_for_controller(controller)
+    except AttributeError:
+        return click.ClickException(
+            "Manager-owned local mail authority is unavailable for this runtime controller."
+        )
+    except click.ClickException as exc:
+        return exc
+    return None
+
+
+def _normalized_live_mail_payload(
+    *,
+    target: ManagedAgentTarget,
+    payload: dict[str, Any],
+    source_override: str | None = None,
+) -> dict[str, Any]:
+    """Normalize one live mailbox resolution payload for CLI output."""
+
+    normalized = dict(payload)
+    if source_override is not None:
+        normalized["source"] = source_override
+    normalized["schema_version"] = 1
+    normalized["managed_agent"] = _managed_agent_live_payload(target)
+    normalized["gateway_available"] = isinstance(normalized.get("gateway"), dict)
+    return normalized
+
+
+def _managed_agent_live_payload(target: ManagedAgentTarget) -> dict[str, Any]:
+    """Project stable managed-agent identity fields for `resolve-live` payloads."""
+
+    return {
+        "mode": target.mode,
+        "agent_ref": target.agent_ref,
+        "tracked_agent_id": target.identity.tracked_agent_id,
+        "agent_name": target.identity.agent_name,
+        "agent_id": target.identity.agent_id,
+        "tmux_session_name": target.identity.tmux_session_name,
+    }
+
+
+def _gateway_command_helpers() -> Any:
+    """Import the gateway command module lazily to reuse current-session helpers."""
+
+    from .agents import gateway as gateway_commands
+
+    return gateway_commands
 
 
 def submit_headless_turn(
@@ -989,7 +1698,13 @@ def headless_turn_events(
 
     assert target.controller is not None
     snapshot = _turn_snapshot_from_id(controller=target.controller, turn_id=turn_id)
-    events = _load_turn_events(snapshot)
+    events = _load_turn_events(
+        snapshot,
+        provider=resolve_headless_provider(
+            tool=target.controller.launch_plan.tool,
+            backend=target.controller.launch_plan.backend,
+        ),
+    )
     return HoumaoHeadlessTurnEventsResponse(
         tracked_agent_id=target.identity.tracked_agent_id,
         turn_id=turn_id,
@@ -1622,11 +2337,15 @@ def _list_local_headless_turns(
     root = _turn_artifacts_root(controller)
     if not root.exists():
         return []
+    provider = resolve_headless_provider(
+        tool=controller.launch_plan.tool,
+        backend=controller.launch_plan.backend,
+    )
     snapshots: list[_LocalHeadlessTurnSnapshot] = []
     for candidate in sorted(root.iterdir(), reverse=True):
         if not candidate.is_dir():
             continue
-        snapshots.append(_snapshot_from_turn_dir(candidate))
+        snapshots.append(_snapshot_from_turn_dir(candidate, provider=provider))
     return snapshots
 
 
@@ -1652,10 +2371,20 @@ def _turn_snapshot_from_id(
     candidate = (_turn_artifacts_root(controller) / turn_id).resolve()
     if not candidate.is_dir():
         raise click.ClickException(f"Headless turn `{turn_id}` was not found.")
-    return _snapshot_from_turn_dir(candidate)
+    return _snapshot_from_turn_dir(
+        candidate,
+        provider=resolve_headless_provider(
+            tool=controller.launch_plan.tool,
+            backend=controller.launch_plan.backend,
+        ),
+    )
 
 
-def _snapshot_from_turn_dir(turn_dir: Path) -> _LocalHeadlessTurnSnapshot:
+def _snapshot_from_turn_dir(
+    turn_dir: Path,
+    *,
+    provider: HeadlessProvider,
+) -> _LocalHeadlessTurnSnapshot:
     """Read one local headless turn snapshot from a persisted artifact directory."""
 
     stdout_path = (turn_dir / "stdout.jsonl").resolve()
@@ -1685,7 +2414,11 @@ def _snapshot_from_turn_dir(turn_dir: Path) -> _LocalHeadlessTurnSnapshot:
                 raw_error = stderr_path.read_text(encoding="utf-8").strip()
                 error = raw_error or None
     turn_index = _turn_index_from_name(turn_dir.name)
-    completion_source = _completion_source_from_stdout(stdout_path, turn_index=turn_index)
+    completion_source = _completion_source_from_turn_dir(
+        turn_dir,
+        provider=provider,
+        turn_index=turn_index,
+    )
     history_summary = f"{turn_dir.name} {status}"
     return _LocalHeadlessTurnSnapshot(
         turn_id=turn_dir.name,
@@ -1703,14 +2436,19 @@ def _snapshot_from_turn_dir(turn_dir: Path) -> _LocalHeadlessTurnSnapshot:
     )
 
 
-def _load_turn_events(snapshot: _LocalHeadlessTurnSnapshot) -> list[HoumaoHeadlessTurnEvent]:
+def _load_turn_events(
+    snapshot: _LocalHeadlessTurnSnapshot,
+    *,
+    provider: HeadlessProvider,
+) -> list[HoumaoHeadlessTurnEvent]:
     """Load structured events for one persisted local headless turn."""
 
     if snapshot.stdout_path is None or not snapshot.stdout_path.exists():
         return []
     entries: list[HoumaoHeadlessTurnEvent] = []
     for event in load_headless_turn_events(
-        stdout_path=snapshot.stdout_path,
+        turn_dir=snapshot.stdout_path.parent,
+        provider=provider,
         output_format="stream-json",
         turn_index=snapshot.turn_index,
     ):
@@ -1747,14 +2485,20 @@ def _turn_index_from_name(turn_id: str) -> int:
         return 0
 
 
-def _completion_source_from_stdout(stdout_path: Path, *, turn_index: int) -> str | None:
-    """Extract the completion source from persisted stdout events when present."""
+def _completion_source_from_turn_dir(
+    turn_dir: Path,
+    *,
+    provider: HeadlessProvider,
+    turn_index: int,
+) -> str | None:
+    """Extract the completion source from preferred persisted turn events."""
 
-    if not stdout_path.exists():
+    if not turn_dir.exists():
         return None
     try:
         events = load_headless_turn_events(
-            stdout_path=stdout_path,
+            turn_dir=turn_dir,
+            provider=provider,
             output_format="stream-json",
             turn_index=turn_index,
         )
@@ -1806,10 +2550,15 @@ def _run_local_mail_prompt(
     except MailboxCommandError as exc:
         raise click.ClickException(str(exc)) from exc
     prefer_live_gateway = _live_gateway_client_for_controller(controller) is not None
+    prompt_args = _enrich_local_mail_prompt_args(
+        mailbox=mailbox,
+        operation=operation,
+        args=args,
+    )
     prompt_request = prepare_mail_prompt(
         launch_plan=controller.launch_plan,
         operation=cast(Any, operation),
-        args=args,
+        args=prompt_args,
         prefer_live_gateway=prefer_live_gateway,
         tmux_session_name=controller.tmux_session_name,
     )
@@ -1827,6 +2576,79 @@ def _run_local_mail_prompt(
         ),
         mailbox=mailbox,
     )
+
+
+def _enrich_local_mail_prompt_args(
+    *,
+    mailbox: object,
+    operation: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach runtime-resolved mailbox principal records when available."""
+
+    enriched = dict(args)
+    if operation != "send" or not isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        return enriched
+
+    enriched["resolved_sender"] = {
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+    }
+    enriched["resolved_to"] = _resolve_registered_mail_principals(
+        mailbox_root=mailbox.filesystem_root,
+        addresses=_string_sequence(args.get("to")),
+        field_name="to",
+    )
+    enriched["resolved_cc"] = _resolve_registered_mail_principals(
+        mailbox_root=mailbox.filesystem_root,
+        addresses=_string_sequence(args.get("cc")),
+        field_name="cc",
+    )
+    return enriched
+
+
+def _resolve_registered_mail_principals(
+    *,
+    mailbox_root: Path,
+    addresses: tuple[str, ...],
+    field_name: str,
+) -> list[dict[str, str]]:
+    """Resolve active mailbox registrations into managed-principal payloads."""
+
+    principals: list[dict[str, str]] = []
+    seen_addresses: set[str] = set()
+    for address in addresses:
+        normalized = address.strip()
+        if not normalized or normalized in seen_addresses:
+            continue
+        seen_addresses.add(normalized)
+        try:
+            registration = load_active_mailbox_registration(mailbox_root, address=normalized)
+        except (FileNotFoundError, MailboxBootstrapError) as exc:
+            raise click.ClickException(
+                f"Filesystem mailbox send requires an active registration for `{field_name}` "
+                f"recipient `{normalized}`: {exc}"
+            ) from exc
+        principal_payload = {
+            "principal_id": registration.owner_principal_id,
+            "address": registration.address,
+        }
+        if registration.display_name:
+            principal_payload["display_name"] = registration.display_name
+        if registration.manifest_path_hint:
+            principal_payload["manifest_path_hint"] = registration.manifest_path_hint
+        if registration.role:
+            principal_payload["role"] = registration.role
+        principals.append(principal_payload)
+    return principals
+
+
+def _string_sequence(value: object) -> tuple[str, ...]:
+    """Normalize one optional string sequence payload."""
+
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, str) and item.strip())
 
 
 def _managed_agent_turn_status(status: str) -> ManagedAgentTurnStatus:

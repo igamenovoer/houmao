@@ -1,0 +1,14 @@
+model = "gpt-5.4"
+model_provider = "yunwu-openai"
+model_reasoning_effort = "medium"
+personality = "friendly"
+
+[model_providers]
+
+[model_providers.yunwu-openai]
+name = "Yunwu OpenAI-compatible endpoint"
+base_url = "https://api3.wlai.vip/v1"
+env_key = "OPENAI_API_KEY"
+env_key_instructions = "Set OPENAI_API_KEY in your environment before launching codex."
+requires_openai_auth = false
+wire_api = "responses"

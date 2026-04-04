@@ -45,6 +45,27 @@ class FilesystemMailboxResolvedConfig:
     address: str
     filesystem_root: Path
     bindings_version: str
+    mailbox_kind: Literal["in_root", "symlink"] = "in_root"
+    mailbox_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize and validate filesystem mailbox binding fields."""
+
+        resolved_root = self.filesystem_root.resolve()
+        object.__setattr__(self, "filesystem_root", resolved_root)
+
+        expected_in_root_path = (resolved_root / "mailboxes" / self.address).resolve()
+        resolved_mailbox_path = (
+            self.mailbox_path.resolve() if self.mailbox_path is not None else expected_in_root_path
+        )
+        if self.mailbox_kind == "in_root" and resolved_mailbox_path != expected_in_root_path:
+            raise ValueError(
+                "filesystem in_root mailbox bindings must use the shared-root mailbox path "
+                f"`{expected_in_root_path}`"
+            )
+        if self.mailbox_kind == "symlink" and self.mailbox_path is None:
+            raise ValueError("filesystem symlink mailbox bindings require an explicit mailbox_path")
+        object.__setattr__(self, "mailbox_path", resolved_mailbox_path)
 
     def redacted_payload(self) -> dict[str, Any]:
         """Return a secret-free payload suitable for persistence."""
@@ -55,6 +76,8 @@ class FilesystemMailboxResolvedConfig:
             "address": self.address,
             "filesystem_root": str(self.filesystem_root),
             "bindings_version": self.bindings_version,
+            "mailbox_kind": self.mailbox_kind,
+            "mailbox_path": str(self.mailbox_path),
         }
 
 

@@ -21,6 +21,10 @@ from houmao.agents.realm_controller.gateway_storage import (
     write_attach_contract,
     write_gateway_status,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    CanonicalHeadlessEvent,
+    canonical_headless_event_artifact_path,
+)
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
     RegistryIdentityV1,
@@ -48,8 +52,10 @@ from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessTurnRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailCheckRequest,
+    HoumaoManagedAgentMailStateRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
 )
@@ -275,9 +281,7 @@ class _FakeKnownSessionRegistry:
 
 
 class _FakeHeadlessSession(HeadlessInteractiveSession):
-    def __init__(
-        self, *, turn_index: int = 0, tmux_session_name: str = "AGENTSYS-headless"
-    ) -> None:
+    def __init__(self, *, turn_index: int = 0, tmux_session_name: str = "HOUMAO-headless") -> None:
         self._state = type(
             "HeadlessState",
             (),
@@ -305,9 +309,9 @@ class _FakeHeadlessController:
         self,
         *,
         manifest_path: Path,
-        tmux_session_name: str = "AGENTSYS-headless",
+        tmux_session_name: str = "HOUMAO-headless",
         turn_index: int = 0,
-        agent_identity: str | None = "AGENTSYS-headless",
+        agent_identity: str | None = "HOUMAO-headless",
         agent_id: str | None = None,
     ) -> None:
         self.manifest_path = manifest_path
@@ -523,9 +527,9 @@ def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_p
             tool="codex",
             manifest_path="/tmp/manifest.json",
             session_root="/tmp/session-root",
-            agent_name="AGENTSYS-gpu",
-            agent_id="AGENTSYS-gpu",
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id="HOUMAO-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
 
@@ -552,7 +556,7 @@ def test_stop_managed_agent_deletes_pair_managed_tui_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
     transport = _FakeTransport(
         {
             ("DELETE", "/sessions/cao-gpu", ()): _json_response(
@@ -573,7 +577,7 @@ def test_stop_managed_agent_deletes_pair_managed_tui_session(
     session_root.mkdir(parents=True, exist_ok=True)
     publish_live_agent_record(
         _sample_registry_record(
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
             manifest_path=session_root / "manifest.json",
             session_root=session_root,
@@ -590,7 +594,7 @@ def test_stop_managed_agent_deletes_pair_managed_tui_session(
             tmux_window_name="developer-1",
             manifest_path=session_root / "manifest.json",
             session_root=session_root,
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
     )
@@ -630,7 +634,7 @@ def test_managed_agent_gateway_request_rejects_missing_live_gateway(tmp_path: Pa
             tmux_window_name="developer-1",
             manifest_path=session_root / "manifest.json",
             session_root=session_root,
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
     )
@@ -642,6 +646,46 @@ def test_managed_agent_gateway_request_rejects_missing_live_gateway(tmp_path: Pa
                 kind="submit_prompt",
                 payload={"prompt": "hello"},
             ),
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+def test_control_managed_agent_gateway_prompt_requires_live_gateway_when_offline(
+    tmp_path: Path,
+) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
+    (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
+    (session_root / "manifest.json").write_text("{}\n", encoding="utf-8")
+    _write_offline_gateway_attach_contract(session_root)
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=session_root / "manifest.json",
+            session_root=session_root,
+            agent_name="HOUMAO-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(HTTPException, match="No live gateway is attached") as exc_info:
+        service.control_managed_agent_gateway_prompt(
+            "cao-gpu",
+            HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
         )
 
     assert exc_info.value.status_code == 503
@@ -667,7 +711,7 @@ def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) 
             tmux_window_name="developer-1",
             manifest_path=None,
             session_root=None,
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
     )
@@ -679,6 +723,46 @@ def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) 
         service.check_managed_agent_mail(
             "cao-gpu",
             HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5),
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+def test_managed_agent_mail_state_requires_pair_owned_mail_capability(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    service.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="cao-gpu",
+            session_name="cao-gpu",
+            tool="codex",
+            terminal_id="abcd1234",
+            tmux_session_name="cao-gpu",
+            tmux_window_name="developer-1",
+            manifest_path=None,
+            session_root=None,
+            agent_name="HOUMAO-gpu",
+            agent_id="agent-1234",
+        )
+    )
+
+    with pytest.raises(
+        HTTPException,
+        match="does not expose pair-owned mailbox capability",
+    ) as exc_info:
+        service.update_managed_agent_mail_state(
+            "cao-gpu",
+            HoumaoManagedAgentMailStateRequest(
+                message_ref="filesystem:msg-123",
+                read=True,
+            ),
         )
 
     assert exc_info.value.status_code == 503
@@ -727,7 +811,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
     transport.m_calls.clear()
@@ -747,7 +831,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     assert state.probe_snapshot.pane_id == "%9"
     assert state.probe_snapshot.matched_process_names == ["codex"]
     assert transport.m_calls == []
-    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", None, None)]
+    assert tmux_transport.m_resolve_calls == [("HOUMAO-gpu", None, None)]
     assert process_inspector.m_calls == [("codex", 4321)]
     assert parser_adapter.m_capture_baseline_calls == [("codex", _CODEX_READY_RAW_SNAPSHOT)]
     assert parser_adapter.m_parse_calls == [("codex", 17)]
@@ -806,7 +890,7 @@ def test_note_prompt_submission_arms_turn_anchor_for_registered_tracker(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
 
@@ -862,7 +946,7 @@ def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
 
@@ -903,7 +987,7 @@ def test_poll_known_session_marks_tmux_missing_and_requests_worker_exit(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
 
@@ -961,7 +1045,7 @@ def test_terminal_history_returns_recent_in_memory_transitions(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
 
@@ -1124,7 +1208,7 @@ def test_handle_poll_exception_records_probe_error_state(tmp_path: Path) -> None
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
 
@@ -1167,7 +1251,7 @@ def test_supervisor_reconcile_releases_missing_session_from_live_lookup(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
         )
     )
     registry.m_records = {
@@ -1176,7 +1260,7 @@ def test_supervisor_reconcile_releases_missing_session_from_live_lookup(
             session_name="cao-gpu",
             tool="codex",
             terminal_id="abcd1234",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
             manifest_path=None,
             session_root=None,
@@ -1243,14 +1327,14 @@ def test_refresh_terminal_state_uses_registration_window_name(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
         )
     )
 
     service.refresh_terminal_state("abcd1234")
 
-    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1", None)]
+    assert tmux_transport.m_resolve_calls == [("HOUMAO-gpu", "developer-1", None)]
 
 
 def test_refresh_terminal_state_prefers_window_zero_for_houmao_server_sessions(
@@ -1306,7 +1390,7 @@ def test_refresh_terminal_state_prefers_window_zero_for_houmao_server_sessions(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
             manifest_path=str(manifest_path),
         )
@@ -1314,7 +1398,7 @@ def test_refresh_terminal_state_prefers_window_zero_for_houmao_server_sessions(
 
     service.refresh_terminal_state("abcd1234")
 
-    assert tmux_transport.m_resolve_calls == [("AGENTSYS-gpu", "developer-1", "0")]
+    assert tmux_transport.m_resolve_calls == [("HOUMAO-gpu", "developer-1", "0")]
 
 
 def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
@@ -1358,7 +1442,7 @@ def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
             session_name="cao-gpu",
             terminal_id="abcd1234",
             tool="codex",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             manifest_path=str(manifest_path),
         )
     )
@@ -1372,7 +1456,7 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
     workdir = tmp_path / "workspace"
     agent_def_dir = tmp_path / "agent-defs"
     brain_manifest_path = tmp_path / "brain.yaml"
@@ -1390,8 +1474,8 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     fake_controller = _FakeHeadlessController(
         manifest_path=manifest_path,
-        tmux_session_name="AGENTSYS-gpu",
-        agent_identity="AGENTSYS-gpu",
+        tmux_session_name="HOUMAO-gpu",
+        agent_identity="HOUMAO-gpu",
         agent_id="agent-1234",
     )
 
@@ -1424,7 +1508,7 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
             agent_def_dir=str(agent_def_dir),
             brain_manifest_path=str(brain_manifest_path),
             role_name="gpu-kernel-coder",
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
     )
@@ -1460,7 +1544,7 @@ def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
     workdir = tmp_path / "workspace"
     agent_def_dir = tmp_path / "agent-defs"
     brain_manifest_path = tmp_path / "brain.yaml"
@@ -1478,8 +1562,8 @@ def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     fake_controller = _FakeHeadlessController(
         manifest_path=manifest_path,
-        tmux_session_name="AGENTSYS-gpu",
-        agent_identity="AGENTSYS-gpu",
+        tmux_session_name="HOUMAO-gpu",
+        agent_identity="HOUMAO-gpu",
         agent_id="agent-1234",
     )
 
@@ -1516,7 +1600,7 @@ def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
             agent_def_dir=str(agent_def_dir),
             brain_manifest_path=str(brain_manifest_path),
             role_name=None,
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
     )
@@ -1558,9 +1642,9 @@ def test_startup_rebuilds_unresumable_headless_authority_as_unavailable(tmp_path
             tool="claude",
             manifest_path=str(tmp_path / "missing" / "manifest.json"),
             session_root=str(tmp_path / "missing"),
-            tmux_session_name="AGENTSYS-missing",
+            tmux_session_name="HOUMAO-missing",
             agent_def_dir=str(tmp_path / "missing-agent-defs"),
-            agent_name="AGENTSYS-missing",
+            agent_name="HOUMAO-missing",
             agent_id=None,
             created_at_utc="2026-03-20T09:00:00+00:00",
             updated_at_utc="2026-03-20T09:00:00+00:00",
@@ -1608,7 +1692,7 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
     manifest_path.write_text("{}\n", encoding="utf-8")
     fake_controller = _FakeHeadlessController(
         manifest_path=manifest_path,
-        tmux_session_name="AGENTSYS-live",
+        tmux_session_name="HOUMAO-live",
         turn_index=1,
     )
     service.m_managed_headless_store.write_authority(
@@ -1618,9 +1702,9 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
             tool="claude",
             manifest_path=str(manifest_path),
             session_root=str(manifest_path.parent),
-            tmux_session_name="AGENTSYS-live",
+            tmux_session_name="HOUMAO-live",
             agent_def_dir=str(agent_def_dir),
-            agent_name="AGENTSYS-live",
+            agent_name="HOUMAO-live",
             agent_id=None,
             created_at_utc="2026-03-20T09:00:00+00:00",
             updated_at_utc="2026-03-20T09:00:00+00:00",
@@ -1634,7 +1718,7 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
             status="active",
             started_at_utc="2026-03-20T09:01:00+00:00",
             turn_artifact_dir=str(manifest_path.parent / "manifest.turn-artifacts" / "turn-live"),
-            tmux_session_name="AGENTSYS-live",
+            tmux_session_name="HOUMAO-live",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(
                 manifest_path.parent / "manifest.turn-artifacts" / "turn-live" / "process.json"
@@ -1649,7 +1733,7 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
             turn_index=2,
             turn_artifact_dir=str(manifest_path.parent / "manifest.turn-artifacts" / "turn-live"),
             started_at_utc="2026-03-20T09:01:00+00:00",
-            tmux_session_name="AGENTSYS-live",
+            tmux_session_name="HOUMAO-live",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(
                 manifest_path.parent / "manifest.turn-artifacts" / "turn-live" / "process.json"
@@ -1708,7 +1792,7 @@ def test_reconcile_keeps_headless_turn_active_while_worker_thread_is_live(tmp_pa
             status="active",
             started_at_utc="2026-03-23T12:00:00+00:00",
             turn_artifact_dir=str(turn_dir),
-            tmux_session_name="AGENTSYS-thread",
+            tmux_session_name="HOUMAO-thread",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
             history_summary="Turn turn-live accepted.",
@@ -1721,7 +1805,7 @@ def test_reconcile_keeps_headless_turn_active_while_worker_thread_is_live(tmp_pa
             turn_index=1,
             turn_artifact_dir=str(turn_dir),
             started_at_utc="2026-03-23T12:00:00+00:00",
-            tmux_session_name="AGENTSYS-thread",
+            tmux_session_name="HOUMAO-thread",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
         )
@@ -1787,7 +1871,7 @@ def test_finalize_headless_turn_record_fails_closed_without_completion_marker(
             status="active",
             started_at_utc="2026-03-23T12:00:00+00:00",
             turn_artifact_dir=str(turn_dir),
-            tmux_session_name="AGENTSYS-dead",
+            tmux_session_name="HOUMAO-dead",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
             history_summary="Turn turn-dead accepted.",
@@ -1800,7 +1884,7 @@ def test_finalize_headless_turn_record_fails_closed_without_completion_marker(
             turn_index=1,
             turn_artifact_dir=str(turn_dir),
             started_at_utc="2026-03-23T12:00:00+00:00",
-            tmux_session_name="AGENTSYS-dead",
+            tmux_session_name="HOUMAO-dead",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
         )
@@ -1850,7 +1934,7 @@ def test_finalize_headless_turn_record_fails_closed_for_legacy_active_turn_metad
             status="active",
             started_at_utc="2026-03-23T12:00:00+00:00",
             turn_artifact_dir=str(turn_dir),
-            tmux_session_name="AGENTSYS-legacy",
+            tmux_session_name="HOUMAO-legacy",
             tmux_window_name="turn-1",
             history_summary="Turn turn-legacy accepted.",
         )
@@ -1862,7 +1946,7 @@ def test_finalize_headless_turn_record_fails_closed_for_legacy_active_turn_metad
             turn_index=1,
             turn_artifact_dir=str(turn_dir),
             started_at_utc="2026-03-23T12:00:00+00:00",
-            tmux_session_name="AGENTSYS-legacy",
+            tmux_session_name="HOUMAO-legacy",
             tmux_window_name="turn-1",
         )
     )
@@ -1909,7 +1993,7 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
                 status="active",
                 started_at_utc="2026-03-23T12:00:00+00:00",
                 turn_artifact_dir=str(turn_dir),
-                tmux_session_name="AGENTSYS-interrupt",
+                tmux_session_name="HOUMAO-interrupt",
                 tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
                 process_path=str(process_path),
                 child_pid=sleeper.pid,
@@ -1923,7 +2007,7 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
             turn_index=1,
             turn_artifact_dir=str(turn_dir),
             started_at_utc="2026-03-23T12:00:00+00:00",
-            tmux_session_name="AGENTSYS-interrupt",
+            tmux_session_name="HOUMAO-interrupt",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             process_path=str(process_path),
             child_pid=sleeper.pid,
@@ -1972,7 +2056,7 @@ def test_interrupt_headless_tmux_target_uses_stable_agent_pane(
         turn_index=1,
         turn_artifact_dir=str(tmp_path / "turn-artifacts" / "turn-live"),
         started_at_utc="2026-03-23T12:00:00+00:00",
-        tmux_session_name="AGENTSYS-fallback",
+        tmux_session_name="HOUMAO-fallback",
         tmux_window_name="diagnostics",
     )
     tmux_calls: list[list[str]] = []
@@ -1987,7 +2071,7 @@ def test_interrupt_headless_tmux_target_uses_stable_agent_pane(
 
     service._interrupt_headless_tmux_target(active_turn=active_turn)
 
-    assert tmux_calls == [["send-keys", "-t", "AGENTSYS-fallback:0.0", "C-c"]]
+    assert tmux_calls == [["send-keys", "-t", "HOUMAO-fallback:0.0", "C-c"]]
 
 
 def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
@@ -2010,9 +2094,9 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
             tool="claude",
             manifest_path=str(tmp_path / "missing" / "manifest.json"),
             session_root=str(tmp_path / "missing"),
-            tmux_session_name="AGENTSYS-history",
+            tmux_session_name="HOUMAO-history",
             agent_def_dir=str(tmp_path / "missing-agent-defs"),
-            agent_name="AGENTSYS-history",
+            agent_name="HOUMAO-history",
             agent_id=None,
             created_at_utc="2026-03-20T09:00:00+00:00",
             updated_at_utc="2026-03-20T09:00:00+00:00",
@@ -2038,12 +2122,12 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
             started_at_utc="2026-03-20T09:01:00+00:00",
             completed_at_utc="2026-03-20T09:02:00+00:00",
             turn_artifact_dir=str(turn_dir),
-            tmux_session_name="AGENTSYS-history",
+            tmux_session_name="HOUMAO-history",
             tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
             stdout_path=str(stdout_path),
             stderr_path=str(stderr_path),
             status_path=str(status_path),
-            completion_source="tmux_wait_for",
+            completion_source="process_exit",
             returncode=0,
             history_summary="Turn turn-001 completed successfully.",
         )
@@ -2064,7 +2148,7 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
         service.shutdown()
 
     assert status.status == "completed"
-    assert status.completion_source == "tmux_wait_for"
+    assert status.completion_source == "process_exit"
     assert [event.kind for event in events.entries] == ["assistant"]
     assert events.entries[0].message == "hello from claude"
     assert stderr_text == "warning line\n"
@@ -2072,3 +2156,89 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
     assert history.entries[0].summary == "Turn turn-001 completed successfully."
     assert shared_state.last_turn.result == "success"
     assert shared_state.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
+
+
+def test_headless_turn_events_prefer_canonical_artifact_for_server_managed_agent(
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    service.m_managed_headless_store.write_authority(
+        ManagedHeadlessAuthorityRecord(
+            tracked_agent_id="claude-headless-5",
+            backend="claude_headless",
+            tool="claude",
+            manifest_path=str(tmp_path / "missing" / "manifest.json"),
+            session_root=str(tmp_path / "missing"),
+            tmux_session_name="HOUMAO-history",
+            agent_def_dir=str(tmp_path / "missing-agent-defs"),
+            agent_name="HOUMAO-history",
+            agent_id=None,
+            created_at_utc="2026-03-20T09:00:00+00:00",
+            updated_at_utc="2026-03-20T09:00:00+00:00",
+        )
+    )
+    turn_dir = tmp_path / "turn-artifacts" / "turn-001"
+    turn_dir.mkdir(parents=True)
+    stdout_path = turn_dir / "stdout.jsonl"
+    stderr_path = turn_dir / "stderr.log"
+    status_path = turn_dir / "exitcode"
+    stdout_path.write_text(
+        '{"type":"assistant","message":"raw stdout should not win","session_id":"claude-session-2"}\n',
+        encoding="utf-8",
+    )
+    stderr_path.write_text("", encoding="utf-8")
+    status_path.write_text("0\n", encoding="utf-8")
+    canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+    canonical_path.write_text(
+        json.dumps(
+            CanonicalHeadlessEvent(
+                kind="assistant",
+                message="canonical event wins",
+                turn_index=1,
+                provider="claude",
+                provider_event_type="assistant.text",
+                session_id="claude-session-2",
+                data={"text": "canonical event wins"},
+            ).to_artifact_record(),
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    service.m_managed_headless_store.write_turn_record(
+        ManagedHeadlessTurnRecord(
+            tracked_agent_id="claude-headless-5",
+            turn_id="turn-001",
+            turn_index=1,
+            status="completed",
+            started_at_utc="2026-03-20T09:01:00+00:00",
+            completed_at_utc="2026-03-20T09:02:00+00:00",
+            turn_artifact_dir=str(turn_dir),
+            tmux_session_name="HOUMAO-history",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
+            stdout_path=str(stdout_path),
+            stderr_path=str(stderr_path),
+            status_path=str(status_path),
+            completion_source="process_exit",
+            returncode=0,
+            history_summary="Turn turn-001 completed successfully.",
+        )
+    )
+
+    service.startup()
+    try:
+        events = service.headless_turn_events("claude-headless-5", "turn-001")
+    finally:
+        service.shutdown()
+
+    assert [event.kind for event in events.entries] == ["assistant"]
+    assert events.entries[0].message == "canonical event wins"

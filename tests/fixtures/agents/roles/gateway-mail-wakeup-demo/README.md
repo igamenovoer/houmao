@@ -1,4 +1,5 @@
 # Gateway Mail Wake-Up Demo Role
 
-This role mirrors the narrow `mailbox-demo` posture, but it is bound to the serverless gateway wake-up fixture selector used by `scripts/demo/gateway-mail-wakeup-demo-pack/`.
+This lightweight role mirrors the narrow `mailbox-demo` posture for gateway wake-up experiments.
 
+It is retained only as historical fixture context for archived gateway wake-up materials and is not part of the supported live workflow set.

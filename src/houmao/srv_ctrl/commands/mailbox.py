@@ -2,35 +2,46 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
-import sqlite3
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable
 
 import click
-from houmao.mailbox import (
-    MailboxBootstrapError,
-    bootstrap_filesystem_mailbox,
-    read_protocol_version,
-)
-from houmao.mailbox.filesystem import (
-    resolve_filesystem_mailbox_paths,
-    unsupported_mailbox_root_reason,
-)
-from houmao.mailbox.managed import (
-    DeregisterMailboxRequest,
-    MailboxCleanupRecord,
-    MailboxCleanupResult,
-    RegisterMailboxRequest,
-    RepairRequest,
-    cleanup_mailbox_registrations,
-    deregister_mailbox,
-    register_mailbox,
-    repair_mailbox_index,
-)
-from houmao.owned_paths import resolve_mailbox_root
 
-from .cleanup_support import CleanupAction, build_cleanup_payload
-from .common import emit_json
+from houmao.owned_paths import HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_mailbox_root,
+)
+
+from .cleanup_support import emit_cleanup_payload
+from .common import build_destructive_confirmation_callback, overwrite_confirm_option
+from .mailbox_support import (
+    cleanup_mailbox_root,
+    get_mailbox_account,
+    get_mailbox_message,
+    init_mailbox_root,
+    list_mailbox_accounts,
+    list_mailbox_messages,
+    mailbox_root_status_payload,
+    register_mailbox_at_root,
+    repair_mailbox_root,
+    unregister_mailbox_at_root,
+)
+from .output import emit
+from .project_aware_wording import (
+    describe_mailbox_root_selection,
+    mailbox_root_option_help,
+)
+
+
+def _resolve_effective_mailbox_root(mailbox_root: Path | None) -> Path:
+    """Resolve one mailbox root using the project-aware maintained-command contract."""
+
+    cwd = Path.cwd().resolve()
+    if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):
+        ensure_project_aware_local_roots(cwd=cwd)
+    return resolve_project_aware_mailbox_root(cwd=cwd, explicit_root=mailbox_root)
 
 
 def _mailbox_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -40,11 +51,19 @@ def _mailbox_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
         "--mailbox-root",
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
-        help=(
-            "Filesystem mailbox root override. Defaults to `AGENTSYS_GLOBAL_MAILBOX_DIR` "
-            "or the shared Houmao mailbox root."
-        ),
+        help=mailbox_root_option_help(),
     )(function)
+
+
+def _emit_mailbox_payload(*, mailbox_root: Path | None, payload: dict[str, object]) -> None:
+    """Emit one mailbox payload with project-aware root selection detail."""
+
+    emit(
+        {
+            **payload,
+            "mailbox_root_detail": describe_mailbox_root_selection(explicit_root=mailbox_root),
+        }
+    )
 
 
 @click.group(name="mailbox")
@@ -57,20 +76,9 @@ def mailbox_group() -> None:
 def init_mailbox_command(mailbox_root: Path | None) -> None:
     """Bootstrap or validate one filesystem mailbox root."""
 
-    resolved_root = resolve_mailbox_root(explicit_root=mailbox_root)
-    paths = bootstrap_filesystem_mailbox(resolved_root)
-    emit_json(
-        {
-            "schema_version": 1,
-            "mailbox_root": str(paths.root),
-            "bootstrapped": True,
-            "supported": True,
-            "protocol_version": read_protocol_version(paths.protocol_version_file),
-            "sqlite_path": str(paths.sqlite_path),
-            "rules_dir": str(paths.rules_dir),
-            "mailboxes_dir": str(paths.mailboxes_dir),
-            "status": "ready",
-        }
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=init_mailbox_root(_resolve_effective_mailbox_root(mailbox_root)),
     )
 
 
@@ -79,8 +87,10 @@ def init_mailbox_command(mailbox_root: Path | None) -> None:
 def status_mailbox_command(mailbox_root: Path | None) -> None:
     """Inspect one filesystem mailbox root and return a structured summary."""
 
-    resolved_root = resolve_mailbox_root(explicit_root=mailbox_root)
-    emit_json(_mailbox_root_status_payload(resolved_root))
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=mailbox_root_status_payload(_resolve_effective_mailbox_root(mailbox_root)),
+    )
 
 
 @mailbox_group.command(name="register")
@@ -88,7 +98,7 @@ def status_mailbox_command(mailbox_root: Path | None) -> None:
 @click.option(
     "--address",
     required=True,
-    help="Full mailbox address, for example `AGENTSYS-agent@agents.localhost`.",
+    help="Full mailbox address, for example `HOUMAO-agent@agents.localhost`.",
 )
 @click.option("--principal-id", required=True, help="Mailbox owner principal id.")
 @click.option(
@@ -98,33 +108,32 @@ def status_mailbox_command(mailbox_root: Path | None) -> None:
     show_default=True,
     help="Filesystem mailbox registration mode.",
 )
+@overwrite_confirm_option
 def register_mailbox_command(
     mailbox_root: Path | None,
     address: str,
     principal_id: str,
     mode: str,
+    yes: bool,
 ) -> None:
     """Register one filesystem mailbox address under the resolved root."""
 
-    resolved_root = resolve_mailbox_root(explicit_root=mailbox_root)
-    bootstrap_filesystem_mailbox(resolved_root)
-    paths = resolve_filesystem_mailbox_paths(resolved_root)
-    result = register_mailbox(
-        resolved_root,
-        RegisterMailboxRequest(
-            mode=cast(Literal["safe", "force", "stash"], mode),
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=register_mailbox_at_root(
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
-            owner_principal_id=principal_id,
-            mailbox_kind="in_root",
-            mailbox_path=paths.mailbox_entry_path(address),
+            principal_id=principal_id,
+            mode=mode,
+            confirm_destructive_replace=build_destructive_confirmation_callback(
+                yes=yes,
+                non_interactive_message=(
+                    "Mailbox registration would replace existing durable mailbox state. "
+                    "Rerun with `--yes` to confirm overwrite non-interactively or choose "
+                    "a non-destructive registration mode."
+                ),
+            ),
         ),
-    )
-    emit_json(
-        {
-            "schema_version": 1,
-            "mailbox_root": str(resolved_root),
-            **result,
-        }
     )
 
 
@@ -133,7 +142,7 @@ def register_mailbox_command(
 @click.option(
     "--address",
     required=True,
-    help="Full mailbox address, for example `AGENTSYS-agent@agents.localhost`.",
+    help="Full mailbox address, for example `HOUMAO-agent@agents.localhost`.",
 )
 @click.option(
     "--mode",
@@ -145,20 +154,13 @@ def register_mailbox_command(
 def unregister_mailbox_command(mailbox_root: Path | None, address: str, mode: str) -> None:
     """Deactivate or purge one filesystem mailbox address."""
 
-    resolved_root = resolve_mailbox_root(explicit_root=mailbox_root)
-    result = deregister_mailbox(
-        resolved_root,
-        DeregisterMailboxRequest(
-            mode=cast(Literal["deactivate", "purge"], mode),
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=unregister_mailbox_at_root(
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             address=address,
+            mode=mode,
         ),
-    )
-    emit_json(
-        {
-            "schema_version": 1,
-            "mailbox_root": str(resolved_root),
-            **result,
-        }
     )
 
 
@@ -183,20 +185,13 @@ def repair_mailbox_command(
 ) -> None:
     """Rebuild filesystem mailbox index state locally."""
 
-    resolved_root = resolve_mailbox_root(explicit_root=mailbox_root)
-    result = repair_mailbox_index(
-        resolved_root,
-        RepairRequest(
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=repair_mailbox_root(
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
             cleanup_staging=cleanup_staging,
             quarantine_staging=quarantine_staging,
         ),
-    )
-    emit_json(
-        {
-            "schema_version": 1,
-            "mailbox_root": str(resolved_root),
-            **result,
-        }
     )
 
 
@@ -229,126 +224,89 @@ def cleanup_mailbox_command(
 ) -> None:
     """Clean inactive or stashed mailbox registrations without deleting canonical mail."""
 
-    resolved_root = resolve_mailbox_root(explicit_root=mailbox_root)
-    result = cleanup_mailbox_registrations(
-        resolved_root,
-        inactive_older_than_seconds=inactive_older_than_seconds,
-        stashed_older_than_seconds=stashed_older_than_seconds,
-        dry_run=dry_run,
+    emit_cleanup_payload(
+        {
+            **cleanup_mailbox_root(
+                mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+                inactive_older_than_seconds=inactive_older_than_seconds,
+                stashed_older_than_seconds=stashed_older_than_seconds,
+                dry_run=dry_run,
+            ),
+            "mailbox_root_detail": describe_mailbox_root_selection(explicit_root=mailbox_root),
+        }
     )
-    emit_json(
-        _mailbox_cleanup_payload(
-            result=result,
-            inactive_older_than_seconds=inactive_older_than_seconds,
-            stashed_older_than_seconds=stashed_older_than_seconds,
+
+
+@mailbox_group.group(name="accounts")
+def mailbox_accounts_group() -> None:
+    """Inspect mailbox registrations under one resolved mailbox root."""
+
+
+@mailbox_accounts_group.command(name="list")
+@_mailbox_root_option
+def list_mailbox_accounts_command(mailbox_root: Path | None) -> None:
+    """List mailbox registrations as operator-facing accounts."""
+
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=list_mailbox_accounts(mailbox_root=_resolve_effective_mailbox_root(mailbox_root)),
+    )
+
+
+@mailbox_accounts_group.command(name="get")
+@_mailbox_root_option
+@click.option("--address", required=True, help="Full mailbox address.")
+def get_mailbox_account_command(mailbox_root: Path | None, address: str) -> None:
+    """Inspect one mailbox registration as an operator-facing account."""
+
+    try:
+        payload = get_mailbox_account(
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+            address=address,
         )
-    )
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)
 
 
-def _mailbox_root_status_payload(mailbox_root: Path) -> dict[str, object]:
-    """Return a structured filesystem mailbox root status payload."""
-
-    paths = resolve_filesystem_mailbox_paths(mailbox_root)
-    counts = {"active": 0, "inactive": 0, "stashed": 0}
-    supported = True
-    structural_state_readable = False
-    protocol_version: int | None = None
-    error: str | None = None
-
-    unsupported_reason = unsupported_mailbox_root_reason(paths.root)
-    if unsupported_reason is not None:
-        supported = False
-        error = unsupported_reason
-    elif paths.protocol_version_file.is_file():
-        try:
-            protocol_version = read_protocol_version(paths.protocol_version_file)
-        except MailboxBootstrapError as exc:
-            supported = False
-            error = str(exc)
-
-    if supported and paths.sqlite_path.is_file():
-        try:
-            with sqlite3.connect(paths.sqlite_path) as connection:
-                for status, count in connection.execute(
-                    """
-                    SELECT status, COUNT(*)
-                    FROM mailbox_registrations
-                    GROUP BY status
-                    """
-                ).fetchall():
-                    if status in counts:
-                        counts[str(status)] = int(count)
-                structural_state_readable = True
-        except sqlite3.DatabaseError as exc:
-            error = f"mailbox index is unreadable: {exc}"
-
-    return {
-        "schema_version": 1,
-        "mailbox_root": str(paths.root),
-        "exists": paths.root.exists(),
-        "bootstrapped": supported
-        and paths.protocol_version_file.is_file()
-        and paths.sqlite_path.is_file(),
-        "supported": supported,
-        "protocol_version": protocol_version,
-        "registration_counts": counts,
-        "structural_state_readable": structural_state_readable,
-        "error": error,
-    }
+@mailbox_group.group(name="messages")
+def mailbox_messages_group() -> None:
+    """Inspect structural message projections under one resolved mailbox root."""
 
 
-def _mailbox_cleanup_payload(
-    *,
-    result: MailboxCleanupResult,
-    inactive_older_than_seconds: int,
-    stashed_older_than_seconds: int,
-) -> dict[str, object]:
-    """Return the structured CLI payload for mailbox cleanup."""
+@mailbox_messages_group.command(name="list")
+@_mailbox_root_option
+@click.option("--address", required=True, help="Full mailbox address.")
+def list_mailbox_messages_command(mailbox_root: Path | None, address: str) -> None:
+    """List structurally projected messages for one selected address."""
 
-    planned_actions: list[CleanupAction] = []
-    applied_actions: list[CleanupAction] = []
-    blocked_actions: list[CleanupAction] = []
-    preserved_actions: list[CleanupAction] = []
-
-    for record in result.planned:
-        planned_actions.append(_cleanup_action_from_mailbox_record(record))
-    for record in result.removed:
-        applied_actions.append(_cleanup_action_from_mailbox_record(record))
-    for record in result.blocked:
-        blocked_actions.append(_cleanup_action_from_mailbox_record(record))
-    for record in result.preserved:
-        preserved_actions.append(_cleanup_action_from_mailbox_record(record))
-
-    return build_cleanup_payload(
-        dry_run=result.dry_run,
-        scope={
-            "kind": "mailbox_cleanup",
-            "mailbox_root": str(result.mailbox_root),
-            "inactive_older_than_seconds": inactive_older_than_seconds,
-            "stashed_older_than_seconds": stashed_older_than_seconds,
-        },
-        resolution={"authority": "mailbox_root"},
-        planned_actions=planned_actions,
-        applied_actions=applied_actions,
-        blocked_actions=blocked_actions,
-        preserved_actions=preserved_actions,
-    )
+    try:
+        payload = list_mailbox_messages(
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+            address=address,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)
 
 
-def _cleanup_action_from_mailbox_record(record: MailboxCleanupRecord) -> CleanupAction:
-    """Translate one mailbox cleanup record into the shared cleanup payload shape."""
+@mailbox_messages_group.command(name="get")
+@_mailbox_root_option
+@click.option("--address", required=True, help="Full mailbox address.")
+@click.option("--message-id", required=True, help="Canonical mailbox message id.")
+def get_mailbox_message_command(
+    mailbox_root: Path | None,
+    address: str,
+    message_id: str,
+) -> None:
+    """Get one structurally projected message for a selected address."""
 
-    details: dict[str, object] = {}
-    if record.address is not None:
-        details["address"] = record.address
-    if record.registration_id is not None:
-        details["registration_id"] = record.registration_id
-    if record.registration_status is not None:
-        details["registration_status"] = record.registration_status
-    return CleanupAction(
-        artifact_kind=record.artifact_kind,
-        path=record.path,
-        proposed_action="remove" if record.outcome != "preserved" else "preserve",
-        reason=record.reason,
-        details=details,
-    )
+    try:
+        payload = get_mailbox_message(
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+            address=address,
+            message_id=message_id,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)

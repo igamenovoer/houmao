@@ -36,7 +36,7 @@ With the `stalwart` transport, Houmao stops acting like the mailbox storage engi
 | --- | --- | --- | --- |
 | mailbox binding in `manifest.json` | `<session-root>/manifest.json` | yes | durable runtime record used by resume, direct mailbox flows, and gateway adapter construction |
 | runtime-owned Stalwart credential store | `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | no | durable runtime-owned secret material keyed by `credential_ref` |
-| session-local Stalwart credential file | `<session-root>/mailbox-secrets/<credential-ref>.json` | no | per-session materialized secret file surfaced as `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` |
+| session-local Stalwart credential file | `<session-root>/mailbox-secrets/<credential-ref>.json` | no | per-session materialized secret file surfaced through `resolve-live.mailbox.stalwart.credential_file` |
 
 The manifest stores `credential_ref`, not the password itself. For the broader filesystem map and cleanup guidance, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
 
@@ -60,6 +60,8 @@ If you supply only `base_url`, Houmao derives JMAP as `<base_url>/jmap` and the 
 
 ## Start A Stalwart-Backed Session
 
+> **Note:** `--mailbox-transport stalwart` is not currently exposed via `houmao-mgr agents launch`. The raw `python -m houmao.agents.realm_controller start-session` module CLI shown below remains the supported access path for the stalwart mailbox workflow. Only the `filesystem` transport is available through `houmao-mgr` today.
+
 Use `start-session` with `--mailbox-transport stalwart` and either a base URL or explicit endpoint URLs.
 
 ```bash
@@ -69,8 +71,8 @@ pixi run python -m houmao.agents.realm_controller start-session \
   --role gpu-kernel-coder \
   --backend claude_headless \
   --mailbox-transport stalwart \
-  --mailbox-principal-id AGENTSYS-research \
-  --mailbox-address AGENTSYS-research@agents.localhost \
+  --mailbox-principal-id HOUMAO-research \
+  --mailbox-address HOUMAO-research@agents.localhost \
   --mailbox-stalwart-base-url http://127.0.0.1:8080
 ```
 
@@ -99,12 +101,12 @@ Representative manifest fragment:
 {
   "mailbox": {
     "transport": "stalwart",
-    "principal_id": "AGENTSYS-research",
-    "address": "AGENTSYS-research@agents.localhost",
+    "principal_id": "HOUMAO-research",
+    "address": "HOUMAO-research@agents.localhost",
     "jmap_url": "http://127.0.0.1:8080/jmap",
     "management_url": "http://127.0.0.1:8080/api",
-    "login_identity": "AGENTSYS-research@agents.localhost",
-    "credential_ref": "stalwart-AGENTSYS-research-at-agents-localhost-a1b2c3d4e5f60718",
+    "login_identity": "HOUMAO-research@agents.localhost",
+    "credential_ref": "stalwart-HOUMAO-research-at-agents-localhost-a1b2c3d4e5f60718",
     "bindings_version": "2026-03-19T08:00:00.000001Z"
   }
 }
@@ -118,7 +120,7 @@ Check mail:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller mail check \
-  --agent-identity AGENTSYS-research \
+  --agent-identity HOUMAO-research \
   --unread-only \
   --limit 10
 ```
@@ -127,8 +129,8 @@ Send a message:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller mail send \
-  --agent-identity AGENTSYS-research \
-  --to AGENTSYS-orchestrator@agents.localhost \
+  --agent-identity HOUMAO-research \
+  --to HOUMAO-orchestrator@agents.localhost \
   --subject "Investigate parser drift" \
   --body-content "Please review the current parser mismatch."
 ```
@@ -137,7 +139,7 @@ Reply to a known message:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller mail reply \
-  --agent-identity AGENTSYS-research \
+  --agent-identity HOUMAO-research \
   --message-ref stalwart:6830e11343d5efb7 \
   --body-content "Reply with next steps"
 ```

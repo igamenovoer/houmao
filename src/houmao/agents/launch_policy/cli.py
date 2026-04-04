@@ -86,9 +86,9 @@ def _parse_operator_prompt_mode(raw_value: str | None) -> OperatorPromptMode | N
     if raw_value is None:
         return None
     value = raw_value.strip()
-    if value not in {"interactive", "unattended"}:
+    if value not in {"as_is", "unattended"}:
         raise SystemExit(
-            "--requested-operator-prompt-mode must be `interactive` or `unattended` when set."
+            "--requested-operator-prompt-mode must be `as_is` or `unattended` when set."
         )
     return cast(OperatorPromptMode, value)
 

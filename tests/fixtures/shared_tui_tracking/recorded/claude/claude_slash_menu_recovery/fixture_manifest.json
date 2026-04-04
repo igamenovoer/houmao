@@ -1,8 +1,0 @@
-{
-  "case_id": "claude_slash_menu_recovery",
-  "description": "Open Claude slash help, leave the ambiguous overlay, and return to ready.",
-  "observed_version": "2.1.81 (Claude Code)",
-  "schema_version": 1,
-  "settle_seconds": 1.0,
-  "tool": "claude"
-}

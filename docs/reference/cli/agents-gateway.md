@@ -22,7 +22,7 @@ houmao-mgr agents gateway attach [OPTIONS]
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. Implied when no selector is provided inside tmux. |
 | `--port INTEGER` | Houmao server port override for explicit attach. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 ### `detach`
 
@@ -65,6 +65,7 @@ houmao-mgr agents gateway prompt [OPTIONS]
 | Option | Description |
 |---|---|
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
+| `--force` | Send the prompt even when the gateway does not judge the target prompt-ready. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
 | `--port INTEGER` | Houmao server port override for explicit gateway prompt. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
@@ -104,7 +105,7 @@ houmao-mgr agents gateway send-keys [OPTIONS]
 
 ### `tui`
 
-Raw gateway-owned TUI tracking commands.
+Raw gateway-owned TUI tracking commands. These commands inspect the gateway's internal TUI state tracker, which captures terminal snapshots, readiness signals, and turn boundaries for the managed agent's TUI surface.
 
 ```
 houmao-mgr agents gateway tui [OPTIONS] COMMAND [ARGS]...
@@ -117,9 +118,71 @@ houmao-mgr agents gateway tui [OPTIONS] COMMAND [ARGS]...
 | `watch` | Poll raw gateway-owned TUI state repeatedly for one managed agent. |
 | `note-prompt` | Record prompt-note provenance without submitting a queued gateway request. |
 
+#### `tui state`
+
+Show raw gateway-owned live TUI state for one managed agent.
+
+```
+houmao-mgr agents gateway tui state [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--port INTEGER` | Houmao server port override for explicit gateway TUI state. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `tui history`
+
+Show bounded raw gateway-owned TUI snapshot history for one managed agent. Returns the recent history buffer of TUI state snapshots maintained by the gateway tracker.
+
+```
+houmao-mgr agents gateway tui history [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--port INTEGER` | Houmao server port override for explicit gateway TUI history. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `tui watch`
+
+Poll raw gateway-owned TUI state repeatedly for one managed agent. In a TTY, clears the screen between polls for a live-updating display. When piped, emits one JSON object per poll cycle.
+
+```
+houmao-mgr agents gateway tui watch [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--interval-seconds FLOAT` | Polling interval for repeated TUI state inspection. Must be > 0. Default: `1.0`. |
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--port INTEGER` | Houmao server port override for explicit gateway TUI watch. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `tui note-prompt`
+
+Record prompt-note provenance without submitting a queued gateway request. This annotates the gateway's TUI tracker with the prompt text for provenance tracking, but does not enqueue a prompt for the agent.
+
+```
+houmao-mgr agents gateway tui note-prompt [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--prompt TEXT` | Prompt text to record in the gateway-owned tracker. If omitted, piped stdin is used. |
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--port INTEGER` | Houmao server port override for explicit gateway TUI prompt note. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
 ### `mail-notifier`
 
-Gateway mail-notifier lifecycle and inspection commands.
+Gateway mail-notifier lifecycle and inspection commands. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for new messages and injects notification prompts through the gateway's request queue.
 
 ```
 houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
@@ -131,10 +194,56 @@ houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
 | `enable` | Enable or reconfigure gateway mail-notifier behavior for one managed agent. |
 | `disable` | Disable gateway mail-notifier behavior for one managed agent. |
 
+#### `mail-notifier status`
+
+Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, and last-check metadata.
+
+```
+houmao-mgr agents gateway mail-notifier status [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--port INTEGER` | Houmao server port override for explicit notifier status. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `mail-notifier enable`
+
+Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts when unread messages are detected.
+
+```
+houmao-mgr agents gateway mail-notifier enable [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--interval-seconds INTEGER` | Unread-mail polling interval in seconds. Must be >= 1. **Required.** |
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--port INTEGER` | Houmao server port override for explicit notifier enable. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `mail-notifier disable`
+
+Disable the gateway mail-notifier for one managed agent. The notifier stops polling and no further notification prompts are submitted until re-enabled.
+
+```
+houmao-mgr agents gateway mail-notifier disable [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--port INTEGER` | Houmao server port override for explicit notifier disable. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
 ## Targeting Rules
 
 - Outside tmux, gateway commands require an explicit `--agent-id` or `--agent-name`.
-- Inside a managed tmux session, omitting the selector resolves the current session from `AGENTSYS_MANIFEST_PATH` first and falls back to `AGENTSYS_AGENT_ID` plus shared registry when needed.
+- Inside a managed tmux session, omitting the selector resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus shared registry when needed.
 - `--current-session` forces same-session resolution and cannot be combined with `--agent-id`, `--agent-name`, or `--port`.
 - `--port` is only supported with an explicit selector, because current-session mode uses the manifest-declared pair authority instead of retargeting another server.
 

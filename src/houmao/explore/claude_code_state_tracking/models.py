@@ -184,7 +184,7 @@ class InteractiveWatchManifest:
     repo_root: str
     run_root: str
     runtime_root: str
-    recipe_path: str
+    preset_path: str
     brain_home_path: str
     brain_manifest_path: str
     launch_helper_path: str
@@ -218,7 +218,7 @@ class InteractiveWatchManifest:
             repo_root=str(payload["repo_root"]),
             run_root=str(payload["run_root"]),
             runtime_root=str(payload["runtime_root"]),
-            recipe_path=str(payload["recipe_path"]),
+            preset_path=str(payload.get("preset_path") or payload["recipe_path"]),
             brain_home_path=str(payload["brain_home_path"]),
             brain_manifest_path=str(payload["brain_manifest_path"]),
             launch_helper_path=str(payload["launch_helper_path"]),

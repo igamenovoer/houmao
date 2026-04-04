@@ -133,7 +133,7 @@ These events describe parser observations, not runtime lifecycle decisions. The 
 
 Codex is also version-aware. Preset selection uses this order:
 
-1. `AGENTSYS_CODEX_VERSION` (or the legacy `AGENTSYS_CAO_CODEX_VERSION`)
+1. `HOUMAO_CAO_CODEX_VERSION`
 2. banner detection from Codex version strings
 3. latest known preset fallback
 

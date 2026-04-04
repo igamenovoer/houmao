@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from houmao.agents.realm_controller.gateway_models import GatewayCurrentInstance
 from houmao.agents.realm_controller.gateway_storage import (
     delete_gateway_current_instance,
     gateway_paths_from_manifest_path,
+    load_gateway_desired_config,
     write_gateway_current_instance,
 )
 from houmao.agents.realm_controller.models import (
@@ -36,17 +38,43 @@ def _seed_role(agent_def_dir: Path) -> None:
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
 
 
-def _seed_brain_manifest(tmp_path: Path) -> Path:
+def _seed_brain_manifest(
+    tmp_path: Path,
+    *,
+    gateway_extra: dict[str, object] | None = None,
+) -> Path:
     env_file = tmp_path / "vars.env"
     env_file.write_text("ANTHROPIC_API_KEY=secret\n", encoding="utf-8")
+    extra_lines: list[str] = []
+    if gateway_extra is not None:
+        extra_lines = [
+            "  extra:",
+            "    gateway:",
+        ]
+        host = gateway_extra.get("host")
+        if host is not None:
+            extra_lines.append(f"      host: {host}")
+        port = gateway_extra.get("port")
+        if port is not None:
+            extra_lines.append(f"      port: {port}")
     manifest_path = tmp_path / "brain.yaml"
     manifest_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "inputs:",
                 "  tool: claude",
+                "  skills: []",
+                "  setup: default",
+                "  auth: default",
+                "  adapter_path: /tmp/tool-adapter.yaml",
+                "  preset_path: null",
+                *extra_lines,
                 "runtime:",
+                f"  runtime_root: {tmp_path}",
+                "  home_id: test-home",
+                f"  home_path: {tmp_path / 'home'}",
+                f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
                 "  launch_executable: claude",
                 "  launch_home_selector:",
                 "    env_var: CLAUDE_CONFIG_DIR",
@@ -56,11 +84,18 @@ def _seed_brain_manifest(tmp_path: Path) -> Path:
                 "      args: []",
                 "      tool_params: {}",
                 "    requested_overrides:",
-                "      recipe: null",
+                "      preset: null",
                 "      direct: null",
                 "    tool_metadata:",
                 "      tool_params: {}",
+                "    construction_provenance:",
+                "      adapter_path: /tmp/tool-adapter.yaml",
+                "      preset_path: null",
+                "      preset_overrides_present: false",
+                "      direct_overrides_present: false",
                 "credentials:",
+                f"  auth_path: {tmp_path / 'auth'}",
+                "  projected_files: []",
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
@@ -120,7 +155,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -138,6 +173,14 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
     )
 
     controller = start_runtime_session(
@@ -179,16 +222,19 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert resolve_live_agent_record("gpu") is None
 
 
-def test_external_launch_authority_defers_runtime_publish_but_stop_clears_registry(
+def test_start_runtime_session_seeds_gateway_defaults_from_manifest_extra(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
     registry_root = tmp_path / "registry"
-    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    brain_manifest_path = _seed_brain_manifest(
+        tmp_path,
+        gateway_extra={"host": "127.0.0.1", "port": 43123},
+    )
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -206,6 +252,68 @@ def test_external_launch_authority_defers_runtime_publish_but_stop_clears_regist
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="claude_headless",
+        working_directory=tmp_path,
+        agent_name="gpu",
+    )
+
+    paths = gateway_paths_from_manifest_path(controller.manifest_path)
+    assert paths is not None
+    desired = load_gateway_desired_config(paths.desired_config_path)
+    assert desired.desired_host == "127.0.0.1"
+    assert desired.desired_port == 43123
+
+
+def test_external_launch_authority_defers_runtime_publish_but_stop_clears_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(
+                kwargs.get("agent_identity")
+                or kwargs["resume_state"].backend_state["tmux_session_name"]
+            ),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
     )
 
     controller = start_runtime_session(
@@ -248,7 +356,7 @@ def test_send_prompt_preserves_success_when_registry_refresh_fails(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -256,13 +364,21 @@ def test_send_prompt_preserves_success_when_registry_refresh_fails(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
     )
 
     controller = start_runtime_session(
@@ -297,7 +413,7 @@ def test_stop_preserves_success_when_registry_cleanup_fails(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -305,13 +421,21 @@ def test_stop_preserves_success_when_registry_cleanup_fails(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
     )
 
     controller = start_runtime_session(
@@ -346,7 +470,7 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -354,13 +478,21 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
     )
 
     controller = start_runtime_session(
@@ -373,8 +505,8 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
         agent_identity="gpu",
         mailbox_transport="filesystem",
         mailbox_root=tmp_path / "mail-old",
-        mailbox_principal_id="AGENTSYS-research",
-        mailbox_address="AGENTSYS-research@agents.localhost",
+        mailbox_principal_id="HOUMAO-research",
+        mailbox_address="HOUMAO-research@agents.localhost",
     )
     monkeypatch.setattr(
         controller,
@@ -399,7 +531,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -407,7 +539,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeHeadlessSession(
-            tmux_session_name=str(kwargs.get("agent_identity") or "AGENTSYS-gpu"),
+            tmux_session_name=str(kwargs.get("agent_identity") or "HOUMAO-gpu"),
             launch_plan=kwargs["launch_plan"],
         ),
     )

@@ -24,6 +24,7 @@ from houmao.agents.realm_controller.gateway_storage import (
 )
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.mail_commands import prepare_mail_prompt, run_mail_prompt
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -43,6 +44,7 @@ from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
 )
+from houmao.agents.launch_policy.models import LaunchPolicyResult
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.cao.models import (
     CaoHealthResponse,
@@ -59,7 +61,7 @@ def _write(path: Path, content: str) -> None:
 
 def _seed_agent_def_dir(agent_def_dir: Path) -> None:
     _write(
-        agent_def_dir / "brains/tool-adapters/codex.yaml",
+        agent_def_dir / "tools/codex/adapter.yaml",
         """
 schema_version: 1
 tool: codex
@@ -86,10 +88,10 @@ credential_projection:
 """.strip()
         + "\n",
     )
-    _write(agent_def_dir / "brains/skills/skill-a/SKILL.md", "# skill-a\n")
-    _write(agent_def_dir / "brains/cli-configs/codex/default/config.toml", "model='x'\n")
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "tools/codex/setups/default/config.toml", "model='x'\n")
     _write(
-        agent_def_dir / "brains/api-creds/codex/personal-a/env/vars.env",
+        agent_def_dir / "tools/codex/auth/personal-a/env/vars.env",
         "OPENAI_API_KEY=sk-test-123\n",
     )
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
@@ -97,8 +99,8 @@ credential_projection:
 
 def _mailbox_launch_plan(tmp_path: Path) -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "AGENTSYS-research"
-    address = "AGENTSYS-research@agents.localhost"
+    principal_id = "HOUMAO-research"
+    address = "HOUMAO-research@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
@@ -149,21 +151,38 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             runtime_root=runtime_root,
             tool="codex",
             skills=["skill-a"],
-            config_profile="default",
-            credential_profile="personal-a",
+            setup="default",
+            auth="personal-a",
             mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
-                principal_id="AGENTSYS-research",
-                address="AGENTSYS-research@agents.localhost",
+                principal_id="HOUMAO-research",
+                address="HOUMAO-research@agents.localhost",
                 filesystem_root="shared-mail",
             ),
             home_id="mailbox-brain-001",
         )
     )
 
-    visible_skill = build_result.home_path / "skills/mailbox/email-via-filesystem/SKILL.md"
+    visible_processing_skill = (
+        build_result.home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
+    )
+    visible_gateway_skill = (
+        build_result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+    )
+    visible_skill = build_result.home_path / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    assert visible_processing_skill.is_file()
+    assert visible_gateway_skill.is_file()
     assert visible_skill.is_file()
-    assert not (build_result.home_path / "skills/.system/mailbox/email-via-filesystem/SKILL.md").exists()
+    assert "pixi run houmao-mgr agents mail resolve-live" not in visible_processing_skill.read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        in visible_gateway_skill.read_text(encoding="utf-8")
+    )
+    assert not (
+        build_result.home_path / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md"
+    ).exists()
 
     class _FakeStartBackend:
         def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
@@ -172,6 +191,15 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: _FakeStartBackend(),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.launch_plan.apply_launch_policy",
+        lambda request: LaunchPolicyResult(
+            executable=request.executable,
+            args=request.base_args,
+            provenance=None,
+            strategy=None,
+        ),
     )
 
     controller = start_runtime_session(
@@ -186,13 +214,11 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     mailbox = controller.launch_plan.mailbox
     assert mailbox is not None
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
-    assert (
-        mailbox.filesystem_root / "mailboxes/AGENTSYS-research@agents.localhost/archive"
-    ).is_dir()
+    assert (mailbox.filesystem_root / "mailboxes/HOUMAO-research@agents.localhost/archive").is_dir()
     assert (
         mailbox.filesystem_root
         / "mailboxes"
-        / "AGENTSYS-research@agents.localhost"
+        / "HOUMAO-research@agents.localhost"
         / "mailbox.sqlite"
     ).is_file()
 
@@ -219,13 +245,13 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             launch_plan=resumed_launch_plan,
             role_name="r",
             brain_manifest_path=build_result.manifest_path,
-            agent_name="AGENTSYS-research",
+            agent_name="HOUMAO-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": "AGENTSYS-research",
+                "tmux_session_name": "HOUMAO-research",
             },
         )
     )
@@ -277,17 +303,17 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
                 SessionEvent(
                     kind="assistant",
                     message=(
-                        "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                        "HOUMAO_MAIL_RESULT_BEGIN\n"
                         + json.dumps(
                             {
                                 "ok": True,
                                 "request_id": request_id,
                                 "operation": operation,
                                 "transport": "filesystem",
-                                "principal_id": "AGENTSYS-research",
+                                "principal_id": "HOUMAO-research",
                             }
                         )
-                        + "\nAGENTSYS_MAIL_RESULT_END"
+                        + "\nHOUMAO_MAIL_RESULT_END"
                     ),
                     turn_index=1,
                 )
@@ -311,9 +337,9 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             "mail",
             "send",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--to",
-            "AGENTSYS-orchestrator@agents.localhost",
+            "HOUMAO-orchestrator@agents.localhost",
             "--subject",
             "Investigate parser drift",
             "--body-file",
@@ -327,7 +353,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
             "mail",
             "reply",
             "--agent-identity",
-            "AGENTSYS-research",
+            "HOUMAO-research",
             "--message-ref",
             "filesystem:msg-20260312T050000Z-parent",
             "--body-content",
@@ -350,10 +376,20 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
 
 def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
     monkeypatch,
-    capsys,
     tmp_path: Path,
 ) -> None:
     launch_plan = _mailbox_cao_launch_plan(tmp_path)
+    prompt_request = prepare_mail_prompt(
+        launch_plan=launch_plan,
+        operation="send",
+        args={
+            "to": ["HOUMAO-orchestrator@agents.localhost"],
+            "cc": [],
+            "subject": "Investigate parser drift",
+            "body_content": "Hello from integration coverage",
+            "attachments": [],
+        },
+    )
 
     class _FakeClient:
         def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
@@ -403,7 +439,7 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
                     "request_id": self.submitted_request_id,
                     "operation": "send",
                     "transport": "filesystem",
-                    "principal_id": "AGENTSYS-research",
+                    "principal_id": "HOUMAO-research",
                     "message_ref": "filesystem:msg-20260318T130000Z-integration",
                 }
             )
@@ -414,9 +450,9 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
                     "Codex CLI v0.1.0\n"
                     "> mail send request\n"
                     "assistant> drafting message\n"
-                    "AGENTSYS_MAIL_RESULT_BEGIN\n"
+                    "HOUMAO_MAIL_RESULT_BEGIN\n"
                     f"{payload}\n"
-                    "AGENTSYS_MAIL_RESULT_END\n"
+                    "HOUMAO_MAIL_RESULT_END\n"
                     "> \n"
                 ),
             ]
@@ -467,48 +503,20 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
         poll_interval_seconds=0.0,
         session_manifest_path=tmp_path / "session-codex-shadow-mail.json",
     )
+    mailbox = launch_plan.mailbox
+    assert mailbox is not None
 
-    class _FakeController:
-        def __init__(self) -> None:
-            self.launch_plan = launch_plan
-
-        def send_prompt(self, prompt: str) -> list[SessionEvent]:
-            return session.send_prompt(prompt)
-
-        def send_mail_prompt(self, prompt_request) -> list[SessionEvent]:  # type: ignore[no-untyped-def]
-            return session.send_mail_prompt(prompt_request)
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.cli.resolve_agent_identity",
-        lambda **kwargs: SimpleNamespace(
-            session_manifest_path=tmp_path / "session.json",
-            agent_def_dir=(tmp_path / "resolved-agent-def").resolve(),
-            warnings=(),
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.cli.resume_runtime_session",
-        lambda **kwargs: _FakeController(),
+    result = run_mail_prompt(
+        send_prompt=None,
+        send_mail_prompt=session.send_mail_prompt,
+        prompt_request=prompt_request,
+        mailbox=mailbox,
     )
 
-    exit_code = cli.main(
-        [
-            "mail",
-            "send",
-            "--agent-identity",
-            "AGENTSYS-research",
-            "--to",
-            "AGENTSYS-orchestrator@agents.localhost",
-            "--subject",
-            "Investigate parser drift",
-            "--body-content",
-            "Hello from integration coverage",
-        ]
-    )
-
-    assert exit_code == 0
-    output = capsys.readouterr().out
-    assert '"message_ref": "filesystem:msg-20260318T130000Z-integration"' in output
+    assert result["authoritative"] is False
+    assert result["status"] == "submitted"
+    assert result["execution_path"] == "tui_submission"
+    assert result["preview_result"]["message_ref"] == "filesystem:msg-20260318T130000Z-integration"
     assert session._client.output_calls == 3  # noqa: SLF001
     assert set(session._client.requested_modes) == {"full"}  # noqa: SLF001
 
@@ -529,13 +537,13 @@ def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
             brain_manifest_path=tmp_path / "brain.yaml",
             agent_name="research",
             agent_id=derive_agent_id_from_name("research"),
-            tmux_session_name="AGENTSYS-research",
+            tmux_session_name="HOUMAO-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": "AGENTSYS-research",
+                "tmux_session_name": "HOUMAO-research",
             },
         )
     )
@@ -579,6 +587,6 @@ def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
 
     assert exit_code == 0
     assert resolved["mailbox"]["transport"] == "filesystem"
-    assert resolved["gateway"]["source"] == "tmux_session_env"
+    assert resolved["gateway"]["source"] == "current_instance_record"
     assert resolved["gateway"]["base_url"] == "http://127.0.0.1:43123"
     assert resolved["gateway"]["state_path"] == str(paths.state_path)

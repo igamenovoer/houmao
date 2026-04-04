@@ -13,6 +13,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayHeadlessControlStateV1,
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
     GatewayMailCheckResponseV1,
@@ -51,6 +52,9 @@ from houmao.passive_server.models import (
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoTerminalSnapshotHistoryResponse,
@@ -152,11 +156,38 @@ def create_app(
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
+    @app.get("/houmao/agents/{agent_ref}/gateway/control/headless/state")
+    def gateway_headless_control_state(agent_ref: str) -> GatewayHeadlessControlStateV1:
+        result = resolved_service.gateway_headless_control_state(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session")
+    def gateway_headless_next_prompt_session(
+        agent_ref: str,
+        payload: HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    ) -> GatewayHeadlessControlStateV1:
+        result = resolved_service.gateway_headless_next_prompt_session(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
     @app.post("/houmao/agents/{agent_ref}/gateway/requests")
     def gateway_create_request(
         agent_ref: str, payload: GatewayRequestCreateV1
     ) -> GatewayAcceptedRequestV1:
         result = resolved_service.gateway_create_request(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/prompt")
+    def gateway_control_prompt(
+        agent_ref: str,
+        payload: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        result = resolved_service.gateway_control_prompt(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

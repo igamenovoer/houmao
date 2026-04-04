@@ -15,25 +15,25 @@ The runtime has one durable session model but several ways to talk to the live a
 The common flow is:
 
 1. build or choose a brain manifest,
-2. start a runtime-managed session,
+2. launch a runtime-managed session (`houmao-mgr agents launch` or `agents join`),
 3. persist a session manifest under the session root,
-4. use later commands by manifest path or tmux name,
+4. use later commands by agent name or id,
 5. stop the session, with gateway cleanup if needed.
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
-    participant CLI as Runtime CLI
+    participant CLI as houmao-mgr
     participant RT as Runtime
     participant Be as Backend<br/>session
     participant FS as Session root
-    Op->>CLI: start-session
+    Op->>CLI: agents launch
     CLI->>RT: build launch plan<br/>and start backend
     RT->>Be: create live session
     RT->>FS: write manifest.json
     RT->>FS: seed gateway/<br/>attach + state
     RT-->>CLI: session manifest path<br/>and runtime metadata
-    Op->>CLI: send-prompt / mail / send-keys
+    Op->>CLI: agents prompt /<br/>agents mail /<br/>agents gateway send-keys
     CLI->>RT: resume by manifest or tmux name
     RT->>FS: reload persisted state
     RT->>Be: perform requested action
@@ -42,15 +42,15 @@ sequenceDiagram
 
 Practical consequences:
 
-- Resume is manifest-driven, even when you start from a tmux name.
+- Resume is manifest-driven, even when you start from an agent name.
 - Gateway capability publication happens early, but live gateway attach is separate.
-- `stop-session` is the runtime-owned shutdown path; it is not only a tmux kill helper.
+- `houmao-mgr agents stop` is the runtime-owned shutdown path; it is not only a tmux kill helper.
 
 ## Choosing A Message-Passing Path
 
 Use the path whose guarantees match the action you need.
 
-### `send-prompt`
+### `agents prompt`
 
 Use for a normal conversational turn.
 
@@ -58,15 +58,15 @@ Use for a normal conversational turn.
 - Persists updated backend state into the session manifest afterward.
 - This remains the default high-level path even for gateway-capable sessions.
 
-### `send-keys`
+### `agents gateway send-keys`
 
-Use for raw control input into resumed sessions. Supported backends include `local_interactive` and `houmao_server_rest`; legacy `cao_rest` sessions also support this path.
+Use for raw control input into resumed sessions. Supported backends include `local_interactive` and `houmao_server_rest`.
 
 - Returns after input delivery, not after turn completion.
 - Designed for slash-command menus, arrow navigation, partial typing, `Escape`, and explicit control keys.
 - See [Realm Controller Send-Keys](../../realm_controller_send_keys.md) for the full sequence grammar and delivery semantics.
 
-### `mail`
+### `agents mail`
 
 Use when the session has mailbox support enabled and the work should be expressed as a mailbox operation.
 
@@ -78,7 +78,7 @@ Use when the session has mailbox support enabled and the work should be expresse
 
 Use when a live gateway is already attached and you want queued control instead of synchronous turn execution.
 
-- `gateway-send-prompt` and `gateway-interrupt` submit work into the sidecar queue.
+- `agents gateway prompt` and `agents gateway interrupt` submit work into the sidecar queue.
 - They return accepted queue records immediately.
 - They do not auto-attach a gateway or wait for turn completion.
 
@@ -87,16 +87,16 @@ Use when a live gateway is already attached and you want queued control instead 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
-    participant CLI as Runtime CLI
+    participant CLI as houmao-mgr
     participant RT as Runtime
     participant GW as Gateway
     participant Be as Backend
-    Op->>CLI: send-prompt
+    Op->>CLI: agents prompt
     CLI->>RT: resume session
     RT->>Be: run prompt turn
     Be-->>RT: turn events / result
     RT-->>CLI: completed turn output
-    Op->>CLI: gateway-send-prompt
+    Op->>CLI: agents gateway prompt
     CLI->>RT: resume session
     RT->>GW: POST /v1/requests
     GW-->>RT: accepted queue record

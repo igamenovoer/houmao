@@ -8,6 +8,10 @@ from types import SimpleNamespace
 import pytest
 
 import houmao.srv_ctrl.commands.managed_agents as managed_agents_module
+from houmao.agents.realm_controller.backends.headless_output import (
+    CanonicalHeadlessEvent,
+    canonical_headless_event_artifact_path,
+)
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.manifest import (
@@ -18,17 +22,25 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
+    GatewayMailActionResponseV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailStateResponseV1,
+    GatewayMailStatusV1,
+    GatewayMailboxMessageV1,
+    GatewayMailboxParticipantV1,
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
     SessionControlResult,
 )
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller import runtime as runtime_module
+from houmao.mailbox.managed import ManagedMailboxOperationError
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
@@ -51,12 +63,16 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_mail_notifier_disable,
     gateway_mail_notifier_enable,
     gateway_mail_notifier_status,
+    gateway_prompt,
     gateway_send_keys,
     gateway_tui_history,
     gateway_tui_note_prompt,
     gateway_tui_state,
     interrupt_managed_agent,
     list_managed_agents,
+    mail_send,
+    mail_mark_read,
+    mail_resolve_live,
     mail_status,
     mailbox_status,
     managed_agent_detail_payload,
@@ -64,6 +80,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     prompt_managed_agent,
     register_mailbox_binding,
     relaunch_managed_agent,
+    resolve_managed_agent_mail_target,
     resolve_managed_agent_target,
     submit_headless_turn,
     unregister_mailbox_binding,
@@ -95,8 +112,8 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record",
-        lambda **kwargs: record,
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (record, None),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
@@ -135,8 +152,8 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
     )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (None, None),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
@@ -156,7 +173,65 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
 
 def test_resolve_managed_agent_target_rejects_prefixed_agent_name_selector() -> None:
     with pytest.raises(click.ClickException, match="raw creation-time name"):
-        resolve_managed_agent_target(agent_id=None, agent_name="AGENTSYS-gpu", port=None)
+        resolve_managed_agent_target(agent_id=None, agent_name="HOUMAO-gpu", port=None)
+
+
+def test_resolve_managed_agent_mail_target_uses_current_session_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = ManagedAgentTarget(
+        mode="local",
+        agent_ref="current",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_gateway_command_helpers",
+        lambda: SimpleNamespace(
+            _try_current_tmux_session_name=lambda: "HOUMAO-gpu",
+            _resolve_gateway_current_session_target=lambda session_name: (
+                expected if session_name == "HOUMAO-gpu" else None
+            ),
+        ),
+    )
+
+    target = resolve_managed_agent_mail_target(agent_id=None, agent_name=None, port=None)
+
+    assert target is expected
+
+
+def test_resolve_managed_agent_mail_target_prefers_explicit_selector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = ManagedAgentTarget(
+        mode="local",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "resolve_managed_agent_target",
+        lambda **kwargs: expected,
+    )
+
+    target = resolve_managed_agent_mail_target(agent_id=None, agent_name="gpu", port=None)
+
+    assert target is expected
+
+
+def test_resolve_managed_agent_mail_target_fails_outside_tmux_without_selectors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_gateway_command_helpers",
+        lambda: SimpleNamespace(_try_current_tmux_session_name=lambda: None),
+    )
+
+    with pytest.raises(click.ClickException, match="run inside the target tmux session"):
+        resolve_managed_agent_mail_target(agent_id=None, agent_name=None, port=None)
 
 
 def test_local_registry_resolution_does_not_fall_back_to_tmux_session_alias(
@@ -181,6 +256,225 @@ def test_local_registry_resolution_does_not_fall_back_to_tmux_session_alias(
         )
         is None
     )
+
+
+def test_resolve_managed_agent_target_reports_local_name_miss_before_default_pair_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_records",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: "
+                "connection refused"
+            )
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="agent-test", port=None)
+
+    message = str(exc_info.value)
+    assert "No local managed agent matched friendly name `agent-test`." in message
+    assert "Fallback lookup through the default pair authority also failed:" in message
+    assert (
+        "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: connection refused"
+    ) in message
+    assert (
+        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "or `--agent-id <id>`."
+    ) in message
+
+
+def test_local_headless_turn_event_loader_prefers_canonical_artifact(tmp_path: Path) -> None:
+    turn_dir = tmp_path / "turn-0001"
+    turn_dir.mkdir(parents=True)
+    stdout_path = turn_dir / "stdout.jsonl"
+    stdout_path.write_text(
+        '{"type":"assistant","message":"raw stdout should not win","session_id":"sess-local"}\n',
+        encoding="utf-8",
+    )
+    canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+    canonical_path.write_text(
+        json.dumps(
+            CanonicalHeadlessEvent(
+                kind="assistant",
+                message="canonical local event wins",
+                turn_index=1,
+                provider="claude",
+                provider_event_type="assistant.text",
+                session_id="sess-local",
+                data={"text": "canonical local event wins"},
+            ).to_artifact_record(),
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    snapshot = managed_agents_module._LocalHeadlessTurnSnapshot(
+        turn_id="turn-0001",
+        turn_index=1,
+        status="completed",
+        started_at_utc="2026-03-20T09:01:00+00:00",
+        completed_at_utc="2026-03-20T09:02:00+00:00",
+        completion_source="process_exit",
+        stdout_path=stdout_path,
+        stderr_path=None,
+        status_path=None,
+        returncode=0,
+        history_summary="turn-0001 completed",
+        error=None,
+    )
+
+    events = managed_agents_module._load_turn_events(snapshot, provider="claude")
+
+    assert [event.kind for event in events] == ["assistant"]
+    assert events[0].message == "canonical local event wins"
+
+
+def test_resolve_managed_agent_target_reports_exact_tmux_alias_hint_on_local_name_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alias_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-1234",
+        terminal=SimpleNamespace(session_name="agent-test"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_records",
+        lambda: [alias_record],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: "
+                "connection refused"
+            )
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="agent-test", port=None)
+
+    message = str(exc_info.value)
+    assert "No local managed agent matched friendly name `agent-test`." in message
+    assert "`--agent-name` expects the published friendly managed-agent name." in message
+    assert (
+        "`agent-test` matches the live local tmux/session alias for agent_name `gpu` "
+        "(agent_id `agent-1234`)."
+    ) in message
+    assert (
+        "Retry with `--agent-name gpu`, `--agent-id agent-1234`, "
+        "or inspect `houmao-mgr agents list`."
+    ) in message
+
+
+def test_resolve_managed_agent_target_omits_alias_hint_when_alias_match_is_not_unique(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_record = SimpleNamespace(
+        agent_name="gpu-a",
+        agent_id="agent-a",
+        terminal=SimpleNamespace(session_name="agent-test"),
+    )
+    second_record = SimpleNamespace(
+        agent_name="gpu-b",
+        agent_id="agent-b",
+        terminal=SimpleNamespace(session_name="agent-test"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_records",
+        lambda: [first_record, second_record],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: "
+                "connection refused"
+            )
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="agent-test", port=None)
+
+    message = str(exc_info.value)
+    assert "No local managed agent matched friendly name `agent-test`." in message
+    assert "tmux/session alias" not in message
+    assert (
+        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "or `--agent-id <id>`."
+    ) in message
+
+
+def test_resolve_managed_agent_target_preserves_agent_id_fallback_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_record_by_agent_id",
+        lambda _agent_id: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException("Failed to reach a Houmao pair authority at http://127.0.0.1:9889")
+        ),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id="agent-1234", agent_name=None, port=None)
+
+    message = str(exc_info.value)
+    assert message == "Failed to reach a Houmao pair authority at http://127.0.0.1:9889"
+    assert "No local managed agent matched friendly name" not in message
+
+
+def test_resolve_managed_agent_target_preserves_local_name_ambiguity_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-a",
+        terminal=SimpleNamespace(session_name="gpu-a"),
+    )
+    second_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-b",
+        terminal=SimpleNamespace(session_name="gpu-b"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (first_record, second_record),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    message = str(exc_info.value)
+    assert "Local managed-agent resolution is ambiguous for --agent-name `gpu`" in message
+    assert "Retry with `--agent-id <id>`." in message
 
 
 def test_list_managed_agents_merges_registry_and_server_results(
@@ -292,15 +586,79 @@ def test_register_mailbox_binding_converts_runtime_errors_to_click() -> None:
         )
 
 
-def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
-    mailbox = SimpleNamespace(
-        transport="filesystem",
-        principal_id="AGENTSYS-alpha",
-        address="AGENTSYS-alpha@agents.localhost",
-        bindings_version="2026-03-27T00:00:00Z",
+def test_register_mailbox_binding_converts_mailbox_operation_errors_to_click() -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(
+            register_filesystem_mailbox=lambda **kwargs: (_ for _ in ()).throw(
+                ManagedMailboxOperationError("expected overwrite failure")
+            )
+        ),
     )
+
+    with pytest.raises(click.ClickException, match="expected overwrite failure"):
+        register_mailbox_binding(
+            target,
+            mailbox_root=None,
+            principal_id=None,
+            address=None,
+            mode="safe",
+        )
+
+
+def test_register_mailbox_binding_forwards_confirmation_callback() -> None:
+    observed: dict[str, object] = {}
+
+    def _register_filesystem_mailbox(**kwargs: object) -> SimpleNamespace:
+        observed.update(kwargs)
+        return SimpleNamespace(
+            mailbox=SimpleNamespace(
+                transport="filesystem",
+                principal_id="HOUMAO-alpha",
+                address="HOUMAO-alpha@agents.localhost",
+                filesystem_root=Path("/tmp/mailbox-root"),
+                bindings_version="2026-03-30T00:00:00Z",
+            ),
+            activation_state="active",
+            shared_lifecycle_result={"ok": True, "mode": "force"},
+        )
+
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(
+            agent_identity="alpha",
+            agent_id="agent-123",
+            register_filesystem_mailbox=_register_filesystem_mailbox,
+        ),
+    )
+    confirm_calls: list[str] = []
+
+    def _confirm(prompt: str) -> bool:
+        confirm_calls.append(prompt)
+        return True
+
+    payload = register_mailbox_binding(
+        target,
+        mailbox_root=None,
+        principal_id=None,
+        address=None,
+        mode="safe",
+        confirm_destructive_replace=_confirm,
+    )
+
+    assert observed["confirm_destructive_replace"] is _confirm
+    assert payload["activation_state"] == "active"
+    assert payload["shared_registration"] == {"ok": True, "mode": "force"}
+    assert confirm_calls == []
+
+
+def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
     controller = SimpleNamespace(
-        launch_plan=SimpleNamespace(mailbox=mailbox),
+        launch_plan=SimpleNamespace(mailbox=object()),
         tmux_session_name="test-agent-join",
     )
     target = ManagedAgentTarget(
@@ -310,22 +668,364 @@ def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
         controller=controller,
     )
 
-    original = managed_agents_module.ensure_mailbox_command_ready
-    managed_agents_module.ensure_mailbox_command_ready = (
-        lambda launch_plan, tmux_session_name=None: mailbox
+    original = managed_agents_module._local_manager_mail_status
+    managed_agents_module._local_manager_mail_status = lambda _controller: GatewayMailStatusV1(
+        transport="filesystem",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
+        bindings_version="2026-03-27T00:00:00Z",
     )
     try:
         payload = mail_status(target)
     finally:
-        managed_agents_module.ensure_mailbox_command_ready = original
+        managed_agents_module._local_manager_mail_status = original
 
     assert payload == {
         "schema_version": 1,
+        "operation": "status",
+        "authoritative": True,
+        "status": "verified",
+        "execution_path": "manager_direct",
         "transport": "filesystem",
-        "principal_id": "AGENTSYS-alpha",
-        "address": "AGENTSYS-alpha@agents.localhost",
+        "principal_id": "HOUMAO-alpha",
+        "address": "HOUMAO-alpha@agents.localhost",
         "bindings_version": "2026-03-27T00:00:00Z",
     }
+
+
+def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    expected = {
+        "schema_version": 1,
+        "operation": "send",
+        "authoritative": False,
+        "status": "submitted",
+        "execution_path": "tui_submission",
+        "request_id": "mailreq-1",
+    }
+
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_live_gateway_client_for_controller",
+        lambda _controller: None,
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_run_local_mail_prompt",
+        lambda **kwargs: expected,
+    )
+
+    payload = mail_send(
+        target,
+        to_recipients=["alpha@agents.localhost"],
+        cc_recipients=[],
+        subject="hello",
+        body_content="world",
+        attachments=[],
+    )
+
+    assert payload == expected
+
+
+def test_mail_send_local_headless_uses_verified_manager_direct_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    response = GatewayMailActionResponseV1(
+        operation="send",
+        transport="filesystem",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
+        message=GatewayMailboxMessageV1(
+            message_ref="filesystem:msg-1",
+            thread_ref="filesystem:msg-1",
+            created_at_utc="2026-03-29T15:00:00Z",
+            subject="hello",
+            sender=GatewayMailboxParticipantV1(address="HOUMAO-alpha@agents.localhost"),
+            to=[GatewayMailboxParticipantV1(address="beta@agents.localhost")],
+        ),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_send",
+        lambda controller, **kwargs: response,
+    )
+
+    payload = mail_send(
+        target,
+        to_recipients=["beta@agents.localhost"],
+        cc_recipients=[],
+        subject="hello",
+        body_content="world",
+        attachments=[],
+    )
+
+    assert payload["authoritative"] is True
+    assert payload["status"] == "verified"
+    assert payload["execution_path"] == "manager_direct"
+    assert payload["message"]["message_ref"] == "filesystem:msg-1"
+
+
+def test_mail_mark_read_local_headless_uses_verified_manager_direct_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    response = GatewayMailStateResponseV1(
+        transport="filesystem",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
+        message_ref="filesystem:msg-1",
+        read=True,
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_mark_read",
+        lambda controller, **kwargs: response,
+    )
+
+    payload = mail_mark_read(target, message_ref="filesystem:msg-1")
+
+    assert payload["authoritative"] is True
+    assert payload["status"] == "verified"
+    assert payload["execution_path"] == "manager_direct"
+    assert payload["read"] is True
+
+
+def test_mail_mark_read_local_tui_without_gateway_returns_submission_only_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    expected = {
+        "schema_version": 1,
+        "operation": "mark-read",
+        "authoritative": False,
+        "status": "submitted",
+        "execution_path": "tui_submission",
+        "request_id": "mailreq-3",
+    }
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_live_gateway_client_for_controller",
+        lambda _controller: None,
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_run_local_mail_prompt",
+        lambda **kwargs: expected,
+    )
+
+    payload = mail_mark_read(target, message_ref="filesystem:msg-1")
+
+    assert payload == expected
+
+
+def test_mail_resolve_live_local_returns_normalized_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    resolution = SimpleNamespace(
+        gateway=None,
+        payload=lambda: {
+            "source": "manifest_binding",
+            "transport": "filesystem",
+            "principal_id": "HOUMAO-alpha",
+            "address": "HOUMAO-alpha@agents.localhost",
+            "bindings_version": "2026-03-29T15:00:00Z",
+            "mailbox": {
+                "transport": "filesystem",
+                "filesystem": {
+                    "root": "/tmp/mailbox",
+                },
+            },
+            "gateway": None,
+        },
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(
+            launch_plan=SimpleNamespace(mailbox=object()),
+            manifest_path=tmp_path / "manifest.json",
+        ),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "resolve_live_mailbox_binding_from_manifest_path",
+        lambda **kwargs: resolution,
+    )
+
+    payload = mail_resolve_live(target)
+
+    assert payload["schema_version"] == 1
+    assert payload["managed_agent"]["mode"] == "local"
+    assert payload["transport"] == "filesystem"
+    assert payload["gateway_available"] is False
+
+
+def test_mail_resolve_live_server_returns_pair_authority_payload() -> None:
+    client = SimpleNamespace(
+        get_managed_agent_mail_resolve_live=lambda agent_ref: {
+            "source": "manifest_binding",
+            "transport": "filesystem",
+            "principal_id": "HOUMAO-alpha",
+            "address": "HOUMAO-alpha@agents.localhost",
+            "bindings_version": "2026-03-29T15:00:00Z",
+            "mailbox": {
+                "transport": "filesystem",
+                "filesystem": {
+                    "root": "/tmp/mailbox",
+                },
+            },
+            "gateway": {
+                "source": "current_instance_record",
+                "host": "127.0.0.1",
+                "port": 43123,
+                "base_url": "http://127.0.0.1:43123",
+                "protocol_version": "v1",
+                "state_path": "/tmp/state.json",
+            },
+        },
+    )
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="remote",
+        identity=_managed_identity(transport="tui"),
+        client=client,
+    )
+
+    payload = mail_resolve_live(target)
+
+    assert payload["source"] == "pair_authority"
+    assert payload["managed_agent"]["mode"] == "server"
+    assert payload["gateway_available"] is True
+    assert payload["gateway"]["base_url"] == "http://127.0.0.1:43123"
+
+
+def test_enrich_local_mail_prompt_args_resolves_filesystem_mailbox_principals(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="sender-principal",
+        address="sender@agents.localhost",
+        filesystem_root=tmp_path / "mailbox",
+        bindings_version="2026-03-29T15:00:00Z",
+    )
+
+    def _fake_load_active_mailbox_registration(
+        mailbox_root: Path, *, address: str
+    ) -> SimpleNamespace:
+        assert mailbox_root == mailbox.filesystem_root
+        if address == "alpha@agents.localhost":
+            return SimpleNamespace(
+                owner_principal_id="alpha-principal",
+                address=address,
+                display_name="Alpha",
+                manifest_path_hint="/tmp/alpha.json",
+                role="alpha-role",
+            )
+        if address == "cc@agents.localhost":
+            return SimpleNamespace(
+                owner_principal_id="cc-principal",
+                address=address,
+                display_name=None,
+                manifest_path_hint=None,
+                role=None,
+            )
+        raise FileNotFoundError(address)
+
+    monkeypatch.setattr(
+        managed_agents_module,
+        "load_active_mailbox_registration",
+        _fake_load_active_mailbox_registration,
+    )
+
+    enriched = managed_agents_module._enrich_local_mail_prompt_args(
+        mailbox=mailbox,
+        operation="send",
+        args={
+            "to": ["alpha@agents.localhost", "alpha@agents.localhost"],
+            "cc": ["cc@agents.localhost"],
+            "subject": "hello",
+            "body_content": "world",
+            "attachments": [],
+        },
+    )
+
+    assert enriched["resolved_sender"] == {
+        "principal_id": "sender-principal",
+        "address": "sender@agents.localhost",
+    }
+    assert enriched["resolved_to"] == [
+        {
+            "principal_id": "alpha-principal",
+            "address": "alpha@agents.localhost",
+            "display_name": "Alpha",
+            "manifest_path_hint": "/tmp/alpha.json",
+            "role": "alpha-role",
+        }
+    ]
+    assert enriched["resolved_cc"] == [
+        {
+            "principal_id": "cc-principal",
+            "address": "cc@agents.localhost",
+        }
+    ]
+
+
+def test_enrich_local_mail_prompt_args_fails_when_recipient_is_unregistered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="sender-principal",
+        address="sender@agents.localhost",
+        filesystem_root=tmp_path / "mailbox",
+        bindings_version="2026-03-29T15:00:00Z",
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "load_active_mailbox_registration",
+        lambda mailbox_root, *, address: (_ for _ in ()).throw(FileNotFoundError(address)),
+    )
+
+    with pytest.raises(click.ClickException, match="missing@agents.localhost"):
+        managed_agents_module._enrich_local_mail_prompt_args(
+            mailbox=mailbox,
+            operation="send",
+            args={
+                "to": ["missing@agents.localhost"],
+                "cc": [],
+                "subject": "hello",
+                "body_content": "world",
+                "attachments": [],
+            },
+        )
 
 
 def _managed_identity(*, transport: str = "headless") -> HoumaoManagedAgentIdentity:
@@ -339,11 +1039,11 @@ def _managed_identity(*, transport: str = "headless") -> HoumaoManagedAgentIdent
         session_name=session_name,
         terminal_id=terminal_id,
         runtime_session_id=runtime_session_id,
-        tmux_session_name="AGENTSYS-alpha",
+        tmux_session_name="HOUMAO-alpha",
         tmux_window_name="agent",
         manifest_path="/tmp/manifest.json",
         session_root="/tmp/session-root",
-        agent_name="AGENTSYS-alpha",
+        agent_name="HOUMAO-alpha",
         agent_id="published-alpha",
     )
 
@@ -385,9 +1085,9 @@ def _gateway_tui_state_response() -> HoumaoTerminalStateResponse:
         terminal_id="headless123",
         tracked_session=HoumaoTrackedSessionIdentity(
             tracked_session_id="tracked-alpha",
-            session_name="AGENTSYS-alpha",
+            session_name="HOUMAO-alpha",
             tool="claude",
-            tmux_session_name="AGENTSYS-alpha",
+            tmux_session_name="HOUMAO-alpha",
             terminal_aliases=["headless123"],
         ),
         diagnostics=HoumaoTrackedDiagnostics(
@@ -523,7 +1223,7 @@ def _gateway_status() -> GatewayStatusV1:
     return GatewayStatusV1(
         attach_identity="published-alpha",
         backend="claude_headless",
-        tmux_session_name="AGENTSYS-alpha",
+        tmux_session_name="HOUMAO-alpha",
         gateway_health="healthy",
         managed_agent_connectivity="connected",
         managed_agent_recovery="idle",
@@ -544,6 +1244,7 @@ class _FakePassivePairClient:
         self.detail_calls: list[str] = []
         self.turn_calls: list[tuple[str, str]] = []
         self.gateway_control_calls: list[tuple[str, str, bool]] = []
+        self.gateway_prompt_calls: list[tuple[str, str, bool]] = []
         self.gateway_tui_state_calls: list[str] = []
         self.gateway_tui_history_calls: list[str] = []
         self.gateway_tui_note_prompt_calls: list[tuple[str, str]] = []
@@ -596,6 +1297,24 @@ class _FakePassivePairClient:
             )
         )
         return GatewayControlInputResultV1(detail="delivered")
+
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: object,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        self.gateway_prompt_calls.append(
+            (
+                agent_ref,
+                getattr(request_model, "prompt"),
+                getattr(request_model, "force"),
+            )
+        )
+        return HoumaoManagedAgentGatewayPromptControlResponse(
+            sent=True,
+            forced=getattr(request_model, "force"),
+            detail="Prompt dispatched.",
+        )
 
     def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
         self.gateway_tui_state_calls.append(agent_ref)
@@ -750,6 +1469,22 @@ def test_gateway_send_keys_uses_passive_pair_client() -> None:
 
     assert response.action == "control_input"
     assert client.gateway_control_calls == [("published-alpha", "<[Escape]>", True)]
+
+
+def test_gateway_prompt_uses_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    response = gateway_prompt(target, prompt="hello", force=True)
+
+    assert response.sent is True
+    assert response.forced is True
+    assert client.gateway_prompt_calls == [("published-alpha", "hello", True)]
 
 
 def test_gateway_tui_commands_use_passive_pair_client() -> None:
@@ -1188,6 +1923,50 @@ def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
     assert interrupt_response.success is True
     assert interrupt_response.detail == "done"
     assert calls == ["hello"]
+
+
+def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="gemini_headless", tool="gemini")
+    manifest_path = _write_manifest(
+        tmp_path=tmp_path,
+        launch_plan=launch_plan,
+        tmux_window_name="agent",
+    )
+    turn_dir = manifest_path.parent / "manifest.turn-artifacts" / "turn-0001"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "exitcode").write_text("0\n", encoding="utf-8")
+    controller = SimpleNamespace(
+        manifest_path=manifest_path,
+        tmux_session_name="join-sess",
+        launch_plan=launch_plan,
+        agent_identity="joined-agent",
+        agent_id="agent-joined",
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="agent-joined",
+        identity=managed_agents_module._identity_from_controller(controller),
+        controller=controller,
+    )
+
+    monkeypatch.setattr(managed_agents_module, "_local_gateway_summary", lambda _controller: None)
+    monkeypatch.setattr(managed_agents_module, "_local_mailbox_summary", lambda _controller: None)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
+        lambda *, session_name: session_name == "join-sess",
+    )
+
+    detail = managed_agent_detail_payload(target)
+
+    assert detail.detail.transport == "headless"
+    assert detail.detail.tmux_session_live is True
+    assert detail.detail.can_accept_prompt_now is True
+    assert detail.detail.interruptible is False
+    assert detail.detail.last_turn_status == "completed"
+    assert detail.summary_state.turn.phase == "ready"
 
 
 def test_attach_gateway_uses_local_runtime_controller(

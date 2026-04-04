@@ -24,6 +24,7 @@ from houmao.terminal_record.models import TerminalRecordManifest, load_manifest
 from houmao.terminal_record.runtime_bridge import append_managed_control_input_for_tmux_session
 from houmao.terminal_record.service import start_terminal_record
 
+from .agent_assets import materialize_generated_agent_tree
 from .comparison import TimelineComparison, compare_timelines
 from .config import ResolvedDemoConfig
 from .groundtruth import expand_labels_to_groundtruth_timeline, load_fixture_inputs
@@ -230,6 +231,11 @@ def run_recorded_capture(
             demo_config=demo_config,
         )
         selected_recipe_path = launch.recipe_path
+        generated_agent_def_dir = materialize_generated_agent_tree(
+            repo_root=repo_root,
+            workdir=workdir,
+            tool=scenario.tool,
+        )
         recipe = load_brain_recipe(selected_recipe_path)
         if recipe.tool != scenario.tool:
             raise RuntimeError(
@@ -238,7 +244,7 @@ def run_recorded_capture(
             )
         build_result = build_brain_home(
             BuildRequest(
-                agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
+                agent_def_dir=generated_agent_def_dir,
                 tool=recipe.tool,
                 skills=list(recipe.skills),
                 config_profile=recipe.config_profile,
@@ -251,6 +257,7 @@ def run_recorded_capture(
                 launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode
                 or recipe.operator_prompt_mode,
+                persistent_env_records=recipe.launch_env_records,
             )
         )
         observed_version = detect_tool_version(tool=scenario.tool)
@@ -570,8 +577,25 @@ def validate_fixture_corpus(
 ) -> list[RecordedValidationResult]:
     """Validate every fixture manifest found under one corpus root."""
 
+    effective_fixtures_root = fixtures_root.expanduser().resolve()
+    if not effective_fixtures_root.is_dir():
+        raise RuntimeError(
+            "Committed recorded fixture root is missing: "
+            f"{effective_fixtures_root}. "
+            "Restore or point `--fixtures-root` at a populated corpus before running "
+            "`recorded-validate-corpus`."
+        )
+    manifest_paths = sorted(effective_fixtures_root.rglob(_FIXTURE_MANIFEST_NAME))
+    if not manifest_paths:
+        raise RuntimeError(
+            "Committed recorded fixture root is empty: "
+            f"{effective_fixtures_root}. "
+            "Restore or point `--fixtures-root` at a populated corpus before running "
+            "`recorded-validate-corpus`."
+        )
+
     results: list[RecordedValidationResult] = []
-    for manifest_path in sorted(fixtures_root.rglob(_FIXTURE_MANIFEST_NAME)):
+    for manifest_path in manifest_paths:
         fixture_root = manifest_path.parent
         case_output_root = output_root / fixture_root.name if output_root is not None else None
         results.append(

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from houmao.project.overlay import bootstrap_project_overlay
 from houmao.passive_server.config import PassiveServerConfig
 
 
@@ -76,6 +77,16 @@ class TestNormalization:
         config = PassiveServerConfig(runtime_root=tmp_path / "relative" / "..")
         assert config.runtime_root.is_absolute()
         assert config.runtime_root == tmp_path.resolve()
+
+    def test_default_runtime_root_follows_project_overlay(self, monkeypatch, tmp_path: Path) -> None:
+        repo_root = (tmp_path / "repo").resolve()
+        repo_root.mkdir(parents=True, exist_ok=True)
+        bootstrap_project_overlay(repo_root)
+        monkeypatch.chdir(repo_root)
+
+        config = PassiveServerConfig()
+
+        assert config.runtime_root == (repo_root / ".houmao" / "runtime").resolve()
 
 
 class TestDerivedProperties:

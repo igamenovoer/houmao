@@ -42,8 +42,17 @@ def _manifest(
     recipe_overrides: dict[str, Any] | None = None,
     direct_overrides: dict[str, Any] | None = None,
     tool_metadata: dict[str, Any] | None = None,
+    env_records: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    adapter_path = "/tmp/tool-adapter.yaml"
+    home_path.mkdir(parents=True, exist_ok=True)
+    if tool == "codex":
+        (home_path / "auth.json").write_text('{"session_id":"test-session"}\n', encoding="utf-8")
     runtime: dict[str, Any] = {
+        "runtime_root": str(home_path.parent),
+        "home_id": "test-home",
+        "home_path": str(home_path),
+        "launch_helper": str(home_path / "launch.sh"),
         "launch_executable": executable,
         "launch_home_selector": {
             "env_var": home_env_var,
@@ -55,34 +64,46 @@ def _manifest(
                 "tool_params": {},
             },
             "requested_overrides": {
-                "recipe": recipe_overrides,
+                "preset": recipe_overrides,
                 "direct": direct_overrides,
             },
             "tool_metadata": tool_metadata or {"tool_params": {}},
             "construction_provenance": {
-                "adapter_path": "/tmp/tool-adapter.yaml",
-                "recipe_path": None,
-                "recipe_overrides_present": recipe_overrides is not None,
+                "adapter_path": adapter_path,
+                "preset_path": None,
+                "preset_overrides_present": recipe_overrides is not None,
                 "direct_overrides_present": direct_overrides is not None,
             },
         },
     }
+    if env_records is not None:
+        runtime["launch_contract"]["env_records"] = dict(env_records)
     if runtime_extra is not None:
         runtime.update(runtime_extra)
 
     manifest: dict[str, Any] = {
-        "schema_version": 2,
-        "inputs": {"tool": tool},
+        "schema_version": 3,
+        "inputs": {
+            "tool": tool,
+            "skills": [],
+            "setup": "default",
+            "auth": "default",
+            "adapter_path": adapter_path,
+            "preset_path": None,
+        },
         "runtime": runtime,
         "credentials": {
+            "auth_path": str(home_path.parent / "auth"),
+            "projected_files": [],
             "env_contract": {
                 "source_file": str(env_file),
                 "allowlisted_env_vars": allowlisted_env_vars,
-            }
+            },
         },
     }
-    if launch_policy is not None:
-        manifest["launch_policy"] = launch_policy
+    manifest["launch_policy"] = (
+        launch_policy if launch_policy is not None else {"operator_prompt_mode": "as_is"}
+    )
     return manifest
 
 
@@ -96,6 +117,17 @@ def test_load_role_package_reads_prompt(tmp_path: Path) -> None:
     assert role.role_name == "test-role"
     assert role.path == role_path
     assert "You are role test" in role.system_prompt
+
+
+def test_load_role_package_allows_empty_prompt(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    role_path = agent_def_dir / "roles/test-role/system-prompt.md"
+    _write(role_path, "")
+
+    role = load_role_package(agent_def_dir, "test-role")
+
+    assert role.path == role_path
+    assert role.system_prompt == ""
 
 
 def test_plan_role_injection_native_vs_bootstrap() -> None:
@@ -126,6 +158,29 @@ def test_plan_role_injection_native_vs_bootstrap() -> None:
     assert gemini.method == "bootstrap_message"
     assert gemini.bootstrap_message is not None
     assert claude_local.method == "native_append_system_prompt"
+
+
+def test_plan_role_injection_empty_prompt_skips_bootstrap_message() -> None:
+    claude = plan_role_injection(
+        backend="claude_headless",
+        role_name="r",
+        role_prompt="",
+    )
+    gemini = plan_role_injection(
+        backend="gemini_headless",
+        role_name="r",
+        role_prompt="",
+    )
+    claude_local = plan_role_injection(
+        backend="local_interactive",
+        tool="claude",
+        role_name="r",
+        role_prompt="",
+    )
+
+    assert claude.bootstrap_message == ""
+    assert gemini.bootstrap_message == ""
+    assert claude_local.bootstrap_message == ""
 
 
 def test_backend_for_tool_defaults_to_codex_headless() -> None:
@@ -172,7 +227,46 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
     assert "sk-secret" not in str(redacted)
 
 
-def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> None:
+def test_build_launch_plan_overlays_persistent_launch_env_records(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text(
+        "OPENAI_API_KEY=sk-secret\nOPENAI_BASE_URL=https://auth.example\n",
+        encoding="utf-8",
+    )
+    role_prompt_path = tmp_path / "repo/roles/test-role/system-prompt.md"
+    _write(role_prompt_path, "Test role prompt")
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+        env_records={
+            "OPENAI_BASE_URL": "https://launch.example",
+            "FEATURE_FLAG_X": "1",
+        },
+    )
+
+    role = load_role_package(tmp_path / "repo", "test-role")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="codex_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.env["OPENAI_API_KEY"] == "sk-secret"
+    assert plan.env["OPENAI_BASE_URL"] == "https://launch.example"
+    assert plan.env["FEATURE_FLAG_X"] == "1"
+    assert "FEATURE_FLAG_X" in plan.env_var_names
+    assert "FEATURE_FLAG_X" in plan.redacted_payload()["env_var_names"]
+
+
+def test_build_launch_plan_preserves_mailbox_without_env_projection(tmp_path: Path) -> None:
     env_file = tmp_path / "vars.env"
     env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
     role_prompt_path = tmp_path / "repo/roles/test-role/system-prompt.md"
@@ -190,8 +284,8 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
     role = load_role_package(tmp_path / "repo", "test-role")
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
         filesystem_root=(tmp_path / "shared-mail").resolve(),
         bindings_version="2026-03-12T05:00:00.000001Z",
     )
@@ -206,25 +300,9 @@ def test_build_launch_plan_populates_mailbox_env_bindings(tmp_path: Path) -> Non
     )
 
     assert plan.mailbox == mailbox
-    assert plan.env["AGENTSYS_MAILBOX_TRANSPORT"] == "filesystem"
-    assert plan.env["AGENTSYS_MAILBOX_FS_ROOT"] == str(mailbox.filesystem_root)
-    assert plan.env["AGENTSYS_MAILBOX_FS_SQLITE_PATH"] == str(
-        mailbox.filesystem_root / "index.sqlite"
-    )
-    assert plan.env["AGENTSYS_MAILBOX_FS_INBOX_DIR"] == str(
-        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost" / "inbox"
-    )
-    assert plan.env["AGENTSYS_MAILBOX_FS_MAILBOX_DIR"] == str(
-        mailbox.filesystem_root / "mailboxes" / "AGENTSYS-research@agents.localhost"
-    )
-    assert plan.env["AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH"] == str(
-        mailbox.filesystem_root
-        / "mailboxes"
-        / "AGENTSYS-research@agents.localhost"
-        / "mailbox.sqlite"
-    )
-    assert "AGENTSYS_MAILBOX_FS_ROOT" in plan.env_var_names
-    assert plan.redacted_payload()["mailbox"]["principal_id"] == "AGENTSYS-research"
+    assert plan.env == {"OPENAI_API_KEY": "sk-secret"}
+    assert all(not name.startswith("HOUMAO_MAILBOX_") for name in plan.env_var_names)
+    assert plan.redacted_payload()["mailbox"]["principal_id"] == "HOUMAO-research"
 
 
 def test_build_launch_plan_resolves_launch_policy_provenance(
@@ -277,6 +355,76 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
     assert plan.launch_policy_provenance is not None
     assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.116.x"
     assert plan.redacted_payload()["launch_policy_provenance"]["selection_source"] == "registry"
+
+
+def test_build_launch_plan_applies_gemini_unattended_cli_ownership_and_settings_repair(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("GOOGLE_GENAI_USE_GCA=true\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    settings_path = tmp_path / "home/.gemini/settings.json"
+    _write(
+        settings_path,
+        '{"tools":{"sandbox":"docker","core":["read_file"]},"security":{"disableYoloMode":true}}\n',
+    )
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type(
+            "_Completed",
+            (),
+            {"stdout": "0.36.0", "stderr": "", "args": command},
+        )()
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_version,
+    )
+
+    manifest = _manifest(
+        tool="gemini",
+        executable="gemini",
+        home_env_var="GEMINI_CLI_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["GOOGLE_GENAI_USE_GCA"],
+        launch_args=[
+            "--model",
+            "gemini-2.5-pro",
+            "--approval-mode=default",
+            "--sandbox",
+            "docker",
+        ],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="gemini_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.args == [
+        "--model",
+        "gemini-2.5-pro",
+        "--approval-mode=yolo",
+        "--sandbox=false",
+    ]
+    assert plan.launch_policy_provenance is not None
+    assert plan.launch_policy_provenance.selected_strategy_id == "gemini-unattended-0.36.0"
+    assert '"sandbox": false' in settings_path.read_text(encoding="utf-8")
 
 
 def test_build_launch_plan_honors_process_env_strategy_override_without_projection(
@@ -512,6 +660,9 @@ def test_build_launch_plan_codex_headless_sets_cli_mode_metadata(
 
     assert "app-server" not in plan.args
     assert plan.metadata["codex_headless_cli_mode"] == "exec_json_resume"
+    assert plan.metadata["headless_output_format"] == "stream-json"
+    assert plan.metadata["headless_display_style"] == "plain"
+    assert plan.metadata["headless_display_detail"] == "concise"
 
 
 @pytest.mark.parametrize(

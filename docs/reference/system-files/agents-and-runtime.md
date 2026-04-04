@@ -1,13 +1,13 @@
 # Agents And Runtime
 
-This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, and workspace-local job directories.
+This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, and overlay-local job directories.
 
 ## Runtime Root Overview
 
 Representative default layout:
 
 ```text
-~/.houmao/runtime/
+<active-overlay>/runtime/
   homes/
     <home-id>/
       launch.sh
@@ -37,12 +37,12 @@ Representative default layout:
             current-instance.json
             gateway.pid
 
-<working-directory>/.houmao/
+<active-overlay>/
   jobs/
     <session-id>/
 ```
 
-Use [Roots And Ownership](roots-and-ownership.md) for how the effective runtime root and local jobs root are chosen.
+Use [Roots And Ownership](roots-and-ownership.md) for how the effective runtime root and local jobs root are chosen. If no project overlay exists yet and a maintained local-state command needs one, Houmao bootstraps the same layout under `<cwd>/.houmao/`.
 
 ## Build-Time Artifacts
 
@@ -58,9 +58,10 @@ Important boundary: Houmao owns the generated-home path family and the build man
 
 Current manifest-level launch-policy artifacts:
 
-- the build manifest carries secret-free `launch_policy.operator_prompt_mode`,
+- the build manifest carries secret-free `launch_policy.operator_prompt_mode` using the `unattended|as_is` policy vocabulary,
 - unattended `launch.sh` helpers call `houmao.agents.launch_policy.cli` before the final tool exec,
-- runtime-managed session manifests and redacted launch plans may persist typed `launch_policy_provenance` metadata describing requested mode, detected version, selected strategy, and override source.
+- runtime-managed session manifests and redacted launch plans may persist typed `launch_policy_provenance` metadata describing requested mode, detected version, selected strategy, and override source,
+- current build flows resolve omitted prompt mode to unattended before manifest write; `as_is` is the explicit pass-through opt-out.
 
 Current manifest-level launch-override artifacts:
 
@@ -95,7 +96,7 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<runtime-root>/sessions/<backend>/<session-id>/` | start/resume runtime flow | runtime and gateway helpers | Durable directory envelope for one runtime-managed session | Stable path family | Do not delete while the session is live; `houmao-mgr agents cleanup session` and `houmao-mgr admin cleanup runtime sessions` remove only stopped or otherwise malformed envelopes |
 | `<session-root>/manifest.json` | `persist_manifest()` | runtime manifest persistence | Durable session record used for resume and control | Stable operator-facing artifact | Treat as durable state |
 | `<session-root>/mailbox-secrets/` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Session-local secret-material directory keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Remove only after the session is stopped and no direct or gateway-backed mailbox work depends on it; `houmao-mgr agents cleanup mailbox` exists for that exact scope |
-| `<session-root>/mailbox-secrets/<credential-ref>.json` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Materialized per-session credential file surfaced as `AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE` | Stable path, secret-bearing payload | Treat as cleanup-sensitive session-local secret material rather than scratch |
+| `<session-root>/mailbox-secrets/<credential-ref>.json` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Materialized per-session credential file surfaced through `resolve-live.mailbox.stalwart.credential_file` | Stable path, secret-bearing payload | Treat as cleanup-sensitive session-local secret material rather than scratch |
 | `<session-root>/gateway/` | gateway-capability publication | runtime and gateway lifecycle helpers | Session-owned gateway subtree | Stable path family for gateway-capable sessions | Subtree contents have mixed durability |
 | `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Internal bootstrap artifact used by runtime and gateway internals to seed startup, offline status, and metadata transfer for the same logical session | Internal runtime artifact | Durable |
 | `<session-root>/gateway/gateway_manifest.json` | gateway-capability publication | runtime refresh and attach or detach lifecycle | Derived outward-facing gateway bookkeeping regenerated from manifest-backed authority plus current listener state | Derived operator-facing publication | Durable |
@@ -117,7 +118,7 @@ Pair-managed `houmao_server_rest` notes:
 
 Joined-session notes:
 
-- `houmao-mgr agents join` writes the same `<session-root>/manifest.json`, placeholder `agent_def/`, placeholder `brain_manifest.json`, session-local `gateway/` subtree, and workspace-local `job_dir` envelope that native launches expect.
+- `houmao-mgr agents join` writes the same `<session-root>/manifest.json`, placeholder `agent_def/`, placeholder `brain_manifest.json`, session-local `gateway/` subtree, and overlay-local `job_dir` envelope that native launches expect.
 - For joined sessions, `manifest.json` becomes the source of truth for secret-free relaunch posture through `agent_launch_authority`, including `session_origin=joined_tmux`, explicit `posture_kind`, structured `launch_args`, and structured Docker-style `launch_env`.
 - Joined headless resume posture is also persisted in `manifest.json`: omitted `--resume-id` stores `resume_selection_kind=none`, `--resume-id last` stores `resume_selection_kind=last`, and an exact selector stores `resume_selection_kind=exact` plus the exact value.
 - The placeholder `brain_manifest.json` exists only to satisfy path and artifact invariants. Joined runtime control and relaunch do not treat it as behavioral truth.
@@ -135,19 +136,21 @@ For Stalwart-backed sessions, the runtime deliberately splits mailbox capability
 
 The manifest is the operator-facing durable record. The secret-bearing files are runtime-owned implementation artifacts that matter for handling and cleanup, but their JSON contents are not the primary compatibility contract.
 
-## Workspace-Local Job Directories
+## Overlay-Local Job Directories
 
-Runtime-managed sessions also derive a per-session workspace-local job directory outside the runtime root:
+Runtime-managed sessions also derive a per-session overlay-local job directory outside the runtime root:
 
 ```text
-<working-directory>/.houmao/jobs/<session-id>/
+<active-overlay>/jobs/<session-id>/
 ```
 
 | Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
 | --- | --- | --- | --- | --- | --- |
-| `<working-directory>/.houmao/jobs/<session-id>/` or relocated equivalent | start/resume runtime flow | the launched session and tool-side work | Per-session scratch and job-local outputs for the selected working directory | Stable path family | Usually the safest directory family to treat as scratch |
+| `<active-overlay>/jobs/<session-id>/` or relocated equivalent | start/resume runtime flow | the launched session and tool-side work | Per-session scratch and job-local outputs for the selected maintained command context | Stable path family | Usually the safest directory family to treat as scratch |
 
-The runtime persists this resolved path in the session manifest as `job_dir` and publishes it into the launched session environment as `AGENTSYS_JOB_DIR`.
+The runtime persists this resolved path in the session manifest as `job_dir` and publishes it into the launched session environment as `HOUMAO_JOB_DIR`.
+
+If the maintained command context already has an active project overlay, this scratch path family lands under the same hidden `.houmao/` overlay as `.houmao/houmao-config.toml` and `.houmao/agents/`. The overlap is only about path anchoring; `jobs/` remains scratch/runtime state rather than project source.
 
 ## Contract Boundaries
 
@@ -159,7 +162,7 @@ The runtime persists this resolved path in the session manifest as `job_dir` and
 - `gateway/attach.json` is internal bootstrap state, not part of the supported external attach contract.
 - `gateway/gateway_manifest.json` is derived outward-facing bookkeeping, not the authoritative input for attach or relaunch behavior.
 - The gateway subtree belongs to the same logical runtime-managed session, but not every file under it has the same stability promise.
-- The workspace-local `job_dir` is intentionally separate from the durable runtime root so operators can redirect it to a scratch filesystem without relocating the runtime root itself.
+- The overlay-local `job_dir` is intentionally separate from the durable runtime root so operators can redirect it to a scratch filesystem without relocating the runtime root itself.
 
 ## Related References
 

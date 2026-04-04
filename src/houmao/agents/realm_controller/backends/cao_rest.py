@@ -35,7 +35,7 @@ from ..mail_commands import (
     MAIL_RESULT_SURFACES_PAYLOAD_KEY,
     MailPromptRequest,
     build_shadow_mail_result_surface_payloads,
-    shadow_mail_result_contract_reached,
+    shadow_mail_result_for_request_reached,
 )
 from ..models import CaoParsingMode, LaunchPlan, SessionControlResult, SessionEvent
 from .cao_rx_monitor import (
@@ -637,6 +637,9 @@ class CaoRestSession:
 
         if prompt_request is None or self._parsing_mode != "shadow_only":
             return None
+        mailbox = self._plan.mailbox
+        if mailbox is None:
+            return None
 
         def _observe(
             raw_output_text: str,
@@ -650,7 +653,12 @@ class CaoRestSession:
                 baseline_output_text=baseline_output_text,
                 baseline_projection=baseline_projection,
             )
-            if not shadow_mail_result_contract_reached(surface_payloads):
+            if not shadow_mail_result_for_request_reached(
+                surface_payloads,
+                request_id=prompt_request.request_id,
+                operation=prompt_request.operation,
+                mailbox=mailbox,
+            ):
                 return None
             return {MAIL_RESULT_SURFACES_PAYLOAD_KEY: list(surface_payloads)}
 
@@ -1908,7 +1916,7 @@ def generate_cao_session_name(
     Returns
     -------
     str
-        Canonical session identity (`AGENTSYS-...`), unique among tmux sessions.
+        Canonical session identity (`HOUMAO-...`), unique among tmux sessions.
     """
 
     occupied = existing_sessions if existing_sessions is not None else _list_tmux_sessions()

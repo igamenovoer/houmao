@@ -34,6 +34,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 - [Canonical Model](contracts/canonical-model.md): Message schema, addressing, threading, attachments, and immutable versus mutable state.
 - [Runtime Contracts](contracts/runtime-contracts.md): Declarative config, resolved bindings, projected skill behavior, and `mail` request/result envelopes.
+- [Project Mailbox Skills](contracts/project-mailbox-skills.md): Native mailbox skill projection during the build phase — what skills are injected and how they differ per tool.
 - [Managed Scripts](contracts/managed-scripts.md): Stable helper entrypoints, flags, validation behavior, dependencies, and JSON stdout.
 - [Filesystem Layout](contracts/filesystem-layout.md): Durable tree structure, mailbox-local rules, projections, attachments, and placeholder directories.
 

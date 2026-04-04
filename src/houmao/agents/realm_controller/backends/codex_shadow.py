@@ -34,7 +34,7 @@ from .shadow_parser_core import (
 
 _DEFAULT_STATUS_TAIL_LINES: Final[int] = 100
 _DEFAULT_PROJECTION_SLICE_LINES: Final[int] = 12
-_ENV_PRESET_OVERRIDE: Final[str] = "AGENTSYS_CAO_CODEX_VERSION"
+_ENV_PRESET_OVERRIDE: Final[str] = "HOUMAO_CAO_CODEX_VERSION"
 
 _BANNER_VERSION_RE: Final[re.Pattern[str]] = re.compile(
     r"(?im)(?:codex(?:\s+cli)?\s+v|openai\s+codex\s*\(v)(\d+\.\d+\.\d+)"

@@ -8,14 +8,20 @@ from .admin import admin_group
 from .agents import agents_group
 from .brains import brains_group
 from .mailbox import mailbox_group
+from .output import OutputContext, output_options, resolve_print_style
+from .project import project_group
 from .server import server_group
+from .system_skills import system_skills_group
 
 
 @click.group(name="houmao-mgr", invoke_without_command=True)
+@output_options
 @click.pass_context
-def cli(ctx: click.Context) -> None:
+def cli(ctx: click.Context, print_style: str | None) -> None:
     """Houmao pair CLI with native server and managed-agent command families."""
 
+    ctx.ensure_object(dict)
+    ctx.obj["output"] = OutputContext(style=resolve_print_style(print_style))
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
@@ -24,7 +30,9 @@ cli.add_command(admin_group)
 cli.add_command(agents_group)
 cli.add_command(brains_group)
 cli.add_command(mailbox_group)
+cli.add_command(project_group)
 cli.add_command(server_group)
+cli.add_command(system_skills_group)
 
 
 def main(argv: list[str] | None = None) -> int:

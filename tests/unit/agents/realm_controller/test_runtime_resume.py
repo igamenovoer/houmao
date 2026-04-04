@@ -42,11 +42,14 @@ def _seed_manifest(
     *,
     tool: str = "claude",
     cao_parsing_mode: str | None = None,
-    operator_prompt_mode: str | None = None,
+    operator_prompt_mode: str | None = "as_is",
 ) -> Path:
     if tool == "claude":
         env_var = "ANTHROPIC_API_KEY"
         home_env_var = "CLAUDE_CONFIG_DIR"
+    elif tool == "gemini":
+        env_var = "GEMINI_API_KEY"
+        home_env_var = "GEMINI_CLI_HOME"
     else:
         env_var = "OPENAI_API_KEY"
         home_env_var = "CODEX_HOME"
@@ -56,10 +59,19 @@ def _seed_manifest(
 
     manifest_path = tmp_path / "brain.yaml"
     runtime_lines = [
-        "schema_version: 2",
+        "schema_version: 3",
         "inputs:",
         f"  tool: {tool}",
+        "  skills: []",
+        "  setup: default",
+        "  auth: default",
+        "  adapter_path: /tmp/tool-adapter.yaml",
+        "  preset_path: null",
         "runtime:",
+        f"  runtime_root: {tmp_path}",
+        "  home_id: test-home",
+        f"  home_path: {tmp_path / 'home'}",
+        f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
         f"  launch_executable: {tool}",
         "  launch_home_selector:",
         f"    env_var: {home_env_var}",
@@ -69,16 +81,23 @@ def _seed_manifest(
         "      args: []",
         "      tool_params: {}",
         "    requested_overrides:",
-        "      recipe: null",
+        "      preset: null",
         "      direct: null",
         "    tool_metadata:",
         "      tool_params: {}",
+        "    construction_provenance:",
+        "      adapter_path: /tmp/tool-adapter.yaml",
+        "      preset_path: null",
+        "      preset_overrides_present: false",
+        "      direct_overrides_present: false",
     ]
     if cao_parsing_mode is not None:
         runtime_lines.append(f"  cao_parsing_mode: {cao_parsing_mode}")
     runtime_lines.extend(
         [
             "credentials:",
+            f"  auth_path: {tmp_path / 'auth'}",
+            "  projected_files: []",
             "  env_contract:",
             f"    source_file: {env_file}",
             "    allowlisted_env_vars:",
@@ -106,7 +125,7 @@ def _build_session_payload(
     backend: BackendKind,
     backend_state: dict[str, Any],
     cao_parsing_mode: str | None = None,
-    operator_prompt_mode: str | None = None,
+    operator_prompt_mode: str | None = "as_is",
 ) -> tuple[Path, dict[str, Any]]:
     brain_manifest_path = _seed_manifest(
         agent_def_dir,
@@ -164,15 +183,15 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
             launch_plan=launch_plan,
             role_name="r",
             brain_manifest_path=brain_manifest_path,
-            agent_name="AGENTSYS-r",
-            agent_id=derive_agent_id_from_name("AGENTSYS-r"),
-            tmux_session_name="AGENTSYS-r",
+            agent_name="HOUMAO-r",
+            agent_id=derive_agent_id_from_name("HOUMAO-r"),
+            tmux_session_name="HOUMAO-r",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 0,
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
-                "tmux_session_name": "AGENTSYS-r",
+                "tmux_session_name": "HOUMAO-r",
             },
         )
     )
@@ -182,6 +201,39 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
     session_path.write_text(json.dumps(session_payload), encoding="utf-8")
 
     with pytest.raises(SessionManifestError, match="session_id"):
+        resume_runtime_session(
+            agent_def_dir=agent_def_dir,
+            session_manifest_path=session_path,
+        )
+
+
+def test_resume_gemini_rejects_mismatched_working_directory(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    persisted_workdir = (tmp_path / "persisted").resolve()
+    resumed_workdir = (tmp_path / "resumed").resolve()
+    persisted_workdir.mkdir(parents=True)
+    resumed_workdir.mkdir(parents=True)
+
+    _, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="gemini",
+        backend="gemini_headless",
+        backend_state={
+            "session_id": "sess-1",
+            "turn_index": 1,
+            "role_bootstrap_applied": True,
+            "working_directory": str(persisted_workdir),
+            "tmux_session_name": "HOUMAO-r",
+        },
+    )
+    session_payload["working_directory"] = str(resumed_workdir)
+    session_payload["interactive"]["working_directory"] = str(persisted_workdir)
+    session_path = tmp_path / "session-gemini-mismatch.json"
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    with pytest.raises(SessionManifestError, match="same working directory"):
         resume_runtime_session(
             agent_def_dir=agent_def_dir,
             session_manifest_path=session_path,
@@ -203,7 +255,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
             "turn_index": 2,
             "role_bootstrap_applied": True,
             "working_directory": str(tmp_path),
-            "tmux_session_name": "AGENTSYS-r",
+            "tmux_session_name": "HOUMAO-r",
             "tmux_window_name": "manual",
         },
     )
@@ -215,7 +267,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
     class _FakeLocalInteractiveSession:
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
-            self.state = type("State", (), {"tmux_session_name": "AGENTSYS-r"})()
+            self.state = type("State", (), {"tmux_session_name": "HOUMAO-r"})()
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
@@ -232,7 +284,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
     )
 
     assert captured["state"].turn_index == 2
-    assert captured["state"].tmux_session_name == "AGENTSYS-r"
+    assert captured["state"].tmux_session_name == "HOUMAO-r"
     assert captured["state"].tmux_window_name == "manual"
     assert controller.launch_plan.backend == "local_interactive"
 
@@ -252,7 +304,7 @@ def test_resume_local_interactive_restores_join_launch_window_name_when_manifest
             "turn_index": 2,
             "role_bootstrap_applied": True,
             "working_directory": str(tmp_path),
-            "tmux_session_name": "AGENTSYS-r",
+            "tmux_session_name": "HOUMAO-r",
         },
     )
     session_payload["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
@@ -260,7 +312,7 @@ def test_resume_local_interactive_restores_join_launch_window_name_when_manifest
     session_payload["agent_launch_authority"] = {
         "backend": "local_interactive",
         "tool": "claude",
-        "tmux_session_name": "AGENTSYS-r",
+        "tmux_session_name": "HOUMAO-r",
         "primary_window_index": "0",
         "working_directory": str(tmp_path),
         "posture_kind": "unavailable",
@@ -335,7 +387,7 @@ def test_resume_unattended_local_interactive_uses_resume_control_intent_without_
             "turn_index": 2,
             "role_bootstrap_applied": True,
             "working_directory": str(tmp_path),
-            "tmux_session_name": "AGENTSYS-r",
+            "tmux_session_name": "HOUMAO-r",
         },
         operator_prompt_mode="unattended",
     )
@@ -354,7 +406,7 @@ def test_resume_unattended_local_interactive_uses_resume_control_intent_without_
     class _FakeLocalInteractiveSession:
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
-            self.state = type("State", (), {"tmux_session_name": "AGENTSYS-r"})()
+            self.state = type("State", (), {"tmux_session_name": "HOUMAO-r"})()
 
     def _capture_build_launch_plan(request: LaunchPlanRequest):
         intents.append(request.intent)

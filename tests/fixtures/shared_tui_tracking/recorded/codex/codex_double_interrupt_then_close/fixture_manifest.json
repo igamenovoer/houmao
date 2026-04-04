@@ -1,8 +1,0 @@
-{
-  "case_id": "codex_double_interrupt_then_close",
-  "description": "Interrupt two active Codex turns in one session, then close the tool intentionally.",
-  "observed_version": "codex-cli 0.116.0",
-  "schema_version": 1,
-  "settle_seconds": 1.0,
-  "tool": "codex"
-}

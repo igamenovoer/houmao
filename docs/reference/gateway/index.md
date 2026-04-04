@@ -33,6 +33,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 - [Lifecycle And Operator Flows](operations/lifecycle.md): Attach, inspect, detach, and understand offline versus live gateway states.
 - [Gateway Troubleshooting](operations/troubleshooting.md): Diagnose pair-managed current-session attach failures, stale gateway metadata, and reserved-window safety checks.
 - [Gateway Mailbox Facade](operations/mailbox-facade.md): Understand `/v1/mail/*`, adapter selection from the session manifest, loopback-only availability, and notifier behavior through the shared mailbox abstraction.
+- [Gateway Mail-Notifier](operations/mail-notifier.md): Background polling loop that checks for unread mail and submits notification prompts through the gateway request queue.
 
 ### Contracts
 

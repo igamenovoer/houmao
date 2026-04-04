@@ -1,8 +1,8 @@
 """Runtime-owned mailbox prompt and result helpers.
 
-Mailbox result parsing is machine-critical. Shadow-mode parsing therefore
-prefers explicit schema/sentinel extraction over available text surfaces rather
-than assuming best-effort dialog projection fidelity.
+Sentinel parsing remains available for preview and diagnostics, but TUI-mediated
+mail commands now complete on request lifecycle rather than exact mailbox-result
+schema recovery.
 """
 
 from __future__ import annotations
@@ -12,12 +12,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, cast
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
-    mailbox_skill_document_path,
+    mailbox_gateway_skill_name,
     mailbox_skill_name,
+    projected_mailbox_skill_document_path,
+    mailbox_gateway_skill_reference,
+    mailbox_skill_reference,
     resolve_live_mailbox_binding,
 )
 from houmao.mailbox import resolve_filesystem_mailbox_paths
@@ -29,11 +32,14 @@ from .backends.shadow_parser_core import DialogProjection
 from .errors import BackendExecutionError, MailboxCommandError, MailboxResultParseError
 from .models import LaunchPlan, SessionEvent
 
-MailOperation = Literal["check", "send", "reply"]
+MailOperation = Literal["check", "send", "reply", "mark-read"]
+MailCommandOperation = Literal["status", "check", "send", "reply", "mark-read"]
+MailExecutionPath = Literal["manager_direct", "gateway_backed", "tui_submission"]
+MailSubmissionStatus = Literal["submitted", "rejected", "busy", "interrupted", "tui_error"]
 
 MAIL_REQUEST_VERSION = 1
-MAIL_RESULT_BEGIN_SENTINEL = "AGENTSYS_MAIL_RESULT_BEGIN"
-MAIL_RESULT_END_SENTINEL = "AGENTSYS_MAIL_RESULT_END"
+MAIL_RESULT_BEGIN_SENTINEL = "HOUMAO_MAIL_RESULT_BEGIN"
+MAIL_RESULT_END_SENTINEL = "HOUMAO_MAIL_RESULT_END"
 MAIL_RESULT_SURFACES_PAYLOAD_KEY = "mail_result_surfaces"
 
 
@@ -61,6 +67,97 @@ class _MailResultTextSurface:
 
     surface_id: str
     text: str
+
+
+_TUI_SUBMISSION_ERROR_DETAIL_MAX_CHARS = 400
+
+
+def build_verified_mail_command_result(
+    *,
+    operation: MailCommandOperation,
+    execution_path: Literal["manager_direct", "gateway_backed"],
+    payload: object,
+) -> dict[str, Any]:
+    """Build one authoritative manager mail result envelope."""
+
+    normalized = _normalize_mail_payload(payload)
+    result: dict[str, Any] = {
+        "schema_version": int(normalized.get("schema_version", 1)),
+        "operation": operation,
+        "authoritative": True,
+        "status": "verified",
+        "execution_path": execution_path,
+    }
+    result.update(normalized)
+    result["operation"] = operation
+    result["authoritative"] = True
+    result["status"] = "verified"
+    result["execution_path"] = execution_path
+    return result
+
+
+def build_tui_submission_result(
+    *,
+    prompt_request: MailPromptRequest,
+    mailbox: MailboxResolvedConfig,
+    events: list[SessionEvent] | None = None,
+    status: MailSubmissionStatus | None = None,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """Build one non-authoritative TUI submission result envelope."""
+
+    effective_status = status or _tui_submission_status_from_events(events)
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "operation": prompt_request.operation,
+        "authoritative": False,
+        "status": effective_status,
+        "execution_path": "tui_submission",
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+        "bindings_version": mailbox.bindings_version,
+        "request_id": prompt_request.request_id,
+        "verification_required": True,
+        "verification_paths": _verification_paths_for_mailbox(mailbox),
+    }
+    if detail is not None and detail.strip():
+        result["detail"] = detail.strip()
+    if events:
+        submitted_event = next((event for event in events if event.kind == "submitted"), None)
+        if submitted_event is not None:
+            result["submitted_at_utc"] = submitted_event.timestamp_utc
+
+        diagnostics = _tui_submission_diagnostics_from_events(events)
+        if diagnostics:
+            result["tui_diagnostics"] = diagnostics
+
+        preview_payload = _preview_mail_result_from_events(
+            events,
+            request_id=prompt_request.request_id,
+            operation=prompt_request.operation,
+            mailbox=mailbox,
+        )
+        if preview_payload is not None:
+            result["preview_result"] = preview_payload
+    return result
+
+
+def build_tui_submission_result_from_backend_error(
+    *,
+    prompt_request: MailPromptRequest,
+    mailbox: MailboxResolvedConfig,
+    exc: BackendExecutionError,
+) -> dict[str, Any]:
+    """Normalize one backend execution failure into a submission-only result."""
+
+    status, detail = _classify_tui_submission_backend_error(exc)
+    return build_tui_submission_result(
+        prompt_request=prompt_request,
+        mailbox=mailbox,
+        status=status,
+        detail=detail,
+    )
 
 
 def prepare_mail_prompt(
@@ -92,17 +189,34 @@ def prepare_mail_prompt(
         },
     }
     prompt_lines = _mail_prompt_instruction_lines(
+        launch_plan=launch_plan,
         mailbox=mailbox,
+        operation=operation,
+        args=args,
         prefer_live_gateway=prefer_live_gateway,
     )
     prompt_lines.extend(
         [
+            "The sentinel JSON is machine-owned. Do not paste raw helper output directly when it omits required contract keys.",
+            "Return only the contracted fields and omit long paths or verbose nested helper payloads from the sentinel block.",
+            "Use this exact result shape:",
+            "```json",
+            json.dumps(
+                _mail_result_contract_template(
+                    request_id=request_id,
+                    operation=operation,
+                    mailbox=mailbox,
+                ),
+                indent=2,
+                sort_keys=True,
+            ),
+            "```",
             (
                 "Return exactly one JSON result between "
                 f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`."
             ),
             "",
-            "AGENTSYS_MAIL_REQUEST:",
+            "HOUMAO_MAIL_REQUEST:",
             "```json",
             json.dumps(request_payload, indent=2, sort_keys=True),
             "```",
@@ -126,30 +240,21 @@ def ensure_mailbox_command_ready(
     mailbox = launch_plan.mailbox
     if mailbox is None:
         raise MailboxCommandError("Target session is not mailbox-enabled.")
-    if tmux_session_name is not None:
-        try:
-            mailbox = resolve_live_mailbox_binding(
-                durable_mailbox=mailbox,
-                tmux_session_name=tmux_session_name,
-            ).mailbox
-        except ValueError as exc:
-            raise MailboxCommandError(
-                "Target session mailbox binding is not live-actionable through the tmux-backed "
-                f"runtime projection: {exc}"
-            ) from exc
+    del tmux_session_name
+    try:
+        mailbox = resolve_live_mailbox_binding(durable_mailbox=mailbox).mailbox
+    except ValueError as exc:
+        raise MailboxCommandError(
+            "Target session mailbox binding is not actionable through the persisted runtime "
+            f"mailbox binding: {exc}"
+        ) from exc
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         paths = resolve_filesystem_mailbox_paths(mailbox.filesystem_root)
         required_files = (
             paths.protocol_version_file,
             paths.sqlite_path,
             paths.rules_dir / "README.md",
-            paths.rules_scripts_dir / "requirements.txt",
-            paths.rules_scripts_dir / "deliver_message.py",
-            paths.rules_scripts_dir / "register_mailbox.py",
-            paths.rules_scripts_dir / "deregister_mailbox.py",
-            paths.rules_scripts_dir / "insert_standard_headers.py",
-            paths.rules_scripts_dir / "update_mailbox_state.py",
-            paths.rules_scripts_dir / "repair_index.py",
+            paths.rules_protocols_dir / "filesystem-mailbox-v1.md",
         )
         missing = [path for path in required_files if not path.is_file()]
         if missing:
@@ -169,23 +274,55 @@ def ensure_mailbox_command_ready(
 
 def _mail_prompt_instruction_lines(
     *,
+    launch_plan: LaunchPlan,
     mailbox: MailboxResolvedConfig,
+    operation: MailOperation,
+    args: dict[str, Any],
     prefer_live_gateway: bool,
 ) -> list[str]:
     skill_name = mailbox_skill_name(mailbox)
-    skill_document_path = mailbox_skill_document_path(mailbox)
+    gateway_skill_name = mailbox_gateway_skill_name()
+    gateway_skill_path = projected_mailbox_skill_document_path(
+        tool=launch_plan.tool,
+        home_path=launch_plan.home_path,
+        skill_reference=mailbox_gateway_skill_reference(tool=launch_plan.tool),
+    )
+    transport_skill_path = projected_mailbox_skill_document_path(
+        tool=launch_plan.tool,
+        home_path=launch_plan.home_path,
+        skill_reference=mailbox_skill_reference(mailbox, tool=launch_plan.tool),
+    )
+    installed_skill_lines: list[str]
+    if gateway_skill_path.is_file() and transport_skill_path.is_file():
+        installed_skill_lines = [
+            (
+                f"Use the installed Houmao mailbox gateway skill `{gateway_skill_name}` for "
+                "this mailbox operation."
+            ),
+            (
+                "Use the installed runtime-owned Houmao mailbox skills directly from the "
+                "tool's native skill surface. Do not inspect the current project, repository, "
+                "or runtime home to rediscover skill files or infer install locations."
+            ),
+            (
+                f"Use the transport-specific Houmao mailbox skill `{skill_name}` only for "
+                "transport-local context and no-gateway fallback."
+            ),
+        ]
+    else:
+        installed_skill_lines = [
+            "Houmao mailbox skills are not installed for this session.",
+            "Use the resolver and the supported mailbox contract directly for this operation.",
+        ]
     lines = [
-        (f"Use the runtime-owned mailbox skill `{skill_name}` for this mailbox operation."),
-        f"Open the primary mailbox skill document at `{skill_document_path}`.",
+        *installed_skill_lines,
         (
-            "Before any direct mailbox access, resolve current mailbox bindings through the "
-            "runtime-owned helper "
-            "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`."
+            "Before any direct mailbox access, resolve current mailbox state through the "
+            "manager-owned helper `pixi run houmao-mgr agents mail resolve-live`."
         ),
         (
-            "Use only the targeted mailbox binding keys returned by that helper. Do not guess "
-            "sender identity or mailbox endpoints, do not trust stale inherited process env, "
-            "and do not scrape tmux state directly."
+            "Use only the structured fields returned by that helper. Do not guess sender "
+            "identity or mailbox endpoints, and do not scrape tmux state directly."
         ),
         "Only mark messages read after the message has actually been processed successfully.",
     ]
@@ -197,22 +334,80 @@ def _mail_prompt_instruction_lines(
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         lines.extend(
             [
-                "Inspect the shared mailbox `rules/` directory first before touching shared mailbox state.",
-                "Inspect `rules/scripts/requirements.txt` before invoking a shared Python mailbox helper.",
+                "Inspect the shared mailbox `rules/` directory first for mailbox-local policy guidance.",
                 (
-                    "Use shared scripts from `rules/scripts/` for any mailbox step that touches "
-                    "shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`."
+                    "Treat shared `rules/` content as policy guidance, not as the ordinary public "
+                    "execution contract for send, reply, check, or mark-read workflows."
                 ),
             ]
         )
     elif not prefer_live_gateway:
         lines.extend(
             [
-                "Use the runtime-managed email mailbox env vars for direct mailbox access when no live gateway mailbox facade is available.",
+                "Use the returned `mailbox.stalwart.*` fields for direct mailbox access when no live gateway mailbox facade is available.",
                 "Do not use filesystem mailbox `rules/`, SQLite paths, lock files, or projection assumptions for this transport.",
             ]
         )
     return lines
+
+
+def _filesystem_send_payload_template(args: dict[str, Any]) -> dict[str, Any] | None:
+    """Return one concrete `deliver_message.py` payload template when possible."""
+
+    sender = args.get("resolved_sender")
+    to = args.get("resolved_to")
+    cc = args.get("resolved_cc")
+    subject = args.get("subject")
+    body_content = args.get("body_content")
+    attachments = args.get("attachments")
+    if not isinstance(sender, dict) or not isinstance(to, list) or not isinstance(cc, list):
+        return None
+    if not isinstance(subject, str) or not isinstance(body_content, str):
+        return None
+    if not isinstance(attachments, list):
+        attachments = []
+    return {
+        "staged_message_path": "<resolve-live.mailbox.filesystem.root>/staging/<message-id>.md",
+        "message_id": "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>",
+        "thread_id": "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>",
+        "created_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
+        "sender": sender,
+        "to": to,
+        "cc": cc,
+        "reply_to": [],
+        "subject": subject,
+        "attachments": attachments,
+        "headers": {},
+    }
+
+
+def _mail_result_contract_template(
+    *,
+    request_id: str,
+    operation: MailOperation,
+    mailbox: MailboxResolvedConfig,
+) -> dict[str, Any]:
+    """Return the exact machine result contract template for one operation."""
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "request_id": request_id,
+        "operation": operation,
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+    }
+    if operation == "send":
+        payload["message_id"] = "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>"
+        payload["recipient_count"] = 1
+    elif operation == "reply":
+        payload["message_id"] = "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>"
+    elif operation == "mark-read":
+        payload["message_ref"] = "<opaque message_ref>"
+        payload["read"] = True
+    elif operation == "check":
+        payload["message_count"] = 0
+        payload["messages"] = []
+    return payload
 
 
 def parse_mail_result(
@@ -302,8 +497,37 @@ def shadow_mail_result_contract_reached(surface_payloads: tuple[dict[str, str], 
 
     for surface in surface_payloads:
         text = surface.get("text")
-        if isinstance(text, str) and extract_sentinel_blocks(text):
-            return True
+        if not isinstance(text, str):
+            continue
+        if not extract_sentinel_blocks(text):
+            continue
+        return True
+    return False
+
+
+def shadow_mail_result_for_request_reached(
+    surface_payloads: tuple[dict[str, str], ...],
+    *,
+    request_id: str,
+    operation: MailOperation,
+    mailbox: MailboxResolvedConfig,
+) -> bool:
+    """Return whether one shadow surface contains a parseable result for the active request."""
+
+    for surface in surface_payloads:
+        text = surface.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            _parse_mail_result_text(
+                text,
+                request_id=request_id,
+                operation=operation,
+                mailbox=mailbox,
+            )
+        except MailboxResultParseError:
+            continue
+        return True
     return False
 
 
@@ -324,13 +548,16 @@ def run_mail_prompt(
         else:
             raise RuntimeError("Mailbox prompt execution requires a prompt sender.")
     except BackendExecutionError as exc:
-        raise _mailbox_command_error_from_backend(exc) from exc
+        return build_tui_submission_result_from_backend_error(
+            prompt_request=prompt_request,
+            mailbox=mailbox,
+            exc=exc,
+        )
 
-    return parse_mail_result(
-        events,
-        request_id=prompt_request.request_id,
-        operation=prompt_request.operation,
+    return build_tui_submission_result(
+        prompt_request=prompt_request,
         mailbox=mailbox,
+        events=events,
     )
 
 
@@ -587,3 +814,148 @@ def _mailbox_command_error_from_backend(exc: BackendExecutionError) -> MailboxCo
             "Mailbox command could not start because the target session is busy or cannot accept a new turn."
         )
     return MailboxCommandError(f"Mailbox command failed: {detail}")
+
+
+def _normalize_mail_payload(payload: object) -> dict[str, Any]:
+    """Normalize one model-like payload into a JSON-compatible dict."""
+
+    if isinstance(payload, dict):
+        return dict(payload)
+    model_dump = getattr(payload, "model_dump", None)
+    if callable(model_dump):
+        normalized = model_dump(mode="json")
+        if isinstance(normalized, dict):
+            return normalized
+    raise TypeError(f"Unsupported mail payload type: {type(payload)!r}")
+
+
+def _tui_submission_status_from_events(
+    events: list[SessionEvent] | None,
+) -> MailSubmissionStatus:
+    """Infer submission-only status from one TUI event stream."""
+
+    if not events:
+        return "submitted"
+    explicit_status = _event_payload_submission_status(events)
+    if explicit_status is not None:
+        return explicit_status
+    last_payload = _last_event_payload(events)
+    canonical_status = last_payload.get("canonical_runtime_status")
+    if canonical_status == "waiting_user_answer":
+        return "rejected"
+    if canonical_status == "interrupted":
+        return "interrupted"
+    if canonical_status == "error":
+        return "tui_error"
+    if any(event.kind == "interrupted" for event in events):
+        return "interrupted"
+    return "submitted"
+
+
+def _event_payload_submission_status(
+    events: list[SessionEvent],
+) -> MailSubmissionStatus | None:
+    """Return one explicit submission status surfaced by a backend event payload."""
+
+    for event in reversed(events):
+        payload = event.payload
+        if not isinstance(payload, dict):
+            continue
+        status = payload.get("mail_submission_status")
+        if status in {"submitted", "rejected", "busy", "interrupted", "tui_error"}:
+            return cast(MailSubmissionStatus, status)
+    return None
+
+
+def _last_event_payload(events: list[SessionEvent]) -> dict[str, Any]:
+    """Return the last dict payload present in one event list."""
+
+    for event in reversed(events):
+        if isinstance(event.payload, dict):
+            return event.payload
+    return {}
+
+
+def _tui_submission_diagnostics_from_events(events: list[SessionEvent]) -> dict[str, Any]:
+    """Extract compact TUI diagnostics from one event stream."""
+
+    payload = _last_event_payload(events)
+    if not payload:
+        return {}
+    diagnostics: dict[str, Any] = {}
+    for key in (
+        "canonical_runtime_status",
+        "raw_backend_status",
+        "parsing_mode",
+        "parser_family",
+        "output_source_mode",
+        "surface_assessment",
+        "mode_diagnostics",
+    ):
+        if key in payload:
+            diagnostics[key] = payload[key]
+    return diagnostics
+
+
+def _preview_mail_result_from_events(
+    events: list[SessionEvent],
+    *,
+    request_id: str,
+    operation: MailOperation,
+    mailbox: MailboxResolvedConfig,
+) -> dict[str, Any] | None:
+    """Return one optional non-authoritative parsed preview payload."""
+
+    try:
+        return parse_mail_result(
+            events,
+            request_id=request_id,
+            operation=operation,
+            mailbox=mailbox,
+        )
+    except MailboxCommandError:
+        return None
+
+
+def _verification_paths_for_mailbox(mailbox: MailboxResolvedConfig) -> list[str]:
+    """Return generic follow-up verification guidance for one submission-only result."""
+
+    paths = [
+        "Use manager-owned follow-up such as `houmao-mgr agents mail status` or `houmao-mgr agents mail check` when that authority is available.",
+    ]
+    if mailbox.transport == "filesystem":
+        paths.append(
+            "Inspect the shared filesystem mailbox state or canonical message documents if transport-owned confirmation is required."
+        )
+    else:
+        paths.append(
+            "Verify through the transport-native mailbox state for the active email service."
+        )
+    return paths
+
+
+def _classify_tui_submission_backend_error(
+    exc: BackendExecutionError,
+) -> tuple[MailSubmissionStatus, str]:
+    """Map one backend execution failure to a non-authoritative submission status."""
+
+    detail = str(exc).strip() or "unknown backend failure"
+    lowered = detail.lower()
+    if any(token in lowered for token in ("busy", "in-flight", "already running", "active turn")):
+        return "busy", detail
+    if any(
+        token in lowered
+        for token in (
+            "operator interaction",
+            "interactive user selection",
+            "awaiting_operator",
+            "waiting_user_answer",
+        )
+    ):
+        return "rejected", detail
+    if "interrupt" in lowered:
+        return "interrupted", detail
+    trimmed = detail
+    if len(trimmed) > _TUI_SUBMISSION_ERROR_DETAIL_MAX_CHARS:
+        trimmed = f"{trimmed[:_TUI_SUBMISSION_ERROR_DETAIL_MAX_CHARS].rstrip()}..."
+    return "tui_error", trimmed

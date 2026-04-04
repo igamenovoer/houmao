@@ -4,31 +4,9 @@ Define requirements for the repo-owned CAO REST client contract and related CAO 
 ### Requirement: CAO REST client matches the vendored CAO API contract
 The system SHALL implement a CAO-compatible REST client whose request parameter names, parameter locations, and response shapes match the pinned CAO server API contract.
 
-For the supported pair, that client SHALL target the Houmao-owned compatibility authority exposed by `houmao-server` under `/cao/*` rather than requiring a standalone `cao-server` as the supported endpoint.
+For supported loopback compatibility base URLs, the CAO-compatible REST client SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
-Pair-owned persisted authority SHALL remain the public `houmao-server` root base URL. The CAO compatibility prefix SHALL be applied through one shared compatibility client seam rather than by persisting `/cao`-qualified base URLs.
-
-The supported pair MAY continue to reuse that repo-owned CAO-compatible client seam internally during v1, but that internal seam SHALL NOT require a local `cao-server` executable or a caller-managed CAO profile-store path as a precondition for supported pair workflows.
-
-For supported loopback compatibility base URLs (`http://localhost:<port>`,
-`http://127.0.0.1:<port>` with explicit ports), the CAO-compatible REST client SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
-
-When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the CAO-compatible REST client SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
-
-#### Scenario: Create terminal uses CAO query parameters against the pair compatibility surface
-- **WHEN** a pair-owned client requests creation of a compatibility terminal in session `S` for provider `P`, agent profile `A`, and working directory `W`
-- **THEN** the CAO-compatible client issues a `POST /cao/sessions/{S}/terminals` request using CAO's parameter names (`provider`, `agent_profile`, `working_directory`)
-- **AND THEN** the client does not send incompatible JSON payload keys
-
-#### Scenario: Send terminal input uses the CAO `message` parameter through `houmao-server`
-- **WHEN** the pair-owned client sends input text `T` to terminal `TERM_ID`
-- **THEN** the CAO-compatible client issues `POST /cao/terminals/{TERM_ID}/input` using CAO's parameter name `message=T`
-- **AND THEN** the supported authority for that request is `houmao-server`
-
-#### Scenario: Pair-backed runtime startup keeps the shared CAO client seam without raw CAO startup requirements
-- **WHEN** the pair starts a `houmao_server_rest` session through its shared CAO-compatible client seam
-- **THEN** that pair workflow may still use repo-owned CAO-compatible client classes internally
-- **AND THEN** it does not require `cao-server` on `PATH` or a caller-managed local CAO profile-store path to satisfy the supported pair contract
+When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the CAO-compatible REST client SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
 #### Scenario: Loopback compatibility requests bypass ambient proxy env on a non-default port
 - **WHEN** the CAO-compatible client is configured with pair root base URL `http://127.0.0.1:9990`
@@ -55,34 +33,16 @@ The `CaoProvider` enum type SHALL NOT remain the Pydantic response-model field t
 - **AND THEN** parsing does not fail solely because that provider identifier was not predeclared in repo-owned code
 
 ### Requirement: CAO backend uses tmux session env for allowlisted credential propagation
-When using the CAO backend, the system SHALL apply allowlisted credential
-environment variables by configuring a unique tmux session environment before
-spawning the CAO terminal into that session.
+When using the CAO backend, the system SHALL apply allowlisted credential environment variables by configuring a unique tmux session environment before spawning the CAO terminal into that session.
 
-For supported loopback CAO base URLs (`http://localhost:<port>`,
-`http://127.0.0.1:<port>` with explicit ports), the tmux session environment
-SHALL preserve proxy variables (for agent egress) and SHALL include loopback
-entries in `NO_PROXY`/`no_proxy` by default (merge+append semantics).
+For supported loopback CAO base URLs, the tmux session environment SHALL preserve proxy variables for agent egress and SHALL include loopback entries in `NO_PROXY` and `no_proxy` by default.
 
-When `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`, the system SHALL NOT modify `NO_PROXY`
-or `no_proxy` and will respect caller-provided values.
-
-#### Scenario: CAO launch configures tmux env before spawning terminal
-- **WHEN** the runtime launches a CAO-backed session with a launch plan that includes a tool home selector env var and allowlisted credential env vars
-- **THEN** the runtime creates a unique tmux session for that runtime session
-- **AND THEN** the runtime sets the home selector env var and allowlisted credential env vars in that tmux session environment
-- **AND THEN** the runtime creates the CAO terminal in that tmux session via `POST /sessions/{session_name}/terminals`
-
-#### Scenario: Loopback tmux env preserves proxy vars and injects loopback `NO_PROXY` by default on a non-default port
-- **WHEN** the runtime launches a CAO-backed session against loopback base URL `http://localhost:9991`
-- **AND WHEN** caller environment includes `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` (including lowercase variants)
-- **THEN** the created tmux session environment preserves those proxy variables for agent egress
-- **AND THEN** the created tmux session environment includes `NO_PROXY` and `no_proxy` entries covering `localhost`, `127.0.0.1`, and `::1` by default
+When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the system SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
 #### Scenario: Preserve mode does not modify tmux `NO_PROXY`
 - **WHEN** the runtime launches a CAO-backed session against a supported loopback CAO base URL
-- **AND WHEN** caller environment includes `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`
-- **THEN** the created tmux session environment does not inject or modify `NO_PROXY`/`no_proxy`
+- **AND WHEN** caller environment includes `HOUMAO_PRESERVE_NO_PROXY_ENV=1`
+- **THEN** the created tmux session environment does not inject or modify `NO_PROXY` or `no_proxy`
 
 ### Requirement: Runtime-generated CAO profiles include required metadata
 When using Houmao's CAO-compatible control path, the system SHALL render and store compatibility agent profiles that conform to the pinned CAO agent-profile format and can be loaded by Houmao-owned provider adapters without validation errors.
@@ -118,48 +78,6 @@ Parsing a CAO response that contains a provider identifier SHALL NOT widen the s
 - **WHEN** the runtime successfully parses a CAO terminal response whose provider id is `kimi_cli`
 - **AND WHEN** the runtime is later asked to launch a CAO-backed session for tool `kimi`
 - **THEN** the runtime still rejects that launch request with an explicit unsupported tool/provider mapping error
-
-### Requirement: Live demo scripts prove end-to-end prompt processing with real providers
-In addition to unit tests, the repo SHALL include opt-in demo tutorial packs under `scripts/demo/<purpose-slug>/...` that demonstrate launching sessions and processing prompts end-to-end against real cloud providers using local credential profiles under `agents/brains/api-creds/`.
-
-Each demo SHALL follow the tutorial-pack guidance in `magic-context/instructions/explain/make-api-tutorial-pack.md` (step-by-step README, one-click `run_demo.sh`, temporary workspace, tracked minimal inputs, and a verification story via `expected_report/` + sanitizer or an explicit verifier).
-
-#### Scenario: Codex CAO demo launches and returns a real response
-- **WHEN** a developer runs the Codex CAO demo script with valid Codex/OpenAI credentials present under `agents/brains/api-creds/`
-- **AND WHEN** `cao-server` is running locally
-- **THEN** the demo launches a CAO-backed Codex session, sends a prompt, and receives a non-empty model response
-
-#### Scenario: Claude Code CAO demo launches and returns a real response
-- **WHEN** a developer runs the Claude Code CAO demo script with valid Claude/Anthropic credentials present under `agents/brains/api-creds/`
-- **AND WHEN** `cao-server` is running locally
-- **THEN** the demo launches a CAO-backed Claude Code session, sends a prompt, and receives a non-empty model response
-
-#### Scenario: Gemini demo launches and returns a real response
-- **WHEN** a developer runs the Gemini demo script with valid Gemini credentials present under `agents/brains/api-creds/`
-- **THEN** the demo launches a Gemini session (using the runtime’s supported non-CAO backend) and receives a non-empty model response
-
-#### Scenario: Demo tutorial pack has the required structure
-- **WHEN** a developer inspects a demo under `scripts/demo/<purpose-slug>/`
-- **THEN** it includes a `README.md` and a `run_demo.sh`
-- **AND THEN** it uses a temporary workspace under `tmp/` (or another gitignored path)
-
-#### Scenario: Missing credentials causes a demo to skip
-- **WHEN** a developer runs an individual demo script
-- **AND WHEN** the required credential profile files under `agents/brains/api-creds/` are missing
-- **THEN** the demo reports SKIP with an actionable reason
-- **AND THEN** the demo exits successfully without attempting provider calls
-
-#### Scenario: Invalid credentials causes a demo to skip
-- **WHEN** a developer runs an individual demo script
-- **AND WHEN** the provider rejects the request due to invalid/unauthorized credentials
-- **THEN** the demo reports SKIP with an actionable reason
-- **AND THEN** the demo exits successfully without marking the overall demo suite as failed
-
-#### Scenario: Connectivity loss causes a demo to skip
-- **WHEN** a developer runs an individual demo script
-- **AND WHEN** the demo cannot reach a required service (for example CAO server connection failure, network error, or provider timeout)
-- **THEN** the demo reports SKIP with an actionable reason
-- **AND THEN** the demo exits successfully without marking the overall demo suite as failed
 
 ### Requirement: CAO REST client exposes overrideable operational timeout budgets
 The system SHALL expose supported operational timeout configuration for the repo-owned CAO-compatible REST client rather than relying on one unoverrideable flat timeout budget for every request.

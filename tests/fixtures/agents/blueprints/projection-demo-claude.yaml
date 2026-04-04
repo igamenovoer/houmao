@@ -1,4 +1,0 @@
-schema_version: 1
-name: projection-demo-claude
-brain_recipe: ../brains/brain-recipes/claude/projection-demo-default.yaml
-role: projection-demo

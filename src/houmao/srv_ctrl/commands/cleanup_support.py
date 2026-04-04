@@ -8,6 +8,9 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from .output import emit
+from .renderers.cleanup import render_cleanup_payload_fancy, render_cleanup_payload_plain
+
 
 @dataclass(frozen=True)
 class CleanupAction:
@@ -75,3 +78,13 @@ def build_cleanup_payload(
         "preserved_actions": [action.to_payload() for action in preserved_actions],
         "summary": summary,
     }
+
+
+def emit_cleanup_payload(payload: dict[str, object]) -> None:
+    """Emit one cleanup payload with curated cleanup renderers."""
+
+    emit(
+        payload,
+        plain_renderer=render_cleanup_payload_plain,
+        fancy_renderer=render_cleanup_payload_fancy,
+    )

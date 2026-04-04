@@ -27,10 +27,21 @@ At minimum, that family SHALL include:
 
 These commands SHALL operate on local Houmao-owned runtime state and SHALL NOT require a running pair authority.
 
-#### Scenario: Operator sees host-scoped runtime cleanup commands
-- **WHEN** an operator runs `houmao-mgr admin cleanup runtime --help`
-- **THEN** the help output lists `sessions`, `builds`, `logs`, and `mailbox-credentials`
-- **AND THEN** the command family is presented as local runtime maintenance rather than a server-backed admin API
+When no stronger explicit runtime-root override exists and the command runs in project context, the effective runtime root SHALL default to `<active-overlay>/runtime`.
+Each cleanup invocation SHALL target exactly one effective runtime root.
+Operators who need to clean legacy shared-root artifacts under `~/.houmao/runtime` SHALL do so by supplying an explicit runtime-root override such as `--runtime-root ~/.houmao/runtime`.
+
+#### Scenario: Project-context runtime cleanup targets the overlay-local runtime root by default
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr admin cleanup runtime builds` without `--runtime-root`
+- **THEN** the command evaluates build artifacts under `/repo/.houmao/runtime`
+- **AND THEN** it does not instead default to a shared runtime root under `~/.houmao/runtime`
+
+#### Scenario: Explicit runtime-root override can still target legacy shared-root cleanup
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr admin cleanup runtime sessions --runtime-root ~/.houmao/runtime`
+- **THEN** the command evaluates runtime-session artifacts under `~/.houmao/runtime`
+- **AND THEN** it does not also sweep `/repo/.houmao/runtime` in that same invocation
 
 ### Requirement: `houmao-mgr agents cleanup` resolves one local managed session from explicit or current-session authority
 `houmao-mgr` SHALL expose a local `agents cleanup` command family for cleanup work that targets one managed-agent session envelope.
@@ -50,22 +61,22 @@ Each `agents cleanup` command SHALL accept one cleanup authority from:
 
 When none of those are provided and the command is run inside the owning tmux session, the command SHALL resolve the target through current-session metadata by:
 
-1. preferring `AGENTSYS_MANIFEST_PATH`,
-2. otherwise falling back to `AGENTSYS_AGENT_ID` plus exactly one fresh shared-registry record,
+1. preferring `HOUMAO_MANIFEST_PATH`,
+2. otherwise falling back to `HOUMAO_AGENT_ID` plus exactly one fresh shared-registry record,
 3. validating that the resolved manifest belongs to the current tmux session.
 
 These commands SHALL remain local-only maintenance commands and SHALL NOT accept `--port`.
 
 #### Scenario: Current-session cleanup resolves through tmux-published manifest authority
 - **WHEN** an operator runs `houmao-mgr agents cleanup session` from inside a managed tmux session
-- **AND WHEN** that tmux session publishes a valid `AGENTSYS_MANIFEST_PATH`
+- **AND WHEN** that tmux session publishes a valid `HOUMAO_MANIFEST_PATH`
 - **THEN** `houmao-mgr` resolves the cleanup target from that manifest
 - **AND THEN** the operator does not need to pass an explicit selector or path
 
 #### Scenario: Current-session cleanup falls back through shared registry when manifest metadata is stale
 - **WHEN** an operator runs `houmao-mgr agents cleanup logs` from inside a managed tmux session
-- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale in that session
-- **AND WHEN** `AGENTSYS_AGENT_ID` resolves exactly one fresh shared-registry record
+- **AND WHEN** `HOUMAO_MANIFEST_PATH` is missing, blank, or stale in that session
+- **AND WHEN** `HOUMAO_AGENT_ID` resolves exactly one fresh shared-registry record
 - **THEN** `houmao-mgr` resolves the cleanup target from that record's `runtime.manifest_path`
 - **AND THEN** it still validates that the resolved manifest belongs to the current tmux session before cleaning anything
 
@@ -164,4 +175,52 @@ The command SHALL NOT treat shared mailbox-root canonical message content or run
 - **AND WHEN** that session root contains session-local mailbox secret material
 - **THEN** the cleanup result targets only that session-local mailbox secret material
 - **AND THEN** it does not delete shared mailbox-root canonical message content or runtime-owned shared credential files as part of the same action
+
+### Requirement: Human-oriented cleanup output lists per-artifact actions
+Cleanup commands that emit the normalized cleanup payload SHALL render populated action buckets as per-artifact output in human-oriented print styles.
+
+This requirement applies to cleanup command families that share the normalized cleanup payload shape, including:
+
+- `houmao-mgr admin cleanup ...`
+- `houmao-mgr agents cleanup ...`
+- `houmao-mgr mailbox cleanup`
+- `houmao-mgr project mailbox cleanup`
+
+For `plain` and `fancy` print styles, each rendered action entry SHALL identify the artifact path and the cleanup reason, and it SHALL preserve enough context to distinguish artifact kind and any compact action details when present.
+
+Human-oriented cleanup output SHALL NOT collapse populated action buckets into count-only placeholders when detailed action records are available.
+
+`json` output SHALL continue to expose the structured cleanup payload with `planned_actions`, `applied_actions`, `blocked_actions`, `preserved_actions`, and `summary`.
+
+#### Scenario: Plain dry-run output lists planned and preserved actions line by line
+- **WHEN** an operator runs a supported cleanup command in `plain` mode with one or more `planned_actions` or `preserved_actions`
+- **THEN** the output lists each action on its own line within the corresponding outcome bucket
+- **AND THEN** the operator can see the artifact path and reason without switching to JSON
+
+#### Scenario: Plain execute output lists applied and blocked actions line by line
+- **WHEN** an operator runs a supported cleanup command in `plain` mode and the result contains one or more `applied_actions` or `blocked_actions`
+- **THEN** the output lists each action on its own line within the corresponding outcome bucket
+- **AND THEN** the output is not limited to summary counts alone
+
+#### Scenario: JSON cleanup output remains structured
+- **WHEN** an operator runs a supported cleanup command with `--print-json`
+- **THEN** the output remains a structured JSON object containing the cleanup action arrays and summary fields
+- **AND THEN** the command does not replace that machine-readable payload with renderer-specific plain-text lines
+
+### Requirement: Runtime cleanup help and payload wording describe the resolved cleanup root consistently
+Maintained `houmao-mgr admin cleanup runtime ...` help text and structured cleanup results SHALL describe the resolved runtime scope consistently with the project-aware root contract.
+
+When no explicit runtime-root override wins and project context is active, help text SHALL describe the default cleanup scope as the active project runtime root.
+
+When an explicit runtime-root override or global runtime-root env override wins, help text and cleanup results SHALL describe that scope as an explicit runtime-root selection rather than as an active project runtime root.
+
+#### Scenario: Help text describes project-aware runtime cleanup defaults
+- **WHEN** an operator runs `houmao-mgr admin cleanup runtime --help`
+- **THEN** the help output explains that `--runtime-root` overrides the active project runtime root when project context is active
+- **AND THEN** it does not imply that the maintained default is always a shared runtime root
+
+#### Scenario: Cleanup result distinguishes explicit override from project-aware default
+- **WHEN** an operator runs `houmao-mgr admin cleanup runtime sessions --runtime-root /tmp/houmao-runtime --dry-run`
+- **THEN** the structured cleanup result identifies `/tmp/houmao-runtime` as the selected cleanup root for that invocation
+- **AND THEN** the operator-facing wording does not describe that explicit override as the active project runtime root
 

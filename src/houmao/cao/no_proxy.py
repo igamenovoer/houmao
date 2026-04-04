@@ -13,7 +13,7 @@ SUPPORTED_LOOPBACK_CAO_BASE_URLS: tuple[str, ...] = (
     "http://127.0.0.1:<port>",
 )
 LOOPBACK_NO_PROXY_ENTRIES: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
-PRESERVE_NO_PROXY_ENV_VAR = "AGENTSYS_PRESERVE_NO_PROXY_ENV"
+PRESERVE_NO_PROXY_ENV_VAR = "HOUMAO_PRESERVE_NO_PROXY_ENV"
 
 
 def normalize_cao_base_url(base_url: str) -> str:
@@ -153,7 +153,7 @@ def should_preserve_no_proxy_env(env: Mapping[str, str]) -> bool:
     Returns
     -------
     bool
-        `True` when `AGENTSYS_PRESERVE_NO_PROXY_ENV=1`.
+        `True` when `HOUMAO_PRESERVE_NO_PROXY_ENV=1`.
     """
 
     return env.get(PRESERVE_NO_PROXY_ENV_VAR) == "1"

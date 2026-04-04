@@ -13,8 +13,8 @@ For the pair boundary that exposes these routes, use [Houmao Server Pair](houmao
 | Discovery and summary state | `GET /houmao/agents`, `GET /houmao/agents/{agent_ref}`, `GET /houmao/agents/{agent_ref}/state`, `GET /houmao/agents/{agent_ref}/history` | TUI and headless | Summary state stays coarse and transport-neutral; history stays bounded and coarse |
 | Detailed inspection | `GET /houmao/agents/{agent_ref}/state/detail` | TUI and headless | Returns one shared envelope with a transport-discriminated detail payload |
 | Transport-neutral request submission | `POST /houmao/agents/{agent_ref}/requests` | TUI and headless | Official prompt and interrupt surface across both transports |
-| Gateway lifecycle, raw gateway-owned TUI inspection, gateway-mediated requests, and notifier control | `GET /houmao/agents/{agent_ref}/gateway`, `POST /houmao/agents/{agent_ref}/gateway/attach`, `POST /houmao/agents/{agent_ref}/gateway/detach`, `GET /houmao/agents/{agent_ref}/gateway/tui/state`, `GET /houmao/agents/{agent_ref}/gateway/tui/history`, `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`, `POST /houmao/agents/{agent_ref}/gateway/requests`, `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` | TUI and headless | `POST /gateway/requests` proxies live gateway `submit_prompt` and `interrupt` kinds without exposing the listener endpoint; `gateway/tui/*` preserves the raw gateway-owned tracking surface |
-| Pair-owned mailbox follow-up | `GET /houmao/agents/{agent_ref}/mail/status`, `POST /houmao/agents/{agent_ref}/mail/check`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/reply` | TUI and headless when mailbox capability is present | These routes require pair-owned mailbox capability plus an eligible live gateway |
+| Gateway lifecycle, direct prompt control, raw gateway-owned TUI inspection, gateway-mediated requests, headless session control, and notifier control | `GET /houmao/agents/{agent_ref}/gateway`, `POST /houmao/agents/{agent_ref}/gateway/attach`, `POST /houmao/agents/{agent_ref}/gateway/detach`, `POST /houmao/agents/{agent_ref}/gateway/control/prompt`, `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`, `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`, `GET /houmao/agents/{agent_ref}/gateway/tui/state`, `GET /houmao/agents/{agent_ref}/gateway/tui/history`, `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`, `POST /houmao/agents/{agent_ref}/gateway/requests`, `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` | TUI and headless | `POST /gateway/control/prompt` is immediate "send now or refuse now" control; `POST /gateway/requests` remains the queued gateway surface; `gateway/control/headless/*` is headless only |
+| Pair-owned mailbox follow-up | `GET /houmao/agents/{agent_ref}/mail/status`, `POST /houmao/agents/{agent_ref}/mail/check`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/reply`, `POST /houmao/agents/{agent_ref}/mail/state` | TUI and headless when mailbox capability is present | These routes require pair-owned mailbox capability plus an eligible live gateway |
 | Stop, native headless lifecycle, and durable turn detail | `POST /houmao/agents/{agent_ref}/stop`, `POST /houmao/agents/headless/launches`, `POST /houmao/agents/{agent_ref}/turns`, `POST /houmao/agents/{agent_ref}/interrupt`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr` | Stop applies to TUI and headless; turn detail is headless only | TUI stop reuses the managed session-delete lifecycle; durable headless turn evidence stays on `/turns/*` |
 
 ## Identity And Alias Resolution
@@ -91,6 +91,7 @@ Headless detail is execution-centric and intentionally does not fabricate TUI pa
 - `tmux_session_live`
 - `can_accept_prompt_now`
 - `interruptible`
+- optional `chat_session` state with `current`, `startup_default`, and gateway-owned `next_prompt_override` when that view is sourced from a live gateway-backed control plane
 - shared `turn`
 - shared `last_turn`
 - `active_turn_started_at_utc`
@@ -107,6 +108,8 @@ Headless detail is execution-centric and intentionally does not fabricate TUI pa
 - structured `diagnostics`
 
 This route is the canonical rich inspection surface for managed headless agents when a caller needs current runtime posture without scraping `stdout`, `stderr`, or exit-code files.
+
+`tmux_session_live` is diagnostic only. Terminal headless status, readiness for the next managed prompt, and last-turn timestamps reconcile from authoritative active-turn state plus durable turn artifacts such as the persisted `exitcode` file. `last_turn_completion_source` remains optional diagnostic metadata when it can be recovered.
 
 For attached healthy headless gateways, the server reads live control posture from the gateway HTTP surface before building this response. Durable turn records and turn reconciliation still remain server-owned.
 
@@ -182,7 +185,7 @@ Important attach behavior:
 For pair-managed `houmao_server_rest` sessions, operators normally reach this route through `houmao-mgr agents gateway attach`.
 
 - explicit mode resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract first and then calls the managed-agent gateway attach route
-- current-session mode runs inside the target tmux session, resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID`, requires a `houmao_server_rest` manifest authority, and uses its persisted `gateway_authority.attach.api_base_url` plus `gateway_authority.attach.managed_agent_ref` as the authoritative route target
+- current-session mode runs inside the target tmux session, resolves the manifest through `HOUMAO_MANIFEST_PATH` or shared-registry fallback from `HOUMAO_AGENT_ID`, requires a `houmao_server_rest` manifest authority, and uses its persisted `gateway_authority.attach.api_base_url` plus `gateway_authority.attach.managed_agent_ref` as the authoritative route target
 - current-session attach is not ready until the delegated launch has completed managed-agent registration on that same persisted server
 - for same-session `houmao_server_rest` attach, tmux window `0` remains the contractual agent surface while any non-zero auxiliary gateway window remains implementation detail except for the exact live handle recorded in `gateway/run/current-instance.json`
 
@@ -204,7 +207,7 @@ The default documented prompt path remains `houmao-mgr agents prompt --agent-nam
 
 ## Pair-Owned Mail Follow-Up
 
-`GET /houmao/agents/{agent_ref}/mail/status`, `POST /houmao/agents/{agent_ref}/mail/check`, `POST /houmao/agents/{agent_ref}/mail/send`, and `POST /houmao/agents/{agent_ref}/mail/reply` let callers perform mailbox follow-up through the managed-agent API without discovering the live gateway host or port.
+`GET /houmao/agents/{agent_ref}/mail/status`, `POST /houmao/agents/{agent_ref}/mail/check`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/reply`, and `POST /houmao/agents/{agent_ref}/mail/state` let callers perform mailbox follow-up through the managed-agent API without discovering the live gateway host or port.
 
 Important boundary rules:
 
@@ -212,6 +215,7 @@ Important boundary rules:
 - they also require an eligible live gateway to be attached
 - they coexist with `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
 - `gateway/mail-notifier` remains background notifier configuration, while `mail/*` is the foreground mailbox-operation surface
+- `POST /mail/state` is the shared foreground state-update route; in v1 it is intentionally one-way and is used to mark one processed `message_ref` read
 
 Observable availability semantics:
 
@@ -234,16 +238,20 @@ Optional launch fields:
 
 - `agent_name`
 - `agent_id`
+- `headless_display_style`
+- `headless_display_detail`
 - `mailbox`
+
+`headless_display_style` defaults to `plain` and `headless_display_detail` defaults to `concise` for managed headless sessions. These controls affect live bridge rendering and later CLI replay semantics; they do not change the raw provider artifacts.
 
 Launch-time gateway flags are intentionally not part of this contract. Gateway lifecycle remains a later explicit `/gateway/attach` action.
 
 For managed headless agents, durable post-turn inspection stays on the `/turns/*` family:
 
-- `POST /houmao/agents/{agent_ref}/turns` accepts one managed headless prompt turn and returns a durable turn handle
+- `POST /houmao/agents/{agent_ref}/turns` accepts one managed headless prompt turn and returns a durable turn handle; it now also accepts optional `chat_session` with `mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"` and `id` required only for `mode = "exact"`
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}` reports persisted turn status
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` returns structured event records derived from machine-readable output
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `/stderr` expose the durable artifacts directly
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` returns canonical semantic headless event records with normalized assistant, action, completion, provider, and session semantics
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `/stderr` expose the durable raw provider artifacts directly
 
 `/history` remains bounded and coarse even for headless agents. Durable headless detail lives on `/turns/*`, not on `/history`.
 

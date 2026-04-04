@@ -1,4 +1,0 @@
-schema_version: 1
-name: server-api-smoke-codex
-brain_recipe: ../brains/brain-recipes/codex/server-api-smoke-default.yaml
-role: server-api-smoke

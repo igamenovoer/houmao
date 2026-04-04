@@ -157,9 +157,9 @@ def test_has_tmux_session_builds_expected_command(
         return _completed(cmd)
 
     monkeypatch.setattr("subprocess.run", _fake_run)
-    result = has_tmux_session(session_name="AGENTSYS-gpu")
+    result = has_tmux_session(session_name="HOUMAO-gpu")
     assert result.returncode == 0
-    assert captured == ["tmux", "has-session", "-t", "AGENTSYS-gpu"]
+    assert captured == ["tmux", "has-session", "-t", "HOUMAO-gpu"]
 
 
 def test_show_tmux_environment_builds_expected_command(
@@ -176,20 +176,20 @@ def test_show_tmux_environment_builds_expected_command(
         timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         captured[:] = cmd
-        return _completed(cmd, stdout="AGENTSYS_MANIFEST_PATH=/tmp/x.json\n")
+        return _completed(cmd, stdout="HOUMAO_MANIFEST_PATH=/tmp/x.json\n")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
     result = show_tmux_environment(
-        session_name="AGENTSYS-gpu",
-        variable_name="AGENTSYS_MANIFEST_PATH",
+        session_name="HOUMAO-gpu",
+        variable_name="HOUMAO_MANIFEST_PATH",
     )
     assert result.returncode == 0
     assert captured == [
         "tmux",
         "show-environment",
         "-t",
-        "AGENTSYS-gpu",
-        "AGENTSYS_MANIFEST_PATH",
+        "HOUMAO-gpu",
+        "HOUMAO_MANIFEST_PATH",
     ]
 
 
@@ -212,12 +212,12 @@ def test_create_tmux_session_surfaces_tmux_error(
         text: bool,
         timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        return _completed(cmd, returncode=1, stderr="duplicate session: AGENTSYS-gpu")
+        return _completed(cmd, returncode=1, stderr="duplicate session: HOUMAO-gpu")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
     with pytest.raises(TmuxCommandError, match="duplicate session"):
         create_tmux_session(
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             working_directory=tmp_path,
         )
 
@@ -241,11 +241,11 @@ def test_prepare_headless_agent_window_renames_and_selects_window_zero(
 
     monkeypatch.setattr("subprocess.run", _fake_run)
 
-    prepare_headless_agent_window(session_name="AGENTSYS-gpu")
+    prepare_headless_agent_window(session_name="HOUMAO-gpu")
 
     assert captured == [
-        ["tmux", "rename-window", "-t", "AGENTSYS-gpu:0", "agent"],
-        ["tmux", "select-window", "-t", "AGENTSYS-gpu:0"],
+        ["tmux", "rename-window", "-t", "HOUMAO-gpu:0", "agent"],
+        ["tmux", "select-window", "-t", "HOUMAO-gpu:0"],
     ]
 
 
@@ -268,12 +268,12 @@ def test_set_tmux_session_environment_surfaces_key_context(
         return _completed(cmd, returncode=1, stderr="unknown variable")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
-    with pytest.raises(TmuxCommandError, match="AGENTSYS_MANIFEST_PATH"):
+    with pytest.raises(TmuxCommandError, match="HOUMAO_MANIFEST_PATH"):
         set_tmux_session_environment(
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             env_vars={
-                "AGENTSYS_TOOL": "codex",
-                "AGENTSYS_MANIFEST_PATH": "/tmp/session.json",
+                "HOUMAO_TOOL": "codex",
+                "HOUMAO_MANIFEST_PATH": "/tmp/session.json",
             },
         )
 
@@ -296,7 +296,7 @@ def test_read_tmux_session_environment_value_returns_none_for_unknown_variable(
 
     assert (
         read_tmux_session_environment_value(
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             variable_name="HOUMAO_TERMINAL_RECORD_LIVE_STATE",
         )
         is None
@@ -307,7 +307,7 @@ def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatc
     panes = [
         _FakeLibtmuxPane(
             pane_id="%1",
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             window_id="@2",
             window_index="1",
             window_name="developer-1",
@@ -318,7 +318,7 @@ def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatc
         ),
         _FakeLibtmuxPane(
             pane_id="%2",
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             window_id="@2",
             window_index="1",
             window_name="developer-1",
@@ -331,14 +331,14 @@ def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.tmux_runtime._libtmux_server",
         lambda: _FakeLibtmuxServer(
-            sessions=[_FakeLibtmuxSession(session_name="AGENTSYS-gpu", panes=panes)]
+            sessions=[_FakeLibtmuxSession(session_name="HOUMAO-gpu", panes=panes)]
         ),
     )
 
-    assert list_tmux_panes(session_name="AGENTSYS-gpu") == (
+    assert list_tmux_panes(session_name="HOUMAO-gpu") == (
         TmuxPaneRecord(
             pane_id="%1",
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             window_id="@2",
             window_index="1",
             window_name="developer-1",
@@ -349,7 +349,7 @@ def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatc
         ),
         TmuxPaneRecord(
             pane_id="%2",
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             window_id="@2",
             window_index="1",
             window_name="developer-1",
@@ -363,13 +363,13 @@ def test_list_tmux_panes_parses_structured_output(monkeypatch: pytest.MonkeyPatc
 
 
 def test_attach_tmux_session_uses_libtmux_session_helper(monkeypatch: pytest.MonkeyPatch) -> None:
-    session = _FakeLibtmuxSession(session_name="AGENTSYS-gpu", panes=[])
+    session = _FakeLibtmuxSession(session_name="HOUMAO-gpu", panes=[])
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.tmux_runtime._libtmux_server",
         lambda: _FakeLibtmuxServer(sessions=[session]),
     )
 
-    attach_tmux_session(session_name="AGENTSYS-gpu")
+    attach_tmux_session(session_name="HOUMAO-gpu")
 
     assert session.m_attach_calls == 1
 
@@ -380,7 +380,7 @@ def test_resolve_tmux_pane_prefers_explicit_window_name_over_current_focus(
     panes = [
         _FakeLibtmuxPane(
             pane_id="%1",
-            session_name="AGENTSYS-local",
+            session_name="HOUMAO-local",
             window_id="@1",
             window_index="0",
             window_name="agent",
@@ -391,7 +391,7 @@ def test_resolve_tmux_pane_prefers_explicit_window_name_over_current_focus(
         ),
         _FakeLibtmuxPane(
             pane_id="%9",
-            session_name="AGENTSYS-local",
+            session_name="HOUMAO-local",
             window_id="@9",
             window_index="1",
             window_name="gateway",
@@ -404,11 +404,11 @@ def test_resolve_tmux_pane_prefers_explicit_window_name_over_current_focus(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.tmux_runtime._libtmux_server",
         lambda: _FakeLibtmuxServer(
-            sessions=[_FakeLibtmuxSession(session_name="AGENTSYS-local", panes=panes)]
+            sessions=[_FakeLibtmuxSession(session_name="HOUMAO-local", panes=panes)]
         ),
     )
 
-    resolved = resolve_tmux_pane(session_name="AGENTSYS-local", window_name="agent")
+    resolved = resolve_tmux_pane(session_name="HOUMAO-local", window_name="agent")
 
     assert resolved.pane_id == "%1"
     assert resolved.window_name == "agent"
@@ -420,7 +420,7 @@ def test_resolve_tmux_pane_rejects_ambiguous_session_without_explicit_identity(
     panes = [
         _FakeLibtmuxPane(
             pane_id="%1",
-            session_name="AGENTSYS-local",
+            session_name="HOUMAO-local",
             window_id="@1",
             window_index="0",
             window_name="agent",
@@ -430,7 +430,7 @@ def test_resolve_tmux_pane_rejects_ambiguous_session_without_explicit_identity(
         ),
         _FakeLibtmuxPane(
             pane_id="%9",
-            session_name="AGENTSYS-local",
+            session_name="HOUMAO-local",
             window_id="@9",
             window_index="1",
             window_name="gateway",
@@ -442,12 +442,12 @@ def test_resolve_tmux_pane_rejects_ambiguous_session_without_explicit_identity(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.tmux_runtime._libtmux_server",
         lambda: _FakeLibtmuxServer(
-            sessions=[_FakeLibtmuxSession(session_name="AGENTSYS-local", panes=panes)]
+            sessions=[_FakeLibtmuxSession(session_name="HOUMAO-local", panes=panes)]
         ),
     )
 
     with pytest.raises(TmuxCommandError, match="Ambiguous tmux pane target"):
-        resolve_tmux_pane(session_name="AGENTSYS-local")
+        resolve_tmux_pane(session_name="HOUMAO-local")
 
 
 def test_capture_tmux_pane_surfaces_tmux_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -465,7 +465,7 @@ def test_capture_tmux_pane_uses_pane_bound_capture_for_pane_ids(
 ) -> None:
     pane = _FakeLibtmuxPane(
         pane_id="%9",
-        session_name="AGENTSYS-local",
+        session_name="HOUMAO-local",
         window_id="@9",
         window_index="1",
         window_name="gateway",
@@ -531,7 +531,7 @@ def test_paste_tmux_buffer_requests_bracketed_paste(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     paste_tmux_buffer(
-        target="AGENTSYS-gpu:0.0",
+        target="HOUMAO-gpu:0.0",
         buffer_name="houmao-buffer",
         bracketed_paste=True,
     )
@@ -543,5 +543,5 @@ def test_paste_tmux_buffer_requests_bracketed_paste(monkeypatch: pytest.MonkeyPa
         "-b",
         "houmao-buffer",
         "-t",
-        "AGENTSYS-gpu:0.0",
+        "HOUMAO-gpu:0.0",
     ]

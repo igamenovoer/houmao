@@ -9,13 +9,16 @@ import click
 
 from houmao.agents.realm_controller.gateway_models import GatewayMailAttachmentUploadV1
 
-from ..common import emit_json, managed_agent_selector_options, pair_port_option, resolve_body_text
+from ..common import managed_agent_selector_options, pair_port_option, resolve_body_text
+from ..output import emit
 from ..managed_agents import (
     mail_check,
+    mail_mark_read,
     mail_reply,
+    mail_resolve_live,
     mail_send,
     mail_status,
-    resolve_managed_agent_target,
+    resolve_managed_agent_mail_target,
 )
 
 
@@ -30,8 +33,8 @@ def mail_group() -> None:
 def status_mail_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
     """Show mailbox status for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(mail_status(target))
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_status(target))
 
 
 @mail_group.command(name="check")
@@ -50,8 +53,8 @@ def check_mail_command(
 ) -> None:
     """Check mailbox contents for one managed agent."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(mail_check(target, unread_only=unread_only, limit=limit, since=since))
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_check(target, unread_only=unread_only, limit=limit, since=since))
 
 
 @mail_group.command(name="send")
@@ -76,8 +79,8 @@ def send_mail_command(
 ) -> None:
     """Send one mailbox message for a managed agent."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(
         mail_send(
             target,
             to_recipients=list(to_recipients),
@@ -111,8 +114,8 @@ def reply_mail_command(
 ) -> None:
     """Reply to one mailbox message for a managed agent."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(
         mail_reply(
             target,
             message_ref=message_ref,
@@ -120,6 +123,40 @@ def reply_mail_command(
             attachments=_resolve_attachment_uploads(attachments),
         )
     )
+
+
+@mail_group.command(name="mark-read")
+@click.option(
+    "--message-ref",
+    required=True,
+    help="Opaque message reference returned by `agents mail check`.",
+)
+@pair_port_option()
+@managed_agent_selector_options
+def mark_read_mail_command(
+    port: int | None,
+    message_ref: str,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Mark one mailbox message read for a managed agent."""
+
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_mark_read(target, message_ref=message_ref))
+
+
+@mail_group.command(name="resolve-live")
+@pair_port_option()
+@managed_agent_selector_options
+def resolve_live_mail_command(
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Resolve live mailbox bindings and optional gateway metadata for one managed agent."""
+
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_resolve_live(target))
 
 
 def _resolve_attachment_uploads(attachments: Sequence[str]) -> list[GatewayMailAttachmentUploadV1]:

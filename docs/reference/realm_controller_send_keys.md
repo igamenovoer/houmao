@@ -1,12 +1,14 @@
-# Realm Controller `send-keys`
+# Raw Control Input (`send-keys`)
 
-`send-keys` is the raw control-input command for runtime sessions when the backend exposes low-level terminal control. It exists for interactive TUI situations where `send-prompt` is the wrong abstraction, such as slash-command menus, partial typing, arrow-key navigation, `Escape`, or `Ctrl-*` input that must not automatically submit a turn.
+The current operator surface for raw control input is `houmao-mgr agents gateway send-keys`. It delivers exact key sequences through a live attached gateway to the managed agent's terminal without treating the input as a prompt turn.
+
+Use this path for interactive TUI situations where prompt submission is the wrong abstraction: slash-command menus, partial typing, arrow-key navigation, `Escape`, or `Ctrl-*` input that must not automatically submit a turn.
 
 The runtime routes this path through the `send_input_ex()` method on `RuntimeSessionController` and backend-specific session implementations. The gateway also exposes `POST /v1/control/send-keys` for raw input delivery via HTTP.
 
 ## When To Use `send-keys`
 
-Use `send-keys` when you need to shape the live terminal state without asking the runtime to treat the input as a prompt turn.
+Use `houmao-mgr agents gateway send-keys` when you need to shape the live terminal state without asking the runtime to treat the input as a prompt turn.
 
 Typical cases:
 
@@ -16,7 +18,7 @@ Typical cases:
 - send arrow keys to move through a menu
 - send `C-c`, `C-d`, or `C-z` to the live tool session
 
-Use `send-prompt` instead when you want normal prompt-turn behavior:
+Use `houmao-mgr agents prompt` instead when you want normal prompt-turn behavior:
 
 - wait for readiness before submission
 - wait for completion after submission
@@ -25,15 +27,15 @@ Use `send-prompt` instead when you want normal prompt-turn behavior:
 
 For `local_interactive` and `houmao_server_rest` backends, the distinction is explicit:
 
-- `send-prompt` pastes the full prompt literally and submits it once at the end as one semantic provider turn
-- `send-keys` keeps exact raw key semantics, does not reinterpret literal text as prompt work, and never appends an implicit trailing `Enter`
+- `agents prompt` pastes the full prompt literally and submits it once at the end as one semantic provider turn
+- `agents gateway send-keys` keeps exact raw key semantics, does not reinterpret literal text as prompt work, and never appends an implicit trailing `Enter`
 
 ## Scope And Output
 
-- Supported backends include `local_interactive` and `houmao_server_rest`. Legacy `cao_rest` sessions also support this path.
+- Supported backends include `local_interactive` and `houmao_server_rest`.
 - Backends without raw control-input support return an explicit `action="control_input"` error result instead of trying to emulate prompt submission.
 - The runtime routes this path through the `send_input_ex()` method on sessions.
-- The CLI returns one JSON `SessionControlResult` object and does not stream prompt-turn events.
+- The CLI returns one JSON result and does not stream prompt-turn events.
 
 Example result:
 
@@ -48,17 +50,17 @@ Example result:
 ## CLI Contract
 
 ```bash
-pixi run python -m houmao.agents.realm_controller send-keys \
-  --agent-identity AGENTSYS-gpu \
+pixi run houmao-mgr agents gateway send-keys \
+  --agent-name gpu \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
 
 Arguments:
 
-- `--agent-identity` is required and accepts the same name-or-manifest-path values used by other runtime control commands.
+- `--agent-name` or `--agent-id` identifies the target managed agent.
 - `--sequence` is required and carries the mixed literal/control-key input string.
 - `--escape-special-keys` is optional and disables special-key parsing for the full sequence.
-- `--agent-def-dir` remains an explicit override. For name-based tmux control, omitting it makes runtime recover the effective agent-definition root from the addressed session's `AGENTSYS_AGENT_DEF_DIR`. Manifest-path control still uses the ambient resolution rules documented in [Realm Controller](./realm_controller.md).
+- `--current-session` forces same-session resolution from inside the target tmux session.
 
 ## Sequence Grammar
 
@@ -83,8 +85,8 @@ hello<[Left]><[Left]>!
 Literal examples:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller send-keys \
-  --agent-identity AGENTSYS-gpu \
+pixi run houmao-mgr agents gateway send-keys \
+  --agent-name gpu \
   --sequence '/model<[Enter]>' \
   --escape-special-keys
 ```
@@ -165,11 +167,11 @@ Delivery rules:
 
 That means these commands stay meaningfully different:
 
-- `--sequence '/model'`
+- `agents gateway send-keys --sequence '/model'`
   This types `/model` and stops.
-- `--sequence '/model<[Enter]>'`
+- `agents gateway send-keys --sequence '/model<[Enter]>'`
   This types `/model` and then presses `Enter`.
-- `send-prompt --prompt '/model<[Enter]>'`
+- `agents prompt --prompt '/model<[Enter]>'`
   This submits the literal text `/model<[Enter]>` as one semantic prompt turn.
 
 ## Tmux Target Resolution
@@ -197,6 +199,19 @@ This keeps older manifests usable without a schema-version bump.
 - tmux send failures
 - terminal metadata failures during live fallback
 
+## Low-Level Access
+
+The underlying runtime module CLI still supports `send-keys` for advanced targeting or scripting:
+
+```bash
+pixi run python -m houmao.agents.realm_controller send-keys \
+  --agent-identity HOUMAO-gpu \
+  --sequence '/model<[Enter]><[Down]><[Enter]>'
+```
+
+The raw module accepts `--agent-identity` (name or manifest path) and `--agent-def-dir` for explicit override. Use `houmao-mgr agents gateway send-keys` for standard operator work.
+
 ## Related Reference
 
+- [houmao-mgr agents gateway](cli/agents-gateway.md)
 - [Realm Controller](./realm_controller.md)

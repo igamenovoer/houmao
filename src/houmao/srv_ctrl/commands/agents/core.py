@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any
 
 import click
 
@@ -16,6 +18,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     attach_tmux_session as attach_tmux_session_shared,
     list_tmux_panes,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+)
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.agents.realm_controller.errors import (
@@ -24,6 +30,12 @@ from houmao.agents.realm_controller.errors import (
     SessionManifestError,
 )
 from houmao.agents.realm_controller.models import HeadlessResumeSelection, JoinedLaunchEnvBinding
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_local_jobs_root,
+    resolve_project_aware_mailbox_root,
+    resolve_project_aware_runtime_root,
+)
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
@@ -38,16 +50,30 @@ from .mailbox import mailbox_group
 from .turn import turn_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
-    emit_json,
     managed_agent_selector_options,
     pair_port_option,
     resolve_prompt_text,
     resolve_managed_agent_selector,
 )
+from ..output import emit
+from ..project_aware_wording import (
+    describe_local_jobs_root_selection,
+    describe_mailbox_root_selection,
+    describe_overlay_bootstrap,
+    describe_overlay_root_selection_source,
+    describe_runtime_root_selection,
+)
+from ..renderers.agents import (
+    render_agent_list_fancy,
+    render_agent_list_plain,
+    render_agent_state_fancy,
+    render_agent_state_plain,
+    render_launch_completion_fancy,
+    render_launch_completion_plain,
+)
 from ..managed_agents import (
     interrupt_managed_agent,
     list_managed_agents,
-    managed_agent_detail_payload,
     managed_agent_state_payload,
     prompt_managed_agent,
     relaunch_managed_agent,
@@ -82,6 +108,23 @@ _PROVIDER_BY_TOOL: dict[str, str] = {
 }
 
 
+@dataclass(frozen=True)
+class LocalManagedAgentLaunchResult:
+    """Resolved local launch controller plus project-aware root detail fields."""
+
+    controller: Any
+    runtime_root: Path
+    jobs_root: Path
+    mailbox_root: Path
+    runtime_root_detail: str
+    jobs_root_detail: str
+    mailbox_root_detail: str
+    overlay_root: Path
+    overlay_root_detail: str
+    project_overlay_bootstrapped: bool
+    overlay_bootstrap_detail: str
+
+
 def _format_launch_policy_resolution_error(
     *,
     runtime_backend: str,
@@ -106,41 +149,14 @@ def _caller_has_interactive_terminal() -> bool:
     return all(stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr))
 
 
-@click.group(name="agents")
-def agents_group() -> None:
-    """Managed-agent operations across local runtime and `houmao-server` backends."""
-
-
-@agents_group.command(name="launch")
-@click.option("--agents", required=True, help="Native launch selector to resolve the brain recipe.")
-@click.option("--agent-name", required=True, help="Friendly managed-agent name.")
-@click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
-@click.option("--session-name", help="Optional tmux session name.")
-@click.option("--headless", is_flag=True, help="Launch in detached mode.")
-@click.option(
-    "--provider",
-    default=_DEFAULT_PROVIDER,
-    show_default=True,
-    help="Provider identifier to use for the launch.",
-)
-@click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
-def launch_agents_command(
-    agents: str,
-    agent_name: str,
-    agent_id: str | None,
-    session_name: str | None,
-    headless: bool,
-    provider: str,
-    yolo: bool,
-) -> None:
-    """Build and launch one managed agent locally without `houmao-server`."""
+def _confirm_workspace_access(*, provider: str, working_directory: Path, yolo: bool) -> None:
+    """Prompt before granting provider workspace access when required."""
 
     if provider not in _PROVIDERS:
         raise click.ClickException(
             f"Invalid provider `{provider}`. Available providers: {', '.join(sorted(_PROVIDERS))}."
         )
 
-    working_directory = Path.cwd().resolve()
     if provider in _PROVIDERS_REQUIRING_WORKSPACE_ACCESS and not yolo:
         click.echo(
             f"The underlying provider ({provider}) will be trusted to perform all actions "
@@ -150,6 +166,42 @@ def launch_agents_command(
         )
         if not click.confirm("Do you trust all the actions in this folder?", default=True):
             raise click.ClickException("Launch cancelled by user.")
+
+
+def launch_managed_agent_locally(
+    *,
+    agents: str,
+    agent_name: str | None,
+    agent_id: str | None,
+    auth: str | None,
+    session_name: str | None,
+    headless: bool,
+    provider: str,
+    yolo: bool,
+    working_directory: Path,
+    headless_display_style: HeadlessDisplayStyle,
+    headless_display_detail: HeadlessDisplayDetail,
+    launch_env_overrides: dict[str, str] | None = None,
+    mailbox_transport: str | None = None,
+    mailbox_root: Path | None = None,
+    mailbox_account_dir: Path | None = None,
+) -> LocalManagedAgentLaunchResult:
+    """Resolve, build, and start one managed agent locally."""
+
+    project_roots = ensure_project_aware_local_roots(cwd=working_directory)
+    resolved_runtime_root = resolve_project_aware_runtime_root(cwd=working_directory)
+    resolved_jobs_root = resolve_project_aware_local_jobs_root(cwd=working_directory)
+    resolved_mailbox_root = (
+        mailbox_root.resolve()
+        if mailbox_root is not None
+        else resolve_project_aware_mailbox_root(cwd=working_directory)
+    )
+
+    _confirm_workspace_access(
+        provider=provider,
+        working_directory=working_directory,
+        yolo=yolo,
+    )
 
     resolved_backend_name = "unknown"
     try:
@@ -161,15 +213,17 @@ def launch_agents_command(
         build_result = build_brain_home(
             BuildRequest(
                 agent_def_dir=target.agent_def_dir,
-                runtime_root=None,
-                tool=target.recipe.tool,
-                skills=target.recipe.skills,
-                config_profile=target.recipe.config_profile,
-                credential_profile=target.recipe.credential_profile,
-                recipe_path=target.recipe_path,
-                recipe_launch_overrides=target.recipe.launch_overrides,
-                operator_prompt_mode=target.recipe.operator_prompt_mode,
-                mailbox=target.recipe.mailbox,
+                runtime_root=resolved_runtime_root,
+                tool=target.preset.tool,
+                skills=target.preset.skills,
+                setup=target.preset.setup,
+                auth=auth or target.preset.auth,
+                preset_path=target.preset_path,
+                preset_launch_overrides=target.preset.launch_overrides,
+                operator_prompt_mode=target.preset.operator_prompt_mode,
+                persistent_env_records=target.preset.launch_env_records,
+                mailbox=target.preset.mailbox,
+                extra=target.preset.extra,
                 agent_name=agent_name,
                 agent_id=agent_id,
             )
@@ -183,11 +237,19 @@ def launch_agents_command(
             agent_def_dir=target.agent_def_dir,
             brain_manifest_path=build_result.manifest_path.resolve(),
             role_name=target.role_name,
+            runtime_root=resolved_runtime_root,
+            jobs_root=resolved_jobs_root,
             backend=resolved_backend,
             working_directory=working_directory,
             agent_name=agent_name,
             agent_id=agent_id,
             tmux_session_name=session_name,
+            launch_env_overrides=launch_env_overrides,
+            mailbox_transport=mailbox_transport,
+            mailbox_root=resolved_mailbox_root,
+            mailbox_account_dir=mailbox_account_dir,
+            headless_display_style=headless_display_style if headless else None,
+            headless_display_detail=headless_display_detail if headless else None,
         )
     except LaunchPolicyResolutionError as exc:
         raise click.ClickException(
@@ -205,11 +267,57 @@ def launch_agents_command(
     ) as exc:
         raise click.ClickException(str(exc)) from exc
 
-    click.echo("Managed agent launch complete:")
-    click.echo(f"agent_name={controller.agent_identity or agent_name}")
-    click.echo(f"agent_id={controller.agent_id or agent_id or 'unknown'}")
-    click.echo(f"tmux_session_name={controller.tmux_session_name or session_name or 'unknown'}")
-    click.echo(f"manifest_path={controller.manifest_path}")
+    return LocalManagedAgentLaunchResult(
+        controller=controller,
+        runtime_root=resolved_runtime_root,
+        jobs_root=resolved_jobs_root,
+        mailbox_root=resolved_mailbox_root,
+        runtime_root_detail=describe_runtime_root_selection(explicit_root=None),
+        jobs_root_detail=describe_local_jobs_root_selection(),
+        mailbox_root_detail=describe_mailbox_root_selection(explicit_root=mailbox_root),
+        overlay_root=project_roots.overlay_root,
+        overlay_root_detail=describe_overlay_root_selection_source(
+            overlay_root_source=project_roots.overlay_root_source,
+            overlay_discovery_mode=project_roots.overlay_discovery_mode,
+        ),
+        project_overlay_bootstrapped=project_roots.created_overlay,
+        overlay_bootstrap_detail=describe_overlay_bootstrap(
+            created_overlay=project_roots.created_overlay
+        ),
+    )
+
+
+def emit_local_launch_completion(
+    *,
+    launch_result: LocalManagedAgentLaunchResult,
+    agent_name: str | None,
+    session_name: str | None,
+    headless: bool,
+) -> None:
+    """Print one successful local launch result and hand off to tmux when appropriate."""
+
+    controller = launch_result.controller
+    emit(
+        {
+            "status": "Managed agent launch complete",
+            "agent_name": controller.agent_identity or agent_name,
+            "agent_id": controller.agent_id or "unknown",
+            "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
+            "manifest_path": str(controller.manifest_path),
+            "runtime_root": str(launch_result.runtime_root),
+            "runtime_root_detail": launch_result.runtime_root_detail,
+            "jobs_root": str(launch_result.jobs_root),
+            "jobs_root_detail": launch_result.jobs_root_detail,
+            "mailbox_root": str(launch_result.mailbox_root),
+            "mailbox_root_detail": launch_result.mailbox_root_detail,
+            "overlay_root": str(launch_result.overlay_root),
+            "overlay_root_detail": launch_result.overlay_root_detail,
+            "project_overlay_bootstrapped": launch_result.project_overlay_bootstrapped,
+            "overlay_bootstrap_detail": launch_result.overlay_bootstrap_detail,
+        },
+        plain_renderer=render_launch_completion_plain,
+        fancy_renderer=render_launch_completion_fancy,
+    )
     if not headless and controller.tmux_session_name is not None:
         if _caller_has_interactive_terminal():
             try:
@@ -219,8 +327,82 @@ def launch_agents_command(
                     f"Managed agent launch succeeded, but tmux handoff failed: {exc}"
                 ) from exc
         else:
-            click.echo("terminal_handoff=skipped_non_interactive")
-            click.echo(f"attach_command=tmux attach-session -t {controller.tmux_session_name}")
+            emit(
+                {
+                    "terminal_handoff": "skipped_non_interactive",
+                    "attach_command": f"tmux attach-session -t {controller.tmux_session_name}",
+                }
+            )
+
+
+@click.group(name="agents")
+def agents_group() -> None:
+    """Managed-agent operations across local runtime and `houmao-server` backends."""
+
+
+@agents_group.command(name="launch")
+@click.option("--agents", required=True, help="Native launch selector to resolve the preset.")
+@click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
+@click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
+@click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
+@click.option("--session-name", help="Optional tmux session name.")
+@click.option("--headless", is_flag=True, help="Launch in detached mode.")
+@click.option(
+    "--headless-display-style",
+    type=click.Choice(["plain", "json", "fancy"]),
+    default="plain",
+    show_default=True,
+    help="Managed headless live output style.",
+)
+@click.option(
+    "--headless-display-detail",
+    type=click.Choice(["concise", "detail"]),
+    default="concise",
+    show_default=True,
+    help="Managed headless live output detail level.",
+)
+@click.option(
+    "--provider",
+    default=_DEFAULT_PROVIDER,
+    show_default=True,
+    help="Provider identifier to use for the launch.",
+)
+@click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
+def launch_agents_command(
+    agents: str,
+    agent_name: str | None,
+    agent_id: str | None,
+    auth: str | None,
+    session_name: str | None,
+    headless: bool,
+    headless_display_style: HeadlessDisplayStyle,
+    headless_display_detail: HeadlessDisplayDetail,
+    provider: str,
+    yolo: bool,
+) -> None:
+    """Build and launch one managed agent locally without `houmao-server`."""
+
+    working_directory = Path.cwd().resolve()
+    launch_result = launch_managed_agent_locally(
+        agents=agents,
+        agent_name=agent_name,
+        agent_id=agent_id,
+        auth=auth,
+        session_name=session_name,
+        headless=headless,
+        provider=provider,
+        yolo=yolo,
+        working_directory=working_directory,
+        headless_display_style=headless_display_style,
+        headless_display_detail=headless_display_detail,
+    )
+
+    emit_local_launch_completion(
+        launch_result=launch_result,
+        agent_name=agent_name,
+        session_name=session_name,
+        headless=headless,
+    )
 
 
 @agents_group.command(name="join")
@@ -253,6 +435,11 @@ def launch_agents_command(
     default=None,
     help="Optional headless resume selector: omitted, `last`, or an exact provider session id.",
 )
+@click.option(
+    "--no-install-houmao-skills",
+    is_flag=True,
+    help="Skip default Houmao-owned system-skill installation into the adopted tool home.",
+)
 def join_agents_command(
     agent_name: str,
     agent_id: str | None,
@@ -262,6 +449,7 @@ def join_agents_command(
     launch_env: tuple[str, ...],
     working_directory: Path | None,
     resume_id: str | None,
+    no_install_houmao_skills: bool,
 ) -> None:
     """Adopt an existing tmux-backed TUI or headless session into Houmao control."""
 
@@ -310,6 +498,7 @@ def join_agents_command(
             working_directory=(working_directory or pane_current_path).resolve(),
             launch_args=launch_args,
             launch_env=launch_env_bindings,
+            install_houmao_skills=not no_install_houmao_skills,
             resume_selection=resolved_resume_selection,
         )
     except (
@@ -335,17 +524,11 @@ def join_agents_command(
 def list_agents_command(port: int | None) -> None:
     """List managed agents from the shared registry, optionally enriched by the server."""
 
-    emit_json(list_managed_agents(port=port))
-
-
-@agents_group.command(name="show")
-@pair_port_option()
-@managed_agent_selector_options
-def show_agent_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
-    """Show the detail-oriented managed-agent view."""
-
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(managed_agent_detail_payload(target))
+    emit(
+        list_managed_agents(port=port),
+        plain_renderer=render_agent_list_plain,
+        fancy_renderer=render_agent_list_fancy,
+    )
 
 
 @agents_group.command(name="state")
@@ -355,7 +538,11 @@ def state_agent_command(port: int | None, agent_id: str | None, agent_name: str 
     """Show the operational managed-agent summary view."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(managed_agent_state_payload(target))
+    emit(
+        managed_agent_state_payload(target),
+        plain_renderer=render_agent_state_plain,
+        fancy_renderer=render_agent_state_fancy,
+    )
 
 
 @agents_group.command(name="prompt")
@@ -375,7 +562,7 @@ def prompt_agent_command(
     """Submit the default prompt path for one managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(prompt_managed_agent(target, prompt=resolve_prompt_text(prompt=prompt)))
+    emit(prompt_managed_agent(target, prompt=resolve_prompt_text(prompt=prompt)))
 
 
 @agents_group.command(name="interrupt")
@@ -389,7 +576,7 @@ def interrupt_agent_command(
     """Interrupt one managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(interrupt_managed_agent(target))
+    emit(interrupt_managed_agent(target))
 
 
 @agents_group.command(name="stop")
@@ -399,7 +586,7 @@ def stop_agent_command(port: int | None, agent_id: str | None, agent_name: str |
     """Stop one managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit_json(stop_managed_agent(target))
+    emit(stop_managed_agent(target))
 
 
 @agents_group.command(name="relaunch")
@@ -433,7 +620,7 @@ def relaunch_agent_command(
             session_manifest_path=resolution.manifest_path,
         )
         result = controller.relaunch()
-        emit_json(
+        emit(
             {
                 "success": result.status == "ok",
                 "tracked_agent_id": (
@@ -451,7 +638,7 @@ def relaunch_agent_command(
         agent_name=selected_agent_name,
         port=port,
     )
-    emit_json(relaunch_managed_agent(target))
+    emit(relaunch_managed_agent(target))
 
 
 agents_group.add_command(gateway_group)
@@ -606,10 +793,22 @@ def _emit_join_result(
     provider: str,
     headless: bool,
 ) -> None:
-    click.echo("Managed agent join complete:")
-    click.echo(f"agent_name={result.agent_name}")
-    click.echo(f"agent_id={result.agent_id}")
-    click.echo(f"provider={provider}")
-    click.echo(f"backend={'headless' if headless else 'local_interactive'}")
-    click.echo(f"tmux_session_name={tmux_session_name}")
-    click.echo(f"manifest_path={result.manifest_path}")
+    emit(
+        {
+            "status": "Managed agent join complete",
+            "agent_name": result.agent_name,
+            "agent_id": result.agent_id,
+            "provider": provider,
+            "backend": "headless" if headless else "local_interactive",
+            "tmux_session_name": tmux_session_name,
+            "manifest_path": str(result.manifest_path),
+            "runtime_root": str(result.runtime_root),
+            "runtime_root_detail": result.runtime_root_detail,
+            "jobs_root": str(result.jobs_root),
+            "jobs_root_detail": result.jobs_root_detail,
+            "overlay_root": str(result.overlay_root),
+            "overlay_root_detail": result.overlay_root_detail,
+            "project_overlay_bootstrapped": result.project_overlay_bootstrapped,
+            "overlay_bootstrap_detail": result.overlay_bootstrap_detail,
+        }
+    )

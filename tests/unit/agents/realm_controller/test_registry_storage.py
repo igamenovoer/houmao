@@ -26,12 +26,12 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record,
 )
 from houmao.agents.realm_controller.schema_validation import load_schema
-from houmao.owned_paths import AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
 def _sample_record(
     *,
-    agent_name: str = "AGENTSYS-gpu",
+    agent_name: str = "HOUMAO-gpu",
     generation_id: str = "generation-1",
     now: datetime | None = None,
 ) -> LiveAgentRegistryRecordV2:
@@ -67,7 +67,7 @@ def test_default_registry_root_uses_platformdirs_home_anchor(
 ) -> None:
     fake_home = tmp_path / "home-anchor"
     fake_user_data_path = fake_home / ".local" / "share" / "houmao"
-    monkeypatch.delenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
         "houmao.owned_paths.platformdirs.user_data_path",
         lambda **kwargs: fake_user_data_path,
@@ -81,7 +81,7 @@ def test_registry_root_honors_absolute_env_override(
     tmp_path: Path,
 ) -> None:
     override_root = tmp_path / "custom-registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(override_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(override_root))
 
     assert resolve_global_registry_root() == override_root.resolve()
 
@@ -90,7 +90,7 @@ def test_registry_publish_and_resolve_accepts_friendly_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
     record = _sample_record(agent_name="gpu")
 
     published = publish_live_agent_record(record)
@@ -106,7 +106,7 @@ def test_registry_rejects_fresh_duplicate_generation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
     publish_live_agent_record(_sample_record(generation_id="generation-1"))
 
     with pytest.raises(SessionManifestError, match="ownership conflict"):
@@ -118,8 +118,8 @@ def test_resolve_live_agent_record_returns_none_for_malformed_record(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
-    record_dir = registry_root / "live_agents" / derive_agent_id_from_name("AGENTSYS-gpu")
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    record_dir = registry_root / "live_agents" / derive_agent_id_from_name("HOUMAO-gpu")
     record_dir.mkdir(parents=True)
     (record_dir / "record.json").write_text("{not-json}\n", encoding="utf-8")
 
@@ -129,8 +129,8 @@ def test_resolve_live_agent_record_returns_none_for_malformed_record(
 def test_registry_rejects_naive_timestamps() -> None:
     with pytest.raises(ValidationError, match="timezone-aware ISO-8601 timestamp"):
         LiveAgentRegistryRecordV2(
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
             generation_id="generation-1",
             published_at="2026-03-13T12:00:00",
             lease_expires_at="2026-03-14T12:00:00",
@@ -140,7 +140,7 @@ def test_registry_rejects_naive_timestamps() -> None:
                 session_root="/tmp/runtime/session",
                 agent_def_dir="/tmp/agents",
             ),
-            terminal=RegistryTerminalV1(session_name="AGENTSYS-gpu"),
+            terminal=RegistryTerminalV1(session_name="HOUMAO-gpu"),
         )
 
 
@@ -173,7 +173,7 @@ def test_cleanup_removes_expired_or_malformed_live_agent_dirs(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
         lambda *, session_name: True,
@@ -183,7 +183,7 @@ def test_cleanup_removes_expired_or_malformed_live_agent_dirs(
 
     fresh_now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
     expired_record = _sample_record(
-        agent_name="AGENTSYS-old",
+        agent_name="HOUMAO-old",
         generation_id=new_registry_generation_id(),
         now=fresh_now - timedelta(days=2),
     )
@@ -199,7 +199,7 @@ def test_cleanup_removes_expired_or_malformed_live_agent_dirs(
     (malformed_dir / "record.json").write_text("{not-json}\n", encoding="utf-8")
 
     fresh_record = _sample_record(
-        agent_name="AGENTSYS-fresh",
+        agent_name="HOUMAO-fresh",
         generation_id=new_registry_generation_id(),
         now=fresh_now,
     )
@@ -227,7 +227,7 @@ def test_publish_cleans_up_temp_file_when_atomic_replace_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
 
     def _fail_replace(self: Path, target: Path) -> Path:
         del target
@@ -247,7 +247,7 @@ def test_publish_rejects_schema_invalid_initial_write_before_creating_record(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     invalid_record = _SchemaInvalidDumpRecord(**_sample_record().model_dump())
 
     with pytest.raises(SessionManifestError, match="schema validation failed before publish"):
@@ -262,11 +262,11 @@ def test_publish_rejects_schema_invalid_refresh_before_replacing_existing_record
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     publish_live_agent_record(_sample_record())
 
     record_path = (
-        registry_root / "live_agents" / derive_agent_id_from_name("AGENTSYS-gpu") / "record.json"
+        registry_root / "live_agents" / derive_agent_id_from_name("HOUMAO-gpu") / "record.json"
     )
     original_text = record_path.read_text(encoding="utf-8")
     invalid_refresh = _SchemaInvalidDumpRecord(**_sample_record().model_dump())
@@ -283,7 +283,7 @@ def test_cleanup_reports_failed_removals_and_continues(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
         lambda *, session_name: True,
@@ -293,7 +293,7 @@ def test_cleanup_reports_failed_removals_and_continues(
 
     now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
     expired_record = _sample_record(
-        agent_name="AGENTSYS-old",
+        agent_name="HOUMAO-old",
         generation_id=new_registry_generation_id(),
         now=now - timedelta(days=2),
     )
@@ -309,7 +309,7 @@ def test_cleanup_reports_failed_removals_and_continues(
     (failed_dir / "record.json").write_text("{not-json}\n", encoding="utf-8")
 
     fresh_record = _sample_record(
-        agent_name="AGENTSYS-fresh",
+        agent_name="HOUMAO-fresh",
         generation_id=new_registry_generation_id(),
         now=now,
     )
@@ -351,13 +351,13 @@ def test_cleanup_dry_run_reports_candidates_without_deleting(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     live_agents_dir = registry_root / "live_agents"
     live_agents_dir.mkdir(parents=True)
 
     now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
     expired_record = _sample_record(
-        agent_name="AGENTSYS-old",
+        agent_name="HOUMAO-old",
         generation_id=new_registry_generation_id(),
         now=now - timedelta(days=2),
     )
@@ -386,13 +386,13 @@ def test_cleanup_default_tmux_probe_marks_fresh_record_stale(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     live_agents_dir = registry_root / "live_agents"
     live_agents_dir.mkdir(parents=True)
 
     now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
     fresh_record = _sample_record(
-        agent_name="AGENTSYS-fresh",
+        agent_name="HOUMAO-fresh",
         generation_id=new_registry_generation_id(),
         now=now,
     )
@@ -423,13 +423,13 @@ def test_cleanup_default_tmux_probe_preserves_live_fresh_record(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     live_agents_dir = registry_root / "live_agents"
     live_agents_dir.mkdir(parents=True)
 
     now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
     fresh_record = _sample_record(
-        agent_name="AGENTSYS-fresh",
+        agent_name="HOUMAO-fresh",
         generation_id=new_registry_generation_id(),
         now=now,
     )
@@ -460,13 +460,13 @@ def test_cleanup_no_tmux_check_preserves_fresh_record_without_local_probe(
     tmp_path: Path,
 ) -> None:
     registry_root = tmp_path / "registry"
-    monkeypatch.setenv(AGENTSYS_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     live_agents_dir = registry_root / "live_agents"
     live_agents_dir.mkdir(parents=True)
 
     now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
     fresh_record = _sample_record(
-        agent_name="AGENTSYS-fresh",
+        agent_name="HOUMAO-fresh",
         generation_id=new_registry_generation_id(),
         now=now,
     )

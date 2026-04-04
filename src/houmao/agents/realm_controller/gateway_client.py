@@ -15,6 +15,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
     GatewayHeadlessControlStateV1,
+    GatewayHeadlessNextPromptSessionRequestV1,
     GatewayHealthResponseV1,
     GatewayHost,
     GatewayJsonObject,
@@ -29,8 +30,14 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailStateRequestV1,
     GatewayMailStateResponseV1,
     GatewayMailStatusV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
     GatewayStatusV1,
+    GatewayWakeupCancelResultV1,
+    GatewayWakeupCreateV1,
+    GatewayWakeupJobV1,
+    GatewayWakeupListV1,
 )
 from houmao.server.models import (
     HoumaoTerminalSnapshotHistoryResponse,
@@ -138,6 +145,48 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
+    def create_wakeup(self, payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
+        """Call `POST /v1/wakeups`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/wakeups",
+            GatewayWakeupJobV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def list_wakeups(self) -> GatewayWakeupListV1:
+        """Call `GET /v1/wakeups`."""
+
+        return self._request_model("GET", "/v1/wakeups", GatewayWakeupListV1)
+
+    def get_wakeup(self, *, job_id: str) -> GatewayWakeupJobV1:
+        """Call `GET /v1/wakeups/{job_id}`."""
+
+        return self._request_model("GET", f"/v1/wakeups/{job_id}", GatewayWakeupJobV1)
+
+    def delete_wakeup(self, *, job_id: str) -> GatewayWakeupCancelResultV1:
+        """Call `DELETE /v1/wakeups/{job_id}`."""
+
+        return self._request_model(
+            "DELETE",
+            f"/v1/wakeups/{job_id}",
+            GatewayWakeupCancelResultV1,
+        )
+
+    def control_prompt(
+        self,
+        payload: GatewayPromptControlRequestV1,
+    ) -> GatewayPromptControlResultV1:
+        """Call `POST /v1/control/prompt`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/control/prompt",
+            GatewayPromptControlResultV1,
+            body=payload.model_dump(mode="json"),
+        )
+
     def get_tui_state(self) -> HoumaoTerminalStateResponse:
         """Call `GET /v1/control/tui/state`."""
 
@@ -186,6 +235,19 @@ class GatewayClient:
             "GET",
             "/v1/control/headless/state",
             GatewayHeadlessControlStateV1,
+        )
+
+    def set_headless_next_prompt_session(
+        self,
+        payload: GatewayHeadlessNextPromptSessionRequestV1,
+    ) -> GatewayHeadlessControlStateV1:
+        """Call `POST /v1/control/headless/next-prompt-session`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/control/headless/next-prompt-session",
+            GatewayHeadlessControlStateV1,
+            body=payload.model_dump(mode="json"),
         )
 
     def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:

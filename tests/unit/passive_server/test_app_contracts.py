@@ -28,6 +28,7 @@ from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.models import (
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoTerminalSnapshotHistoryEntry,
     HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
@@ -189,8 +190,8 @@ def _make_agent_client(tmp_path: object, agents: list[DiscoveredAgent]) -> TestC
 
 def _agent(
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    agent_name: str = "HOUMAO-alpha",
+    session_name: str = "HOUMAO-alpha-abc123",
     *,
     tool: str = "claude",
     backend: str = "claude_headless",
@@ -214,16 +215,16 @@ class TestListAgentsEndpoint:
     """GET /houmao/agents."""
 
     def test_returns_200_with_agents(self, tmp_path: object) -> None:
-        a1 = _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent(agent_id="b1", agent_name="AGENTSYS-beta", session_name="s2")
+        a1 = _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent(agent_id="b1", agent_name="HOUMAO-beta", session_name="s2")
         client = _make_agent_client(tmp_path, [a1, a2])
         with client:
             resp = client.get("/houmao/agents")
         assert resp.status_code == 200
         body = resp.json()
         assert len(body["agents"]) == 2
-        assert body["agents"][0]["agent_name"] == "AGENTSYS-alpha"
-        assert body["agents"][1]["agent_name"] == "AGENTSYS-beta"
+        assert body["agents"][0]["agent_name"] == "HOUMAO-alpha"
+        assert body["agents"][1]["agent_name"] == "HOUMAO-beta"
 
     def test_returns_200_empty(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
@@ -270,11 +271,11 @@ class TestResolveAgentEndpoint:
         assert resp.json()["agent_id"] == "abc123"
 
     def test_resolve_by_name_returns_200(self, tmp_path: object) -> None:
-        client = _make_agent_client(tmp_path, [_agent(agent_name="AGENTSYS-alpha")])
+        client = _make_agent_client(tmp_path, [_agent(agent_name="HOUMAO-alpha")])
         with client:
             resp = client.get("/houmao/agents/alpha")
         assert resp.status_code == 200
-        assert resp.json()["agent_name"] == "AGENTSYS-alpha"
+        assert resp.json()["agent_name"] == "HOUMAO-alpha"
 
     def test_not_found_returns_404(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
@@ -284,8 +285,8 @@ class TestResolveAgentEndpoint:
         assert "detail" in resp.json()
 
     def test_ambiguous_returns_409(self, tmp_path: object) -> None:
-        a1 = _agent(agent_id="abc123", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent(agent_id="def456", agent_name="AGENTSYS-alpha", session_name="s2")
+        a1 = _agent(agent_id="abc123", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent(agent_id="def456", agent_name="HOUMAO-alpha", session_name="s2")
         client = _make_agent_client(tmp_path, [a1, a2])
         with client:
             resp = client.get("/houmao/agents/alpha")
@@ -302,8 +303,8 @@ class TestResolveAgentEndpoint:
 
 def _agent_with_gateway(
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    agent_name: str = "HOUMAO-alpha",
+    session_name: str = "HOUMAO-alpha-abc123",
     gateway_host: str = "127.0.0.1",
     gateway_port: int = 9901,
 ) -> DiscoveredAgent:
@@ -356,6 +357,16 @@ def _stub_control_input_result() -> GatewayControlInputResultV1:
     """Create a minimal valid GatewayControlInputResultV1 for mocking."""
 
     return GatewayControlInputResultV1(detail="delivered")
+
+
+def _stub_prompt_control_result() -> HoumaoManagedAgentGatewayPromptControlResponse:
+    """Create a minimal valid prompt-control response for mocking."""
+
+    return HoumaoManagedAgentGatewayPromptControlResponse(
+        sent=True,
+        forced=False,
+        detail="Prompt dispatched.",
+    )
 
 
 def _stub_mail_status() -> GatewayMailStatusV1:
@@ -426,9 +437,9 @@ def _stub_tui_state() -> HoumaoTerminalStateResponse:
         terminal_id="term-123",
         tracked_session=HoumaoTrackedSessionIdentity(
             tracked_session_id="tracked-123",
-            session_name="AGENTSYS-alpha-abc123",
+            session_name="HOUMAO-alpha-abc123",
             tool="claude",
-            tmux_session_name="AGENTSYS-alpha-abc123",
+            tmux_session_name="HOUMAO-alpha-abc123",
             terminal_aliases=["term-123"],
         ),
         diagnostics=HoumaoTrackedDiagnostics(
@@ -502,8 +513,8 @@ class TestGatewayStatusEndpoint:
         assert resp.status_code == 404
 
     def test_ambiguous_returns_409(self, tmp_path: object) -> None:
-        a1 = _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2")
+        a1 = _agent_with_gateway(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent_with_gateway(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2")
         client = _make_agent_client(tmp_path, [a1, a2])
         with client:
             resp = client.get("/houmao/agents/alpha/gateway")
@@ -636,6 +647,73 @@ class TestGatewayCreateRequestEndpoint:
                 },
             )
         assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Gateway prompt-control endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayPromptControlEndpoint:
+    """POST /houmao/agents/{agent_ref}/gateway/control/prompt."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient, "control_prompt", return_value=_stub_prompt_control_result()
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": True},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["sent"] is True
+        assert resp.json()["forced"] is False
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.post(
+                "/houmao/agents/unknown/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": False},
+            )
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": False},
+            )
+        assert resp.status_code == 502
+
+    def test_gateway_error_preserves_status_and_structured_detail(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "control_prompt",
+                side_effect=GatewayHttpError(
+                    method="POST",
+                    url="http://127.0.0.1:9901/v1/control/prompt",
+                    status_code=409,
+                    detail='{"action":"submit_prompt","detail":"not ready","error_code":"not_ready","forced":false,"sent":false,"status":"error"}',
+                ),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json={"schema_version": 1, "prompt": "hello", "force": False},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error_code"] == "not_ready"
 
 
 # ---------------------------------------------------------------------------
@@ -1034,7 +1112,7 @@ def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
                 kind="done",
                 message="turn completed",
                 turn_index=1,
-                payload={"completion_source": "tmux_wait_for"},
+                payload={"completion_source": "process_exit"},
             )
         ]
 
@@ -1046,7 +1124,7 @@ def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
     _seed_managed_handle(
         svc,
         tracked_agent_id="tracked-alpha",
-        agent_name="AGENTSYS-alpha",
+        agent_name="HOUMAO-alpha",
         agent_id="published-alpha",
         controller=controller,
     )
@@ -1110,8 +1188,8 @@ class TestAgentStateEndpoint:
         assert resp.status_code == 404
 
     def test_ambiguous_returns_409(self, tmp_path: object) -> None:
-        a1 = _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2")
+        a1 = _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2")
         client = _make_agent_client_with_observer(tmp_path, [a1, a2])
         with client:
             resp = client.get("/houmao/agents/alpha/state")
@@ -1152,8 +1230,8 @@ class TestAgentStateDetailEndpoint:
         assert resp.status_code == 404
 
     def test_ambiguous_returns_409(self, tmp_path: object) -> None:
-        a1 = _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2")
+        a1 = _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2")
         client = _make_agent_client_with_observer(tmp_path, [a1, a2])
         with client:
             resp = client.get("/houmao/agents/alpha/state/detail")
@@ -1191,8 +1269,8 @@ class TestAgentHistoryEndpoint:
         assert resp.status_code == 404
 
     def test_ambiguous_returns_409(self, tmp_path: object) -> None:
-        a1 = _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2")
+        a1 = _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2")
         client = _make_agent_client_with_observer(tmp_path, [a1, a2])
         with client:
             resp = client.get("/houmao/agents/alpha/history")
@@ -1245,14 +1323,14 @@ class TestManagedCompatibilityRoutes:
     def test_managed_state_ambiguous_returns_409(self, tmp_path: object) -> None:
         a1 = _agent(
             agent_id="a1",
-            agent_name="AGENTSYS-alpha",
+            agent_name="HOUMAO-alpha",
             session_name="s1",
             tool="codex",
             backend="codex_app_server",
         )
         a2 = _agent(
             agent_id="a2",
-            agent_name="AGENTSYS-alpha",
+            agent_name="HOUMAO-alpha",
             session_name="s2",
             tool="codex",
             backend="codex_app_server",
@@ -1414,8 +1492,8 @@ class TestSubmitRequestEndpoint:
         assert resp.status_code == 422
 
     def test_ambiguous_agent_returns_409(self, tmp_path: object) -> None:
-        a1 = _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2")
+        a1 = _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2")
         client = _make_agent_client(tmp_path, [a1, a2])
         with client:
             resp = client.post("/houmao/agents/alpha/requests", json={"prompt": "hello"})
@@ -1488,7 +1566,7 @@ class TestStopEndpoint:
         body = resp.json()
         assert body["status"] == "ok"
         assert body["agent_id"] == "abc123"
-        mock_kill.assert_called_once_with(session_name="AGENTSYS-alpha-abc123")
+        mock_kill.assert_called_once_with(session_name="HOUMAO-alpha-abc123")
         mock_remove.assert_called_once()
 
 

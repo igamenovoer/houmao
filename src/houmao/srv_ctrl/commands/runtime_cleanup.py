@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import os
 from pathlib import Path
 
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
@@ -17,9 +18,14 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
     runtime_owned_session_root_from_manifest_path,
 )
-from houmao.owned_paths import resolve_runtime_root
+from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_runtime_root,
+)
 
 from .cleanup_support import CleanupAction, build_cleanup_payload, remove_path
+from .project_aware_wording import describe_runtime_root_selection
 from .managed_agents import _resolve_local_managed_agent_record
 
 
@@ -47,6 +53,24 @@ class RuntimeSessionEnvelope:
     parse_error: str | None
     tmux_session_name: str | None
     live: bool
+
+
+def _resolve_effective_runtime_root(runtime_root: Path | None) -> Path:
+    """Resolve one runtime root using the project-aware maintained-command contract."""
+
+    cwd = Path.cwd().resolve()
+    if runtime_root is None and not os.environ.get(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR):
+        ensure_project_aware_local_roots(cwd=cwd)
+    return resolve_project_aware_runtime_root(cwd=cwd, explicit_root=runtime_root)
+
+
+def _runtime_root_resolution_payload(runtime_root: Path | None) -> dict[str, object]:
+    """Return one structured cleanup resolution payload for runtime-root selection."""
+
+    return {
+        "authority": "runtime_root",
+        "runtime_root_detail": describe_runtime_root_selection(explicit_root=runtime_root),
+    }
 
 
 def resolve_managed_session_cleanup_target(
@@ -369,7 +393,7 @@ def cleanup_runtime_sessions(
 ) -> dict[str, object]:
     """Clean stopped or malformed runtime session envelopes under one runtime root."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    resolved_runtime_root = _resolve_effective_runtime_root(runtime_root)
     current_time = _coerce_now(now)
     envelopes = discover_runtime_session_envelopes(resolved_runtime_root)
 
@@ -441,7 +465,7 @@ def cleanup_runtime_sessions(
             "older_than_seconds": older_than_seconds,
             "include_job_dir": include_job_dir,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,
@@ -458,7 +482,7 @@ def cleanup_runtime_builds(
 ) -> dict[str, object]:
     """Clean unreferenced or broken build manifest-home pairs."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    resolved_runtime_root = _resolve_effective_runtime_root(runtime_root)
     current_time = _coerce_now(now)
     preserved_brain_manifests = _preserved_session_brain_manifest_paths(
         runtime_root=resolved_runtime_root,
@@ -642,7 +666,7 @@ def cleanup_runtime_builds(
             "runtime_root": str(resolved_runtime_root),
             "older_than_seconds": older_than_seconds,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,
@@ -658,7 +682,7 @@ def cleanup_runtime_logs(
 ) -> dict[str, object]:
     """Clean log-style runtime artifacts while preserving durable gateway state."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    resolved_runtime_root = _resolve_effective_runtime_root(runtime_root)
     envelopes = discover_runtime_session_envelopes(resolved_runtime_root)
 
     planned_actions: list[CleanupAction] = []
@@ -688,7 +712,7 @@ def cleanup_runtime_logs(
             "runtime_root": str(resolved_runtime_root),
             "older_than_seconds": older_than_seconds,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,
@@ -705,7 +729,7 @@ def cleanup_runtime_mailbox_credentials(
 ) -> dict[str, object]:
     """Clean unreferenced runtime-owned Stalwart credential files."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    resolved_runtime_root = _resolve_effective_runtime_root(runtime_root)
     current_time = _coerce_now(now)
     referenced_credential_refs = _preserved_session_credential_refs(
         runtime_root=resolved_runtime_root,
@@ -768,7 +792,7 @@ def cleanup_runtime_mailbox_credentials(
             "runtime_root": str(resolved_runtime_root),
             "older_than_seconds": older_than_seconds,
         },
-        resolution={"authority": "runtime_root"},
+        resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,

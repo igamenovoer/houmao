@@ -59,7 +59,7 @@ Use `active` when you want recorder-owned attach behavior and managed `send-keys
 ```bash
 pixi run python -m tools.terminal_record start \
   --mode active \
-  --target-session AGENTSYS-gpu \
+  --target-session HOUMAO-gpu \
   --tool codex
 ```
 

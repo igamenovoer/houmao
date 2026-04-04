@@ -549,14 +549,16 @@ class CompatibilityControlCore:
                 BuildRequest(
                     agent_def_dir=resolved_target.agent_def_dir,
                     runtime_root=self.m_config.runtime_root,
-                    tool=resolved_target.recipe.tool,
-                    skills=resolved_target.recipe.skills,
-                    config_profile=resolved_target.recipe.config_profile,
-                    credential_profile=resolved_target.recipe.credential_profile,
-                    recipe_path=resolved_target.recipe_path,
-                    recipe_launch_overrides=resolved_target.recipe.launch_overrides,
-                    mailbox=resolved_target.recipe.mailbox,
-                    agent_name=resolved_target.recipe.default_agent_name,
+                    tool=resolved_target.preset.tool,
+                    skills=resolved_target.preset.skills,
+                    setup=resolved_target.preset.setup,
+                    auth=resolved_target.preset.auth,
+                    preset_path=resolved_target.preset_path,
+                    preset_launch_overrides=resolved_target.preset.launch_overrides,
+                    operator_prompt_mode=resolved_target.preset.operator_prompt_mode,
+                    persistent_env_records=resolved_target.preset.launch_env_records,
+                    mailbox=resolved_target.preset.mailbox,
+                    extra=resolved_target.preset.extra,
                 )
             )
             manifest = load_brain_manifest(build_result.manifest_path)

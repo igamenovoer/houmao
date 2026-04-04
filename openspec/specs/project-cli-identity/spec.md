@@ -14,17 +14,17 @@ Active repository guidance includes README and docs content, contributor guidanc
 - **AND THEN** active guidance does not present `gig-agents` as the canonical project name
 
 ### Requirement: Rebrand scope preserves non-targeted public surfaces
-The repository SHALL preserve the `Houmao` project and distribution identity and SHALL keep the `AGENTSYS_*` runtime identity and environment namespaces stable across CLI-surface retirement.
+The repository SHALL preserve the `Houmao` project and distribution identity and SHALL standardize the active runtime identity and environment namespace on `HOUMAO_*`.
 
-This change SHALL NOT require another package-namespace rename or another runtime env-namespace rename just because legacy standalone CLI surfaces are being retired.
+Legacy standalone CLI retirement or other operator-surface cleanup SHALL NOT require another package-namespace rename after this change, because the supported live runtime namespace is already unified on `HOUMAO_*`.
 
-The repository MAY retire standalone runtime or launcher CLIs from the active supported surface without redefining the `houmao` package identity or the `AGENTSYS_*` runtime namespace.
+The repository MAY continue to retire deprecated surfaces without redefining the `houmao` package identity away from `Houmao`.
 
-#### Scenario: Legacy CLI retirement does not rename runtime namespaces
-- **WHEN** a maintainer inspects runtime env contracts and package identity after the CLI-surface retirement
+#### Scenario: Active runtime namespace is Houmao-named after the rename
+- **WHEN** a maintainer inspects active runtime env contracts and package identity after the namespace rename
 - **THEN** the project remains `Houmao`
-- **AND THEN** runtime identity and environment contracts remain in the `AGENTSYS_*` namespace
-- **AND THEN** the retirement of `houmao-cli` or `houmao-cao-server` does not imply another rename of those namespaces
+- **AND THEN** active runtime identity and environment contracts use the `HOUMAO_*` namespace
+- **AND THEN** supported-surface cleanup does not preserve `AGENTSYS_*` as the stable live namespace
 
 ### Requirement: Primary supported operator workflow uses `houmao-mgr` and `houmao-server`
 The repository SHALL expose its primary supported operator workflow through `houmao-mgr` together with `houmao-server`.
@@ -35,3 +35,4 @@ Repo-owned README, docs, and help examples for current workflows SHALL use `houm
 - **WHEN** an operator follows active README, docs, or help examples for current runtime management
 - **THEN** those examples invoke `houmao-mgr` or `houmao-server`
 - **AND THEN** they do not present `houmao-cli` as the primary active operator command
+

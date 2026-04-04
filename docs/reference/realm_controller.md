@@ -58,7 +58,7 @@ Runs `claude -p` for non-interactive prompt–response cycles. Supports session 
 
 ### `gemini_headless`
 
-Runs `gemini -p` for non-interactive prompt–response cycles. Supports session continuation via `--resume latest`.
+Runs `gemini -p` for non-interactive prompt–response cycles. Managed Gemini homes support either `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via `oauth_creds.json`; OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present. Houmao-owned Gemini skills project into `.agents/skills`, while `.gemini/skills` remains a compatibility path only. Follow-up turns resume with `--resume <persisted-session-id>` and must stay in the same recorded working directory.
 
 ### Legacy Backends
 
@@ -119,7 +119,7 @@ The `RuntimeSessionController` manages the full session lifecycle. It holds refe
 - **`local_interactive`**: Reattaches to the existing tmux session.
 - **`codex_headless`**: Uses `resume <thread_id>` to continue the Codex thread.
 - **`claude_headless`**: Uses `--continue` to resume the Claude session.
-- **`gemini_headless`**: Uses `--resume latest` to resume the Gemini session.
+- **`gemini_headless`**: Uses `--resume <persisted-session-id>` to resume the Gemini session in the same recorded working directory/project context.
 
 ### Sending Prompts
 
@@ -135,10 +135,10 @@ Role injection is backend-specific and handled during launch plan construction i
 
 | Backend | Injection Strategy |
 |---|---|
-| `codex_headless` / `codex_app_server` | Native developer instructions (written to the Codex config) |
-| `claude_headless` | Native appended system prompt plus a bootstrap message sent as the first interaction |
-| `gemini_headless` | Bootstrap message sent as the first interaction |
-| `local_interactive` | Bootstrap message sent as the first interaction |
+| `codex_headless` / `codex_app_server` | Native developer instructions when the role prompt is non-empty |
+| `claude_headless` | Native appended system prompt plus a bootstrap message when the role prompt is non-empty |
+| `gemini_headless` | Bootstrap message when the role prompt is non-empty |
+| `local_interactive` | Tool-dependent native injection or bootstrap, skipped when the role prompt is empty |
 
 The role content comes from the role package (`roles/<role>/system-prompt.md`) in the agent definition directory.
 

@@ -37,7 +37,7 @@ from houmao.agents.launch_policy.provider_hooks import (
 
 _VERSION_PATTERN = re.compile(r"(\d+\.\d+\.\d+)")
 _OVERRIDE_ENV_VAR = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
-_OPERATOR_PROMPT_MODES: tuple[OperatorPromptMode, ...] = ("interactive", "unattended")
+_OPERATOR_PROMPT_MODES: tuple[OperatorPromptMode, ...] = ("as_is", "unattended")
 _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "raw_launch",
     "codex_headless",
@@ -70,12 +70,18 @@ _ACTION_KINDS: tuple[
     "validate.reject_conflicting_launch_args",
     "provider_hook.call",
 )
+_RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS: frozenset[str] = frozenset(
+    {
+        "codex.canonicalize_unattended_launch_inputs",
+        "gemini.canonicalize_unattended_launch_inputs",
+    }
+)
 
 
 def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
     """Resolve and apply launch policy for one launch request."""
 
-    if request.requested_operator_prompt_mode in {None, "interactive"}:
+    if request.requested_operator_prompt_mode in {None, "as_is"}:
         return LaunchPolicyResult(
             executable=request.executable,
             args=request.base_args,
@@ -253,9 +259,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         payload, "operator_prompt_mode", source=source
     )
     if operator_prompt_mode_raw not in _OPERATOR_PROMPT_MODES:
-        raise LaunchPolicyError(
-            f"{source}.operator_prompt_mode must be `interactive` or `unattended`."
-        )
+        raise LaunchPolicyError(f"{source}.operator_prompt_mode must be `as_is` or `unattended`.")
     operator_prompt_mode = cast(OperatorPromptMode, operator_prompt_mode_raw)
 
     backends_payload = payload.get("backends")
@@ -310,15 +314,15 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     )
 
     owned_paths_payload = payload.get("owned_paths")
-    if not isinstance(owned_paths_payload, list) or not owned_paths_payload:
-        raise LaunchPolicyError(f"{source}.owned_paths must be a non-empty list.")
+    if not isinstance(owned_paths_payload, list):
+        raise LaunchPolicyError(f"{source}.owned_paths must be a list.")
     owned_paths = tuple(
         _parse_owned_path(item=item, source=f"{source}.owned_paths") for item in owned_paths_payload
     )
 
     actions_payload = payload.get("actions")
-    if not isinstance(actions_payload, list) or not actions_payload:
-        raise LaunchPolicyError(f"{source}.actions must be a non-empty list.")
+    if not isinstance(actions_payload, list):
+        raise LaunchPolicyError(f"{source}.actions must be a list.")
     actions = tuple(
         _parse_action(item=item, source=f"{source}.actions[{index}]")
         for index, item in enumerate(actions_payload)
@@ -447,10 +451,13 @@ def _apply_action(
         )
         return
     if action.kind == "provider_hook.call":
-        if request.application_kind != "provider_start":
-            return
         hook_id = _require_non_blank_str(action.params, "hook_id", source=action.kind)
-        run_provider_hook(hook_id=hook_id, request=request)
+        if (
+            request.application_kind != "provider_start"
+            and hook_id not in _RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS
+        ):
+            return
+        run_provider_hook(hook_id=hook_id, request=request, args=args)
         return
     raise LaunchPolicyError(f"Unsupported launch-policy action kind `{action.kind}`.")
 

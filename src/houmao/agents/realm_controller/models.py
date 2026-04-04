@@ -39,6 +39,7 @@ JoinedLaunchPostureKind = Literal[
 ]
 JoinedLaunchEnvBindingMode = Literal["literal", "inherit"]
 HeadlessResumeSelectionKind = Literal["none", "last", "exact"]
+HeadlessTurnSessionSelectionMode = Literal["new", "tool_last_or_new", "exact"]
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,24 @@ class HeadlessResumeSelection:
 
     kind: HeadlessResumeSelectionKind
     value: str | None = None
+
+
+@dataclass(frozen=True)
+class HeadlessTurnSessionSelection:
+    """Resolved per-turn session selection for native headless execution."""
+
+    mode: HeadlessTurnSessionSelectionMode
+    session_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate one resolved headless turn-session selection."""
+
+        if self.mode == "exact":
+            if self.session_id is None or not self.session_id.strip():
+                raise ValueError("exact headless turn selection requires session_id")
+            return
+        if self.session_id is not None:
+            raise ValueError("only exact headless turn selection may include session_id")
 
 
 @dataclass(frozen=True)
@@ -125,6 +144,7 @@ class LaunchPlan:
     metadata: dict[str, Any] = field(default_factory=dict)
     mailbox: MailboxResolvedConfig | None = None
     launch_policy_provenance: LaunchPolicyProvenance | None = None
+    transient_env_var_names: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
     def for_joined_session(
@@ -187,7 +207,9 @@ class LaunchPlan:
                 "env_var": self.home_env_var,
                 "home_path": str(self.home_path),
             },
-            "env_var_names": sorted(self.env_var_names),
+            "env_var_names": sorted(
+                name for name in self.env_var_names if name not in self.transient_env_var_names
+            ),
             "role_injection": {
                 "method": self.role_injection.method,
                 "role_name": self.role_injection.role_name,
@@ -237,7 +259,7 @@ class SessionControlResult:
     """Outcome for runtime control operations."""
 
     status: Literal["ok", "error"]
-    action: Literal["interrupt", "terminate", "control_input"]
+    action: Literal["interrupt", "terminate", "control_input", "relaunch"]
     detail: str
 
 

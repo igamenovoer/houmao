@@ -26,6 +26,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.shared_tui_tracking.models import RuntimeObservation
 
+from .agent_assets import default_recipe_path
 from .models import ToolName
 
 if TYPE_CHECKING:
@@ -72,16 +73,7 @@ def default_tool_runtime_metadata(
         launch_overrides = tool_config.launch_overrides
         operator_prompt_mode = tool_config.operator_prompt_mode
     else:
-        recipe_path = (
-            repo_root
-            / "tests"
-            / "fixtures"
-            / "agents"
-            / "brains"
-            / "brain-recipes"
-            / tool
-            / "interactive-watch-default.yaml"
-        ).resolve()
+        recipe_path = default_recipe_path(repo_root=repo_root, tool=tool)
         if tool == "claude":
             launch_overrides = None
             operator_prompt_mode = "unattended"

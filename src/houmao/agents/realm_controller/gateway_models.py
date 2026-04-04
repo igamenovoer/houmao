@@ -7,6 +7,8 @@ gateway instance.
 
 from __future__ import annotations
 
+import math
+from datetime import UTC, datetime
 from typing import Literal, TypeAlias
 
 from pydantic import (
@@ -26,8 +28,12 @@ GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
 GatewayRequestKind = Literal["submit_prompt", "interrupt"]
 GatewayStoredRequestKind = Literal["submit_prompt", "interrupt", "mail_notifier_prompt"]
+GatewayWakeupMode = Literal["one_off", "repeat"]
+GatewayWakeupState = Literal["scheduled", "overdue", "executing"]
 GatewayHealthState = Literal["healthy", "not_attached"]
 GatewayConnectivityState = Literal["connected", "unavailable"]
+GatewayChatSessionSelectorMode = Literal["auto", "new", "current", "tool_last_or_new", "exact"]
+GatewayHeadlessStartupDefaultMode = Literal["new", "tool_last_or_new", "exact"]
 GatewayRecoveryState = Literal["idle", "awaiting_rebind", "reconciliation_required"]
 GatewayAdmissionState = Literal[
     "open",
@@ -56,6 +62,9 @@ GATEWAY_STATE_SCHEMA_VERSION = 1
 GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION = 1
 GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
+GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 1
+GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION = 1
+GATEWAY_WAKEUP_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
 
@@ -108,6 +117,18 @@ def _validate_gateway_backend_metadata_shape(
             )
         return
     raise ValueError(f"backend={backend!r} is not gateway-capable in v1")
+
+
+def _parse_gateway_datetime(value: str) -> datetime:
+    """Parse one gateway-protocol timestamp into a UTC datetime."""
+
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 class _StrictGatewayModel(BaseModel):
@@ -525,11 +546,101 @@ class GatewayHealthResponseV1(_StrictGatewayModel):
     status: Literal["ok"] = "ok"
 
 
+class GatewayChatSessionSelectorV1(_StrictGatewayModel):
+    """Explicit chat-session selector for prompt submission."""
+
+    mode: GatewayChatSessionSelectorMode
+    id: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _optional_id_not_blank(cls, value: str | None) -> str | None:
+        """Validate one optional provider session id."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_selector(self) -> "GatewayChatSessionSelectorV1":
+        """Require `id` only for exact selector mode."""
+
+        if self.mode == "exact":
+            if self.id is None:
+                raise ValueError("chat_session.id is required when mode=exact")
+            return self
+        if self.id is not None:
+            raise ValueError("chat_session.id is only allowed when mode=exact")
+        return self
+
+
+class GatewayHeadlessCurrentChatSessionV1(_StrictGatewayModel):
+    """Pinned current provider session for one headless managed agent."""
+
+    id: str
+
+    @field_validator("id")
+    @classmethod
+    def _id_not_blank(cls, value: str) -> str:
+        """Validate one pinned provider session id."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class GatewayHeadlessStartupDefaultV1(_StrictGatewayModel):
+    """Persisted first-chat fallback for one headless managed agent."""
+
+    mode: GatewayHeadlessStartupDefaultMode
+    id: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _optional_id_not_blank(cls, value: str | None) -> str | None:
+        """Validate one optional exact startup session id."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_startup_default(self) -> "GatewayHeadlessStartupDefaultV1":
+        """Require `id` only for exact startup-default mode."""
+
+        if self.mode == "exact":
+            if self.id is None:
+                raise ValueError("startup_default.id is required when mode=exact")
+            return self
+        if self.id is not None:
+            raise ValueError("startup_default.id is only allowed when mode=exact")
+        return self
+
+
+class GatewayHeadlessNextPromptOverrideV1(_StrictGatewayModel):
+    """One-shot override for the next accepted auto prompt."""
+
+    mode: Literal["new"]
+
+
+class GatewayHeadlessChatSessionStateV1(_StrictGatewayModel):
+    """Live headless chat-session state exposed by the gateway."""
+
+    current: GatewayHeadlessCurrentChatSessionV1 | None = None
+    startup_default: GatewayHeadlessStartupDefaultV1
+    next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
+
+
 class GatewayRequestPayloadSubmitPromptV1(_StrictGatewayModel):
     """Public payload for `submit_prompt` requests."""
 
     prompt: str
     turn_id: str | None = None
+    chat_session: GatewayChatSessionSelectorV1 | None = None
 
     @field_validator("prompt", "turn_id")
     @classmethod
@@ -582,6 +693,88 @@ class GatewayControlInputResultV1(_StrictGatewayModel):
         return value
 
 
+class GatewayPromptControlRequestV1(_StrictGatewayModel):
+    """`POST /v1/control/prompt` request body."""
+
+    schema_version: int = Field(default=GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION)
+    prompt: str
+    force: bool = False
+    chat_session: GatewayChatSessionSelectorV1 | None = None
+
+    @field_validator("prompt")
+    @classmethod
+    def _prompt_not_blank(cls, value: str) -> str:
+        """Validate the direct-control prompt text."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayPromptControlRequestV1":
+        """Validate the direct prompt-control schema version."""
+
+        if self.schema_version != GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayPromptControlResultV1(_StrictGatewayModel):
+    """Successful direct prompt-control response body."""
+
+    status: Literal["ok"] = "ok"
+    action: Literal["submit_prompt"] = "submit_prompt"
+    sent: Literal[True] = True
+    forced: bool
+    detail: str
+
+    @field_validator("detail")
+    @classmethod
+    def _detail_not_blank(cls, value: str) -> str:
+        """Validate the successful prompt-control detail string."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class GatewayHeadlessNextPromptSessionRequestV1(_StrictGatewayModel):
+    """`POST /v1/control/headless/next-prompt-session` request body."""
+
+    schema_version: int = Field(default=GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION)
+    mode: Literal["new"]
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayHeadlessNextPromptSessionRequestV1":
+        """Validate the next-prompt-session schema version."""
+
+        if self.schema_version != GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION:
+            raise ValueError(
+                f"schema_version must be {GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION}"
+            )
+        return self
+
+
+class GatewayPromptControlErrorV1(_StrictGatewayModel):
+    """Structured refusal payload for direct prompt control."""
+
+    status: Literal["error"] = "error"
+    action: Literal["submit_prompt"] = "submit_prompt"
+    sent: Literal[False] = False
+    forced: bool
+    error_code: str
+    detail: str
+
+    @field_validator("error_code", "detail")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Validate non-empty prompt-control error fields."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
 class GatewayRequestCreateV1(_StrictGatewayModel):
     """`POST /v1/requests` request body."""
 
@@ -624,6 +817,171 @@ class GatewayAcceptedRequestV1(_StrictGatewayModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+
+class GatewayWakeupCreateV1(_StrictGatewayModel):
+    """`POST /v1/wakeups` request body."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    mode: GatewayWakeupMode
+    prompt: str
+    after_seconds: int | float | None = None
+    deliver_at_utc: str | None = None
+    interval_seconds: int | float | None = None
+
+    @field_validator("prompt", "deliver_at_utc")
+    @classmethod
+    def _optional_not_blank_text(cls, value: str | None) -> str | None:
+        """Validate non-empty prompt and timestamp text fields."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("deliver_at_utc")
+    @classmethod
+    def _validate_deliver_at_utc(cls, value: str | None) -> str | None:
+        """Validate the optional absolute delivery timestamp."""
+
+        if value is None:
+            return None
+        _parse_gateway_datetime(value)
+        return value
+
+    @field_validator("after_seconds", "interval_seconds")
+    @classmethod
+    def _positive_finite_seconds(cls, value: int | float | None) -> int | float | None:
+        """Validate one optional positive finite seconds value."""
+
+        if value is None:
+            return None
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            raise ValueError("must be finite")
+        if numeric_value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "GatewayWakeupCreateV1":
+        """Validate wakeup scheduling shape and mode-specific fields."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        if (self.after_seconds is None) == (self.deliver_at_utc is None):
+            raise ValueError("exactly one of after_seconds or deliver_at_utc must be set")
+        if self.mode == "repeat" and self.interval_seconds is None:
+            raise ValueError("repeat wakeups require interval_seconds")
+        if self.mode == "one_off" and self.interval_seconds is not None:
+            raise ValueError("one_off wakeups must not include interval_seconds")
+        return self
+
+
+class GatewayWakeupJobV1(_StrictGatewayModel):
+    """One live wakeup job returned by gateway wakeup routes."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    job_id: str
+    mode: GatewayWakeupMode
+    prompt: str
+    state: GatewayWakeupState
+    created_at_utc: str
+    next_due_at_utc: str
+    interval_seconds: int | float | None = None
+    last_started_at_utc: str | None = None
+    cancel_requested: bool = False
+
+    @field_validator("job_id", "prompt", "created_at_utc", "next_due_at_utc", "last_started_at_utc")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Validate required and optional text fields."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("created_at_utc", "next_due_at_utc", "last_started_at_utc")
+    @classmethod
+    def _optional_valid_timestamp(cls, value: str | None) -> str | None:
+        """Validate response timestamps."""
+
+        if value is None:
+            return None
+        _parse_gateway_datetime(value)
+        return value
+
+    @field_validator("interval_seconds")
+    @classmethod
+    def _optional_positive_interval(cls, value: int | float | None) -> int | float | None:
+        """Validate the optional repeat interval."""
+
+        if value is None:
+            return None
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            raise ValueError("must be finite")
+        if numeric_value <= 0:
+            raise ValueError("must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_job_shape(self) -> "GatewayWakeupJobV1":
+        """Validate mode-specific job response invariants."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        if self.mode == "repeat" and self.interval_seconds is None:
+            raise ValueError("repeat wakeups require interval_seconds")
+        if self.mode == "one_off" and self.interval_seconds is not None:
+            raise ValueError("one_off wakeups must not include interval_seconds")
+        return self
+
+
+class GatewayWakeupListV1(_StrictGatewayModel):
+    """`GET /v1/wakeups` response body."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    jobs: list[GatewayWakeupJobV1]
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayWakeupListV1":
+        """Validate the wakeup list schema version."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayWakeupCancelResultV1(_StrictGatewayModel):
+    """`DELETE /v1/wakeups/{job_id}` response body."""
+
+    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    status: Literal["ok"] = "ok"
+    action: Literal["cancel_wakeup"] = "cancel_wakeup"
+    job_id: str
+    canceled: Literal[True] = True
+    detail: str
+
+    @field_validator("job_id", "detail")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Validate non-empty cancellation response fields."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayWakeupCancelResultV1":
+        """Validate the wakeup cancellation schema version."""
+
+        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        return self
 
 
 class GatewayMailNotifierPutV1(_StrictGatewayModel):
@@ -1143,6 +1501,7 @@ class GatewayHeadlessControlStateV1(_StrictGatewayModel):
     tmux_session_live: bool
     can_accept_prompt_now: bool
     interruptible: bool
+    chat_session: GatewayHeadlessChatSessionStateV1
     request_admission: GatewayAdmissionState
     active_execution: GatewayExecutionState
     queue_depth: int

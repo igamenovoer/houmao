@@ -7,7 +7,7 @@ It has two complementary workflows:
 1. batch scenario capture/replay for repeatable scripted cases, and
 2. interactive watch for manual prompting with a live dashboard plus final replay-grade analysis.
 
-Both workflows stay independent from `houmao-server`. They launch Claude through repo brain fixtures, record the tmux pane with `tools/terminal_record` in `passive` mode, derive content-first groundtruth from recorded pane snapshots plus runtime liveness observations, and replay the same observation stream through an independent ReactiveX tracker.
+Both workflows stay independent from `houmao-server`. They launch Claude through canonical preset-backed repository fixtures, record the tmux pane with `tools/terminal_record` in `passive` mode, derive content-first groundtruth from recorded pane snapshots plus runtime liveness observations, and replay the same observation stream through an independent ReactiveX tracker.
 
 For the demo state model itself, and how it differs from and relates to the production `houmao-server` tracker that was later developed using this demo as a reference, see:
 
@@ -72,11 +72,11 @@ pixi run python scripts/explore/claude-code-state-tracking/run.py stop \
 
 The interactive watch:
 
-- builds a fresh Claude brain home from `tests/fixtures/agents/brains/brain-recipes/claude/interactive-watch-default.yaml`
+- builds a fresh Claude brain home from `tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml`
 - writes that generated runtime under the run-local `runtime/` subtree
 - launches the generated `launch.sh` directly in tmux
 - forces Claude to start with `--dangerously-skip-permissions`
-- still keeps Claude config in `tests/fixtures/agents/brains/cli-configs/claude/default/settings.json` for baseline startup behavior
+- still uses the tracked Claude setup bundle under `tests/fixtures/agents/tools/claude/setups/default/` for baseline startup behavior
 - does not use `houmao-server` routes or Houmao lifecycle CLIs for normal start/inspect/stop flow
 - leaves a successful `start` run live for manual prompting until the operator later runs `stop`
 - automatically reaps run-owned `cc-track-*` and `HMREC-*` tmux sessions if startup fails or is interrupted before the run reaches steady state

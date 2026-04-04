@@ -11,10 +11,13 @@ from pathlib import Path
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.native_launch_resolver import resolve_native_launch_target, tool_for_provider
-from houmao.owned_paths import (
-    AGENTSYS_JOB_DIR_ENV_VAR,
-    resolve_runtime_root,
-    resolve_session_job_dir,
+from houmao.agents.system_skills import install_system_skills_for_home
+from houmao.owned_paths import HOUMAO_JOB_DIR_ENV_VAR
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_local_roots,
+    resolve_project_aware_runtime_root,
+    resolve_project_aware_session_job_dir,
 )
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
@@ -74,7 +77,17 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     set_tmux_session_environment,
     unset_tmux_session_environment,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    resolve_headless_display_detail,
+    resolve_headless_display_style,
+)
 from houmao.server.models import HoumaoHeadlessLaunchRequest
+from houmao.srv_ctrl.commands.project_aware_wording import (
+    describe_local_jobs_root_selection,
+    describe_overlay_bootstrap,
+    describe_overlay_root_selection_source,
+    describe_runtime_root_selection,
+)
 
 _HOME_ENV_BY_TOOL: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
@@ -96,6 +109,14 @@ class JoinedSessionArtifacts:
     session_root: Path
     agent_name: str
     agent_id: str
+    runtime_root: Path
+    jobs_root: Path
+    runtime_root_detail: str
+    jobs_root_detail: str
+    overlay_root: Path
+    overlay_root_detail: str
+    project_overlay_bootstrapped: bool
+    overlay_bootstrap_detail: str
 
 
 def materialize_joined_launch(
@@ -110,11 +131,20 @@ def materialize_joined_launch(
     working_directory: Path,
     launch_args: Sequence[str],
     launch_env: Sequence[JoinedLaunchEnvBinding],
+    install_houmao_skills: bool = True,
     resume_selection: HeadlessResumeSelection | None = None,
 ) -> JoinedSessionArtifacts:
     """Materialize a manifest-first runtime envelope for one joined tmux session."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    project_roots = (
+        ensure_project_aware_local_roots(cwd=working_directory)
+        if runtime_root is None
+        else resolve_project_aware_local_roots(cwd=working_directory)
+    )
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=working_directory,
+        explicit_root=runtime_root,
+    )
     normalized_agent_name = normalize_user_managed_agent_name(agent_name)
     resolved_agent_id = (
         normalize_managed_agent_id(agent_id) if agent_id is not None else None
@@ -152,6 +182,12 @@ def materialize_joined_launch(
             launch_env=launch_env,
             require_explicit=bool(headless or launch_args or launch_env),
         )
+        if install_houmao_skills:
+            install_system_skills_for_home(
+                tool=tool,
+                home_path=resolved_home_path,
+                auto_install_kind="managed_join",
+            )
         launch_plan = _build_join_launch_plan(
             backend=backend,
             tool=tool,
@@ -165,15 +201,15 @@ def materialize_joined_launch(
             headless=headless,
             tmux_window_name=tmux_window_name,
         )
-        job_dir = resolve_session_job_dir(
+        job_dir = resolve_project_aware_session_job_dir(
+            cwd=working_directory,
             session_id=session_id,
-            working_directory=working_directory.resolve(),
         )
         job_dir.mkdir(parents=True, exist_ok=True)
         launch_plan = replace(
             launch_plan,
-            env={**launch_plan.env, AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
-            env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+            env={**launch_plan.env, HOUMAO_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
+            env_var_names=sorted({*launch_plan.env_var_names, HOUMAO_JOB_DIR_ENV_VAR}),
         )
         manifest_payload = build_session_manifest_payload(
             SessionManifestRequest(
@@ -240,7 +276,7 @@ def materialize_joined_launch(
                 AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
                 AGENT_ID_ENV_VAR: resolved_agent_id,
                 AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
-                AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
+                HOUMAO_JOB_DIR_ENV_VAR: str(job_dir),
             },
         )
         published_tmux_env = True
@@ -272,6 +308,20 @@ def materialize_joined_launch(
             session_root=session_root,
             agent_name=normalized_agent_name,
             agent_id=resolved_agent_id,
+            runtime_root=resolved_runtime_root,
+            jobs_root=job_dir.parent.resolve(),
+            runtime_root_detail=describe_runtime_root_selection(explicit_root=runtime_root),
+            jobs_root_detail=describe_local_jobs_root_selection(),
+            overlay_root=project_roots.overlay_root,
+            overlay_root_detail=describe_overlay_root_selection_source(
+                overlay_root_source=project_roots.overlay_root_source,
+                overlay_discovery_mode=project_roots.overlay_discovery_mode,
+            ),
+            project_overlay_bootstrapped=project_roots.created_overlay,
+            overlay_bootstrap_detail=describe_overlay_bootstrap(
+                created_overlay=project_roots.created_overlay,
+                overlay_exists=project_roots.project_overlay is not None,
+            ),
         )
     except Exception:
         if published_record:
@@ -288,7 +338,7 @@ def materialize_joined_launch(
                                 AGENT_MANIFEST_PATH_ENV_VAR,
                                 AGENT_ID_ENV_VAR,
                                 AGENT_DEF_DIR_ENV_VAR,
-                                AGENTSYS_JOB_DIR_ENV_VAR,
+                                HOUMAO_JOB_DIR_ENV_VAR,
                             ]
                             if published_tmux_env
                             else []
@@ -322,7 +372,12 @@ def materialize_delegated_launch(
 ) -> tuple[Path, Path, str, str]:
     """Materialize Houmao-owned manifest/session-root artifacts for one server-backed launch."""
 
-    resolved_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
+    if runtime_root is None:
+        ensure_project_aware_local_roots(cwd=working_directory)
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=working_directory,
+        explicit_root=runtime_root,
+    )
     session_root = (
         default_manifest_path(
             resolved_runtime_root,
@@ -361,8 +416,9 @@ def materialize_delegated_launch(
     brain_manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "inputs": {"tool": tool},
+                "launch_policy": {"operator_prompt_mode": "as_is"},
                 "runtime": {
                     "launch_executable": "cao",
                     "launch_home_selector": {
@@ -375,14 +431,14 @@ def materialize_delegated_launch(
                             "tool_params": {},
                         },
                         "requested_overrides": {
-                            "recipe": None,
+                            "preset": None,
                             "direct": None,
                         },
                         "tool_metadata": {"tool_params": {}},
                         "construction_provenance": {
                             "adapter_path": None,
-                            "recipe_path": None,
-                            "recipe_overrides_present": False,
+                            "preset_path": None,
+                            "preset_overrides_present": False,
                             "direct_overrides_present": False,
                         },
                     },
@@ -414,15 +470,15 @@ def materialize_delegated_launch(
         )
     )
 
-    job_dir = resolve_session_job_dir(
+    job_dir = resolve_project_aware_session_job_dir(
+        cwd=working_directory,
         session_id=session_name,
-        working_directory=working_directory.resolve(),
     )
     job_dir.mkdir(parents=True, exist_ok=True)
     launch_plan = replace(
         launch_plan,
-        env={**launch_plan.env, AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
-        env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+        env={**launch_plan.env, HOUMAO_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
+        env_var_names=sorted({*launch_plan.env_var_names, HOUMAO_JOB_DIR_ENV_VAR}),
     )
 
     manifest_path = default_manifest_path(
@@ -463,7 +519,7 @@ def materialize_delegated_launch(
             AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
             AGENT_ID_ENV_VAR: agent_id,
             AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
-            AGENTSYS_JOB_DIR_ENV_VAR: str(job_dir),
+            HOUMAO_JOB_DIR_ENV_VAR: str(job_dir),
         },
     )
     gateway_paths = ensure_gateway_capability(
@@ -541,27 +597,37 @@ def materialize_headless_launch_request(
     provider: str,
     agent_profile: str,
     working_directory: Path,
+    headless_display_style: str | None = None,
+    headless_display_detail: str | None = None,
 ) -> HoumaoHeadlessLaunchRequest:
     """Resolve pair convenience inputs into a native headless launch request."""
 
     resolved_workdir = working_directory.resolve()
+    if runtime_root is None:
+        ensure_project_aware_local_roots(cwd=resolved_workdir)
     target = resolve_native_launch_target(
         selector=agent_profile,
         provider=provider,
         working_directory=resolved_workdir,
     )
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=resolved_workdir,
+        explicit_root=runtime_root,
+    )
     build_result = build_brain_home(
         BuildRequest(
             agent_def_dir=target.agent_def_dir,
-            runtime_root=runtime_root,
-            tool=target.recipe.tool,
-            skills=target.recipe.skills,
-            config_profile=target.recipe.config_profile,
-            credential_profile=target.recipe.credential_profile,
-            recipe_path=target.recipe_path,
-            recipe_launch_overrides=target.recipe.launch_overrides,
-            mailbox=target.recipe.mailbox,
-            agent_name=target.recipe.default_agent_name,
+            runtime_root=resolved_runtime_root,
+            tool=target.preset.tool,
+            skills=target.preset.skills,
+            setup=target.preset.setup,
+            auth=target.preset.auth,
+            preset_path=target.preset_path,
+            preset_launch_overrides=target.preset.launch_overrides,
+            operator_prompt_mode=target.preset.operator_prompt_mode,
+            persistent_env_records=target.preset.launch_env_records,
+            mailbox=target.preset.mailbox,
+            extra=target.preset.extra,
         )
     )
     return HoumaoHeadlessLaunchRequest(
@@ -570,8 +636,10 @@ def materialize_headless_launch_request(
         agent_def_dir=str(target.agent_def_dir),
         brain_manifest_path=str(build_result.manifest_path.resolve()),
         role_name=target.role_name,
-        agent_name=target.recipe.default_agent_name,
+        agent_name=None,
         agent_id=None,
+        headless_display_style=resolve_headless_display_style(headless_display_style),
+        headless_display_detail=resolve_headless_display_detail(headless_display_detail),
     )
 
 
@@ -618,8 +686,9 @@ def _materialize_join_placeholder_files(
     brain_manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "inputs": {"tool": tool},
+                "launch_policy": {"operator_prompt_mode": "as_is"},
                 "runtime": {
                     "launch_executable": executable,
                     "launch_home_selector": {
@@ -628,7 +697,7 @@ def _materialize_join_placeholder_files(
                     },
                     "launch_contract": {
                         "adapter_defaults": {"args": [], "tool_params": {}},
-                        "requested_overrides": {"recipe": None, "direct": None},
+                        "requested_overrides": {"preset": None, "direct": None},
                         "tool_metadata": {"tool_params": {}},
                     },
                 },
@@ -748,6 +817,15 @@ def _build_join_launch_plan(
         metadata={
             "session_origin": "joined_tmux",
             "joined_launch_mode": "headless" if headless else "tui",
+            **(
+                {
+                    "headless_output_format": "stream-json",
+                    "headless_display_style": "plain",
+                    "headless_display_detail": "concise",
+                }
+                if headless
+                else {}
+            ),
             **({"tmux_window_name": tmux_window_name} if tmux_window_name is not None else {}),
         },
     )

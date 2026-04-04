@@ -12,13 +12,66 @@ At minimum, that family SHALL include:
 - `unregister`
 - `repair`
 - `cleanup`
+- `accounts`
+- `messages`
 
 The family SHALL target the filesystem mailbox transport only in v1.
 
 #### Scenario: Operator sees the local mailbox administration commands
 - **WHEN** an operator runs `houmao-mgr mailbox --help`
-- **THEN** the help output lists `init`, `status`, `register`, `unregister`, `repair`, and `cleanup`
+- **THEN** the help output lists `init`, `status`, `register`, `unregister`, `repair`, `cleanup`, `accounts`, and `messages`
 - **AND THEN** the command family is presented as a local mailbox administration surface rather than a server-backed API surface
+
+### Requirement: `houmao-mgr mailbox accounts` inspects mailbox registrations as operator-facing accounts
+`houmao-mgr mailbox accounts` SHALL expose inspection commands over mailbox registrations under one resolved mailbox root.
+
+At minimum, `accounts` SHALL expose:
+
+- `list`
+- `get`
+
+`accounts list` SHALL enumerate registered mailbox addresses together with their registration state.
+
+`accounts get --address <full-address>` SHALL report one mailbox registration, including the selected address, owner principal id when available, registration state, and mailbox path metadata.
+
+#### Scenario: Accounts list reports registered mailbox addresses
+- **WHEN** an operator runs `houmao-mgr mailbox accounts list --mailbox-root /tmp/shared-mail`
+- **AND WHEN** that root contains active and inactive registrations
+- **THEN** the command returns those registered mailbox addresses with their lifecycle state
+- **AND THEN** the operator does not need to inspect mailbox root files manually to discover registered addresses
+
+#### Scenario: Accounts get reports one selected mailbox registration
+- **WHEN** `/tmp/shared-mail` contains an active registration for `AGENTSYS-alice@agents.localhost`
+- **AND WHEN** an operator runs `houmao-mgr mailbox accounts get --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost`
+- **THEN** the command reports the selected address and its registration metadata
+- **AND THEN** the result identifies the mailbox path for that registration
+
+### Requirement: `houmao-mgr mailbox messages` lists and gets mailbox content for one registered address
+`houmao-mgr mailbox messages` SHALL expose direct read-only mailbox content inspection for one selected registered mailbox address under one resolved mailbox root.
+
+At minimum, `messages` SHALL expose:
+
+- `list`
+- `get`
+
+`messages list --address <full-address>` SHALL return message summaries for the selected mailbox address.
+
+`messages get --address <full-address> --message-id <message-id>` SHALL return the content and metadata for one selected message visible to that mailbox address.
+
+The summary payload for `messages list` SHALL include enough metadata to select one message for `messages get`, including `message_id`.
+
+#### Scenario: Messages list returns mailbox-visible summaries for one address
+- **WHEN** `/tmp/shared-mail` contains an active mailbox registration for `AGENTSYS-alice@agents.localhost`
+- **AND WHEN** mailbox-visible messages exist for that address
+- **AND WHEN** an operator runs `houmao-mgr mailbox messages list --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost`
+- **THEN** the command returns message summaries for that selected address
+- **AND THEN** each summary includes a `message_id` suitable for later message retrieval
+
+#### Scenario: Messages get returns the selected message content
+- **WHEN** `/tmp/shared-mail` contains mailbox-visible message `msg-123` for `AGENTSYS-alice@agents.localhost`
+- **AND WHEN** an operator runs `houmao-mgr mailbox messages get --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --message-id msg-123`
+- **THEN** the command returns the content and metadata for `msg-123`
+- **AND THEN** the operator does not need to inspect the canonical mailbox document directly on disk
 
 ### Requirement: `houmao-mgr mailbox init` bootstraps or validates one filesystem mailbox root
 `houmao-mgr mailbox init` SHALL bootstrap or validate one filesystem mailbox root using the filesystem mailbox bootstrap contract.
@@ -26,21 +79,18 @@ The family SHALL target the filesystem mailbox transport only in v1.
 The effective mailbox root SHALL resolve from:
 
 1. explicit `--mailbox-root`,
-2. `AGENTSYS_GLOBAL_MAILBOX_DIR`,
-3. the default shared mailbox root.
+2. `HOUMAO_GLOBAL_MAILBOX_DIR`,
+3. the active project overlay mailbox root,
+4. bootstrap `<cwd>/.houmao/mailbox` when no overlay exists and no stronger override applies.
 
 A successful bootstrap SHALL create or validate the v1 filesystem mailbox layout, including protocol version, shared SQLite catalog, rules assets, mailbox directories root, locks root, and staging root.
 
-#### Scenario: Operator bootstraps a mailbox root explicitly
-- **WHEN** an operator runs `houmao-mgr mailbox init --mailbox-root /tmp/shared-mail`
-- **THEN** the command bootstraps or validates `/tmp/shared-mail` as a filesystem mailbox root
-- **AND THEN** the result reports that the mailbox root is ready for later mailbox registration workflows
-
-#### Scenario: Init fails clearly on a stale unsupported mailbox root
-- **WHEN** an operator runs `houmao-mgr mailbox init --mailbox-root /tmp/legacy-mail`
-- **AND WHEN** `/tmp/legacy-mail` uses an unsupported stale mailbox layout
-- **THEN** the command fails explicitly
-- **AND THEN** the error directs the operator to delete and re-bootstrap that mailbox root instead of attempting in-place migration
+#### Scenario: Init without overrides uses the active overlay mailbox root
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr mailbox init` without `--mailbox-root`
+- **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
+- **THEN** the command bootstraps or validates `/repo/.houmao/mailbox`
+- **AND THEN** it does not bootstrap a shared mailbox root under `~/.houmao/`
 
 ### Requirement: `houmao-mgr mailbox status` reports filesystem mailbox root health and summary state
 `houmao-mgr mailbox status` SHALL inspect one filesystem mailbox root and return a structured summary of its health and stored state.
@@ -62,14 +112,51 @@ At minimum, the summary SHALL report:
 ### Requirement: `houmao-mgr mailbox register` and `unregister` expose operator mailbox lifecycle control
 `houmao-mgr mailbox register` and `houmao-mgr mailbox unregister` SHALL expose operator-facing mailbox lifecycle control for filesystem mailbox addresses.
 
-`register` SHALL accept a full mailbox address and owner principal id and SHALL use explicit registration modes.
+`register` SHALL accept a full mailbox address and owner principal id, SHALL use explicit registration modes, and SHALL accept `--yes` for non-interactive overwrite confirmation.
 `unregister` SHALL accept a full mailbox address and SHALL use explicit deregistration modes, defaulting to `deactivate`.
 
-The CLI SHALL fail explicitly when the requested lifecycle operation conflicts with the current mailbox registration state.
+When a requested registration path would replace existing durable mailbox state or an existing mailbox entry artifact, the CLI SHALL require explicit operator confirmation before applying the destructive replacement.
+This confirmation requirement SHALL apply whether destructive replacement was requested explicitly through `--mode force` or reached from the default safe registration flow after conflict detection.
+When `--yes` is present, the CLI SHALL apply the overwrite-confirmed registration path without prompting.
+When `--yes` is absent and an interactive terminal is available, the CLI SHALL prompt the operator before applying the destructive replacement.
+When `--yes` is absent and no interactive terminal is available, the CLI SHALL fail clearly before destructive replacement and direct the operator to rerun with `--yes` or choose a non-destructive registration mode.
+If the operator declines the overwrite prompt, the command SHALL abort without replacing the existing durable mailbox state.
+The CLI SHALL preserve the established `safe`, `force`, and `stash` registration-mode vocabulary; this change SHALL NOT reinterpret `stash` as an automatic fallback for overwrite conflicts.
 
 #### Scenario: Operator registers an in-root mailbox address safely
 - **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
+- **AND WHEN** no destructive replacement is required
 - **THEN** the command creates or reuses the active in-root mailbox registration for that address using safe registration semantics
+- **AND THEN** the result reports the resulting active registration identity
+
+#### Scenario: Operator confirms overwrite after a safe registration conflict
+- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
+- **AND WHEN** the default safe registration flow detects a replaceable conflict for that mailbox address
+- **AND WHEN** an interactive terminal is available
+- **AND WHEN** the operator confirms overwrite
+- **THEN** the command applies destructive replacement semantics for that request
+- **AND THEN** the result reports the resulting active registration identity
+
+#### Scenario: Operator declines overwrite after a safe registration conflict
+- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
+- **AND WHEN** the default safe registration flow detects a replaceable conflict for that mailbox address
+- **AND WHEN** an interactive terminal is available
+- **AND WHEN** the operator declines overwrite
+- **THEN** the command aborts
+- **AND THEN** the existing mailbox state remains unchanged
+
+#### Scenario: Non-interactive conflict without yes fails before replacement
+- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
+- **AND WHEN** the requested registration path would replace existing durable mailbox state
+- **AND WHEN** no interactive terminal is available
+- **AND WHEN** `--yes` is not present
+- **THEN** the command fails clearly before destructive replacement
+- **AND THEN** the existing mailbox state remains unchanged
+
+#### Scenario: Yes skips overwrite prompt
+- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice --yes`
+- **AND WHEN** the requested registration path would replace existing durable mailbox state
+- **THEN** the command applies the overwrite-confirmed registration path without prompting
 - **AND THEN** the result reports the resulting active registration identity
 
 #### Scenario: Operator unregisters a mailbox address without deleting canonical history
@@ -94,7 +181,7 @@ The repair flow SHALL use the filesystem mailbox repair contract and SHALL repor
 The effective mailbox root SHALL resolve from:
 
 1. explicit `--mailbox-root`,
-2. `AGENTSYS_GLOBAL_MAILBOX_DIR`,
+2. `HOUMAO_GLOBAL_MAILBOX_DIR`,
 3. the default shared mailbox root.
 
 The command SHALL operate only on registrations whose status is `inactive` or `stashed`.
@@ -124,4 +211,41 @@ The command SHALL accept `--dry-run`. In dry-run mode, it SHALL report matching 
 - **AND WHEN** the mailbox root still contains an active registration for one mailbox address
 - **THEN** the command preserves that active registration
 - **AND THEN** the cleanup result does not report the active mailbox as removed
+
+### Requirement: `houmao-mgr mailbox` resolves mailbox roots project-aware by default
+When a generic `houmao-mgr mailbox ...` command runs without an explicit `--mailbox-root` and without `HOUMAO_GLOBAL_MAILBOX_DIR`, the effective mailbox root SHALL resolve project-aware from the active project overlay as `<active-overlay>/mailbox`.
+
+When no active project overlay exists and the command requires local mailbox state, the command SHALL ensure `<cwd>/.houmao` exists and use `<cwd>/.houmao/mailbox` as the resulting default mailbox root.
+
+#### Scenario: Generic mailbox command uses the overlay-local mailbox root
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr mailbox status` without `--mailbox-root`
+- **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
+- **THEN** the command targets `/repo/.houmao/mailbox`
+- **AND THEN** it does not fall back to a shared mailbox root under `~/.houmao/`
+
+#### Scenario: Generic mailbox command bootstraps the missing overlay when mailbox state is needed
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs `houmao-mgr mailbox init` without `--mailbox-root`
+- **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
+- **THEN** the command ensures `<cwd>/.houmao` exists
+- **AND THEN** it bootstraps `<cwd>/.houmao/mailbox` as the effective mailbox root
+
+### Requirement: Generic mailbox help and rootless results describe project-aware mailbox selection
+Maintained `houmao-mgr mailbox ...` help text and rootless result wording SHALL distinguish between an active project mailbox root and an explicit shared mailbox-root override.
+
+When no explicit mailbox-root override wins and project context is active, operator-facing wording SHALL describe the resolved mailbox scope as the active project mailbox root.
+
+When `--mailbox-root` or `HOUMAO_GLOBAL_MAILBOX_DIR` wins, operator-facing wording SHALL describe that scope as an explicit mailbox-root selection or shared mailbox-root override rather than as the active project mailbox root.
+
+#### Scenario: Mailbox help text describes the active project mailbox root fallback
+- **WHEN** an operator runs `houmao-mgr mailbox --help` or inspects a mailbox subcommand help page with `--mailbox-root`
+- **THEN** the help output explains that rootless mailbox commands may default to the active project mailbox root
+- **AND THEN** it does not present the shared mailbox root as the only maintained default
+
+#### Scenario: Rootless mailbox bootstrap surfaces project-aware selection
+- **WHEN** an operator runs a maintained rootless mailbox command in project context without `--mailbox-root`
+- **AND WHEN** that invocation resolves mailbox state from the selected project overlay
+- **THEN** the operator-facing result describes the resolved mailbox scope as the active project mailbox root
+- **AND THEN** it does not describe that resolution as though the command had targeted an explicit shared mailbox-root override
 

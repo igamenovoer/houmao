@@ -10,7 +10,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 
-OperatorPromptMode = Literal["interactive", "unattended"]
+OperatorPromptMode = Literal["as_is", "unattended"]
 LaunchSurface = Literal[
     "raw_launch",
     "codex_headless",

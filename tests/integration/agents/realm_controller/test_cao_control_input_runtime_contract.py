@@ -51,7 +51,7 @@ def _sample_launch_plan(tmp_path: Path) -> LaunchPlan:
 def _resume_state(tmp_path: Path, *, tmux_window_name: str | None) -> CaoSessionState:
     return CaoSessionState(
         api_base_url="http://localhost:9889",
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         terminal_id="term-123",
         profile_name="runtime-profile",
         profile_path=str(tmp_path / "runtime-profile.md"),
@@ -152,13 +152,13 @@ def test_cao_control_input_falls_back_to_live_terminal_metadata(
                 id=terminal_id,
                 name="developer-7",
                 provider="codex",
-                session_name="AGENTSYS-gpu",
+                session_name="HOUMAO-gpu",
                 agent_profile="runtime-profile",
                 status="idle",
             )
 
     def _fake_list_tmux_windows(*, session_name: str) -> list[object]:
-        assert session_name == "AGENTSYS-gpu"
+        assert session_name == "HOUMAO-gpu"
         list_windows_call_count["count"] += 1
         if list_windows_call_count["count"] == 1:
             return [
@@ -238,7 +238,7 @@ def test_cao_control_input_returns_explicit_error_when_target_is_unresolved(
                 id=terminal_id,
                 name="developer-9",
                 provider="codex",
-                session_name="AGENTSYS-gpu",
+                session_name="HOUMAO-gpu",
                 agent_profile="runtime-profile",
                 status="idle",
             )
@@ -290,7 +290,7 @@ def test_cao_control_input_appends_managed_event_for_active_terminal_recorder(
             repo_root=str(tmp_path),
             run_root=str(run_root),
             target=TerminalRecordTarget(
-                session_name="AGENTSYS-gpu",
+                session_name="HOUMAO-gpu",
                 pane_id="%1",
                 window_id="@2",
                 window_name="developer-1",
@@ -319,7 +319,7 @@ def test_cao_control_input_appends_managed_event_for_active_terminal_recorder(
             run_root=str(run_root),
             manifest_path=str(paths.manifest_path),
             controller_pid=4321,
-            target_session_name="AGENTSYS-gpu",
+            target_session_name="HOUMAO-gpu",
             target_pane_id="%1",
             stop_requested_at_utc=None,
             last_error=None,

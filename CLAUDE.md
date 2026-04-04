@@ -41,7 +41,7 @@ python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 ### Two-Phase Lifecycle
 
-1. **Build phase** (`build-brain`): A `BrainRecipe` (tool + skills + config/credential profiles) is resolved against an **agent definition directory** via a `ToolAdapter`. The `BrainBuilder` materializes a **runtime home** on disk with projected configs, skills, and credentials, then emits a `BrainManifest`.
+1. **Build phase** (`build-brain`): An `AgentPreset` (role + tool + skills + setup/auth bundles) is resolved against an **agent definition directory** via a `ToolAdapter`. The `BrainBuilder` materializes a **runtime home** on disk with projected configs, skills, and credentials, then emits a `BrainManifest`.
 
 2. **Run phase** (`start-session` / `send-prompt` / `stop-session`): The session driver takes the manifest + a role (system prompt package), builds a `LaunchPlan`, and dispatches to the chosen backend.
 
@@ -69,17 +69,20 @@ The `BackendKind` literal type in `models.py` is the canonical list. New backend
 
 ### Agent Definition Directory
 
-Default location: `.agentsys/agents/` (override with `AGENTSYS_AGENT_DEF_DIR`). Template to copy: `tests/fixtures/agents/`.
+Default location: `.houmao/agents/` (override with `HOUMAO_AGENT_DEF_DIR`). Template to copy: `tests/fixtures/agents/`.
 
 ```
-brains/
-  tool-adapters/<tool>.yaml      # per-tool build & launch contract (REQUIRED)
-  skills/<name>/SKILL.md         # reusable capability modules (REQUIRED per recipe)
-  cli-configs/<tool>/<profile>/  # secret-free tool config files (REQUIRED per recipe)
-  api-creds/<tool>/<profile>/    # local-only credentials — gitignored (REQUIRED per recipe)
-  brain-recipes/<tool>/*.yaml    # declarative presets: tool + skills + profiles (recommended)
-roles/<role>/system-prompt.md    # role prompt packages (REQUIRED)
-blueprints/*.yaml                # recipe+role bindings (recommended)
+tools/
+  <tool>/
+    adapter.yaml                   # per-tool build & launch contract (REQUIRED)
+    setups/<setup>/                # secret-free tool config files (REQUIRED per preset)
+    auth/<auth>/                   # local-only credentials — gitignored (REQUIRED per preset)
+roles/
+  <role>/
+    system-prompt.md               # role prompt packages (REQUIRED)
+    presets/<tool>/<setup>.yaml    # path-derived presets: skills + auth + launch (recommended)
+skills/
+  <name>/SKILL.md                  # reusable capability modules (REQUIRED per preset)
 ```
 
 ## Key Conventions
@@ -88,7 +91,7 @@ blueprints/*.yaml                # recipe+role bindings (recommended)
 - **Pydantic v2** for validated models; `@dataclass(frozen=True)` for internal value objects.
 - **Ruff** for formatting and linting (line length 100). Run `pixi run format && pixi run lint` before committing.
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `chore:` prefixes. Keep commits focused and imperative.
-- Credential files (`api-creds/`, `*.env`, `auth.json`, `credentials.json`) must never be committed — excluded in `pyproject.toml` and `.gitignore`.
+- Credential files (`auth/`, `*.env`, `auth.json`, `credentials.json`) must never be committed — excluded in `pyproject.toml` and `.gitignore`.
 - Tests: `tests/unit/**/test_*.py`, `tests/integration/**/test_*.py`, `tests/manual/manual_*.py`. Add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
 - PRs should include: concise problem/solution summary, linked issue/spec (for behavior changes), test evidence (commands run + results), docs updates when CLI behavior or workflows change.
 

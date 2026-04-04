@@ -42,7 +42,7 @@ from houmao.terminal_record.service import (
 
 def _target() -> TerminalRecordTarget:
     return TerminalRecordTarget(
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         pane_id="%1",
         window_id="@2",
         window_name="developer-1",
@@ -97,7 +97,7 @@ def _live_state(
         run_root=str(run_root),
         manifest_path=str(paths.manifest_path),
         controller_pid=None,
-        target_session_name="AGENTSYS-gpu",
+        target_session_name="HOUMAO-gpu",
         target_pane_id="%1",
         stop_requested_at_utc=None,
         last_error=None,
@@ -149,7 +149,7 @@ def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
     )
 
     with pytest.raises(TerminalRecordError, match="multiple panes; provide --target-pane"):
-        resolve_terminal_record_target(target_session="AGENTSYS-gpu", target_pane=None)
+        resolve_terminal_record_target(target_session="HOUMAO-gpu", target_pane=None)
 
 
 def test_resolve_terminal_record_target_accepts_explicit_pane_in_non_current_window(
@@ -181,10 +181,10 @@ def test_resolve_terminal_record_target_accepts_explicit_pane_in_non_current_win
         ),
     )
 
-    target = resolve_terminal_record_target(target_session="AGENTSYS-gpu", target_pane="%9")
+    target = resolve_terminal_record_target(target_session="HOUMAO-gpu", target_pane="%9")
 
     assert target == TerminalRecordTarget(
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         pane_id="%9",
         window_id="@9",
         window_name="gateway",
@@ -252,7 +252,7 @@ def test_start_terminal_record_persists_manifest_and_attach_command(
 
     result = start_terminal_record(
         mode="active",
-        target_session="AGENTSYS-gpu",
+        target_session="HOUMAO-gpu",
         target_pane=None,
         tool="codex",
         run_root=run_root,
@@ -379,12 +379,12 @@ def test_build_recorder_shell_command_changes_by_mode(tmp_path: Path) -> None:
 
     assert "pixi run asciinema record" in active_command
     assert "--capture-input" in active_command
-    assert "attach-session -d -t AGENTSYS-gpu" in active_command
+    assert "attach-session -d -t HOUMAO-gpu" in active_command
     assert "select-pane -t %1" in active_command
 
     assert "pixi run asciinema record" in passive_command
     assert "--capture-input" not in passive_command
-    assert "attach-session -r -t AGENTSYS-gpu" in passive_command
+    assert "attach-session -r -t HOUMAO-gpu" in passive_command
 
 
 def test_capture_snapshot_appends_incrementing_samples(
@@ -433,7 +433,7 @@ def test_finalize_active_controller_updates_manifest_and_live_state(
     manifest = load_manifest(paths.manifest_path)
     live_state = load_live_state(paths.live_state_path)
 
-    assert calls == ["capture", "stop", "merge", "clear:AGENTSYS-gpu"]
+    assert calls == ["capture", "stop", "merge", "clear:HOUMAO-gpu"]
     assert manifest.stop_reason == "stop_requested"
     assert manifest.stopped_at_utc is not None
     assert live_state.status == "stopped"

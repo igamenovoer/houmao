@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayStatusV1,
@@ -24,6 +25,10 @@ from houmao.server.models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryResponse,
@@ -34,6 +39,8 @@ from houmao.server.models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -167,6 +174,33 @@ class PairAuthorityClientProtocol(Protocol):
     ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
         """Submit one managed-agent gateway request."""
 
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        """Submit one managed-agent gateway direct prompt-control request."""
+
+    def get_managed_agent_gateway_headless_control_state(
+        self,
+        agent_ref: str,
+    ) -> GatewayHeadlessControlStateV1:
+        """Return managed-agent gateway headless control state."""
+
+    def set_managed_agent_gateway_headless_next_prompt_session(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    ) -> GatewayHeadlessControlStateV1:
+        """Store a one-shot next-prompt override on the managed-agent gateway."""
+
+    def submit_managed_agent_gateway_internal_headless_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    ) -> CaoSuccessResponse:
+        """Submit one gateway-internal headless prompt directly through the pair authority."""
+
     def send_managed_agent_gateway_control_input(
         self,
         agent_ref: str,
@@ -199,6 +233,12 @@ class PairAuthorityClientProtocol(Protocol):
     ) -> HoumaoManagedAgentMailStatusResponse:
         """Return managed-agent mailbox status."""
 
+    def get_managed_agent_mail_resolve_live(
+        self,
+        agent_ref: str,
+    ) -> dict[str, object]:
+        """Return manifest-backed managed-agent mailbox discovery."""
+
     def check_managed_agent_mail(
         self,
         agent_ref: str,
@@ -219,6 +259,13 @@ class PairAuthorityClientProtocol(Protocol):
         request_model: HoumaoManagedAgentMailReplyRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Reply to managed-agent mail."""
+
+    def update_managed_agent_mail_state(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        """Update managed-agent mail state."""
 
     def submit_headless_turn(
         self,

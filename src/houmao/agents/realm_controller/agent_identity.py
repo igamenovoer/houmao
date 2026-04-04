@@ -13,7 +13,7 @@ Functions
 is_path_like_agent_identity
     Determine whether an identity should be treated as a manifest path.
 normalize_agent_identity_name
-    Normalize and validate legacy tmux/runtime identities into `AGENTSYS-...`.
+    Normalize and validate legacy tmux/runtime identities into `HOUMAO-...`.
 normalize_managed_agent_name
     Validate a managed-agent friendly name without adding a prefix.
 normalize_user_managed_agent_name
@@ -33,11 +33,11 @@ from dataclasses import dataclass
 
 from .errors import SessionManifestError
 
-AGENT_NAMESPACE_PREFIX = "AGENTSYS-"
-AGENT_RESERVED_TOKEN = "AGENTSYS"
-AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
-AGENT_MANIFEST_PATH_ENV_VAR = "AGENTSYS_MANIFEST_PATH"
-AGENT_ID_ENV_VAR = "AGENTSYS_AGENT_ID"
+AGENT_NAMESPACE_PREFIX = "HOUMAO-"
+AGENT_RESERVED_TOKEN = "HOUMAO"
+AGENT_DEF_DIR_ENV_VAR = "HOUMAO_AGENT_DEF_DIR"
+AGENT_MANIFEST_PATH_ENV_VAR = "HOUMAO_MANIFEST_PATH"
+AGENT_ID_ENV_VAR = "HOUMAO_AGENT_ID"
 AGENT_ID_HEXDIGEST_LENGTH = 32
 SAFE_MANAGED_AGENT_COMPONENT_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
 SAFE_MANAGED_AGENT_COMPONENT_DESCRIPTION = (
@@ -45,9 +45,9 @@ SAFE_MANAGED_AGENT_COMPONENT_DESCRIPTION = (
 )
 
 _ALLOWED_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-_LEADING_RESERVED_MANAGED_AGENT_PREFIX_RE = re.compile(r"^agentsys(?=[^0-9A-Za-z])", re.IGNORECASE)
-_STANDALONE_RESERVED_TOKEN_RE = re.compile(r"(^|[^0-9A-Za-z])AGENTSYS($|[^0-9A-Za-z])")
-_INEXACT_AGENTSYS_RE = re.compile(r"agentsys", re.IGNORECASE)
+_LEADING_RESERVED_MANAGED_AGENT_PREFIX_RE = re.compile(r"^houmao(?=[^0-9A-Za-z])", re.IGNORECASE)
+_STANDALONE_RESERVED_TOKEN_RE = re.compile(r"(^|[^0-9A-Za-z])HOUMAO($|[^0-9A-Za-z])")
+_INEXACT_HOUMAO_RE = re.compile(r"houmao", re.IGNORECASE)
 _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _COLLAPSE_DASH_RE = re.compile(r"-{2,}")
 _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
@@ -61,9 +61,9 @@ class AgentIdentityNormalization:
     Parameters
     ----------
     canonical_name:
-        Canonical tmux session identity (always `AGENTSYS-...`).
+        Canonical tmux session identity (always `HOUMAO-...`).
     name_portion:
-        Name portion after stripping an optional exact `AGENTSYS-` prefix.
+        Name portion after stripping an optional exact `HOUMAO-` prefix.
     warnings:
         Non-fatal warnings produced during normalization.
     """
@@ -113,15 +113,15 @@ def normalize_agent_identity_name(value: str) -> AgentIdentityNormalization:
         raise SessionManifestError("Agent identity must not be blank")
     if value == AGENT_RESERVED_TOKEN:
         raise SessionManifestError(
-            "Agent identity `AGENTSYS` is reserved; choose a different name."
+            "Agent identity `HOUMAO` is reserved; choose a different name."
         )
 
     warnings: list[str] = []
     has_exact_prefix = value.startswith(AGENT_NAMESPACE_PREFIX)
-    if not has_exact_prefix and _INEXACT_AGENTSYS_RE.search(value):
+    if not has_exact_prefix and _INEXACT_HOUMAO_RE.search(value):
         warnings.append(
-            "Agent identity contains `AGENTSYS` but does not start with exact "
-            "`AGENTSYS-`; treating it as missing the namespace prefix."
+            "Agent identity contains `HOUMAO` but does not start with exact "
+            "`HOUMAO-`; treating it as missing the namespace prefix."
         )
 
     name_portion = value[len(AGENT_NAMESPACE_PREFIX) :] if has_exact_prefix else value
@@ -144,15 +144,15 @@ def normalize_managed_agent_name(value: str) -> str:
 def normalize_user_managed_agent_name(value: str) -> str:
     """Validate one raw user-provided managed-agent name.
 
-    This stricter variant reserves the leading `AGENTSYS<separator>` namespace
+    This stricter variant reserves the leading `HOUMAO<separator>` namespace
     for runtime canonicalization and operator-facing tmux session handles.
     """
 
     normalized = normalize_managed_agent_name(value)
     if _LEADING_RESERVED_MANAGED_AGENT_PREFIX_RE.search(normalized):
         raise SessionManifestError(
-            "Managed-agent names must not begin with reserved `AGENTSYS` plus a separator. "
-            "Use the raw creation-time name without the `AGENTSYS-` prefix."
+            "Managed-agent names must not begin with reserved `HOUMAO` plus a separator. "
+            "Use the raw creation-time name without the `HOUMAO-` prefix."
         )
     return normalized
 
@@ -262,7 +262,7 @@ def _validate_agent_name_portion(name_portion: str) -> None:
 
     if not name_portion:
         raise SessionManifestError(
-            "Agent identity name portion must not be empty after `AGENTSYS-`."
+            "Agent identity name portion must not be empty after `HOUMAO-`."
         )
     if not _ALLOWED_AGENT_NAME_RE.fullmatch(name_portion):
         raise SessionManifestError(
@@ -272,7 +272,7 @@ def _validate_agent_name_portion(name_portion: str) -> None:
         )
     if _STANDALONE_RESERVED_TOKEN_RE.search(name_portion):
         raise SessionManifestError(
-            "Invalid agent identity name portion: standalone token `AGENTSYS` is reserved."
+            "Invalid agent identity name portion: standalone token `HOUMAO` is reserved."
         )
 
 

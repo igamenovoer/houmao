@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import click
@@ -13,11 +12,18 @@ from houmao.agents.brain_builder import (
     load_brain_recipe,
     load_launch_overrides_input,
 )
-from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_materialized_project_aware_agent_def_dir,
+    resolve_project_aware_runtime_root,
+)
 
-from .common import emit_json
-
-_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
+from .output import emit
+from .project_aware_wording import (
+    describe_overlay_bootstrap,
+    describe_overlay_root_selection_source,
+    describe_runtime_root_selection,
+)
 
 
 @click.group(name="brains")
@@ -29,9 +35,12 @@ def brains_group() -> None:
 @click.option("--agent-def-dir", default=None, help="Agent-definition root to build from.")
 @click.option("--tool", default=None, help="Tool identifier used by the selected adapter.")
 @click.option("--skill", "skills", multiple=True, help="Skill path or name to project.")
-@click.option("--config-profile", default=None, help="Config profile to materialize.")
-@click.option("--cred-profile", default=None, help="Credential profile to project.")
-@click.option("--recipe", default=None, help="Brain recipe path resolved from the agent root.")
+@click.option("--setup", default=None, help="Setup bundle to materialize.")
+@click.option("--config-profile", "setup", default=None, hidden=True)
+@click.option("--auth", default=None, help="Auth bundle to project.")
+@click.option("--cred-profile", "auth", default=None, hidden=True)
+@click.option("--preset", default=None, help="Preset path resolved from the agent root.")
+@click.option("--recipe", "preset", default=None, hidden=True)
 @click.option(
     "--runtime-root",
     default=None,
@@ -62,9 +71,9 @@ def build_brain_command(
     agent_def_dir: str | None,
     tool: str | None,
     skills: tuple[str, ...],
-    config_profile: str | None,
-    cred_profile: str | None,
-    recipe: str | None,
+    setup: str | None,
+    auth: str | None,
+    preset: str | None,
     runtime_root: str | None,
     home_id: str | None,
     reuse_home: bool,
@@ -75,12 +84,18 @@ def build_brain_command(
     """Build one local brain home from `BuildRequest`-aligned inputs."""
 
     cwd = Path.cwd().resolve()
+    project_roots = ensure_project_aware_local_roots(cwd=cwd, cli_agent_def_dir=agent_def_dir)
     resolved_agent_def_dir = _resolve_agent_def_dir(agent_def_dir, cwd=cwd)
-    recipe_path: Path | None = None
-    recipe_payload = None
-    if recipe is not None:
-        recipe_path = _resolve_path(recipe, base=resolved_agent_def_dir)
-        recipe_payload = load_brain_recipe(recipe_path)
+    resolved_runtime_root = resolve_project_aware_runtime_root(
+        cwd=cwd,
+        explicit_root=runtime_root,
+        base=cwd,
+    )
+    preset_path: Path | None = None
+    preset_payload = None
+    if preset is not None:
+        preset_path = _resolve_path(preset, base=resolved_agent_def_dir)
+        preset_payload = load_brain_recipe(preset_path)
 
     direct_launch_overrides = (
         load_launch_overrides_input(
@@ -92,31 +107,27 @@ def build_brain_command(
         else None
     )
 
-    resolved_tool = tool or (recipe_payload.tool if recipe_payload is not None else None)
+    resolved_tool = tool or (preset_payload.tool if preset_payload is not None else None)
     resolved_skills = (
-        list(skills) if skills else (recipe_payload.skills if recipe_payload is not None else [])
+        list(skills) if skills else (preset_payload.skills if preset_payload is not None else [])
     )
-    resolved_config_profile = config_profile or (
-        recipe_payload.config_profile if recipe_payload is not None else None
-    )
-    resolved_cred_profile = cred_profile or (
-        recipe_payload.credential_profile if recipe_payload is not None else None
-    )
+    resolved_setup = setup or (preset_payload.setup if preset_payload is not None else None)
+    resolved_auth = auth or (preset_payload.auth if preset_payload is not None else None)
 
     missing: list[str] = []
     if resolved_tool is None:
         missing.append("--tool")
     if not resolved_skills:
         missing.append("--skill")
-    if resolved_config_profile is None:
-        missing.append("--config-profile")
-    if resolved_cred_profile is None:
-        missing.append("--cred-profile")
+    if resolved_setup is None:
+        missing.append("--setup")
+    if resolved_auth is None:
+        missing.append("--auth")
     if missing:
         raise click.ClickException(f"Missing required build inputs: {', '.join(missing)}")
     assert resolved_tool is not None
-    assert resolved_config_profile is not None
-    assert resolved_cred_profile is not None
+    assert resolved_setup is not None
+    assert resolved_auth is not None
 
     try:
         result = build_brain_home(
@@ -124,34 +135,48 @@ def build_brain_command(
                 agent_def_dir=resolved_agent_def_dir,
                 tool=resolved_tool,
                 skills=[str(item) for item in resolved_skills],
-                config_profile=resolved_config_profile,
-                credential_profile=resolved_cred_profile,
-                recipe_path=recipe_path,
-                recipe_launch_overrides=(
-                    recipe_payload.launch_overrides if recipe_payload is not None else None
+                setup=resolved_setup,
+                auth=resolved_auth,
+                preset_path=preset_path,
+                preset_launch_overrides=(
+                    preset_payload.launch_overrides if preset_payload is not None else None
                 ),
-                runtime_root=_optional_path(runtime_root, base=cwd),
-                mailbox=recipe_payload.mailbox if recipe_payload is not None else None,
-                agent_name=agent_name
-                or (recipe_payload.default_agent_name if recipe_payload is not None else None),
+                runtime_root=resolved_runtime_root,
+                mailbox=preset_payload.mailbox if preset_payload is not None else None,
+                extra=preset_payload.extra if preset_payload is not None else None,
+                agent_name=agent_name,
                 agent_id=agent_id,
                 home_id=home_id,
                 reuse_home=reuse_home,
                 launch_overrides=direct_launch_overrides,
                 operator_prompt_mode=(
-                    recipe_payload.operator_prompt_mode if recipe_payload is not None else None
+                    preset_payload.operator_prompt_mode if preset_payload is not None else None
+                ),
+                persistent_env_records=(
+                    preset_payload.launch_env_records if preset_payload is not None else None
                 ),
             )
         )
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
-    emit_json(
+    emit(
         {
             "home_id": result.home_id,
             "home_path": str(result.home_path),
             "launch_helper_path": str(result.launch_helper_path),
             "manifest_path": str(result.manifest_path),
+            "runtime_root": str(resolved_runtime_root),
+            "runtime_root_detail": describe_runtime_root_selection(explicit_root=runtime_root),
+            "project_overlay_bootstrapped": project_roots.created_overlay,
+            "overlay_root": str(project_roots.overlay_root),
+            "overlay_root_detail": describe_overlay_root_selection_source(
+                overlay_root_source=project_roots.overlay_root_source,
+                overlay_discovery_mode=project_roots.overlay_discovery_mode,
+            ),
+            "overlay_bootstrap_detail": describe_overlay_bootstrap(
+                created_overlay=project_roots.created_overlay
+            ),
         }
     )
 
@@ -167,14 +192,10 @@ def _optional_path(value: str | None, *, base: Path) -> Path | None:
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
     """Resolve the agent-definition root used for local brain construction."""
 
-    if cli_value is not None:
-        return _resolve_path(cli_value, base=cwd)
-
-    env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
-    if env_value:
-        return _resolve_path(env_value, base=cwd)
-
-    return (cwd / _DEFAULT_AGENT_DEF_DIR).resolve()
+    try:
+        return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _resolve_path(value: str, *, base: Path) -> Path:

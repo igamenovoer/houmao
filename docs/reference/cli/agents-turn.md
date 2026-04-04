@@ -23,7 +23,7 @@ houmao-mgr agents turn submit [OPTIONS]
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
 | `--port INTEGER` | Houmao pair authority port to use. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `AGENTSYS-` prefix. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 ### `status`
 
@@ -45,10 +45,33 @@ houmao-mgr agents turn status [OPTIONS] TURN_ID
 
 ### `events`
 
-Show structured events for one managed headless turn.
+Replay canonical managed headless turn events for one managed headless turn.
 
 ```
 houmao-mgr agents turn events [OPTIONS] TURN_ID
+```
+
+This command replays Houmao's canonical semantic event stream for the turn instead of dumping raw provider stdout. It honors the root `--print-plain`, `--print-json`, and `--print-fancy` selection and defaults to `plain + concise`.
+
+Use `--detail detail` when you need provider provenance and raw canonical event context. Use `stdout` or `stderr` when you need the exact durable provider artifacts.
+
+| Argument | Description |
+|---|---|
+| `TURN_ID` | Identifier of the turn to inspect. |
+
+| Option | Description |
+|---|---|
+| `--port INTEGER` | Houmao pair authority port to use. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+| `--detail [concise\|detail]` | Canonical replay detail level. `concise` renders the stable answer/action/completion summary; `detail` includes extra structured provenance. |
+
+### `stdout`
+
+Print the raw persisted stdout artifact for one managed headless turn.
+
+```
+houmao-mgr agents turn stdout [OPTIONS] TURN_ID
 ```
 
 | Argument | Description |
@@ -61,13 +84,7 @@ houmao-mgr agents turn events [OPTIONS] TURN_ID
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
-### `stdout`
-
-Print the raw persisted stdout artifact for one managed headless turn.
-
-```
-houmao-mgr agents turn stdout [OPTIONS] TURN_ID
-```
+This route stays raw on purpose. It returns the provider-owned stdout artifact and does not substitute canonical semantic JSON or replayed human rendering.
 
 ### `stderr`
 
@@ -76,6 +93,18 @@ Print the raw persisted stderr artifact for one managed headless turn.
 ```
 houmao-mgr agents turn stderr [OPTIONS] TURN_ID
 ```
+
+| Argument | Description |
+|---|---|
+| `TURN_ID` | Identifier of the turn to inspect. |
+
+| Option | Description |
+|---|---|
+| `--port INTEGER` | Houmao pair authority port to use. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+Like `stdout`, this command remains a raw durable-artifact inspection surface rather than a canonical event renderer.
 
 ## See Also
 

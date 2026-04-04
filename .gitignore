@@ -26,6 +26,8 @@ MANIFEST
 *.env
 *credentials*
 *api_key*
+!openspec/
+!openspec/**
 
 # Editor / OS
 .DS_Store
@@ -48,7 +50,6 @@ tmp/
 .shadow-repo/
 *.log
 .agent-run-logs/
-.agentsys/
 tmp/agents-runtime/
 tmp/cao-home/
 tmp/cao-server/
@@ -60,6 +61,18 @@ tmp/brains/
 .codex/
 .claude/
 .aws/cli-agent-orchestrator/
+
+# Repo auth bundles: ignore live credential material by default
+**/agents/tools/*/auth/**/env/*.env
+**/agents/tools/*/auth/**/files/auth.json
+**/agents/tools/*/auth/**/files/oauth_creds.json
+**/agents/tools/*/auth/**/files/credentials.json
+**/agents/tools/*/auth/**/files/.claude.json
+**/agents/brains/api-creds/**/env/*.env
+**/agents/brains/api-creds/**/files/auth.json
+**/agents/brains/api-creds/**/files/oauth_creds.json
+**/agents/brains/api-creds/**/files/credentials.json
+**/agents/brains/api-creds/**/files/.claude.json
 
 # Generated docs
 site/
@@ -73,5 +86,6 @@ site/
 .agent-automation/hacktest/
 
 .agent-automation/impl-branches/
+.agent-automation/merge-backups/
 .git/
 scripts/demo/mail-ping-pong-gateway-demo-pack/outputs/

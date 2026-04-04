@@ -1,8 +1,0 @@
-{
-  "case_id": "codex_explicit_success",
-  "description": "Drive Codex through one simple explicit-input success turn.",
-  "observed_version": "codex-cli 0.116.0",
-  "schema_version": 1,
-  "settle_seconds": 1.0,
-  "tool": "codex"
-}

@@ -15,10 +15,10 @@ That distinction is why some failures collapse into “stale” while others sti
 
 Registry-facing input accepts either:
 
-- canonical `AGENTSYS-gpu`, or
+- canonical `HOUMAO-gpu`, or
 - unprefixed `gpu`.
 
-The runtime canonicalizes both to `AGENTSYS-gpu` before:
+The runtime canonicalizes both to `HOUMAO-gpu` before:
 
 - reading a record,
 - publishing a record,

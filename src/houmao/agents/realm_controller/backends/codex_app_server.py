@@ -190,7 +190,10 @@ class CodexAppServerSession:
             return
 
         params: dict[str, Any] = {}
-        if self._plan.role_injection.method == "native_developer_instructions":
+        if (
+            self._plan.role_injection.method == "native_developer_instructions"
+            and self._plan.role_injection.prompt
+        ):
             params["developer_instructions"] = self._plan.role_injection.prompt
 
         response = self._rpc_request(

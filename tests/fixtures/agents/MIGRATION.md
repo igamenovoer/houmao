@@ -1,28 +1,33 @@
-# Migration: Legacy Agent Homes to Runtime Homes
+# Migration: Simplified Agent Definition Model
 
-Migration is complete. Legacy `agents/gpu_*` profile directories have been removed.
+The tracked fixture tree now uses the simplified source model:
 
-Legacy users may still have per-agent homes under paths like:
+1. `agents/skills/<skill>/`
+2. `agents/tools/<tool>/adapter.yaml`
+3. `agents/tools/<tool>/setups/<setup>/`
+4. `agents/tools/<tool>/auth/<auth>/`
+5. `agents/roles/<role>/system-prompt.md`
+6. `agents/roles/<role>/presets/<tool>/<setup>.yaml`
 
-- `agents/<agent>/homes/codex/`
-- `agents/<agent>/homes/claude/`
-- `agents/<agent>/homes/gemini/`
+## What Changed
 
-The new model builds homes under a configurable runtime root:
-
-- `<runtime_root>/homes/<tool>/<home-id>/`
-- default: `tmp/agents-runtime/homes/<tool>/<home-id>/`
+- `brains/cli-configs/<tool>/<profile>/...` became `tools/<tool>/setups/<setup>/...`
+- `brains/api-creds/<tool>/<profile>/...` became `tools/<tool>/auth/<auth>/...`
+- `brains/brain-recipes/<tool>/<name>.yaml` became `roles/<role>/presets/<tool>/<setup>.yaml`
+- preset identity is now path-derived, so tracked preset YAML no longer needs `name`, `tool`, or `default_agent_name`
+- `blueprints/` are no longer the canonical reusable launch layer
+- the tracked `brains/` and `blueprints/` mirrors have been removed from the supported fixture tree
 
 ## Current Workflow
 
-1. Move prompts/behavior to `agents/roles/<role>/system-prompt.md`.
-2. Define a brain recipe in `agents/brains/brain-recipes/<tool>/...`.
-3. Build with `scripts/agents/build_brain_home.py`.
-4. Launch via `<runtime_root>/homes/<tool>/<home-id>/launch.sh`.
+1. Put behavior in `agents/roles/<role>/system-prompt.md`.
+2. Define reusable launch variants in `agents/roles/<role>/presets/<tool>/<setup>.yaml`.
+3. Build with `houmao-mgr brains build --preset ...` or explicit `--tool --setup --auth --skill`.
+4. Launch with `houmao-mgr agents launch --agents <role> --provider <provider>`.
 
-## Credential Notes
+## Auth Notes
 
-- Place secrets only under `agents/brains/api-creds/<tool>/<cred-profile>/`.
-- Recipes pick credential profiles by name, and blueprints inherit that choice through the selected recipe.
-- Concurrent runs may reuse the same credential profile when the provider/tool allows shared API-key or token usage.
-- If you need a separate rate-limit lane or the provider enforces session limits, rotate by creating a new `<cred-profile>` and updating the affected recipes/blueprints.
+- Keep secrets only under `agents/tools/<tool>/auth/<auth>/`.
+- Presets choose a default auth bundle by name, and operators may override it at launch time with `--auth`.
+- Concurrent runs may reuse the same auth bundle when the provider/tool allows it.
+- If you need a separate rate-limit lane, create a new auth bundle and update the affected preset or launch command.

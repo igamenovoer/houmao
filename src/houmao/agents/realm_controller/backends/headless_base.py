@@ -15,12 +15,18 @@ from ..errors import BackendExecutionError
 from ..models import (
     BackendKind,
     HeadlessResumeSelectionKind,
+    HeadlessTurnSessionSelection,
     LaunchPlan,
     SessionControlResult,
     SessionEvent,
 )
 from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
 from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
+from .headless_output import (
+    resolve_headless_display_detail,
+    resolve_headless_display_style,
+    resolve_headless_provider,
+)
 from .headless_runner import HeadlessCliRunner
 from .tmux_runtime import (
     TmuxCommandError,
@@ -86,6 +92,16 @@ class HeadlessInteractiveSession:
         )
         self._runner = HeadlessCliRunner()
         self._output_format = output_format
+        self._provider = resolve_headless_provider(
+            tool=launch_plan.tool,
+            backend=backend,
+        )
+        self._display_style = resolve_headless_display_style(
+            launch_plan.metadata.get("headless_display_style")
+        )
+        self._display_detail = resolve_headless_display_detail(
+            launch_plan.metadata.get("headless_display_detail")
+        )
         self._session_manifest_path = session_manifest_path.resolve()
         self._agent_def_dir = agent_def_dir.resolve() if agent_def_dir is not None else None
         self._turn_artifacts_root = (
@@ -116,6 +132,7 @@ class HeadlessInteractiveSession:
         prompt: str,
         *,
         turn_artifact_dir_name: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
     ) -> list[SessionEvent]:
         """Send one prompt turn to the headless backend."""
 
@@ -124,7 +141,10 @@ class HeadlessInteractiveSession:
 
         session_name = self._require_tmux_session_name()
         turn_index = self._state.turn_index + 1
-        command, input_prompt = self._build_command(prompt=prompt)
+        command, input_prompt = self._build_command(
+            prompt=prompt,
+            session_selection=session_selection,
+        )
         env = os.environ.copy()
         env.update(self._plan.env)
         env[self._plan.home_env_var] = str(self._plan.home_path)
@@ -136,6 +156,9 @@ class HeadlessInteractiveSession:
             "cwd": self._plan.working_directory,
             "turn_index": turn_index,
             "output_format": self._output_format,
+            "provider": self._provider,
+            "display_style": self._display_style,
+            "display_detail": self._display_detail,
             "tmux_session_name": session_name,
             "turn_artifacts_root": self._turn_artifacts_root,
         }
@@ -175,6 +198,9 @@ class HeadlessInteractiveSession:
                     else None,
                     "stderr_path": str(run_result.stderr_path)
                     if run_result.stderr_path is not None
+                    else None,
+                    "canonical_path": str(run_result.canonical_path)
+                    if run_result.canonical_path is not None
                     else None,
                     "completion_source": run_result.completion_source,
                 },
@@ -234,6 +260,16 @@ class HeadlessInteractiveSession:
         """Replace the launch plan and republish tmux session environment."""
 
         self._plan = launch_plan
+        self._provider = resolve_headless_provider(
+            tool=launch_plan.tool,
+            backend=self.backend,
+        )
+        self._display_style = resolve_headless_display_style(
+            launch_plan.metadata.get("headless_display_style")
+        )
+        self._display_detail = resolve_headless_display_detail(
+            launch_plan.metadata.get("headless_display_detail")
+        )
         self._publish_tmux_session_environment()
 
     def relaunch(self) -> SessionControlResult:
@@ -272,13 +308,32 @@ class HeadlessInteractiveSession:
             ),
         )
 
-    def _build_command(self, *, prompt: str) -> tuple[list[str], str]:
+    def _build_command(
+        self,
+        *,
+        prompt: str,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args]
         if not self._uses_joined_operator_launch_args():
             command.extend(self._base_command_args())
         effective_prompt = prompt
 
-        if self._state.session_id:
+        if session_selection is not None:
+            if session_selection.mode == "exact":
+                assert session_selection.session_id is not None
+                command.extend(self._resume_args(session_selection.session_id))
+            elif session_selection.mode == "tool_last_or_new":
+                latest_resume_args = self._latest_resume_args()
+                if latest_resume_args:
+                    command.extend(latest_resume_args)
+                else:
+                    command.extend(self._bootstrap_args())
+                    effective_prompt = self._bootstrap_prompt(prompt)
+            else:
+                command.extend(self._bootstrap_args())
+                effective_prompt = self._bootstrap_prompt(prompt)
+        elif self._state.session_id:
             command.extend(self._resume_args(self._state.session_id))
         else:
             resume_selector_args = self._initial_resume_selector_args()
@@ -394,9 +449,9 @@ class HeadlessInteractiveSession:
         launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
         if self._agent_def_dir is not None:
             launch_env[AGENT_DEF_DIR_ENV_VAR] = str(self._agent_def_dir)
-        launch_env["AGENTSYS_TOOL"] = self._plan.tool
+        launch_env["HOUMAO_TOOL"] = self._plan.tool
         if self._state.session_id:
-            launch_env["AGENTSYS_RESUME_ID"] = self._state.session_id
+            launch_env["HOUMAO_RESUME_ID"] = self._state.session_id
 
         try:
             set_tmux_session_environment_shared(

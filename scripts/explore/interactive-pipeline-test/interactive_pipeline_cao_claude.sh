@@ -4,11 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-# Hard-coded brain selection defaults for easy invocation.
+# Hard-coded preset-backed selection defaults for easy invocation.
 DEFAULT_TOOL="claude"
 DEFAULT_SKILL="openspec-apply-change"
-DEFAULT_CONFIG_PROFILE="default"
-DEFAULT_CRED_PROFILE="personal-a-default"
+DEFAULT_SETUP="default"
+DEFAULT_AUTH="personal-a-default"
 DEFAULT_ROLE="gpu-kernel-coder"
 
 usage() {
@@ -33,8 +33,8 @@ Notes:
   - Brain selection is hard-coded for convenience:
       tool=claude
       skill=openspec-apply-change
-      config-profile=default
-      cred-profile=personal-a-default
+      setup=default
+      auth=personal-a-default
       role=gpu-kernel-coder
   - If ANTHROPIC_MODEL is unset, this script sets ANTHROPIC_MODEL=opus.
   - Supported local launcher-managed CAO URLs use http://localhost:<port> or http://127.0.0.1:<port>.
@@ -174,7 +174,7 @@ CAO_BASE_URL_ARG="${CAO_BASE_URL_ARG%/}"
 command -v pixi >/dev/null 2>&1 || fail "pixi not found on PATH"
 command -v tmux >/dev/null 2>&1 || fail "tmux not found on PATH"
 
-CRED_ENV_FILE="$AGENT_DEF_DIR/brains/api-creds/claude/$DEFAULT_CRED_PROFILE/env/vars.env"
+CRED_ENV_FILE="$AGENT_DEF_DIR/tools/claude/auth/$DEFAULT_AUTH/env/vars.env"
 [[ -f "$CRED_ENV_FILE" ]] || fail "missing credential env file: $CRED_ENV_FILE"
 
 if [[ "$SKIP_CAO_HEALTHCHECK" -eq 0 ]]; then
@@ -199,8 +199,8 @@ pixi run python -m houmao.agents.realm_controller build-brain \
   --runtime-root "$RUNTIME_ROOT" \
   --tool "$DEFAULT_TOOL" \
   --skill "$DEFAULT_SKILL" \
-  --config-profile "$DEFAULT_CONFIG_PROFILE" \
-  --cred-profile "$DEFAULT_CRED_PROFILE" \
+  --setup "$DEFAULT_SETUP" \
+  --auth "$DEFAULT_AUTH" \
   >"$BUILD_JSON"
 
 BRAIN_MANIFEST="$(extract_json_field "$BUILD_JSON" manifest_path)" || {

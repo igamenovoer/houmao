@@ -101,6 +101,32 @@ def test_headless_runner_extracts_codex_thread_id_from_stream_json(
     assert result.session_id == "thread-abc"
 
 
+def test_headless_runner_prefers_first_stream_json_session_id_for_gemini_resume_identity(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "emit_gemini_jsonl.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        'echo \'{"type":"init","session_id":"sess-init"}\'\n'
+        'echo \'{"type":"delta","text":"hello"}\'\n'
+        'echo \'{"type":"final","session_id":"sess-final","text":"done"}\'\n',
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    runner = HeadlessCliRunner()
+    result = runner.run(
+        command=[str(script)],
+        env={},
+        cwd=tmp_path,
+        turn_index=1,
+        output_format="stream-json",
+    )
+
+    assert result.returncode == 0
+    assert result.session_id == "sess-init"
+
+
 def test_headless_runner_tmux_persists_process_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -147,7 +173,7 @@ def test_headless_runner_tmux_persists_process_metadata(
         cwd=tmp_path,
         turn_index=1,
         output_format="stream-json",
-        tmux_session_name="AGENTSYS-headless-test",
+        tmux_session_name="HOUMAO-headless-test",
         turn_artifacts_root=tmp_path / "turn-artifacts",
     )
 
@@ -162,10 +188,9 @@ def test_headless_runner_tmux_persists_process_metadata(
     assert persisted["runner_pid"] == result.process_metadata.runner_pid
     assert persisted["child_pid"] == result.process_metadata.child_pid
     assert persisted["launched_at_utc"]
-    assert prepared_sessions == ["AGENTSYS-headless-test"]
+    assert prepared_sessions == ["HOUMAO-headless-test"]
     assert any(
-        call[:4] == ["respawn-pane", "-k", "-t", "AGENTSYS-headless-test:0.0"]
-        for call in tmux_calls
+        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-test:0.0"] for call in tmux_calls
     )
     assert not any(call[:1] == ["new-window"] for call in tmux_calls)
 
@@ -229,7 +254,7 @@ def test_headless_runner_tmux_mirrors_output_to_console_and_files(
         cwd=tmp_path,
         turn_index=1,
         output_format="stream-json",
-        tmux_session_name="AGENTSYS-headless-visible-output",
+        tmux_session_name="HOUMAO-headless-visible-output",
         turn_artifacts_root=tmp_path / "turn-artifacts",
     )
 
@@ -241,9 +266,9 @@ def test_headless_runner_tmux_mirrors_output_to_console_and_files(
     assert "visible-stderr" in result.stderr_path.read_text(encoding="utf-8")
     assert "visible-stdout" in captured["stdout"]
     assert "visible-stderr" in captured["stderr"]
-    assert prepared_sessions == ["AGENTSYS-headless-visible-output"]
+    assert prepared_sessions == ["HOUMAO-headless-visible-output"]
     assert any(
-        call[:4] == ["respawn-pane", "-k", "-t", "AGENTSYS-headless-visible-output:0.0"]
+        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-visible-output:0.0"]
         for call in tmux_calls
     )
     assert not any(call[:1] == ["new-window"] for call in tmux_calls)
@@ -297,19 +322,118 @@ def test_headless_runner_tmux_reuses_stable_agent_pane_across_turns(
             cwd=tmp_path,
             turn_index=turn_index,
             output_format="stream-json",
-            tmux_session_name="AGENTSYS-headless-reuse",
+            tmux_session_name="HOUMAO-headless-reuse",
             turn_artifacts_root=tmp_path / "turn-artifacts",
         )
         assert result.returncode == 0
 
     assert respawn_targets == [
-        "AGENTSYS-headless-reuse:0.0",
-        "AGENTSYS-headless-reuse:0.0",
+        "HOUMAO-headless-reuse:0.0",
+        "HOUMAO-headless-reuse:0.0",
     ]
     assert prepared_sessions == [
-        "AGENTSYS-headless-reuse",
-        "AGENTSYS-headless-reuse",
+        "HOUMAO-headless-reuse",
+        "HOUMAO-headless-reuse",
     ]
+
+
+def test_headless_runner_tmux_bridge_preserves_raw_stdout_and_writes_canonical_events(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "emit_tmux_bridge_stream.sh"
+    script.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                (
+                    "echo "
+                    "'{"
+                    '"type":"assistant",'
+                    '"session_id":"sess-bridge",'
+                    '"message":{"model":"claude","content":[{"type":"text","text":"hello from bridge"}]}'
+                    "}'"
+                ),
+                (
+                    "echo "
+                    "'{"
+                    '"type":"result",'
+                    '"session_id":"sess-bridge",'
+                    '"subtype":"success",'
+                    '"usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8}'
+                    "}'"
+                ),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    captured: dict[str, str] = {}
+    idle_shell = _write_idle_shell(tmp_path)
+
+    def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if args[:1] == ["respawn-pane"]:
+            result = subprocess.run(
+                ["sh", "-lc", str(args[-1])],
+                cwd=tmp_path,
+                env={**os.environ, "SHELL": str(idle_shell)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            captured["stdout"] = result.stdout
+            captured["stderr"] = result.stderr
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
+    monkeypatch.setattr(
+        headless_runner_module,
+        "prepare_headless_agent_window_shared",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        headless_runner_module,
+        "wait_for_tmux_signal_shared",
+        lambda **_kwargs: _tmux_wait_timeout(),
+    )
+
+    runner = HeadlessCliRunner()
+    result = runner.run(
+        command=[str(script)],
+        env={},
+        cwd=tmp_path,
+        turn_index=1,
+        output_format="stream-json",
+        provider="claude",
+        display_style="plain",
+        display_detail="concise",
+        tmux_session_name="HOUMAO-headless-bridge",
+        turn_artifacts_root=tmp_path / "turn-artifacts",
+    )
+
+    assert result.returncode == 0
+    assert result.session_id == "sess-bridge"
+    assert result.stdout_path is not None
+    assert result.canonical_path is not None
+    assert (
+        result.stdout_path.read_text(encoding="utf-8")
+        .splitlines()[0]
+        .startswith('{"type":"assistant"')
+    )
+    assert '{"type":"assistant"' not in captured["stdout"]
+    assert "hello from bridge" in captured["stdout"]
+    assert (
+        "[complete] success | input_tokens=3, output_tokens=5, total_tokens=8" in captured["stdout"]
+    )
+    canonical_records = [
+        json.loads(line)
+        for line in result.canonical_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [record["kind"] for record in canonical_records] == ["assistant", "completion"]
 
 
 def test_headless_runner_interrupt_fallback_uses_stable_agent_pane(
@@ -324,12 +448,12 @@ def test_headless_runner_interrupt_fallback_uses_stable_agent_pane(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
 
     runner = HeadlessCliRunner()
-    runner._active_tmux_pane_target = "AGENTSYS-headless-test:0.0"  # type: ignore[attr-defined]
+    runner._active_tmux_pane_target = "HOUMAO-headless-test:0.0"  # type: ignore[attr-defined]
 
     result = runner.interrupt()
 
     assert result.status == "ok"
-    assert tmux_calls == [["send-keys", "-t", "AGENTSYS-headless-test:0.0", "C-c"]]
+    assert tmux_calls == [["send-keys", "-t", "HOUMAO-headless-test:0.0", "C-c"]]
 
 
 def test_headless_runner_terminate_fallback_uses_stable_agent_pane(
@@ -344,9 +468,9 @@ def test_headless_runner_terminate_fallback_uses_stable_agent_pane(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
 
     runner = HeadlessCliRunner()
-    runner._active_tmux_pane_target = "AGENTSYS-headless-test:0.0"  # type: ignore[attr-defined]
+    runner._active_tmux_pane_target = "HOUMAO-headless-test:0.0"  # type: ignore[attr-defined]
 
     result = runner.terminate()
 
     assert result.status == "ok"
-    assert tmux_calls == [["send-keys", "-t", "AGENTSYS-headless-test:0.0", "C-c"]]
+    assert tmux_calls == [["send-keys", "-t", "HOUMAO-headless-test:0.0", "C-c"]]

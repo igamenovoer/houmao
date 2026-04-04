@@ -8,7 +8,7 @@ from urllib import parse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from houmao.cao.no_proxy import extract_cao_base_url_host_port, normalize_cao_base_url
-from houmao.owned_paths import resolve_runtime_root
+from houmao.project import resolve_project_aware_runtime_root
 
 _DEFAULT_SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
@@ -22,7 +22,9 @@ class HoumaoServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     api_base_url: str = Field(default="http://127.0.0.1:9889")
-    runtime_root: Path = Field(default_factory=resolve_runtime_root)
+    runtime_root: Path = Field(
+        default_factory=lambda: resolve_project_aware_runtime_root(cwd=Path.cwd().resolve())
+    )
     watch_poll_interval_seconds: float = 0.5
     recent_transition_limit: int = 24
     stability_threshold_seconds: float = 1.0

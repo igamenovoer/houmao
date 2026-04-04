@@ -24,6 +24,10 @@ from houmao.passive_server.discovery import (
 )
 from houmao.passive_server.models import DiscoveredAgentConflictResponse
 from houmao.passive_server.service import PassiveServerService
+from houmao.server.models import (
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
+)
 from tests.unit.passive_server.test_discovery import _make_record
 
 
@@ -162,8 +166,8 @@ def _populate_index(svc: PassiveServerService, agents: list[DiscoveredAgent]) ->
 
 def _agent(
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    agent_name: str = "HOUMAO-alpha",
+    session_name: str = "HOUMAO-alpha-abc123",
 ) -> DiscoveredAgent:
     """Create a DiscoveredAgent for test injection."""
 
@@ -184,14 +188,14 @@ class TestListAgents:
         _populate_index(
             svc,
             [
-                _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent(agent_id="b1", agent_name="AGENTSYS-beta", session_name="s2"),
+                _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent(agent_id="b1", agent_name="HOUMAO-beta", session_name="s2"),
             ],
         )
         resp = svc.list_agents()
         assert len(resp.agents) == 2
-        assert resp.agents[0].agent_name == "AGENTSYS-alpha"
-        assert resp.agents[1].agent_name == "AGENTSYS-beta"
+        assert resp.agents[0].agent_name == "HOUMAO-alpha"
+        assert resp.agents[1].agent_name == "HOUMAO-beta"
 
 
 class TestResolveAgent:
@@ -207,7 +211,7 @@ class TestResolveAgent:
 
     def test_resolve_by_name(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        _populate_index(svc, [_agent(agent_id="abc123", agent_name="AGENTSYS-alpha")])
+        _populate_index(svc, [_agent(agent_id="abc123", agent_name="HOUMAO-alpha")])
         result = svc.resolve_agent("alpha")
         assert result is not None
         assert not isinstance(result, DiscoveredAgentConflictResponse)
@@ -215,8 +219,8 @@ class TestResolveAgent:
 
     def test_resolve_by_canonical_name(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
-        _populate_index(svc, [_agent(agent_id="abc123", agent_name="AGENTSYS-alpha")])
-        result = svc.resolve_agent("AGENTSYS-alpha")
+        _populate_index(svc, [_agent(agent_id="abc123", agent_name="HOUMAO-alpha")])
+        result = svc.resolve_agent("HOUMAO-alpha")
         assert result is not None
         assert not isinstance(result, DiscoveredAgentConflictResponse)
         assert result.agent_id == "abc123"
@@ -231,8 +235,8 @@ class TestResolveAgent:
         _populate_index(
             svc,
             [
-                _agent(agent_id="abc123", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent(agent_id="def456", agent_name="AGENTSYS-alpha", session_name="s2"),
+                _agent(agent_id="abc123", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent(agent_id="def456", agent_name="HOUMAO-alpha", session_name="s2"),
             ],
         )
         result = svc.resolve_agent("alpha")
@@ -247,8 +251,8 @@ class TestResolveAgent:
 
 def _agent_with_gateway(
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    agent_name: str = "HOUMAO-alpha",
+    session_name: str = "HOUMAO-alpha-abc123",
     gateway_host: str = "127.0.0.1",
     gateway_port: int = 9901,
 ) -> DiscoveredAgent:
@@ -268,6 +272,16 @@ def _control_input_result() -> GatewayControlInputResultV1:
     """Return a valid control-input response for passive gateway tests."""
 
     return GatewayControlInputResultV1(detail="delivered")
+
+
+def _prompt_control_result() -> HoumaoManagedAgentGatewayPromptControlResponse:
+    """Return a valid prompt-control response for passive gateway tests."""
+
+    return HoumaoManagedAgentGatewayPromptControlResponse(
+        sent=True,
+        forced=False,
+        detail="Prompt dispatched.",
+    )
 
 
 def _mail_notifier_status(
@@ -368,8 +382,8 @@ class TestGatewayStatus:
         _populate_index(
             svc,
             [
-                _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
+                _agent_with_gateway(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent_with_gateway(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2"),
             ],
         )
         result = svc.gateway_status("alpha")
@@ -432,6 +446,73 @@ class TestGatewayControlInput:
         assert "Connection refused" in result[1]["detail"]
 
 
+class TestGatewayPromptControl:
+    """gateway_control_prompt() service method."""
+
+    def test_success_returns_result(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        expected = _prompt_control_result()
+        with patch.object(GatewayClient, "control_prompt", return_value=expected):
+            result = svc.gateway_control_prompt(
+                "abc123",
+                HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+            )
+        assert result == expected
+
+    def test_agent_not_found_returns_404(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        result = svc.gateway_control_prompt(
+            "missing",
+            HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+        )
+        assert isinstance(result, tuple)
+        assert result[0] == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent()])
+        result = svc.gateway_control_prompt(
+            "abc123",
+            HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+        )
+        assert isinstance(result, tuple)
+        assert result[0] == 502
+        assert "No gateway" in result[1]["detail"]
+
+    def test_gateway_error_preserves_status_and_structured_detail(self, tmp_path: Path) -> None:
+        svc = _make_service(tmp_path)
+        _populate_index(svc, [_agent_with_gateway()])
+        with patch.object(
+            GatewayClient,
+            "control_prompt",
+            side_effect=GatewayHttpError(
+                method="POST",
+                url="http://127.0.0.1:9901/v1/control/prompt",
+                status_code=409,
+                detail=json.dumps(
+                    {
+                        "action": "submit_prompt",
+                        "detail": "not ready",
+                        "error_code": "not_ready",
+                        "forced": False,
+                        "sent": False,
+                        "status": "error",
+                    },
+                    sort_keys=True,
+                ),
+            ),
+        ):
+            result = svc.gateway_control_prompt(
+                "abc123",
+                HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
+            )
+        assert isinstance(result, tuple)
+        assert result[0] == 409
+        assert isinstance(result[1]["detail"], dict)
+        assert result[1]["detail"]["error_code"] == "not_ready"
+
+
 class TestGatewayMailNotifier:
     """gateway_mail_notifier_*() service methods."""
 
@@ -475,8 +556,8 @@ class TestGatewayMailNotifier:
         _populate_index(
             svc,
             [
-                _agent_with_gateway(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1"),
-                _agent_with_gateway(agent_id="a2", agent_name="AGENTSYS-alpha", session_name="s2"),
+                _agent_with_gateway(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1"),
+                _agent_with_gateway(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2"),
             ],
         )
         result = svc.gateway_mail_notifier_status("alpha")

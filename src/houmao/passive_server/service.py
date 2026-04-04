@@ -20,6 +20,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayHeadlessControlStateV1,
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
     GatewayMailCheckResponseV1,
@@ -73,6 +74,9 @@ from houmao.passive_server.models import (
 from houmao.passive_server.observation import TuiObservationService
 from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentHistoryResponse,
     HoumaoManagedAgentStateResponse,
@@ -273,6 +277,41 @@ class PassiveServerService:
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
 
+    def gateway_headless_control_state(
+        self,
+        agent_ref: str,
+    ) -> GatewayHeadlessControlStateV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/control/headless/state` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.get_headless_control_state()
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_headless_next_prompt_session(
+        self,
+        agent_ref: str,
+        payload: HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    ) -> GatewayHeadlessControlStateV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/control/headless/next-prompt-session` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.set_headless_next_prompt_session(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
     def gateway_create_request(
         self, agent_ref: str, payload: GatewayRequestCreateV1
     ) -> GatewayAcceptedRequestV1 | tuple[int, dict[str, Any]]:
@@ -288,6 +327,27 @@ class PassiveServerService:
             return client.create_request(payload)
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
+
+    def gateway_control_prompt(
+        self,
+        agent_ref: str,
+        payload: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/control/prompt` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            response = client.control_prompt(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+        return HoumaoManagedAgentGatewayPromptControlResponse.model_validate(
+            response.model_dump(mode="json")
+        )
 
     def gateway_send_control_input(
         self,
@@ -897,6 +957,16 @@ class PassiveServerService:
         threading.Thread(target=_deferred, daemon=True).start()
 
     # -- internal -------------------------------------------------------------
+
+    def _gateway_http_error_tuple(self, exc: GatewayHttpError) -> tuple[int, dict[str, Any]]:
+        """Project one gateway HTTP error into a passive proxy response tuple."""
+
+        detail: Any
+        try:
+            detail = json.loads(exc.detail)
+        except json.JSONDecodeError:
+            detail = exc.detail
+        return (exc.status_code or 502, {"detail": detail})
 
     def _write_current_instance(self) -> None:
         """Persist the current-instance payload to disk."""

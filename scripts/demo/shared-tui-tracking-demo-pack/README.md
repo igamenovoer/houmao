@@ -8,6 +8,8 @@ For the developer-facing contract on how human ground truth is compared against 
 
 The demo-owned configuration surface is [demo-config.toml](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml). By default it aligns tmux capture cadence with the Houmao server baseline of `0.2s`, and review-video cadence matches the underlying capture cadence unless you explicitly override it. The checked-in demo now treats `2 Hz` capture frequency, meaning `sample_interval_seconds <= 0.5`, as the lower robustness floor for tracked public state.
 
+The tracked launch assets live under [inputs/agents/](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/inputs/agents). Each live-watch or recorded-capture run copies that tree into `workdir/.houmao/agents/`, then projects one selected-tool `auth/default` alias from the host-local fixture bundles under `tests/fixtures/agents/tools/<tool>/auth/`.
+
 For a section-by-section explanation of the config, merge order, sweeps, and alternate config-file usage, read [CONFIG_REFERENCE.md](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/CONFIG_REFERENCE.md).
 
 ## Recorded Validation
@@ -32,6 +34,8 @@ Validate the whole committed corpus:
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus
 ```
+
+If the configured committed fixture root is missing or has no fixture manifests, `recorded-validate-corpus` now fails during preflight with the concrete path instead of starting replay and failing later.
 
 To emit the replay-path debug logs from `houmao.shared_tui_tracking` and the demo pack itself during investigation, set `HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL` to a normal Python logging level before running the command:
 
@@ -161,6 +165,7 @@ Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run
 The normal launch posture is intentionally permissive, and the default live-watch path is intentionally lightweight:
 
 - The checked-in Claude and Codex interactive-watch recipes request `launch_policy.operator_prompt_mode: unattended`
+- Those checked-in recipes live under `inputs/agents/roles/interactive-watch/presets/<tool>/default.yaml` and keep the tracked auth contract at `auth: default`
 - Live watch defaults to `live_watch_recorder_enabled = false`, so an ordinary interactive test does not start terminal-recorder
 - Use `--with-recorder` or a config/profile override only when you want retained replay-debug artifacts from that run
 

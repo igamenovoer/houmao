@@ -6,7 +6,13 @@ from pathlib import Path
 
 import click
 
-from ..common import emit_json, managed_agent_selector_options
+from ..common import (
+    build_destructive_confirmation_callback,
+    managed_agent_selector_options,
+    overwrite_confirm_option,
+)
+from ..output import emit
+from ..project_aware_wording import mailbox_root_option_help
 from ..managed_agents import (
     mailbox_status,
     register_mailbox_binding,
@@ -26,7 +32,7 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     """Report late mailbox registration posture for one local managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
-    emit_json(mailbox_status(target))
+    emit(mailbox_status(target))
 
 
 @mailbox_group.command(name="register")
@@ -34,10 +40,7 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     "--mailbox-root",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
     default=None,
-    help=(
-        "Filesystem mailbox root override. Defaults to `AGENTSYS_GLOBAL_MAILBOX_DIR` "
-        "or the shared Houmao mailbox root."
-    ),
+    help=mailbox_root_option_help(),
 )
 @click.option(
     "--principal-id",
@@ -56,25 +59,35 @@ def status_mailbox_command(agent_id: str | None, agent_name: str | None) -> None
     show_default=True,
     help="Filesystem mailbox registration mode.",
 )
+@overwrite_confirm_option
 @managed_agent_selector_options
 def register_mailbox_command(
     mailbox_root: Path | None,
     principal_id: str | None,
     address: str | None,
     mode: str,
+    yes: bool,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
     """Register one filesystem mailbox binding for an existing local managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
-    emit_json(
+    emit(
         register_mailbox_binding(
             target,
             mailbox_root=mailbox_root,
             principal_id=principal_id,
             address=address,
             mode=mode,
+            confirm_destructive_replace=build_destructive_confirmation_callback(
+                yes=yes,
+                non_interactive_message=(
+                    "Mailbox registration would replace existing durable mailbox state. "
+                    "Rerun with `--yes` to confirm overwrite non-interactively or choose "
+                    "a non-destructive registration mode."
+                ),
+            ),
         )
     )
 
@@ -96,4 +109,4 @@ def unregister_mailbox_command(
     """Remove one filesystem mailbox binding from an existing local managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
-    emit_json(unregister_mailbox_binding(target, mode=mode))
+    emit(unregister_mailbox_binding(target, mode=mode))

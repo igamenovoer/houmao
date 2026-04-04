@@ -1,6 +1,6 @@
 # Shared Registry Discovery And Cleanup
 
-This page explains the operator-facing behavior of the shared registry: when the runtime uses it for name-based discovery, how fallback interacts with tmux-local pointers, and what `houmao-mgr admin cleanup registry` actually removes. The older `houmao-mgr admin cleanup-registry` spelling remains as a compatibility alias, but the grouped `admin cleanup ...` tree is the canonical documented path.
+This page explains the operator-facing behavior of the shared registry: when the runtime uses it for name-based discovery, how fallback interacts with tmux-local pointers, and what `houmao-mgr admin cleanup registry` actually removes.
 
 ## Mental Model
 
@@ -12,9 +12,9 @@ For live gateway recovery, the registry remains only a locator layer: it helps t
 
 ## Name-Based Discovery Order
 
-For name-addressed tmux-backed control such as `send-prompt`, `send-keys`, `mail`, and `stop-session`, the current order is:
+For name-addressed tmux-backed control such as `houmao-mgr agents prompt`, `houmao-mgr agents gateway send-keys`, `houmao-mgr agents mail`, and `houmao-mgr agents stop`, the current order is:
 
-1. normalize the input to canonical `AGENTSYS-...` form,
+1. normalize the input to canonical `HOUMAO-...` form,
 2. try tmux-local discovery first,
 3. fall back to the shared registry when tmux-local discovery is unavailable,
 4. validate the resolved manifest and agent-definition pointers before resuming control.
@@ -28,10 +28,10 @@ The shared registry is used when tmux-local discovery cannot give the runtime a 
 Current fallback-eligible cases include:
 
 - the tmux session does not exist,
-- `AGENTSYS_MANIFEST_PATH` is missing or blank,
-- `AGENTSYS_MANIFEST_PATH` points to a missing manifest,
-- `AGENTSYS_AGENT_DEF_DIR` is missing or blank,
-- `AGENTSYS_AGENT_DEF_DIR` points to a missing directory.
+- `HOUMAO_MANIFEST_PATH` is missing or blank,
+- `HOUMAO_MANIFEST_PATH` points to a missing manifest,
+- `HOUMAO_AGENT_DEF_DIR` is missing or blank,
+- `HOUMAO_AGENT_DEF_DIR` points to a missing directory.
 
 Hard mismatches still fail fast instead of silently falling back:
 
@@ -48,12 +48,12 @@ sequenceDiagram
     participant TM as tmux<br/>discovery
     participant RG as Shared<br/>registry
     participant MF as manifest.json
-    Op->>CLI: send-prompt<br/>--agent-identity gpu
+    Op->>CLI: houmao-mgr agents<br/>prompt --agent-name gpu
     CLI->>TM: resolve manifest +<br/>agent_def_dir
     alt tmux pointers valid
         TM-->>CLI: resolved pointers
     else tmux missing or stale
-        CLI->>RG: load fresh record<br/>for AGENTSYS-gpu
+        CLI->>RG: load fresh record<br/>for HOUMAO-gpu
         alt fresh record found
             RG-->>CLI: manifest_path +<br/>agent_def_dir
         else no fresh record
@@ -71,21 +71,34 @@ The key idea is that registry fallback still ends with manifest validation. The 
 Use canonical or unprefixed names interchangeably:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller send-prompt \
-  --agent-identity gpu \
+pixi run houmao-mgr agents prompt \
+  --agent-name gpu \
   --prompt "Summarize the current plan"
 
-pixi run python -m houmao.agents.realm_controller stop-session \
-  --agent-identity AGENTSYS-gpu
+pixi run houmao-mgr agents stop \
+  --agent-name gpu
 ```
 
 Use an explicit registry root for isolated environments:
 
 ```bash
-AGENTSYS_GLOBAL_REGISTRY_DIR=/abs/path/tmp/registry \
+HOUMAO_GLOBAL_REGISTRY_DIR=/abs/path/tmp/registry \
+pixi run houmao-mgr agents prompt \
+  --agent-name gpu \
+  --prompt "hello"
+```
+
+### Low-level access
+
+The underlying runtime module CLI still works for advanced targeting or scripting. Use `houmao-mgr agents` for standard operator work and the raw module only when you need manifest-path control or features not yet surfaced by the managed-agent commands.
+
+```bash
 pixi run python -m houmao.agents.realm_controller send-prompt \
   --agent-identity gpu \
-  --prompt "hello"
+  --prompt "Summarize the current plan"
+
+pixi run python -m houmao.agents.realm_controller stop-session \
+  --agent-identity HOUMAO-gpu
 ```
 
 ## Cleanup Semantics
@@ -104,6 +117,8 @@ Default behavior:
 - preserve other fresh directories,
 - continue past per-directory removal failures and report them separately,
 - report one structured cleanup payload with `scope`, `resolution`, `planned_actions`, `applied_actions`, `blocked_actions`, `preserved_actions`, and summary counters.
+
+By default, plain and fancy output render populated cleanup buckets line by line so operators can see the exact path, artifact kind, and reason for each action. Use `--print-json` when you need the full structured payload for tooling or scripting.
 
 Examples:
 
@@ -185,8 +200,8 @@ sequenceDiagram
 
 - `houmao-mgr admin cleanup registry` probes tmux-backed records locally by default; use `--no-tmux-check` when you intentionally want lease-only cleanup.
 - A malformed record is treated as stale for lookup and as removable for cleanup.
-- The cleanup command uses the same effective root-resolution logic as publication and lookup, so `AGENTSYS_GLOBAL_REGISTRY_DIR` changes all three paths together.
-- `houmao-mgr admin cleanup-registry` remains available as a compatibility alias for operators or tests that still use the pre-grouped spelling.
+- The cleanup command uses the same effective root-resolution logic as publication and lookup, so `HOUMAO_GLOBAL_REGISTRY_DIR` changes all three paths together.
+- The supported native cleanup path is `houmao-mgr admin cleanup registry`; `admin cleanup-registry` is retired from the native `houmao-mgr` admin tree.
 
 ## Source References
 

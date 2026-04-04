@@ -117,4 +117,4 @@ The most relevant tests for this package are:
 - [`../../../../tests/unit/server/test_tui_registry.py`](../../../../tests/unit/server/test_tui_registry.py)
 - [`../../../../tests/unit/server/test_tui_parser_and_tracking.py`](../../../../tests/unit/server/test_tui_parser_and_tracking.py)
 - [`../../../../tests/unit/server/test_service.py`](../../../../tests/unit/server/test_service.py)
-- [`../../../../tests/unit/demo/test_houmao_server_dual_shadow_watch_monitor.py`](../../../../tests/unit/demo/test_houmao_server_dual_shadow_watch_monitor.py)
+- [`../../../../tests/workflow/test-agent-gateway-tui-state-tracking.md`](../../../../tests/workflow/test-agent-gateway-tui-state-tracking.md)

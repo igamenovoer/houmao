@@ -14,74 +14,43 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from houmao.agents.definition_parser import (
+    AgentPreset,
+    PresetLaunchSettings,
+    ToolAdapter,
+    parse_agent_preset,
+    parse_tool_adapter,
+)
+from houmao.agents.launch_env import validate_persistent_env_records
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.launch_overrides import (
-    LaunchDefaults,
     LaunchOverrides,
-    ToolLaunchMetadata,
     helper_launch_args,
-    parse_launch_defaults,
     parse_launch_overrides,
-    parse_tool_launch_metadata,
 )
 from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
-    project_runtime_mailbox_system_skills,
     serialize_declarative_mailbox_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.system_skills import install_system_skills_for_home
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_managed_agent_id,
     normalize_managed_agent_name,
 )
-
-_AGENT_DEF_DIR_ENV_VAR = "AGENTSYS_AGENT_DEF_DIR"
-_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
+from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+    resolve_materialized_project_aware_agent_def_dir,
+)
 
 
 class BuildError(RuntimeError):
     """Raised when brain construction cannot proceed."""
 
 
-@dataclass(frozen=True)
-class CredentialFileMapping:
-    source: str
-    destination: str
-    mode: str
-    required: bool = True
-
-
-@dataclass(frozen=True)
-class ToolAdapter:
-    tool: str
-    home_selector_env_var: str
-    launch_executable: str
-    launch_defaults: LaunchDefaults
-    launch_metadata: ToolLaunchMetadata
-    env_injection_mode: str
-    env_file_in_home: str | None
-    config_destination: str
-    skills_destination: str
-    skills_mode: str
-    credential_files_dir: str
-    credential_file_mappings: list[CredentialFileMapping]
-    credential_env_source: str
-    credential_env_allowlist: list[str]
-
-
-@dataclass(frozen=True)
-class BrainRecipe:
-    name: str
-    tool: str
-    skills: list[str]
-    config_profile: str
-    credential_profile: str
-    launch_overrides: LaunchOverrides | None = None
-    operator_prompt_mode: OperatorPromptMode | None = None
-    default_agent_name: str | None = None
-    mailbox: MailboxDeclarativeConfig | None = None
+BrainRecipe = AgentPreset
 
 
 @dataclass(frozen=True)
@@ -89,10 +58,10 @@ class BuildRequest:
     agent_def_dir: Path
     tool: str
     skills: list[str]
-    config_profile: str
-    credential_profile: str
-    recipe_path: Path | None = None
-    recipe_launch_overrides: LaunchOverrides | None = None
+    setup: str | None = None
+    auth: str | None = None
+    preset_path: Path | None = None
+    preset_launch_overrides: LaunchOverrides | None = None
     runtime_root: Path | None = None
     mailbox: MailboxDeclarativeConfig | None = None
     agent_name: str | None = None
@@ -101,6 +70,68 @@ class BuildRequest:
     reuse_home: bool = False
     launch_overrides: LaunchOverrides | None = None
     operator_prompt_mode: OperatorPromptMode | None = None
+    persistent_env_records: dict[str, str] | None = None
+    extra: dict[str, Any] | None = None
+    config_profile: str | None = None
+    credential_profile: str | None = None
+    recipe_path: Path | None = None
+    recipe_launch_overrides: LaunchOverrides | None = None
+
+    def effective_setup(self) -> str:
+        """Return the resolved setup identifier for the build."""
+
+        if (
+            self.setup is not None
+            and self.config_profile is not None
+            and self.setup != self.config_profile
+        ):
+            raise BuildError(
+                "BuildRequest.setup and BuildRequest.config_profile must match when both are set."
+            )
+        value = self.setup or self.config_profile
+        if value is None:
+            raise BuildError("BuildRequest requires a setup selection.")
+        return value
+
+    def effective_auth(self) -> str | None:
+        """Return the resolved auth identifier for the build."""
+
+        if (
+            self.auth is not None
+            and self.credential_profile is not None
+            and self.auth != self.credential_profile
+        ):
+            raise BuildError(
+                "BuildRequest.auth and BuildRequest.credential_profile must match when both are set."
+            )
+        return self.auth or self.credential_profile
+
+    def effective_preset_path(self) -> Path | None:
+        """Return the resolved preset path for provenance."""
+
+        if (
+            self.preset_path is not None
+            and self.recipe_path is not None
+            and self.preset_path != self.recipe_path
+        ):
+            raise BuildError(
+                "BuildRequest.preset_path and BuildRequest.recipe_path must match when both are set."
+            )
+        return self.preset_path or self.recipe_path
+
+    def effective_preset_launch_overrides(self) -> LaunchOverrides | None:
+        """Return the preset-owned launch overrides for the build."""
+
+        if (
+            self.preset_launch_overrides is not None
+            and self.recipe_launch_overrides is not None
+            and self.preset_launch_overrides != self.recipe_launch_overrides
+        ):
+            raise BuildError(
+                "BuildRequest.preset_launch_overrides and "
+                "BuildRequest.recipe_launch_overrides must match when both are set."
+            )
+        return self.preset_launch_overrides or self.recipe_launch_overrides
 
 
 @dataclass(frozen=True)
@@ -171,99 +202,10 @@ def _require_str_list(payload: dict[str, Any], key: str, *, where: str) -> list[
 
 
 def _load_tool_adapter(path: Path) -> ToolAdapter:
-    payload = _load_mapping_file(path)
-
-    schema_version = payload.get("schema_version")
-    if schema_version != 1:
-        raise BuildError(f"{path}: only schema_version=1 is supported")
-
-    home_selector = _require_mapping(payload, "home_selector", where=str(path))
-    launch = _require_mapping(payload, "launch", where=str(path))
-    config_projection = _require_mapping(payload, "config_projection", where=str(path))
-    skills_projection = _require_mapping(payload, "skills_projection", where=str(path))
-    credential_projection = _require_mapping(payload, "credential_projection", where=str(path))
-    credential_env = _require_mapping(credential_projection, "env", where=str(path))
-
-    raw_launch_metadata = launch.get("metadata", {})
-    if raw_launch_metadata is not None and not isinstance(raw_launch_metadata, dict):
-        raise BuildError(f"{path}: launch.metadata must be a mapping when set")
-    raw_default_tool_params = launch.get("default_tool_params", {})
-    launch_defaults = parse_launch_defaults(
-        {
-            "args": _require_str_list(launch, "args", where=str(path)),
-            "tool_params": raw_default_tool_params,
-        },
-        source=f"{path}:launch.defaults",
-    )
-    launch_metadata = parse_tool_launch_metadata(
-        raw_launch_metadata if raw_launch_metadata is not None else {},
-        source=f"{path}:launch.metadata",
-    )
-
-    env_injection = _require_mapping(launch, "env_injection", where=str(path))
-    env_injection_mode = _require_str(env_injection, "mode", where=str(path))
-    if env_injection_mode not in {"home_dotenv", "export_from_env_file"}:
-        raise BuildError(
-            f"{path}: launch.env_injection.mode must be home_dotenv or export_from_env_file"
-        )
-
-    env_file_in_home: str | None = env_injection.get("env_file_in_home")
-    if env_file_in_home is not None and not isinstance(env_file_in_home, str):
-        raise BuildError(f"{path}: launch.env_injection.env_file_in_home must be a string")
-
-    file_mappings: list[CredentialFileMapping] = []
-    for idx, raw_mapping in enumerate(credential_projection.get("file_mappings", [])):
-        if not isinstance(raw_mapping, dict):
-            raise BuildError(f"{path}: file_mappings[{idx}] must be a mapping")
-        required = raw_mapping.get("required", True)
-        if not isinstance(required, bool):
-            raise BuildError(f"{path}: file_mappings[{idx}].required must be a boolean")
-        mapping = CredentialFileMapping(
-            required=required,
-            source=_require_str(raw_mapping, "source", where=f"{path}:file_mappings[{idx}]"),
-            destination=_require_str(
-                raw_mapping,
-                "destination",
-                where=f"{path}:file_mappings[{idx}]",
-            ),
-            mode=_require_str(raw_mapping, "mode", where=f"{path}:file_mappings[{idx}]"),
-        )
-        if mapping.mode not in {"symlink", "copy"}:
-            raise BuildError(
-                f"{path}: file_mappings[{idx}].mode must be `symlink` or `copy`, "
-                f"got {mapping.mode!r}"
-            )
-        file_mappings.append(mapping)
-
-    skills_mode = _require_str(skills_projection, "mode", where=str(path))
-    if skills_mode not in {"symlink", "copy"}:
-        raise BuildError(f"{path}: skills_projection.mode must be `symlink` or `copy`")
-
-    adapter = ToolAdapter(
-        tool=_require_str(payload, "tool", where=str(path)),
-        home_selector_env_var=_require_str(home_selector, "env_var", where=str(path)),
-        launch_executable=_require_str(launch, "executable", where=str(path)),
-        launch_defaults=launch_defaults,
-        launch_metadata=launch_metadata,
-        env_injection_mode=env_injection_mode,
-        env_file_in_home=env_file_in_home,
-        config_destination=_require_str(config_projection, "destination", where=str(path)),
-        skills_destination=_require_str(skills_projection, "destination", where=str(path)),
-        skills_mode=skills_mode,
-        credential_files_dir=_require_str(credential_projection, "files_dir", where=str(path)),
-        credential_file_mappings=file_mappings,
-        credential_env_source=_require_str(credential_env, "source", where=str(path)),
-        credential_env_allowlist=_require_str_list(credential_env, "allowlist", where=str(path)),
-    )
     try:
-        adapter.launch_metadata.validate_requested_tool_params(
-            tool=adapter.tool,
-            tool_params=adapter.launch_defaults.tool_params,
-            source=f"{path}: launch.default_tool_params",
-        )
+        return parse_tool_adapter(path)
     except ValueError as exc:
         raise BuildError(str(exc)) from exc
-    return adapter
 
 
 def _parse_operator_prompt_mode(
@@ -278,24 +220,43 @@ def _parse_operator_prompt_mode(
     if not isinstance(raw_value, str) or not raw_value.strip():
         raise BuildError(f"{source}: operator_prompt_mode must be a non-empty string when set")
     value = raw_value.strip()
-    if value not in {"interactive", "unattended"}:
+    if value not in {"as_is", "unattended"}:
         raise BuildError(
-            f"{source}: operator_prompt_mode must be `interactive` or `unattended`, got {value!r}"
+            f"{source}: operator_prompt_mode must be `as_is` or `unattended`, got {value!r}"
         )
     return cast(OperatorPromptMode, value)
 
 
+def _resolved_operator_prompt_mode(
+    operator_prompt_mode: OperatorPromptMode | None,
+) -> OperatorPromptMode:
+    """Resolve the effective operator prompt mode for one build request."""
+
+    return operator_prompt_mode or "unattended"
+
+
 def load_brain_recipe(path: Path) -> BrainRecipe:
-    payload = _load_mapping_file(path)
-    schema_version = payload.get("schema_version")
-    if schema_version != 1:
-        raise BuildError(f"{path}: only schema_version=1 recipes are supported")
+    try:
+        return parse_agent_preset(path)
+    except ValueError as exc:
+        payload = _load_mapping_file(path)
+        if payload.get("schema_version") == 1 and "tool" in payload and "config_profile" in payload:
+            return _load_legacy_brain_recipe(path, payload)
+        raise BuildError(str(exc)) from exc
+
+
+def _load_legacy_brain_recipe(path: Path, payload: dict[str, Any]) -> BrainRecipe:
+    """Load one legacy recipe file into the preset-shaped compatibility object."""
 
     skills = _require_str_list(payload, "skills", where=str(path))
     default_agent_name = payload.get("default_agent_name")
     if default_agent_name is not None:
         if not isinstance(default_agent_name, str) or not default_agent_name.strip():
             raise BuildError(f"{path}: default_agent_name must be a non-empty string when set")
+        resolved_default_agent_name: str | None = default_agent_name.strip()
+    else:
+        resolved_default_agent_name = None
+
     try:
         mailbox = parse_declarative_mailbox_config(
             payload.get("mailbox"),
@@ -303,6 +264,7 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
         )
     except ValueError as exc:
         raise BuildError(str(exc)) from exc
+
     launch_overrides_payload = payload.get("launch_overrides")
     launch_overrides: LaunchOverrides | None = None
     if launch_overrides_payload is not None:
@@ -313,26 +275,40 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
             )
         except ValueError as exc:
             raise BuildError(str(exc)) from exc
+
     launch_policy = payload.get("launch_policy")
     if launch_policy is not None and not isinstance(launch_policy, dict):
         raise BuildError(f"{path}: launch_policy must be a mapping when set")
-    recipe = BrainRecipe(
-        name=_require_str(payload, "name", where=str(path)),
+
+    setup = _require_str(payload, "config_profile", where=str(path))
+    stem = path.stem
+    if stem.endswith(f"-{setup}"):
+        role_name = stem[: -(len(setup) + 1)] or stem
+    elif stem.endswith("-default"):
+        role_name = stem[: -len("-default")]
+    else:
+        role_name = stem
+
+    return AgentPreset(
+        path=path.resolve(),
+        role_name=role_name,
         tool=_require_str(payload, "tool", where=str(path)),
+        setup=setup,
         skills=skills,
-        config_profile=_require_str(payload, "config_profile", where=str(path)),
-        credential_profile=_require_str(payload, "credential_profile", where=str(path)),
-        launch_overrides=launch_overrides,
-        operator_prompt_mode=_parse_operator_prompt_mode(
-            launch_policy.get("operator_prompt_mode") if isinstance(launch_policy, dict) else None,
-            source=str(path),
+        auth=_require_str(payload, "credential_profile", where=str(path)),
+        launch=PresetLaunchSettings(
+            prompt_mode=_parse_operator_prompt_mode(
+                launch_policy.get("operator_prompt_mode")
+                if isinstance(launch_policy, dict)
+                else None,
+                source=str(path),
+            ),
+            overrides=launch_overrides,
         ),
-        default_agent_name=default_agent_name.strip()
-        if isinstance(default_agent_name, str)
-        else None,
         mailbox=mailbox,
+        extra={},
+        default_agent_name_value=resolved_default_agent_name,
     )
-    return recipe
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -437,7 +413,7 @@ def _build_launch_helper(
         launch helper.
     """
 
-    allowlist = adapter.credential_env_allowlist
+    allowlist = adapter.auth_env_allowlist
     args = " ".join(shlex.quote(arg) for arg in launch_args)
     executable = shlex.quote(adapter.launch_executable)
     command_suffix = f" {args}" if args else ""
@@ -453,11 +429,15 @@ def _build_launch_helper(
         f"export {adapter.home_selector_env_var}={shlex.quote(str(home_path))}",
     ]
 
+    exported_names: set[str] = set()
     for key in allowlist:
         value = env_exports.get(key)
         if value is None:
             continue
         script_lines.append(f"export {key}={shlex.quote(value)}")
+        exported_names.add(key)
+    for key in sorted(name for name in env_exports if name not in exported_names):
+        script_lines.append(f"export {key}={shlex.quote(env_exports[key])}")
 
     if operator_prompt_mode == "unattended":
         script_lines.extend(
@@ -510,8 +490,12 @@ def _build_launch_helper(
 def build_brain_home(request: BuildRequest) -> BuildResult:
     agent_def_dir = request.agent_def_dir.resolve()
     runtime_root = resolve_runtime_root(explicit_root=request.runtime_root)
+    resolved_setup = request.effective_setup()
+    resolved_auth = request.effective_auth()
+    resolved_preset_path = request.effective_preset_path()
+    resolved_preset_launch_overrides = request.effective_preset_launch_overrides()
 
-    adapter_path = agent_def_dir / "brains" / "tool-adapters" / f"{request.tool}.yaml"
+    adapter_path = agent_def_dir / "tools" / request.tool / "adapter.yaml"
     if not adapter_path.is_file():
         raise BuildError(f"Missing adapter for tool `{request.tool}`: {adapter_path}")
 
@@ -526,14 +510,14 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             tool_params=adapter.launch_defaults.tool_params,
             source=f"{adapter_path}: launch.default_tool_params",
         )
-        if request.recipe_launch_overrides is not None:
+        if resolved_preset_launch_overrides is not None:
             adapter.launch_metadata.validate_requested_tool_params(
                 tool=request.tool,
-                tool_params=request.recipe_launch_overrides.tool_params,
+                tool_params=resolved_preset_launch_overrides.tool_params,
                 source=(
-                    f"{request.recipe_path}: launch_overrides.tool_params"
-                    if request.recipe_path is not None
-                    else "recipe launch_overrides.tool_params"
+                    f"{resolved_preset_path}: launch.overrides.tool_params"
+                    if resolved_preset_path is not None
+                    else "preset launch.overrides.tool_params"
                 ),
             )
         if request.launch_overrides is not None:
@@ -547,26 +531,30 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     launch_helper_args = helper_launch_args(
         adapter_defaults=adapter.launch_defaults,
-        recipe_overrides=request.recipe_launch_overrides,
+        recipe_overrides=resolved_preset_launch_overrides,
         direct_overrides=request.launch_overrides,
     )
 
-    skills_root = agent_def_dir / "brains" / "skills"
-    config_profile_dir = (
-        agent_def_dir / "brains" / "cli-configs" / request.tool / request.config_profile
-    )
-    credential_profile_dir = (
-        agent_def_dir / "brains" / "api-creds" / request.tool / request.credential_profile
+    skills_root = agent_def_dir / "skills"
+    setup_dir = agent_def_dir / "tools" / request.tool / "setups" / resolved_setup
+    auth_dir = (
+        agent_def_dir / "tools" / request.tool / "auth" / resolved_auth
+        if resolved_auth is not None
+        else None
     )
 
     if not skills_root.is_dir():
         raise BuildError(f"Missing skills repository: {skills_root}")
     _validate_skill_names(skills_root=skills_root, selected_skills=request.skills)
 
-    if not config_profile_dir.is_dir():
-        raise BuildError(f"Missing config profile: {config_profile_dir}")
-    if not credential_profile_dir.is_dir():
-        raise BuildError(f"Missing credential profile: {credential_profile_dir}")
+    if not setup_dir.is_dir():
+        raise BuildError(f"Missing setup bundle: {setup_dir}")
+    if auth_dir is None:
+        raise BuildError(
+            "No auth bundle was selected. Provide one in the preset or override it explicitly."
+        )
+    if not auth_dir.is_dir():
+        raise BuildError(f"Missing auth bundle: {auth_dir}")
 
     home_id = request.home_id or _generate_home_id(request.tool)
     if "/" in home_id or "\\" in home_id:
@@ -584,9 +572,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     home_path.mkdir(parents=True, exist_ok=request.reuse_home)
 
-    _validate_relative_path(adapter.config_destination, field="config_projection.destination")
-    config_destination = home_path / adapter.config_destination
-    _copy_directory_contents(config_profile_dir, config_destination)
+    _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
+    setup_destination = home_path / adapter.setup_destination
+    _copy_directory_contents(setup_dir, setup_destination)
 
     _validate_relative_path(adapter.skills_destination, field="skills_projection.destination")
     skill_destination_dir = home_path / adapter.skills_destination
@@ -595,28 +583,33 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         source = skills_root / skill_name
         destination = skill_destination_dir / skill_name
         _project_path(source, destination, mode=adapter.skills_mode)
-    project_runtime_mailbox_system_skills(skill_destination_dir)
+    install_system_skills_for_home(
+        tool=request.tool,
+        home_path=home_path,
+        auto_install_kind="managed_launch",
+    )
 
-    _validate_relative_path(adapter.credential_files_dir, field="credential_projection.files_dir")
-    credential_files_dir = credential_profile_dir / adapter.credential_files_dir
+    _validate_relative_path(adapter.auth_files_dir, field="auth_projection.files_dir")
+    auth_files_dir = auth_dir / adapter.auth_files_dir
     projected_credentials: list[dict[str, Any]] = []
-    for mapping in adapter.credential_file_mappings:
+    projected_auth_files: set[str] = set()
+    for mapping in adapter.auth_file_mappings:
         _validate_relative_path(
             mapping.source,
-            field=f"credential_projection.file_mappings[{mapping.source}].source",
+            field=f"auth_projection.file_mappings[{mapping.source}].source",
         )
         _validate_relative_path(
             mapping.destination,
-            field=f"credential_projection.file_mappings[{mapping.source}].destination",
+            field=f"auth_projection.file_mappings[{mapping.source}].destination",
         )
-        source = credential_files_dir / mapping.source
+        source = auth_files_dir / mapping.source
         if not source.exists():
             if mapping.required:
                 raise BuildError(
-                    f"Missing credential file for mapping `{mapping.source}` in profile "
-                    f"{credential_profile_dir}"
+                    f"Missing auth file for mapping `{mapping.source}` in bundle {auth_dir}"
                 )
             continue
+        projected_auth_files.add(mapping.source)
         destination = home_path / mapping.destination
         _project_path(source, destination, mode=mapping.mode)
         projected_credentials.append(
@@ -628,52 +621,74 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             }
         )
 
-    _validate_relative_path(adapter.credential_env_source, field="credential_projection.env.source")
-    credential_env_file = credential_profile_dir / adapter.credential_env_source
-    env_values = _parse_env_file(credential_env_file)
-    selected_env_names = [key for key in adapter.credential_env_allowlist if key in env_values]
+    _validate_relative_path(adapter.auth_env_source, field="auth_projection.env.source")
+    auth_env_file = auth_dir / adapter.auth_env_source
+    env_values = _parse_env_file(auth_env_file)
+    selected_env_names = [key for key in adapter.auth_env_allowlist if key in env_values]
+    derived_launch_env_records = _derive_tool_launch_env_records(
+        tool=request.tool,
+        projected_auth_files=projected_auth_files,
+        env_values=env_values,
+    )
+    try:
+        persistent_env_records = validate_persistent_env_records(
+            request.persistent_env_records or {},
+            auth_env_allowlist=adapter.auth_env_allowlist,
+            source="BuildRequest.persistent_env_records",
+        )
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
+    effective_launch_env_records = {
+        **derived_launch_env_records,
+        **persistent_env_records,
+    }
 
     if adapter.env_injection_mode == "home_dotenv":
         env_file_in_home = adapter.env_file_in_home or ".env"
         _validate_relative_path(env_file_in_home, field="launch.env_injection.env_file_in_home")
-        _project_path(credential_env_file, home_path / env_file_in_home, mode="symlink")
+        _project_path(auth_env_file, home_path / env_file_in_home, mode="symlink")
 
     manifests_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = manifests_dir / f"{home_id}.yaml"
     launch_helper_path = home_path / "launch.sh"
+    resolved_operator_prompt_mode = _resolved_operator_prompt_mode(request.operator_prompt_mode)
+
     launch_preview = _build_launch_helper(
         home_path=home_path,
         helper_path=launch_helper_path,
         adapter=adapter,
         launch_args=launch_helper_args,
-        env_exports={key: env_values[key] for key in selected_env_names},
-        operator_prompt_mode=request.operator_prompt_mode,
+        env_exports={
+            **{key: env_values[key] for key in selected_env_names},
+            **effective_launch_env_records,
+        },
+        operator_prompt_mode=resolved_operator_prompt_mode,
     )
 
     construction_provenance: dict[str, object] = {
         "adapter_path": str(adapter_path),
-        "recipe_path": str(request.recipe_path.resolve())
-        if request.recipe_path is not None
+        "preset_path": str(resolved_preset_path.resolve())
+        if resolved_preset_path is not None
         else None,
-        "recipe_overrides_present": request.recipe_launch_overrides is not None,
+        "preset_overrides_present": resolved_preset_launch_overrides is not None,
         "direct_overrides_present": request.launch_overrides is not None,
     }
 
     manifest: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "built_at_utc": datetime.now(UTC).isoformat(),
         "inputs": {
             "tool": request.tool,
             "skills": request.skills,
-            "config_profile": request.config_profile,
-            "credential_profile": request.credential_profile,
+            "setup": resolved_setup,
+            "auth": resolved_auth,
             "adapter_path": str(adapter_path),
-            "recipe_path": str(request.recipe_path.resolve())
-            if request.recipe_path is not None
+            "preset_path": str(resolved_preset_path.resolve())
+            if resolved_preset_path is not None
             else None,
         },
         "launch_policy": {
-            "operator_prompt_mode": request.operator_prompt_mode or "interactive",
+            "operator_prompt_mode": resolved_operator_prompt_mode,
         },
         "runtime": {
             "runtime_root": str(runtime_root),
@@ -688,9 +703,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             "launch_contract": {
                 "adapter_defaults": adapter.launch_defaults.to_payload(),
                 "requested_overrides": {
-                    "recipe": (
-                        request.recipe_launch_overrides.to_payload()
-                        if request.recipe_launch_overrides is not None
+                    "preset": (
+                        resolved_preset_launch_overrides.to_payload()
+                        if resolved_preset_launch_overrides is not None
                         else None
                     ),
                     "direct": (
@@ -700,20 +715,23 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                     ),
                 },
                 "tool_metadata": adapter.launch_metadata.to_payload(),
+                "env_records": dict(effective_launch_env_records),
                 "construction_provenance": construction_provenance,
             },
         },
         "credentials": {
-            "profile_path": str(credential_profile_dir),
+            "auth_path": str(auth_dir),
             "projected_files": projected_credentials,
             "env_contract": {
-                "source_file": str(credential_env_file),
-                "allowlisted_env_vars": adapter.credential_env_allowlist,
+                "source_file": str(auth_env_file),
+                "allowlisted_env_vars": adapter.auth_env_allowlist,
                 "selected_env_vars": selected_env_names,
                 "injection_mode": adapter.env_injection_mode,
             },
         },
     }
+    if request.extra:
+        manifest["inputs"]["extra"] = dict(request.extra)
     if request.mailbox is not None:
         manifest["mailbox"] = serialize_declarative_mailbox_config(request.mailbox)
     if request.agent_name is not None or request.agent_id is not None:
@@ -747,17 +765,65 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     )
 
 
+def _derive_tool_launch_env_records(
+    *,
+    tool: str,
+    projected_auth_files: set[str],
+    env_values: dict[str, str],
+) -> dict[str, str]:
+    """Return runtime-derived launch env overlays for one built home."""
+
+    if tool != "gemini":
+        return {}
+    return _derive_gemini_launch_env_records(
+        projected_auth_files=projected_auth_files,
+        env_values=env_values,
+    )
+
+
+def _derive_gemini_launch_env_records(
+    *,
+    projected_auth_files: set[str],
+    env_values: dict[str, str],
+) -> dict[str, str]:
+    """Return Gemini runtime env overlays derived from auth-bundle state."""
+
+    if "oauth_creds.json" not in projected_auth_files:
+        return {}
+    if any(
+        _has_non_empty_env_value(env_values, key)
+        for key in (
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "GOOGLE_GENAI_USE_GCA",
+            "GOOGLE_GENAI_USE_VERTEXAI",
+        )
+    ):
+        return {}
+    return {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def _has_non_empty_env_value(env_values: dict[str, str], key: str) -> bool:
+    """Return whether one parsed env mapping contains a non-empty value."""
+
+    value = env_values.get(key)
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build a fresh runtime CLI home from reusable brain components."
     )
-    parser.add_argument("--recipe", help="Path to brain recipe YAML/JSON")
+    parser.add_argument("--preset", help="Path to preset YAML/JSON")
+    parser.add_argument("--recipe", dest="preset_legacy", help=argparse.SUPPRESS)
     parser.add_argument(
         "--agent-def-dir",
         default=None,
         help=(
-            "Agent definition directory root (contains brains/, roles/, blueprints/). "
-            "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
+            "Agent definition directory root (contains tools/, skills/, and roles/). "
+            "Precedence: CLI > HOUMAO_AGENT_DEF_DIR > "
+            f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
+            ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
         ),
     )
     parser.add_argument(
@@ -773,8 +839,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=[],
         help="Skill name to install (repeatable)",
     )
-    parser.add_argument("--config-profile", help="Tool config profile name")
-    parser.add_argument("--cred-profile", help="Credential profile name")
+    parser.add_argument("--setup", help="Tool setup bundle name")
+    parser.add_argument("--config-profile", dest="setup_legacy", help=argparse.SUPPRESS)
+    parser.add_argument("--auth", help="Tool auth bundle name")
+    parser.add_argument("--cred-profile", dest="auth_legacy", help=argparse.SUPPRESS)
     parser.add_argument(
         "--launch-overrides",
         help="Path to launch-overrides YAML/JSON, or an inline JSON object",
@@ -782,7 +850,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--home-id", help="Optional fixed home id")
     parser.add_argument(
         "--operator-prompt-mode",
-        choices=["interactive", "unattended"],
+        choices=["as_is", "unattended"],
         help="Requested startup operator prompt policy for the built brain",
     )
     parser.add_argument(
@@ -838,10 +906,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     recipe: BrainRecipe | None = None
-    recipe_path: Path | None = None
-    if namespace.recipe:
-        recipe_path = _normalize_path(namespace.recipe, base=agent_def_dir)
-        recipe = load_brain_recipe(recipe_path)
+    preset_path: Path | None = None
+    requested_preset = namespace.preset or namespace.preset_legacy
+    if requested_preset:
+        preset_path = _normalize_path(requested_preset, base=agent_def_dir)
+        recipe = load_brain_recipe(preset_path)
     direct_launch_overrides = (
         load_launch_overrides_input(
             namespace.launch_overrides,
@@ -854,29 +923,27 @@ def main(argv: list[str] | None = None) -> int:
 
     tool_raw = namespace.tool or (recipe.tool if recipe else None)
     skills_raw = namespace.skills or (recipe.skills if recipe else [])
-    config_profile_raw = namespace.config_profile or (recipe.config_profile if recipe else None)
-    credential_profile_raw = namespace.cred_profile or (
-        recipe.credential_profile if recipe else None
-    )
+    setup_raw = namespace.setup or namespace.setup_legacy or (recipe.setup if recipe else None)
+    auth_raw = namespace.auth or namespace.auth_legacy or (recipe.auth if recipe else None)
     operator_prompt_mode = namespace.operator_prompt_mode or (
         recipe.operator_prompt_mode if recipe else None
     )
 
     missing: list[str] = []
     if not tool_raw:
-        missing.append("--tool (or recipe.tool)")
-    if not config_profile_raw:
-        missing.append("--config-profile (or recipe.config_profile)")
-    if not credential_profile_raw:
-        missing.append("--cred-profile (or recipe.credential_profile)")
+        missing.append("--tool (or preset.tool)")
+    if not setup_raw:
+        missing.append("--setup (or preset.setup)")
+    if not auth_raw:
+        missing.append("--auth (or preset.auth)")
     if not skills_raw:
-        missing.append("at least one --skill (or recipe.skills)")
+        missing.append("at least one --skill (or preset.skills)")
     if missing:
         raise BuildError(f"Missing required inputs: {', '.join(missing)}")
 
     assert tool_raw is not None
-    assert config_profile_raw is not None
-    assert credential_profile_raw is not None
+    assert setup_raw is not None
+    assert auth_raw is not None
     skills = [str(skill) for skill in skills_raw]
 
     request = BuildRequest(
@@ -884,16 +951,18 @@ def main(argv: list[str] | None = None) -> int:
         runtime_root=runtime_root,
         tool=tool_raw,
         skills=skills,
-        config_profile=config_profile_raw,
-        credential_profile=credential_profile_raw,
-        recipe_path=recipe_path,
-        recipe_launch_overrides=recipe.launch_overrides if recipe else None,
+        setup=setup_raw,
+        auth=auth_raw,
+        preset_path=preset_path,
+        preset_launch_overrides=recipe.launch_overrides if recipe else None,
         mailbox=recipe.mailbox if recipe else None,
         agent_name=recipe.default_agent_name if recipe else None,
         home_id=namespace.home_id,
         reuse_home=namespace.reuse_home,
         launch_overrides=direct_launch_overrides,
         operator_prompt_mode=operator_prompt_mode,
+        persistent_env_records=recipe.launch_env_records if recipe else None,
+        extra=recipe.extra if recipe else None,
     )
 
     result = build_brain_home(request)
@@ -906,14 +975,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
-    if cli_value is not None:
-        return _normalize_path(cli_value, base=cwd)
+    """Resolve the ambient agent-definition root for the standalone builder CLI."""
 
-    env_value = os.environ.get(_AGENT_DEF_DIR_ENV_VAR)
-    if env_value:
-        return _normalize_path(env_value, base=cwd)
-
-    return (cwd / _DEFAULT_AGENT_DEF_DIR).resolve()
+    try:
+        return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 ## CLI Surfaces
 
 - [houmao-mgr](cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
+- [system-skills](cli/system-skills.md): Install and inspect the packaged Houmao-owned skill sets for explicit tool homes.
 - [houmao-server](cli/houmao-server.md): HTTP server for session management and TUI tracking.
 - [houmao-passive-server](cli/houmao-passive-server.md): Registry-driven stateless server.
 - [CLI Entrypoints](cli.md): Module-level entry points and common runtime flags.
@@ -17,9 +18,8 @@
 
 ## Build Phase
 
-- [Brain Builder](build-phase/brain-builder.md): Build a brain home from recipe or direct inputs.
-- [Recipes and Adapters](build-phase/recipes-and-adapters.md): Declarative presets and per-tool contracts.
 - [Launch Overrides](build-phase/launch-overrides.md): Override system for launch parameters.
+- [Launch Policy](build-phase/launch-policy.md): Policy engine for operator prompt modes and unattended execution.
 
 ## Run Phase
 
@@ -47,7 +47,7 @@
 - [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](agents/index.md): Session model, targeting, and recovery.
 - [Managed-Agent API](managed_agent_api.md): Direct agent control API surface.
-- [Agents And Brains](agents_brains.md): Component library layout.
+
 - [Realm Controller Send-Keys](realm_controller_send_keys.md): Raw tmux send-keys control.
 - [Houmao Server Agent API Live Suite](houmao_server_agent_api_live_suite.md): Server agent API validation.
 

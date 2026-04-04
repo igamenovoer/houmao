@@ -1,0 +1,1 @@
+Reply with one short sentence confirming that the minimal agent launch demo is working.

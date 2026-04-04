@@ -67,6 +67,8 @@ The supported path is:
 2. restart the session so Houmao rebuilds the runtime home and re-resolves the launch plan,
 3. let the shared launch-policy registry select the versioned Codex strategy for the detected installed CLI.
 
+Current builders also resolve omitted prompt mode to unattended by default. The important failure case here is an explicit `as_is` selection or a stale runtime home built before the current unattended-default semantics.
+
 For the currently validated installed version `codex-cli 0.116.0`, Houmao resolves strategy `codex-unattended-0.116.x`. That strategy seeds the runtime-owned `CODEX_HOME/config.toml` with:
 
 ```toml
@@ -113,7 +115,7 @@ For CAO-backed sessions, it is normal for the session manifest to show no Codex-
 If the prompt still blocks, check these in order:
 
 1. Confirm you restarted the session after enabling unattended mode. Old live sessions keep their previously generated runtime home and launch plan.
-2. Confirm the selected recipe or build command actually requested `operator_prompt_mode = unattended`.
+2. Confirm the selected recipe or build command actually requested `operator_prompt_mode = unattended`, or at least did not opt out with `operator_prompt_mode = as_is`.
 3. Open the generated runtime `config.toml` and verify the runtime-owned keys were projected there.
 4. Inspect `launch_policy_provenance` to verify the detected version and selected strategy.
 5. Inspect the live tmux pane to distinguish a true approval prompt from some other blocked surface.

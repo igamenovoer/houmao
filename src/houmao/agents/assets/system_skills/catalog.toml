@@ -1,0 +1,38 @@
+schema_version = 1
+
+[skills.houmao-process-emails-via-gateway]
+asset_subpath = "mailbox/houmao-process-emails-via-gateway"
+description = "Round-oriented gateway mailbox workflow skill."
+
+[skills.houmao-email-via-agent-gateway]
+asset_subpath = "mailbox/houmao-email-via-agent-gateway"
+description = "Lower-level shared gateway mailbox operations skill."
+
+[skills.houmao-email-via-filesystem]
+asset_subpath = "mailbox/houmao-email-via-filesystem"
+description = "Filesystem mailbox transport guidance skill."
+
+[skills.houmao-email-via-stalwart]
+asset_subpath = "mailbox/houmao-email-via-stalwart"
+description = "Stalwart mailbox transport guidance skill."
+
+[sets.mailbox-core]
+description = "Core shared mailbox workflow skills."
+skills = [
+  "houmao-process-emails-via-gateway",
+  "houmao-email-via-agent-gateway",
+]
+
+[sets.mailbox-full]
+description = "Full mailbox system-skill set."
+skills = [
+  "houmao-process-emails-via-gateway",
+  "houmao-email-via-agent-gateway",
+  "houmao-email-via-filesystem",
+  "houmao-email-via-stalwart",
+]
+
+[auto_install]
+managed_launch_sets = ["mailbox-full"]
+managed_join_sets = ["mailbox-full"]
+cli_default_sets = ["mailbox-full"]

@@ -28,6 +28,8 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryEntry,
@@ -40,6 +42,8 @@ from houmao.server.models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
@@ -142,6 +146,9 @@ class _AppServiceDouble:
         self.m_gateway_tui_state_calls: list[str] = []
         self.m_gateway_tui_history_calls: list[tuple[str, int]] = []
         self.m_gateway_tui_note_prompt_calls: list[tuple[str, str]] = []
+        self.m_gateway_prompt_control_calls: list[
+            tuple[str, HoumaoManagedAgentGatewayPromptControlRequest]
+        ] = []
         self.m_gateway_request_calls: list[tuple[str, HoumaoManagedAgentGatewayRequestCreate]] = []
         self.m_gateway_control_calls: list[tuple[str, GatewayControlInputRequestV1]] = []
         self.m_gateway_notifier_get_calls: list[str] = []
@@ -151,6 +158,7 @@ class _AppServiceDouble:
         self.m_mail_check_calls: list[tuple[str, HoumaoManagedAgentMailCheckRequest]] = []
         self.m_mail_send_calls: list[tuple[str, HoumaoManagedAgentMailSendRequest]] = []
         self.m_mail_reply_calls: list[tuple[str, HoumaoManagedAgentMailReplyRequest]] = []
+        self.m_mail_state_calls: list[tuple[str, HoumaoManagedAgentMailStateRequest]] = []
 
     def startup(self) -> None:
         return None
@@ -214,7 +222,7 @@ class _AppServiceDouble:
                 tracked_session_id="cao-gpu",
                 session_name="cao-gpu",
                 tool="codex",
-                tmux_session_name="AGENTSYS-gpu",
+                tmux_session_name="HOUMAO-gpu",
                 terminal_aliases=[terminal_id],
             ),
             diagnostics=HoumaoTrackedDiagnostics(
@@ -303,10 +311,10 @@ class _AppServiceDouble:
             transport="headless",
             tool="claude",
             runtime_session_id="claude-headless-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             manifest_path="/tmp/manifest.json",
             session_root="/tmp/session-root",
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id="agent-1234",
         )
 
@@ -445,7 +453,7 @@ class _AppServiceDouble:
             started_at_utc="2026-03-20T09:00:00+00:00",
             completed_at_utc="2026-03-20T09:01:00+00:00",
             returncode=0,
-            completion_source="tmux_wait_for",
+            completion_source="process_exit",
             stdout_path="/tmp/stdout.jsonl",
             stderr_path="/tmp/stderr.log",
             status_path="/tmp/exitcode",
@@ -489,7 +497,7 @@ class _AppServiceDouble:
         return GatewayStatusV1(
             attach_identity="claude-headless-1",
             backend="claude_headless",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             gateway_health="not_attached",
             managed_agent_connectivity="connected",
             managed_agent_recovery="idle",
@@ -562,6 +570,18 @@ class _AppServiceDouble:
             accepted_at_utc="2026-03-24T16:00:00+00:00",
             queue_depth=1,
             managed_agent_instance_epoch=2,
+        )
+
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        self.m_gateway_prompt_control_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentGatewayPromptControlResponse(
+            sent=True,
+            forced=request_model.force,
+            detail="Prompt dispatched.",
         )
 
     def send_managed_agent_gateway_control_input(
@@ -695,6 +715,20 @@ class _AppServiceDouble:
                 "reply_to": [],
                 "attachments": [],
             },
+        )
+
+    def update_managed_agent_mail_state(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        self.m_mail_state_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentMailStateResponse(
+            transport="filesystem",
+            principal_id="agent-1234",
+            address="agent@agents.localhost",
+            message_ref=request_model.message_ref,
+            read=request_model.read,
         )
 
 
@@ -992,7 +1026,7 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
         session_name="cao-gpu",
         tool="codex",
         terminal_id="abcd1234",
-        agent_name="AGENTSYS-gpu",
+        agent_name="HOUMAO-gpu",
     )
     state_response = state_route.endpoint(terminal_id="abcd1234")
     history_response = history_route.endpoint(terminal_id="abcd1234", limit=3)
@@ -1005,7 +1039,7 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     assert register_response.success is True
     assert service.m_register_requests[0].session_name == "cao-gpu"
     assert service.m_register_requests[0].tool == "codex"
-    assert service.m_register_requests[0].agent_name == "AGENTSYS-gpu"
+    assert service.m_register_requests[0].agent_name == "HOUMAO-gpu"
     assert state_response.terminal_id == "abcd1234"
     assert history_response.entries[0].summary == "limit=3"
     assert service.m_history_calls == [("abcd1234", 3)]
@@ -1118,6 +1152,11 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         "POST",
         app=app,
     )
+    gateway_prompt_control_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/control/prompt",
+        "POST",
+        app=app,
+    )
     gateway_control_route = _route(
         "/houmao/agents/{agent_ref}/gateway/control/send-keys",
         "POST",
@@ -1142,6 +1181,7 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     mail_check_route = _route("/houmao/agents/{agent_ref}/mail/check", "POST", app=app)
     mail_send_route = _route("/houmao/agents/{agent_ref}/mail/send", "POST", app=app)
     mail_reply_route = _route("/houmao/agents/{agent_ref}/mail/reply", "POST", app=app)
+    mail_state_route = _route("/houmao/agents/{agent_ref}/mail/state", "POST", app=app)
 
     assert list_route.endpoint().agents[0].tracked_agent_id == "claude-headless-1"
     assert get_route.endpoint(agent_ref="claude-headless-1").transport == "headless"
@@ -1164,7 +1204,7 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
             agent_def_dir="/tmp/agents",
             brain_manifest_path="/tmp/brain.yaml",
             role_name="gpu-kernel-coder",
-            agent_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
             agent_id=None,
         )
     )
@@ -1222,6 +1262,12 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert gateway_request_response.request_id == "greq-123"
+    gateway_prompt_control_response = gateway_prompt_control_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello", force=True),
+    )
+    assert gateway_prompt_control_response.sent is True
+    assert gateway_prompt_control_response.forced is True
     gateway_control_response = gateway_control_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=GatewayControlInputRequestV1(sequence="<[Escape]>"),
@@ -1258,9 +1304,29 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert mail_reply_response.operation == "reply"
+    mail_state_response = mail_state_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentMailStateRequest(
+            message_ref="filesystem:msg-123",
+            read=True,
+        ),
+    )
+    assert mail_state_response.read is True
     assert len(service.m_gateway_control_calls) == 1
+    assert len(service.m_gateway_prompt_control_calls) == 1
+    assert service.m_gateway_prompt_control_calls[0][0] == "claude-headless-1"
+    assert service.m_gateway_prompt_control_calls[0][1].prompt == "hello"
     assert service.m_gateway_control_calls[0][0] == "claude-headless-1"
     assert service.m_gateway_control_calls[0][1].sequence == "<[Escape]>"
     assert service.m_gateway_tui_state_calls == ["claude-headless-1"]
     assert service.m_gateway_tui_history_calls == [("claude-headless-1", 7)]
     assert service.m_gateway_tui_note_prompt_calls == [("claude-headless-1", "hello")]
+    assert service.m_mail_state_calls == [
+        (
+            "claude-headless-1",
+            HoumaoManagedAgentMailStateRequest(
+                message_ref="filesystem:msg-123",
+                read=True,
+            ),
+        )
+    ]

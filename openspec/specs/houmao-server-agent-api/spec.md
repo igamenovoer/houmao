@@ -221,6 +221,33 @@ For managed headless agents, durable post-turn inspection SHALL live on the per-
 - **THEN** the caller can inspect that turn through `/houmao/agents/{agent_ref}/turns/{turn_id}` and its nested `events` or `artifacts` routes
 - **AND THEN** the shared `/history` route does not need to duplicate that durable turn detail
 
+### Requirement: Managed headless turn events use canonical semantic event records
+For accepted managed headless turns, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` SHALL return canonical Houmao semantic event records rather than thin provider passthrough records.
+
+Those event records SHALL expose normalized execution semantics such as assistant output, tool lifecycle, completion state, provider provenance, and canonical session identity when available.
+
+The route SHALL not require callers to understand provider-specific event names in order to interpret normal turn progress.
+
+#### Scenario: Caller inspects canonical semantic events
+- **WHEN** a caller requests `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` for an accepted managed headless turn
+- **THEN** `houmao-server` returns canonical Houmao semantic event records for that turn
+- **AND THEN** the caller can distinguish assistant progress and tool lifecycle without parsing provider-specific event names directly
+
+#### Scenario: Unknown provider event remains inspectable
+- **WHEN** the underlying headless turn includes a provider event that Houmao cannot classify into a more specific semantic category
+- **THEN** `houmao-server` still returns a canonical passthrough or diagnostic event for that record
+- **AND THEN** the route does not fail solely because one provider event shape is newly introduced upstream
+
+### Requirement: Managed headless raw artifact routes remain provider-owned debug surfaces
+For accepted managed headless turns, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `.../stderr` SHALL continue exposing the raw durable artifacts for that turn.
+
+The stdout artifact route SHALL return raw provider stdout rather than live rendered pane text or canonical Houmao semantic JSON.
+
+#### Scenario: Stdout artifact remains raw provider output
+- **WHEN** a caller requests `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` for a managed headless turn
+- **THEN** `houmao-server` returns the raw provider stdout artifact for that turn
+- **AND THEN** the response does not substitute rendered human text or canonical semantic event output for that raw artifact
+
 ### Requirement: Managed-agent summary state exposes gateway and mailbox posture and includes a detailed state route
 In addition to the existing managed-agent summary state route, `houmao-server` SHALL expose `GET /houmao/agents/{agent_ref}/state/detail` for transport-specific inspection.
 
@@ -357,6 +384,88 @@ If no eligible live gateway is attached, the route SHALL reject the request expl
 - **AND WHEN** the addressed managed agent does not have an eligible live gateway attached
 - **THEN** `houmao-server` rejects that request explicitly
 - **AND THEN** it does not pretend that the gateway-mediated request was accepted for later execution
+
+### Requirement: `houmao-server` exposes managed-agent gateway direct prompt-control routes
+`houmao-server` SHALL expose a managed-agent gateway direct prompt-control route so callers can require immediate live prompt dispatch semantics without directly addressing gateway listener ports.
+
+At minimum, that route family SHALL include:
+
+- `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
+
+That route SHALL accept the same `GatewayPromptControlRequestV1` payload shape used by the direct gateway route `POST /v1/control/prompt` and SHALL return the same `GatewayPromptControlResultV1` success payload shape.
+
+For headless targets, that payload SHALL include the same optional structured `chat_session` field and semantics as the direct gateway route.
+
+The server SHALL satisfy that route by proxying an eligible attached live gateway or by preserving the same selector semantics through the server-backed headless admission path rather than by introducing a second inconsistent prompt-control contract inside `houmao-server`.
+
+If the addressed managed agent does not have an eligible live gateway attached, or if the live gateway rejects prompt control because the target is not ready, unavailable, unsupported, invalid, or otherwise refused, the route SHALL reject the request explicitly rather than fabricating queued acceptance.
+
+For TUI-backed managed agents, `chat_session.mode = new` SHALL be accepted and preserved through the live gateway prompt-control path, while `chat_session.mode = auto | current | tool_last_or_new | exact` SHALL return validation semantics rather than being ignored.
+
+The route SHALL remain distinct from `POST /houmao/agents/{agent_ref}/gateway/requests`; immediate prompt control SHALL NOT be redefined as queued semantic gateway request submission.
+
+#### Scenario: Caller dispatches headless prompt with explicit current selector through the managed-agent API
+- **WHEN** a caller submits `POST /houmao/agents/{agent_ref}/gateway/control/prompt` with valid prompt text and `chat_session.mode = current`
+- **AND WHEN** the addressed managed agent has an eligible attached live headless gateway and is prompt-ready
+- **THEN** `houmao-server` preserves that selector through the managed agent's live prompt-control path
+- **AND THEN** the caller does not need to contact the gateway listener endpoint directly to send the prompt
+
+#### Scenario: Prompt-control refusal is propagated explicitly
+- **WHEN** a caller submits `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
+- **AND WHEN** the addressed live gateway refuses prompt control explicitly
+- **THEN** `houmao-server` rejects that request explicitly
+- **AND THEN** the response does not claim that the prompt was accepted for later queued execution
+
+#### Scenario: TUI prompt control accepts explicit new-session reset selector
+- **WHEN** a caller submits `POST /houmao/agents/{agent_ref}/gateway/control/prompt` for a TUI-backed managed agent with `chat_session.mode = new`
+- **AND WHEN** the addressed managed agent has an eligible attached live TUI gateway
+- **THEN** `houmao-server` preserves that selector through the managed agent's live prompt-control path
+- **AND THEN** the caller does not need to contact the gateway listener endpoint directly to request the reset-and-send workflow
+
+#### Scenario: TUI prompt control rejects unsupported explicit session selector
+- **WHEN** a caller submits `POST /houmao/agents/{agent_ref}/gateway/control/prompt` for a TUI-backed managed agent with `chat_session.mode = current`
+- **THEN** `houmao-server` rejects that request with validation semantics
+- **AND THEN** it does not ignore the selector and pretend that prompt control succeeded
+
+#### Scenario: Direct prompt control remains separate from queued gateway requests
+- **WHEN** a caller submits `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
+- **THEN** `houmao-server` proxies that request to the live gateway direct prompt-control route or equivalent selector-preserving headless path
+- **AND THEN** it does not rewrite the request into `POST /houmao/agents/{agent_ref}/gateway/requests`
+
+### Requirement: `houmao-server` exposes managed-agent gateway headless chat-session state and next-prompt override routes
+`houmao-server` SHALL expose managed-agent gateway headless control routes so callers can inspect headless chat-session state and request a one-shot next-prompt override without directly addressing gateway listener ports.
+
+At minimum, that route family SHALL include:
+
+- `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`
+- `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`
+
+Those routes SHALL operate only through an eligible live gateway attached to the addressed managed agent.
+
+`GET /houmao/agents/{agent_ref}/gateway/control/headless/state` SHALL return the same headless control-state payload shape exposed by the direct gateway route.
+
+`POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session` SHALL proxy the same one-shot next-prompt override behavior exposed by the direct gateway route and SHALL return the updated headless control-state payload from that live gateway.
+
+If the addressed managed agent does not have an eligible live gateway attached, the routes SHALL reject the request explicitly rather than silently falling back to another transport path.
+
+If the addressed managed agent is not headless, the routes SHALL reject the request with validation semantics rather than pretending that a headless control surface exists.
+
+#### Scenario: Caller reads headless control state through the managed-agent API
+- **WHEN** a caller requests `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`
+- **AND WHEN** the addressed managed agent has an eligible attached live headless gateway
+- **THEN** `houmao-server` returns the live gateway's headless control-state payload for that agent
+- **AND THEN** the caller does not need direct knowledge of the gateway host or port
+
+#### Scenario: Caller requests next-prompt override through the managed-agent API
+- **WHEN** a caller submits `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session` with `mode = new`
+- **AND WHEN** the addressed managed agent has an eligible attached live headless gateway
+- **THEN** `houmao-server` returns the updated headless control-state payload from that live gateway
+- **AND THEN** the response reports a pending one-shot next-prompt override for auto prompt selection
+
+#### Scenario: TUI managed agent rejects headless control routes
+- **WHEN** a caller requests `/houmao/agents/{agent_ref}/gateway/control/headless/state` or `/houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session` for a TUI-backed managed agent
+- **THEN** `houmao-server` rejects that request with validation semantics
+- **AND THEN** it does not pretend that a headless control surface exists for that managed agent
 
 ### Requirement: `houmao-server` exposes managed-agent gateway raw control-input routes
 `houmao-server` SHALL expose a managed-agent gateway raw control-input route so callers can deliver live gateway `send-keys` operations without addressing gateway listener ports directly.

@@ -1,19 +1,21 @@
-# Managed Mailbox Scripts
+# Managed Mailbox Compatibility Scripts
 
-This page defines the stable helper surface under `rules/scripts/` for mailbox operations that touch shared state.
+This page documents the optional compatibility helper surface under `rules/scripts/` when a filesystem mailbox publishes it.
+
+Ordinary mailbox work should use `pixi run houmao-mgr agents mail resolve-live`, gateway `/v1/mail/*` when available, and `pixi run houmao-mgr agents mail ...` when it is not. The scripts documented here matter for repair, debugging, and intentionally direct filesystem workflows, not for the default attached-session path.
 
 ## Mental Model
 
-The managed scripts are the mailbox's mutation boundary.
+The managed scripts are a compatibility mutation boundary.
 
-- The runtime materializes them into the mailbox-local `rules/` tree.
+- The runtime may materialize them into the mailbox-local `rules/` tree.
 - Operators and sessions can inspect them, but should not replace them with improvisational equivalents.
-- Each wrapper validates one JSON payload through strict `pydantic` models before calling the underlying handler.
+- Each wrapper validates one JSON payload through strict shared models before calling the underlying handler.
 - Each wrapper prints exactly one JSON object to stdout for both success and failure.
 
-That contract makes mailbox mutations predictable even when different sessions are sharing one mailbox root.
+That contract keeps direct compatibility workflows predictable even when different sessions are sharing one mailbox root.
 
-## Stable Asset Set
+## Published Asset Set When Present
 
 Current managed script filenames:
 
@@ -30,7 +32,7 @@ Shared dependency manifest:
 - Current third-party requirements: `pydantic>=2.12` and `PyYAML>=6.0`
 - The invoking environment must also have the `houmao` package available
 
-## Stable CLI Shape
+## Stable CLI Shape When Present
 
 All managed Python wrappers use:
 
@@ -47,7 +49,7 @@ The wrappers emit newline-terminated JSON to stdout and return process exit code
 sequenceDiagram
     participant Inv as Invoker
     participant Scr as Script
-    participant Val as Pydantic<br/>request model
+    participant Val as Shared request<br/>validation
     participant Hdl as Handler
     Inv->>Scr: --mailbox-root<br/>--payload-file
     Scr->>Val: load JSON payload<br/>and validate
@@ -78,7 +80,7 @@ Representative failure:
 ```json
 {
   "ok": false,
-  "error": "delivery payload: $.to[0].address: mailbox addresses must be full-form email-like values such as `AGENTSYS-research@agents.localhost`"
+  "error": "delivery payload: $.to[0].address: mailbox addresses must be full-form email-like values such as `HOUMAO-research@agents.localhost`"
 }
 ```
 
@@ -95,40 +97,12 @@ Payload fields:
 - `mailbox_path`
 - optional `display_name`, `manifest_path_hint`, `role`
 
-Representative success:
-
-```json
-{
-  "ok": true,
-  "mode": "stash",
-  "address": "AGENTSYS-bob@agents.localhost",
-  "active_registration_id": "reg-...",
-  "owner_principal_id": "AGENTSYS-carol",
-  "status": "active",
-  "stashed_registration_id": "reg-old",
-  "stashed_mailbox_path": "/abs/path/mailboxes/AGENTSYS-bob@agents.localhost--<uuid4hex>"
-}
-```
-
 ### `deregister_mailbox.py`
 
 Payload fields:
 
 - `mode`: `deactivate` or `purge`
 - `address`
-
-Representative success:
-
-```json
-{
-  "ok": true,
-  "mode": "purge",
-  "address": "AGENTSYS-private@agents.localhost",
-  "target_registration_id": "reg-...",
-  "resulting_status": "purged",
-  "purged_registration_id": "reg-..."
-}
-```
 
 ### `deliver_message.py`
 
@@ -139,17 +113,6 @@ Payload fields include:
 - `sender`, `to`, `cc`, `reply_to`
 - `subject`, `attachments`, `headers`
 
-Representative success:
-
-```json
-{
-  "ok": true,
-  "message_id": "msg-20260311T041500Z-a1b2c3d4e5f64798aabbccddeeff0011",
-  "canonical_path": "/abs/path/mailbox/messages/2026-03-11/msg-20260311T041500Z-a1b2c3d4e5f64798aabbccddeeff0011.md",
-  "recipient_count": 1
-}
-```
-
 ### `update_mailbox_state.py`
 
 Payload fields:
@@ -158,22 +121,6 @@ Payload fields:
 - `message_id`
 - at least one of `read`, `starred`, `archived`, `deleted`
 
-Representative success:
-
-```json
-{
-  "ok": true,
-  "address": "AGENTSYS-recipient@agents.localhost",
-  "owner_principal_id": "AGENTSYS-recipient",
-  "registration_id": "reg-...",
-  "message_id": "msg-20260311T041500Z-a1b2c3d4e5f64798aabbccddeeff0011",
-  "read": true,
-  "starred": true,
-  "archived": false,
-  "deleted": false
-}
-```
-
 ### `repair_index.py`
 
 Payload fields:
@@ -181,26 +128,9 @@ Payload fields:
 - optional `cleanup_staging` default `true`
 - optional `quarantine_staging` default `true`
 
-Representative success:
-
-```json
-{
-  "ok": true,
-  "message_count": 1,
-  "projection_count": 2,
-  "registration_count": 2,
-  "restored_state_count": 0,
-  "defaulted_state_count": 2,
-  "staging_action": "quarantine",
-  "staging_artifact_count": 1,
-  "staging_artifact_paths": ["/abs/path/mailbox/staging/orphaned.md.quarantine-..."],
-  "backed_up_index_path": null
-}
-```
-
 ### `insert_standard_headers.py`
 
-This script is materialized as part of the managed asset set, but the current build reserves it rather than implementing header normalization. It emits a structured failure result instead of silently doing nothing.
+This script is materialized as part of the compatibility asset set, but the current build reserves it rather than implementing header normalization. It emits a structured failure result instead of silently doing nothing.
 
 ## Source References
 

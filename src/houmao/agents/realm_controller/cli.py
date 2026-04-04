@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import asdict
 from datetime import timedelta
@@ -16,8 +15,12 @@ from houmao.agents.brain_builder import (
     load_launch_overrides_input,
 )
 from houmao.mailbox.protocol import mailbox_address_path_segment
+from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+    resolve_materialized_project_aware_agent_def_dir,
+)
 
-from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
+from .agent_identity import is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
 from .loaders import load_blueprint, load_brain_recipe_from_path
 from .mail_commands import (
@@ -36,16 +39,19 @@ from .runtime import (
     start_runtime_session,
 )
 
-_DEFAULT_AGENT_DEF_DIR = Path(".agentsys") / "agents"
 _AMBIENT_AGENT_DEF_DIR_HELP = (
-    "Agent definition directory root (contains brains/, roles/, blueprints/). "
-    "Precedence: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents."
+    "Agent definition directory root (contains tools/, skills/, and roles/). "
+    "Precedence: CLI > HOUMAO_AGENT_DEF_DIR > "
+    f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
+    ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
 )
 _CONTROL_AGENT_DEF_DIR_HELP = (
-    "Agent definition directory root (contains brains/, roles/, blueprints/). "
-    "For manifest-path control: CLI > AGENTSYS_AGENT_DEF_DIR > <pwd>/.agentsys/agents. "
+    "Agent definition directory root (contains tools/, skills/, and roles/). "
+    "For manifest-path control: CLI > HOUMAO_AGENT_DEF_DIR > "
+    f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
+    ".houmao/houmao-config.toml > <pwd>/.houmao/agents. "
     "For name-based tmux control: explicit CLI override or the addressed session's "
-    "AGENTSYS_AGENT_DEF_DIR."
+    "HOUMAO_AGENT_DEF_DIR."
 )
 _DEPRECATED_CAO_RUNTIME_GUIDANCE = (
     "Standalone backend='cao_rest' operator workflows are retired. "
@@ -104,22 +110,30 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Realm controller CLI (build/start/prompt/stop).")
+    parser = argparse.ArgumentParser(
+        description="Deprecated realm controller compatibility CLI (build/start/prompt/stop)."
+    )
     subparsers = parser.add_subparsers(dest="command")
 
-    build = subparsers.add_parser("build-brain", help="Build a brain home")
+    build = subparsers.add_parser(
+        "build-brain",
+        help="Build a brain home (deprecated compatibility entrypoint)",
+    )
     build.add_argument(
         "--agent-def-dir",
         default=None,
         help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
     build.add_argument("--runtime-root", default=None, help="Runtime root")
-    build.add_argument("--recipe", help="Path to brain recipe")
-    build.add_argument("--blueprint", help="Path to blueprint")
+    build.add_argument("--preset", help="Path to role-scoped preset")
+    build.add_argument("--recipe", help=argparse.SUPPRESS)
+    build.add_argument("--blueprint", help=argparse.SUPPRESS)
     build.add_argument("--tool", help="Tool name")
     build.add_argument("--skill", dest="skills", action="append", default=[])
-    build.add_argument("--config-profile", help="Config profile")
-    build.add_argument("--cred-profile", help="Credential profile")
+    build.add_argument("--setup", help="Tool setup bundle name")
+    build.add_argument("--config-profile", help=argparse.SUPPRESS)
+    build.add_argument("--auth", help="Tool auth bundle name")
+    build.add_argument("--cred-profile", help=argparse.SUPPRESS)
     build.add_argument(
         "--launch-overrides",
         help="Path to launch-overrides YAML/JSON, or an inline JSON object",
@@ -127,7 +141,10 @@ def _build_parser() -> argparse.ArgumentParser:
     build.add_argument("--home-id", help="Optional home id")
     build.add_argument("--reuse-home", action="store_true", help="Allow reusing home id")
 
-    start = subparsers.add_parser("start-session", help="Start a local/CAO session")
+    start = subparsers.add_parser(
+        "start-session",
+        help="Start a local/CAO session (deprecated compatibility entrypoint)",
+    )
     start.add_argument(
         "--agent-def-dir",
         default=None,
@@ -136,7 +153,7 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument("--runtime-root", default=None, help="Runtime root")
     start.add_argument("--brain-manifest", required=True, help="Built brain manifest path")
     start.add_argument("--role", help="Role name")
-    start.add_argument("--blueprint", help="Optional blueprint to source role from")
+    start.add_argument("--blueprint", help=argparse.SUPPRESS)
     start.add_argument(
         "--backend",
         choices=[
@@ -423,14 +440,15 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
     runtime_root = _optional_path(args.runtime_root, base=cwd)
 
     recipe = None
-    recipe_path: Path | None = None
-    if args.recipe:
-        recipe_path = _resolve_path(args.recipe, base=agent_def_dir)
-        recipe = load_brain_recipe_from_path(recipe_path)
+    preset_path: Path | None = None
+    requested_preset = args.preset or args.recipe
+    if requested_preset:
+        preset_path = _resolve_path(requested_preset, base=agent_def_dir)
+        recipe = load_brain_recipe_from_path(preset_path)
     elif args.blueprint:
         blueprint = load_blueprint(_resolve_path(args.blueprint, base=agent_def_dir))
-        recipe_path = blueprint.brain_recipe_path
-        recipe = load_brain_recipe_from_path(recipe_path)
+        preset_path = blueprint.brain_recipe_path
+        recipe = load_brain_recipe_from_path(preset_path)
 
     direct_launch_overrides = (
         load_launch_overrides_input(
@@ -444,18 +462,18 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
 
     tool = args.tool or (recipe.tool if recipe else None)
     skills = list(args.skills) if args.skills else (recipe.skills if recipe else [])
-    config_profile = args.config_profile or (recipe.config_profile if recipe else None)
-    credential_profile = args.cred_profile or (recipe.credential_profile if recipe else None)
+    setup = args.setup or args.config_profile or (recipe.setup if recipe else None)
+    auth = args.auth or args.cred_profile or (recipe.auth if recipe else None)
 
     missing: list[str] = []
     if not tool:
         missing.append("--tool")
     if not skills:
         missing.append("--skill (repeatable)")
-    if not config_profile:
-        missing.append("--config-profile")
-    if not credential_profile:
-        missing.append("--cred-profile")
+    if not setup:
+        missing.append("--setup")
+    if not auth:
+        missing.append("--auth")
     if missing:
         raise BrainLaunchRuntimeError(f"Missing required build inputs: {', '.join(missing)}")
 
@@ -465,15 +483,17 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             runtime_root=runtime_root,
             tool=str(tool),
             skills=[str(skill) for skill in skills],
-            config_profile=str(config_profile),
-            credential_profile=str(credential_profile),
-            recipe_path=recipe_path,
-            recipe_launch_overrides=recipe.launch_overrides if recipe else None,
+            setup=str(setup),
+            auth=str(auth),
+            preset_path=preset_path,
+            preset_launch_overrides=recipe.launch_overrides if recipe else None,
             mailbox=recipe.mailbox if recipe else None,
             agent_name=recipe.default_agent_name if recipe else None,
             home_id=args.home_id,
             reuse_home=bool(args.reuse_home),
             launch_overrides=direct_launch_overrides,
+            extra=recipe.extra if recipe else None,
+            persistent_env_records=recipe.launch_env_records if recipe else None,
         )
     )
 
@@ -896,7 +916,7 @@ def _resolve_role(args: argparse.Namespace, *, agent_def_dir: Path) -> str:
     if args.blueprint:
         blueprint = load_blueprint(_resolve_path(args.blueprint, base=agent_def_dir))
         return blueprint.role
-    raise BrainLaunchRuntimeError("start-session requires --role or --blueprint")
+    raise BrainLaunchRuntimeError("start-session requires --role (or legacy --blueprint)")
 
 
 def _resolve_control_target(
@@ -937,14 +957,12 @@ def _resolve_explicit_agent_def_dir_override(cli_value: str | None, *, cwd: Path
 
 
 def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
-    if cli_value is not None:
-        return _resolve_path(cli_value, base=cwd)
+    """Resolve the ambient agent-definition root for deprecated runtime entrypoints."""
 
-    env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
-    if env_value:
-        return _resolve_path(env_value, base=cwd)
-
-    return (cwd / _DEFAULT_AGENT_DEF_DIR).resolve()
+    try:
+        return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
+    except ValueError as exc:
+        raise BrainLaunchRuntimeError(str(exc)) from exc
 
 
 def _add_mail_common_args(parser: argparse.ArgumentParser) -> None:

@@ -16,8 +16,12 @@ from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
+    GatewayChatSessionSelectorV1,
     GatewayConnectivityState,
     GatewayExecutionState,
+    GatewayHeadlessChatSessionStateV1,
+    GatewayHeadlessControlStateV1,
+    GatewayHeadlessNextPromptSessionRequestV1,
     GatewayHealthState,
     GatewayHost,
     GatewayMailActionResponseV1,
@@ -25,7 +29,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailCheckResponseV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
+    GatewayMailStateRequestV1,
+    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
 )
@@ -673,6 +681,7 @@ class HoumaoManagedAgentHeadlessDetailView(_HoumaoModel):
     tmux_session_live: bool
     can_accept_prompt_now: bool
     interruptible: bool
+    chat_session: GatewayHeadlessChatSessionStateV1 | None = None
     turn: HoumaoManagedAgentTurnView
     last_turn: HoumaoManagedAgentLastTurnView
     active_turn_started_at_utc: str | None = None
@@ -800,6 +809,42 @@ class HoumaoManagedAgentGatewayRequestAcceptedResponse(GatewayAcceptedRequestV1)
     """Accepted response for `POST /houmao/agents/{agent_ref}/gateway/requests`."""
 
 
+class HoumaoManagedAgentGatewayPromptControlRequest(GatewayPromptControlRequestV1):
+    """Direct prompt-control request for `POST /houmao/agents/{agent_ref}/gateway/control/prompt`."""
+
+
+class HoumaoManagedAgentGatewayPromptControlResponse(GatewayPromptControlResultV1):
+    """Success response for `POST /houmao/agents/{agent_ref}/gateway/control/prompt`."""
+
+
+class HoumaoManagedAgentGatewayHeadlessControlStateResponse(GatewayHeadlessControlStateV1):
+    """Managed-agent gateway headless control-state payload."""
+
+
+class HoumaoManagedAgentGatewayNextPromptSessionRequest(GatewayHeadlessNextPromptSessionRequestV1):
+    """Managed-agent gateway next-prompt-session request payload."""
+
+
+class HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(_HoumaoModel):
+    """Internal direct-execution request used by an attached gateway for headless prompts."""
+
+    prompt: str
+    turn_id: str | None = None
+    chat_session: GatewayChatSessionSelectorV1 | None = None
+
+    @field_validator("prompt", "turn_id")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        """Require prompt and optional turn id to be non-empty when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
 class HoumaoManagedAgentMailStatusResponse(GatewayMailStatusV1):
     """Pair-owned managed-agent mail status payload."""
 
@@ -820,8 +865,16 @@ class HoumaoManagedAgentMailReplyRequest(GatewayMailReplyRequestV1):
     """Pair-owned managed-agent mail-reply request payload."""
 
 
+class HoumaoManagedAgentMailStateRequest(GatewayMailStateRequestV1):
+    """Pair-owned managed-agent mail-state request payload."""
+
+
 class HoumaoManagedAgentMailActionResponse(GatewayMailActionResponseV1):
     """Pair-owned managed-agent mail action response payload."""
+
+
+class HoumaoManagedAgentMailStateResponse(GatewayMailStateResponseV1):
+    """Pair-owned managed-agent mail-state response payload."""
 
 
 class HoumaoHeadlessLaunchMailboxOptions(_HoumaoModel):
@@ -867,6 +920,8 @@ class HoumaoHeadlessLaunchRequest(_HoumaoModel):
     role_name: str | None = None
     agent_name: str | None = None
     agent_id: str | None = None
+    headless_display_style: Literal["plain", "json", "fancy"] | None = None
+    headless_display_detail: Literal["concise", "detail"] | None = None
     mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None
 
     @field_validator(
@@ -924,6 +979,7 @@ class HoumaoHeadlessTurnRequest(_HoumaoModel):
     """Prompt submission for one managed headless turn."""
 
     prompt: str
+    chat_session: GatewayChatSessionSelectorV1 | None = None
 
     @field_validator("prompt")
     @classmethod

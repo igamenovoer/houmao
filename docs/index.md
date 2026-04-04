@@ -2,11 +2,14 @@
 
 Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agents as real tmux-backed processes.
 
+> **New here?** Start with the [project README](https://github.com/igamenovoer/houmao#readme) for installation, quick-start workflows (`agents join`, easy specialists, preset launch), and runnable demos. This site covers the full reference, developer guides, and subsystem internals.
+
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
-- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — brains, roles, and blueprints.
+- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, presets, and skills.
 - [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
+- [Easy Specialists](getting-started/easy-specialists.md): When to use easy specialists vs full role/preset definitions.
 
 ## Reference
 
@@ -19,9 +22,8 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 
 ### Build Phase
 
-- [Brain Builder](reference/build-phase/brain-builder.md): `BuildRequest` → runtime home → `BuildResult` workflow.
-- [Recipes and Adapters](reference/build-phase/recipes-and-adapters.md): `BrainRecipe` presets and `ToolAdapter` contracts.
 - [Launch Overrides](reference/build-phase/launch-overrides.md): Override system for launch parameters.
+- [Launch Policy](reference/build-phase/launch-policy.md): Policy engine for operator prompt modes and unattended execution.
 
 ### Run Phase
 
@@ -43,7 +45,6 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 ### Other Reference
 
 - [Release Publishing](reference/release-publishing.md): PyPI trusted publishing setup and the public release flow.
-- [Brain Builder and Component Library](reference/agents_brains.md): Legacy reference for the component library layout.
 - [Houmao Server Pair](reference/houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](reference/agents/index.md): Session model, targeting, and recovery.
 - [Managed Agent API](reference/managed_agent_api.md): Direct agent control API surface.

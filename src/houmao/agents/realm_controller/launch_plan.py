@@ -28,11 +28,10 @@ from houmao.agents.launch_overrides import (
 from houmao.agents.launch_overrides.models import SupportedLaunchBackend
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from .errors import LaunchPlanError, LaunchPolicyResolutionError
-from houmao.agents.mailbox_runtime_support import mailbox_env_bindings, mailbox_env_var_names
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
 
-_BRAIN_MANIFEST_SCHEMA_VERSION: Final[int] = 2
+_BRAIN_MANIFEST_SCHEMA_VERSION: Final[int] = 3
 _CAO_PARSING_MODE_DEFAULT_BY_TOOL: Final[dict[str, CaoParsingMode]] = {
     "claude": "shadow_only",
     "codex": "shadow_only",
@@ -92,11 +91,9 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     allowlist = _require_str_list(env_contract, "allowlisted_env_vars")
     env_values, selected_env_names = parse_allowlisted_env(env_source, allowlist)
     env_var_names = list(selected_env_names)
-
-    if request.mailbox is not None:
-        mailbox_env = mailbox_env_bindings(request.mailbox)
-        env_values.update(mailbox_env)
-        env_var_names = sorted({*env_var_names, *mailbox_env_var_names(request.mailbox)})
+    persistent_env_records = _persistent_launch_env_records(launch_contract)
+    env_values.update(persistent_env_records)
+    env_var_names = sorted({*env_var_names, *persistent_env_records.keys()})
 
     role_injection = plan_role_injection(
         backend=request.backend,
@@ -116,7 +113,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     )
     metadata["launch_overrides"] = resolved_launch_behavior.to_payload(
         adapter_defaults=_parse_adapter_defaults(launch_contract),
-        recipe_overrides=_parse_requested_launch_overrides(launch_contract, layer="recipe"),
+        recipe_overrides=_parse_requested_launch_overrides(launch_contract, layer="preset"),
         direct_overrides=_parse_requested_launch_overrides(launch_contract, layer="direct"),
         construction_provenance=_optional_mapping(
             launch_contract.get("construction_provenance"),
@@ -136,6 +133,8 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata["codex_headless_cli_mode"] = "exec_json_resume"
     if request.backend in {"claude_headless", "gemini_headless", "codex_headless"}:
         metadata["headless_output_format"] = "stream-json"
+        metadata["headless_display_style"] = "plain"
+        metadata["headless_display_detail"] = "concise"
 
     requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
     policy_backend = _launch_surface_for_backend(request.backend)
@@ -173,7 +172,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     if launch_policy_result.strategy is not None:
         metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
     metadata["launch_policy_request"] = {
-        "operator_prompt_mode": requested_operator_prompt_mode or "interactive",
+        "operator_prompt_mode": requested_operator_prompt_mode,
     }
     launch_overrides_metadata = metadata.get("launch_overrides")
     if isinstance(launch_overrides_metadata, dict):
@@ -321,17 +320,40 @@ def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptM
 
     launch_policy = manifest.get("launch_policy")
     if launch_policy is None:
-        return None
+        return "unattended"
     if not isinstance(launch_policy, dict):
         raise LaunchPlanError("Manifest `launch_policy` must be a mapping when set.")
     value = launch_policy.get("operator_prompt_mode")
     if value is None:
-        return None
-    if not isinstance(value, str) or value not in {"interactive", "unattended"}:
+        return "unattended"
+    if not isinstance(value, str) or value not in {"as_is", "unattended"}:
         raise LaunchPlanError(
-            "Manifest `launch_policy.operator_prompt_mode` must be `interactive` or `unattended`."
+            "Manifest `launch_policy.operator_prompt_mode` must be `as_is` or `unattended`."
         )
     return cast(OperatorPromptMode, value)
+
+
+def _persistent_launch_env_records(launch_contract: dict[str, Any]) -> dict[str, str]:
+    """Return persistent launch-owned env records from one manifest contract."""
+
+    raw_value = launch_contract.get("env_records")
+    if raw_value is None:
+        return {}
+    if not isinstance(raw_value, dict):
+        raise LaunchPlanError("Manifest `runtime.launch_contract.env_records` must be a mapping.")
+
+    env_records: dict[str, str] = {}
+    for raw_name, raw_item in raw_value.items():
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise LaunchPlanError(
+                "Manifest `runtime.launch_contract.env_records` requires non-empty string names."
+            )
+        if not isinstance(raw_item, str):
+            raise LaunchPlanError(
+                "Manifest `runtime.launch_contract.env_records` requires string values."
+            )
+        env_records[raw_name.strip()] = raw_item
+    return env_records
 
 
 def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:
@@ -343,7 +365,7 @@ def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:
 
 
 def _validate_manifest_schema_version(manifest: dict[str, Any]) -> None:
-    """Require schema-version-2 brain manifests."""
+    """Require schema-version-3 brain manifests."""
 
     schema_version = manifest.get("schema_version")
     if schema_version == _BRAIN_MANIFEST_SCHEMA_VERSION:
@@ -351,7 +373,7 @@ def _validate_manifest_schema_version(manifest: dict[str, Any]) -> None:
     if schema_version == 1:
         raise LaunchPlanError(
             "Brain manifest uses legacy schema_version=1. Rebuild the affected brain home "
-            "with the current builder to get schema_version=2 launch-overrides support."
+            "with the current builder to get schema_version=3 preset support."
         )
     raise LaunchPlanError(
         f"Brain manifest must use schema_version={_BRAIN_MANIFEST_SCHEMA_VERSION}, "
@@ -528,6 +550,8 @@ def _validate_cao_parsing_mode(value: str) -> None:
 
 
 def _bootstrap_message(role_name: str, role_prompt: str) -> str:
+    if not role_prompt:
+        return ""
     return (
         "[ROLE BOOTSTRAP START]\n"
         f"Role: {role_name}\n"
@@ -630,7 +654,7 @@ def _resolve_launch_behavior_from_contract(
             adapter_defaults=_parse_adapter_defaults(launch_contract),
             recipe_overrides=_parse_requested_launch_overrides(
                 launch_contract,
-                layer="recipe",
+                layer="preset",
             ),
             direct_overrides=_parse_requested_launch_overrides(
                 launch_contract,

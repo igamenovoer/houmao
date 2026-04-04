@@ -24,9 +24,13 @@ from pydantic import BaseModel
 
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayChatSessionSelectorV1,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
+    GatewayHeadlessCurrentChatSessionV1,
+    GatewayHeadlessStartupDefaultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayRequestCreateV1,
@@ -43,12 +47,16 @@ from houmao.agents.realm_controller.gateway_storage import (
     resolve_internal_gateway_attach_contract,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessProvider,
+    resolve_headless_provider,
+)
 from houmao.agents.realm_controller.backends.headless_runner import (
     load_headless_turn_events,
     load_headless_process_metadata,
     read_headless_turn_return_code,
 )
-from houmao.cao.models import CaoTerminal
+from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
 from houmao.agents.realm_controller.errors import (
     GatewayHttpError,
@@ -57,6 +65,7 @@ from houmao.agents.realm_controller.errors import (
 )
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
@@ -73,6 +82,7 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
+from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
@@ -115,6 +125,10 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     ManagedAgentAvailability,
@@ -128,6 +142,8 @@ from houmao.server.models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentMailboxSummaryView,
     HoumaoManagedAgentRequestAcceptedResponse,
@@ -827,6 +843,8 @@ class HoumaoServerService:
                     if request_model.mailbox is not None
                     else None
                 ),
+                headless_display_style=request_model.headless_display_style,
+                headless_display_detail=request_model.headless_display_detail,
                 registry_launch_authority="external",
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
@@ -1015,11 +1033,12 @@ class HoumaoServerService:
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
         )
-        stdout_path = Path(turn_record.stdout_path) if turn_record.stdout_path is not None else None
+        turn_dir = Path(turn_record.turn_artifact_dir)
         entries: list[HoumaoHeadlessTurnEvent] = []
-        if stdout_path is not None and stdout_path.exists():
+        if turn_dir.exists():
             for event in load_headless_turn_events(
-                stdout_path=stdout_path,
+                turn_dir=turn_dir,
+                provider=self._headless_provider(tracked_agent_id=tracked_agent_id),
                 output_format=self._headless_output_format(
                     tracked_agent_id=tracked_agent_id,
                 ),
@@ -1214,6 +1233,63 @@ class HoumaoServerService:
             response.model_dump(mode="json")
         )
 
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        """Proxy one managed-agent direct prompt-control request through a live gateway."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.control_prompt(request_model))
+        return HoumaoManagedAgentGatewayPromptControlResponse.model_validate(
+            response.model_dump(mode="json")
+        )
+
+    def get_managed_agent_gateway_headless_control_state(
+        self,
+        agent_ref: str,
+    ) -> GatewayHeadlessControlStateV1:
+        """Return live gateway headless control state for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(client.get_headless_control_state)
+
+    def set_managed_agent_gateway_headless_next_prompt_session(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    ) -> GatewayHeadlessControlStateV1:
+        """Store one live gateway next-prompt override for a managed headless agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(
+            lambda: client.set_headless_next_prompt_session(request_model)
+        )
+
+    def submit_managed_agent_gateway_internal_headless_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    ) -> CaoSuccessResponse:
+        """Execute one headless prompt directly for an attached gateway without recursion."""
+
+        tracked_agent_id = self._require_headless_agent_ref(agent_ref)
+        self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
+        handle = self._require_headless_handle(tracked_agent_id)
+        self._execute_headless_prompt_direct(
+            handle=handle,
+            prompt=request_model.prompt,
+            turn_id=request_model.turn_id,
+            chat_session=request_model.chat_session,
+        )
+        detail = (
+            f"Managed headless prompt `{request_model.turn_id}` dispatched."
+            if request_model.turn_id is not None
+            else "Managed headless prompt dispatched."
+        )
+        return CaoSuccessResponse(success=True, detail=detail)  # type: ignore[call-arg]
+
     def send_managed_agent_gateway_control_input(
         self,
         agent_ref: str,
@@ -1258,6 +1334,19 @@ class HoumaoServerService:
         response = self._invoke_live_gateway(client.mail_status)
         return HoumaoManagedAgentMailStatusResponse.model_validate(response.model_dump(mode="json"))
 
+    def managed_agent_mail_resolve_live(self, agent_ref: str) -> dict[str, object]:
+        """Return manifest-backed mailbox discovery for one managed agent."""
+
+        manifest_path = self._require_managed_agent_manifest_path(agent_ref)
+        try:
+            resolution = resolve_live_mailbox_binding_from_manifest_path(
+                manifest_path=manifest_path,
+                gateway_source="current_instance_record",
+            )
+        except (SessionManifestError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return resolution.payload()
+
     def check_managed_agent_mail(
         self,
         agent_ref: str,
@@ -1290,6 +1379,17 @@ class HoumaoServerService:
         client = self._require_live_managed_mail_gateway_client(agent_ref)
         response = self._invoke_live_gateway(lambda: client.reply_mail(request_model))
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
+
+    def update_managed_agent_mail_state(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        """Update pair-owned mailbox state for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.update_mail_state(request_model))
+        return HoumaoManagedAgentMailStateResponse.model_validate(response.model_dump(mode="json"))
 
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Poll one known tracked terminal immediately and return the updated state."""
@@ -2517,6 +2617,82 @@ class HoumaoServerService:
             ],
         )
 
+    def _headless_chat_session_state_from_handle(
+        self,
+        handle: _ManagedHeadlessAgentHandle,
+    ) -> GatewayHeadlessChatSessionStateV1:
+        """Return current/startup chat-session state for one managed headless agent."""
+
+        controller = handle.controller
+        if controller is not None and isinstance(
+            controller.backend_session, HeadlessInteractiveSession
+        ):
+            state = controller.backend_session.state
+            current = (
+                GatewayHeadlessCurrentChatSessionV1(id=state.session_id)
+                if state.session_id is not None
+                else None
+            )
+            return GatewayHeadlessChatSessionStateV1(
+                current=current,
+                startup_default=self._headless_startup_default_from_resume_selection(
+                    resume_selection_kind=state.resume_selection_kind,
+                    resume_selection_value=state.resume_selection_value,
+                ),
+                next_prompt_override=None,
+            )
+
+        try:
+            payload = parse_session_manifest_payload(
+                load_session_manifest(
+                    Path(handle.authority.manifest_path).expanduser().resolve()
+                ).payload,
+                source=handle.authority.manifest_path,
+            )
+        except (OSError, SessionManifestError):
+            return GatewayHeadlessChatSessionStateV1(
+                current=None,
+                startup_default=GatewayHeadlessStartupDefaultV1(mode="new"),
+                next_prompt_override=None,
+            )
+
+        headless = payload.headless
+        if headless is None:
+            return GatewayHeadlessChatSessionStateV1(
+                current=None,
+                startup_default=GatewayHeadlessStartupDefaultV1(mode="new"),
+                next_prompt_override=None,
+            )
+        current = (
+            GatewayHeadlessCurrentChatSessionV1(id=headless.session_id)
+            if headless.session_id is not None
+            else None
+        )
+        return GatewayHeadlessChatSessionStateV1(
+            current=current,
+            startup_default=self._headless_startup_default_from_resume_selection(
+                resume_selection_kind=headless.resume_selection_kind,
+                resume_selection_value=headless.resume_selection_value,
+            ),
+            next_prompt_override=None,
+        )
+
+    def _headless_startup_default_from_resume_selection(
+        self,
+        *,
+        resume_selection_kind: str,
+        resume_selection_value: str | None,
+    ) -> GatewayHeadlessStartupDefaultV1:
+        """Map persisted joined-launch resume selection into startup-default state."""
+
+        if resume_selection_kind == "last":
+            return GatewayHeadlessStartupDefaultV1(mode="tool_last_or_new")
+        if resume_selection_kind == "exact":
+            if resume_selection_value is None:
+                return GatewayHeadlessStartupDefaultV1(mode="new")
+            return GatewayHeadlessStartupDefaultV1(mode="exact", id=resume_selection_value)
+        return GatewayHeadlessStartupDefaultV1(mode="new")
+
     def _recent_transition_history_from_state(
         self,
         state: HoumaoTerminalStateResponse,
@@ -2551,6 +2727,7 @@ class HoumaoServerService:
             tmux_session_live=tmux_session_live,
             can_accept_prompt_now=summary_state.availability == "available" and active_turn is None,
             interruptible=active_turn is not None,
+            chat_session=self._headless_chat_session_state_from_handle(handle),
             turn=summary_state.turn,
             last_turn=summary_state.last_turn,
             active_turn_started_at_utc=active_turn.started_at_utc
@@ -2598,6 +2775,7 @@ class HoumaoServerService:
             tmux_session_live=control_state.tmux_session_live,
             can_accept_prompt_now=control_state.can_accept_prompt_now,
             interruptible=control_state.interruptible,
+            chat_session=control_state.chat_session,
             turn=summary_state.turn,
             last_turn=summary_state.last_turn,
             active_turn_started_at_utc=active_turn.started_at_utc
@@ -2801,6 +2979,7 @@ class HoumaoServerService:
                 "tracked_agent_id": tracked_agent_id,
                 "turn_id": turn_record.turn_id,
                 "prompt": request_model.prompt,
+                "chat_session": request_model.chat_session,
             },
             daemon=True,
             name=f"houmao-headless-turn-{tracked_agent_id}-{turn_record.turn_id}",
@@ -2867,6 +3046,7 @@ class HoumaoServerService:
                         payload=GatewayRequestPayloadSubmitPromptV1(
                             prompt=request_model.prompt,
                             turn_id=turn_record.turn_id,
+                            chat_session=request_model.chat_session,
                         ),
                     )
                 )
@@ -3423,6 +3603,27 @@ class HoumaoServerService:
             )
         return client
 
+    def _require_managed_agent_manifest_path(self, agent_ref: str) -> Path:
+        """Return the runtime-owned manifest path for one managed agent."""
+
+        resolved = self._resolve_managed_agent_ref(agent_ref)
+        manifest_path_value: str | None
+        if resolved["transport"] == "tui":
+            tracker = self._tracker_for_session_id(resolved["tracked_agent_id"])
+            manifest_path_value = tracker.current_state().tracked_session.manifest_path
+        else:
+            handle = self._require_headless_handle(resolved["tracked_agent_id"])
+            manifest_path_value = handle.authority.manifest_path
+        if manifest_path_value is None or not manifest_path_value.strip():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Managed-agent mailbox resolution is unavailable because the runtime-owned "
+                    "manifest path is missing."
+                ),
+            )
+        return Path(manifest_path_value).expanduser().resolve()
+
     def _require_live_managed_mail_gateway_client(self, agent_ref: str) -> GatewayClient:
         """Require pair-owned mailbox capability plus a live gateway client."""
 
@@ -3567,7 +3768,8 @@ class HoumaoServerService:
                 final_status = "failed"
             if stdout_path.exists():
                 events = load_headless_turn_events(
-                    stdout_path=stdout_path,
+                    turn_dir=turn_dir,
+                    provider=self._headless_provider(tracked_agent_id=tracked_agent_id),
                     output_format=self._headless_output_format(tracked_agent_id=tracked_agent_id),
                     turn_index=turn_record.turn_index,
                 )
@@ -3675,12 +3877,31 @@ class HoumaoServerService:
             return output_format
         return "stream-json"
 
+    def _headless_provider(self, *, tracked_agent_id: str) -> HeadlessProvider:
+        """Return the canonical provider identity for one managed headless agent."""
+
+        handle = self._require_headless_handle(tracked_agent_id)
+        if (
+            handle.controller is not None
+            and getattr(handle.controller.launch_plan, "tool", None) is not None
+            and getattr(handle.controller.launch_plan, "backend", None) is not None
+        ):
+            return resolve_headless_provider(
+                tool=handle.controller.launch_plan.tool,
+                backend=handle.controller.launch_plan.backend,
+            )
+        return resolve_headless_provider(
+            tool=handle.authority.tool,
+            backend=handle.authority.backend,
+        )
+
     def _run_headless_turn_worker(
         self,
         *,
         tracked_agent_id: str,
         turn_id: str,
         prompt: str,
+        chat_session: GatewayChatSessionSelectorV1 | None,
     ) -> None:
         """Execute one accepted headless turn in a background thread."""
 
@@ -3709,7 +3930,21 @@ class HoumaoServerService:
 
         error_detail: str | None = None
         try:
-            backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
+            session_selection = self._headless_turn_session_selection_for_request(
+                handle=handle,
+                chat_session=chat_session,
+            )
+            if session_selection is None:
+                backend_session.send_prompt(
+                    prompt,
+                    turn_artifact_dir_name=turn_id,
+                )
+            else:
+                backend_session.send_prompt(
+                    prompt,
+                    turn_artifact_dir_name=turn_id,
+                    session_selection=session_selection,
+                )
         except Exception as exc:
             error_detail = f"{type(exc).__name__}: {exc}"
         finally:
@@ -3724,6 +3959,81 @@ class HoumaoServerService:
                 turn_id=turn_id,
                 error_detail=error_detail,
             )
+
+    def _execute_headless_prompt_direct(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        prompt: str,
+        turn_id: str | None,
+        chat_session: GatewayChatSessionSelectorV1 | None,
+    ) -> None:
+        """Execute one direct headless prompt on the server-owned controller."""
+
+        controller = handle.controller
+        if controller is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Managed headless runtime controller is unavailable.",
+            )
+        backend_session = controller.backend_session
+        if not isinstance(backend_session, HeadlessInteractiveSession):
+            raise HTTPException(
+                status_code=503,
+                detail="Managed headless controller is missing a headless backend session.",
+            )
+        session_selection = self._headless_turn_session_selection_for_request(
+            handle=handle,
+            chat_session=chat_session,
+        )
+        try:
+            if session_selection is None:
+                backend_session.send_prompt(
+                    prompt,
+                    turn_artifact_dir_name=turn_id,
+                )
+            else:
+                backend_session.send_prompt(
+                    prompt,
+                    turn_artifact_dir_name=turn_id,
+                    session_selection=session_selection,
+                )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            controller.persist_manifest()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    def _headless_turn_session_selection_for_request(
+        self,
+        *,
+        handle: _ManagedHeadlessAgentHandle,
+        chat_session: GatewayChatSessionSelectorV1 | None,
+    ) -> HeadlessTurnSessionSelection | None:
+        """Resolve one direct headless prompt selector against the managed agent state."""
+
+        if chat_session is None or chat_session.mode == "auto":
+            return None
+        if chat_session.mode == "new":
+            return HeadlessTurnSessionSelection(mode="new")
+        if chat_session.mode == "tool_last_or_new":
+            return HeadlessTurnSessionSelection(mode="tool_last_or_new")
+        if chat_session.mode == "exact":
+            assert chat_session.id is not None
+            return HeadlessTurnSessionSelection(mode="exact", session_id=chat_session.id)
+
+        chat_session_state = self._headless_chat_session_state_from_handle(handle)
+        current = chat_session_state.current
+        if current is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "chat_session.mode=`current` requires a pinned current provider session, "
+                    "but none is available."
+                ),
+            )
+        return HeadlessTurnSessionSelection(mode="exact", session_id=current.id)
 
     def _finalize_headless_turn_record(
         self,

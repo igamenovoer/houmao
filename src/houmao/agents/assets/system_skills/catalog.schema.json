@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "skills",
+    "sets",
+    "auto_install"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "skills": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "asset_subpath"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^houmao-[a-z0-9-]+$"
+          },
+          "asset_subpath": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._/-]+$"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "sets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "skills"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "skills": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^houmao-[a-z0-9-]+$"
+            }
+          }
+        }
+      }
+    },
+    "auto_install": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "managed_launch_sets",
+        "managed_join_sets",
+        "cli_default_sets"
+      ],
+      "properties": {
+        "managed_launch_sets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          }
+        },
+        "managed_join_sets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          }
+        },
+        "cli_default_sets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,7 +7,7 @@ For maintainer-oriented design notes and change guidance, see the [Terminal Reco
 Use the repo-managed Python environment when invoking it:
 
 ```bash
-pixi run python -m tools.terminal_record start --mode active --target-session AGENTSYS-gpu --tool codex
+pixi run python -m tools.terminal_record start --mode active --target-session HOUMAO-gpu --tool codex
 ```
 
 ## Modes
@@ -31,38 +31,38 @@ pixi run python -m tools.terminal_record start --mode active --target-session AG
 Start an active run against a single-pane session:
 
 ```bash
-pixi run python -m tools.terminal_record start --mode active --target-session AGENTSYS-gpu --tool codex
+pixi run python -m tools.terminal_record start --mode active --target-session HOUMAO-gpu --tool codex
 ```
 
 Start a passive run against a specific pane:
 
 ```bash
-pixi run python -m tools.terminal_record start --mode passive --target-session AGENTSYS-gpu --target-pane %1 --tool codex
+pixi run python -m tools.terminal_record start --mode passive --target-session HOUMAO-gpu --target-pane %1 --tool codex
 ```
 
 Inspect a run:
 
 ```bash
-pixi run python -m tools.terminal_record status --run-root tmp/terminal_record/20260319-120000-AGENTSYS-gpu
+pixi run python -m tools.terminal_record status --run-root tmp/terminal_record/20260319-120000-HOUMAO-gpu
 ```
 
 Stop a run:
 
 ```bash
-pixi run python -m tools.terminal_record stop --run-root tmp/terminal_record/20260319-120000-AGENTSYS-gpu
+pixi run python -m tools.terminal_record stop --run-root tmp/terminal_record/20260319-120000-HOUMAO-gpu
 ```
 
 Analyze recorded pane snapshots:
 
 ```bash
-pixi run python -m tools.terminal_record analyze --run-root tmp/terminal_record/20260319-120000-AGENTSYS-gpu
+pixi run python -m tools.terminal_record analyze --run-root tmp/terminal_record/20260319-120000-HOUMAO-gpu
 ```
 
 Persist a label for a recorded checkpoint:
 
 ```bash
 pixi run python -m tools.terminal_record add-label \
-  --run-root tmp/terminal_record/20260319-120000-AGENTSYS-gpu \
+  --run-root tmp/terminal_record/20260319-120000-HOUMAO-gpu \
   --label-id trust-prompt-blocked \
   --scenario-id trust-prompt-recovery \
   --sample-id s000021 \

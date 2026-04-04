@@ -72,6 +72,7 @@ Repo-relative or absolute path roots used by the demo:
 - `sweeps_root`: default output parent for sweep runs
 
 If omitted inside the section, the implementation defaults match the checked-in companion config values.
+Corpus-oriented commands such as `recorded-validate-corpus` now preflight this root and fail immediately when it is missing or contains no fixture manifests.
 
 ### `[tools.<tool>]`
 
@@ -79,9 +80,10 @@ Tool-specific launch defaults. The supported keys today are:
 
 - `recipe_path`: brain recipe used when launching the selected tool
 - `launch_overrides`: optional structured launch override contract; use the same `args` / `tool_params` shape accepted by brain recipes and direct builds
-- `operator_prompt_mode`: optional launch policy request (`interactive` or `unattended`)
+- `operator_prompt_mode`: optional launch policy request (`as_is` or `unattended`); omitted mode follows the normal unattended default
 
 The demo currently expects both `tools.claude` and `tools.codex`.
+The checked-in companion config points these recipe paths at the demo-owned `inputs/agents/roles/interactive-watch/presets/<tool>/default.yaml` files. Those tracked presets keep `auth: default`, and each run materializes the concrete `tools/<tool>/auth/default` alias into the generated `workdir/.houmao/agents/` tree from the host-local fixture bundles under `tests/fixtures/agents/tools/<tool>/auth/`.
 
 ### `[evidence]`
 

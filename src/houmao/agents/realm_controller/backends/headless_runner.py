@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import errno
+from datetime import UTC, datetime
 import json
 import os
 import shlex
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -16,6 +18,17 @@ from typing import Any
 
 from ..errors import BackendExecutionError
 from ..models import SessionControlResult, SessionEvent
+from .headless_output import (
+    canonical_headless_event_artifact_path,
+    canonical_headless_events_from_provider_output,
+    canonical_headless_events_to_session_events,
+    load_preferred_canonical_headless_events,
+)
+from .headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+    HeadlessProvider,
+)
 from .tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
@@ -51,6 +64,7 @@ class HeadlessRunResult:
     stderr_path: Path | None = None
     status_path: Path | None = None
     process_path: Path | None = None
+    canonical_path: Path | None = None
     process_metadata: HeadlessProcessMetadata | None = None
     completion_source: str = "direct_process"
 
@@ -74,6 +88,9 @@ class HeadlessCliRunner:
         cwd: Path,
         turn_index: int,
         output_format: str,
+        provider: HeadlessProvider | None = None,
+        display_style: HeadlessDisplayStyle = "plain",
+        display_detail: HeadlessDisplayDetail = "concise",
         tmux_session_name: str | None = None,
         turn_artifacts_root: Path | None = None,
         turn_artifact_dir_name: str | None = None,
@@ -92,17 +109,37 @@ class HeadlessCliRunner:
                 cwd=cwd,
                 turn_index=turn_index,
                 output_format=output_format,
+                provider=provider,
             )
 
-        return self._run_in_tmux(
+        if provider is None:
+            return self._run_in_tmux_legacy(
+                command=command,
+                cwd=cwd,
+                turn_index=turn_index,
+                output_format=output_format,
+                tmux_session_name=tmux_session_name,
+                turn_artifacts_root=turn_artifacts_root
+                if turn_artifacts_root is not None
+                else cwd / ".houmao" / "headless-turns",
+                turn_artifact_dir_name=turn_artifact_dir_name,
+                completion_timeout_seconds=completion_timeout_seconds,
+                completion_poll_interval_seconds=completion_poll_interval_seconds,
+            )
+
+        return self._run_in_tmux_bridge(
             command=command,
+            env=env,
             cwd=cwd,
             turn_index=turn_index,
             output_format=output_format,
+            provider=provider,
+            display_style=display_style,
+            display_detail=display_detail,
             tmux_session_name=tmux_session_name,
             turn_artifacts_root=turn_artifacts_root
             if turn_artifacts_root is not None
-            else cwd / ".agentsys-headless-turns",
+            else cwd / ".houmao" / "headless-turns",
             turn_artifact_dir_name=turn_artifact_dir_name,
             completion_timeout_seconds=completion_timeout_seconds,
             completion_poll_interval_seconds=completion_poll_interval_seconds,
@@ -212,6 +249,7 @@ class HeadlessCliRunner:
         cwd: Path,
         turn_index: int,
         output_format: str,
+        provider: HeadlessProvider | None,
     ) -> HeadlessRunResult:
         process = subprocess.Popen(
             command,
@@ -225,17 +263,11 @@ class HeadlessCliRunner:
         )
         self._active_process = process
 
-        events: list[SessionEvent] = []
         raw_stdout_chunks: list[str] = []
 
         assert process.stdout is not None
         for raw_line in process.stdout:
             raw_stdout_chunks.append(raw_line)
-            line = raw_line.strip()
-            if not line:
-                continue
-            if output_format == "stream-json":
-                events.append(_parse_stream_json_line(line=line, turn_index=turn_index))
 
         returncode = process.wait()
 
@@ -243,13 +275,21 @@ class HeadlessCliRunner:
         if process.stderr is not None:
             stderr_text = process.stderr.read()
 
-        if output_format == "json":
-            events.extend(
-                _parse_json_payload(
-                    text="".join(raw_stdout_chunks),
-                    turn_index=turn_index,
-                )
+        stdout_text = "".join(raw_stdout_chunks)
+        if provider is None:
+            events = parse_headless_output_text(
+                output_format=output_format,
+                stdout_text=stdout_text,
+                turn_index=turn_index,
             )
+        else:
+            canonical_events = canonical_headless_events_from_provider_output(
+                provider=provider,
+                output_format=output_format,
+                stdout_text=stdout_text,
+                turn_index=turn_index,
+            )
+            events = canonical_headless_events_to_session_events(canonical_events)
 
         session_id = extract_session_id(events)
         self._active_process = None
@@ -272,13 +312,17 @@ class HeadlessCliRunner:
             session_id=session_id,
         )
 
-    def _run_in_tmux(
+    def _run_in_tmux_bridge(
         self,
         *,
         command: list[str],
+        env: dict[str, str],
         cwd: Path,
         turn_index: int,
         output_format: str,
+        provider: HeadlessProvider,
+        display_style: HeadlessDisplayStyle,
+        display_detail: HeadlessDisplayDetail,
         tmux_session_name: str,
         turn_artifacts_root: Path,
         turn_artifact_dir_name: str | None,
@@ -292,11 +336,172 @@ class HeadlessCliRunner:
         stderr_path = turn_dir / "stderr.log"
         status_path = turn_dir / "exitcode"
         process_path = turn_dir / "process.json"
+        canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+        wait_signal = f"houmao-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
+        pane_target = headless_agent_pane_target_shared(session_name=tmux_session_name)
+        launched_at_utc = datetime.now(UTC).isoformat(timespec="seconds")
+        bridge_args = [
+            sys.executable,
+            "-m",
+            "houmao.agents.realm_controller.backends.headless_bridge",
+            "--provider",
+            provider,
+            "--output-format",
+            output_format,
+            "--turn-index",
+            str(turn_index),
+            "--turn-dir",
+            str(turn_dir),
+            "--cwd",
+            str(cwd),
+            "--style",
+            display_style,
+            "--detail",
+            display_detail,
+            "--launched-at-utc",
+            launched_at_utc,
+            "--env-json",
+            json.dumps(env, sort_keys=True),
+            "--",
+            *command,
+        ]
+        bridge_command_text = shlex.join(bridge_args)
+        script = "\n".join(
+            [
+                "set +e",
+                f"cd {shlex.quote(str(cwd))}",
+                bridge_command_text,
+                f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
+                'idle_shell="${SHELL:-/bin/sh}"',
+                'exec "$idle_shell" -l',
+            ]
+        )
+        pane_command = f"sh -lc {shlex.quote(script)}"
+
+        try:
+            prepare_headless_agent_window_shared(session_name=tmux_session_name)
+        except TmuxCommandError as exc:
+            raise BackendExecutionError(
+                f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
+            ) from exc
+
+        try:
+            launch = run_tmux_shared(
+                [
+                    "respawn-pane",
+                    "-k",
+                    "-t",
+                    pane_target,
+                    pane_command,
+                ]
+            )
+        except TmuxCommandError as exc:
+            raise BackendExecutionError(f"Failed to launch tmux headless turn: {exc}") from exc
+
+        if launch.returncode != 0:
+            detail = tmux_error_detail_shared(launch) or "unknown tmux error"
+            raise BackendExecutionError(
+                f"Failed to launch tmux headless turn in `{tmux_session_name}` on the "
+                f"stable {HEADLESS_AGENT_WINDOW_NAME} surface: {detail}"
+            )
+
+        self._active_tmux_session_name = tmux_session_name
+        self._active_tmux_pane_target = pane_target
+        self._active_tmux_wait_signal = wait_signal
+        self._active_process_path = process_path
+        self._active_process_metadata = self._wait_for_process_metadata(
+            process_path=process_path,
+            timeout_seconds=1.0,
+        )
+
+        try:
+            wait_for_tmux_signal_shared(
+                signal_name=wait_signal,
+                timeout_seconds=completion_timeout_seconds,
+            )
+        except TmuxCommandError:
+            pass
+
+        deadline = time.monotonic() + max(completion_timeout_seconds, 0.0)
+        while True:
+            if status_path.is_file():
+                break
+            if time.monotonic() >= deadline:
+                raise BackendExecutionError(
+                    "Timed out waiting for tmux headless turn completion marker."
+                )
+            time.sleep(max(completion_poll_interval_seconds, 0.01))
+
+        stderr_text = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+        returncode = read_headless_turn_return_code(status_path=status_path)
+        canonical_events = load_preferred_canonical_headless_events(
+            turn_dir=turn_dir,
+            provider=provider,
+            output_format=output_format,
+            turn_index=turn_index,
+        )
+        events = canonical_headless_events_to_session_events(canonical_events)
+        session_id = extract_session_id(events)
+        process_metadata = self._read_process_metadata_best_effort(process_path=process_path)
+
+        if returncode != 0:
+            message = stderr_text.strip() or f"command exited with code {returncode}"
+            events.append(
+                SessionEvent(
+                    kind="error",
+                    message=message,
+                    turn_index=turn_index,
+                    payload={"returncode": returncode},
+                )
+            )
+        try:
+            return HeadlessRunResult(
+                events=events,
+                stderr=stderr_text,
+                returncode=returncode,
+                session_id=session_id,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                status_path=status_path,
+                process_path=process_path,
+                canonical_path=canonical_path if canonical_path.exists() else None,
+                process_metadata=process_metadata,
+                completion_source="process_exit",
+            )
+        finally:
+            self._active_tmux_session_name = None
+            self._active_tmux_pane_target = None
+            self._active_tmux_wait_signal = None
+            self._active_process_path = None
+            self._active_process_metadata = None
+
+    def _run_in_tmux_legacy(
+        self,
+        *,
+        command: list[str],
+        cwd: Path,
+        turn_index: int,
+        output_format: str,
+        tmux_session_name: str,
+        turn_artifacts_root: Path,
+        turn_artifact_dir_name: str | None,
+        completion_timeout_seconds: float,
+        completion_poll_interval_seconds: float,
+    ) -> HeadlessRunResult:
+        """Run the pre-canonical tmux path for legacy callers and tests."""
+
+        turn_dir_name = turn_artifact_dir_name or f"turn-{turn_index:04d}"
+        turn_dir = (turn_artifacts_root / turn_dir_name).resolve()
+        turn_dir.mkdir(parents=True, exist_ok=True)
+        stdout_path = turn_dir / "stdout.jsonl"
+        stderr_path = turn_dir / "stderr.log"
+        status_path = turn_dir / "exitcode"
+        process_path = turn_dir / "process.json"
         process_tmp_path = turn_dir / f".process-{uuid.uuid4().hex}.tmp"
         status_tmp_path = turn_dir / f".exitcode-{uuid.uuid4().hex}.tmp"
         stdout_pipe_path = turn_dir / f".stdout-{uuid.uuid4().hex}.pipe"
         stderr_pipe_path = turn_dir / f".stderr-{uuid.uuid4().hex}.pipe"
-        wait_signal = f"agentsys-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
+        wait_signal = f"houmao-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
         pane_target = headless_agent_pane_target_shared(session_name=tmux_session_name)
 
         command_text = shlex.join(command)
@@ -384,16 +589,13 @@ class HeadlessCliRunner:
             timeout_seconds=1.0,
         )
 
-        completion_source = "status_polling"
         try:
-            wait_result = wait_for_tmux_signal_shared(
+            wait_for_tmux_signal_shared(
                 signal_name=wait_signal,
                 timeout_seconds=completion_timeout_seconds,
             )
-            if wait_result.returncode == 0:
-                completion_source = "tmux_wait_for"
         except TmuxCommandError:
-            completion_source = "status_polling"
+            pass
 
         deadline = time.monotonic() + max(completion_timeout_seconds, 0.0)
         while True:
@@ -437,7 +639,7 @@ class HeadlessCliRunner:
                 status_path=status_path,
                 process_path=process_path,
                 process_metadata=process_metadata,
-                completion_source=completion_source,
+                completion_source="process_exit",
             )
         finally:
             self._active_tmux_session_name = None
@@ -525,11 +727,24 @@ def parse_headless_output_text(
 
 def load_headless_turn_events(
     *,
-    stdout_path: Path,
+    turn_dir: Path,
+    provider: HeadlessProvider | None,
     output_format: str,
     turn_index: int,
 ) -> list[SessionEvent]:
     """Read one persisted headless stdout artifact and parse it."""
+
+    stdout_path = (turn_dir / "stdout.jsonl").resolve()
+    if provider is not None:
+        canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+        if canonical_path.exists():
+            canonical_events = load_preferred_canonical_headless_events(
+                turn_dir=turn_dir,
+                provider=provider,
+                output_format=output_format,
+                turn_index=turn_index,
+            )
+            return canonical_headless_events_to_session_events(canonical_events)
 
     stdout_text = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
     return parse_headless_output_text(

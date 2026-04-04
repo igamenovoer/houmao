@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines how the passive server discovers running agents by scanning the shared registry with tmux liveness verification, and exposes them through REST API endpoints for listing and resolution.
-
 ## Requirements
-
 ### Requirement: Passive server discovers agents by scanning the shared registry with tmux liveness verification
 The passive server SHALL maintain a `RegistryDiscoveryService` that periodically scans the shared `LiveAgentRegistryRecordV2` registry under the configured registry root.
 
@@ -96,41 +94,22 @@ The passive server SHALL expose `GET /houmao/agents/{agent_ref}` that resolves o
 
 The `{agent_ref}` path parameter SHALL be interpreted as follows:
 1. First, attempt direct lookup by `agent_id` in the discovery index.
-2. If no match, canonicalize the input as an agent name (applying `AGENTSYS-` prefix normalization) and search the index for agents matching that canonical name.
+2. If no match, canonicalize the input as an agent name by applying `HOUMAO-` prefix normalization and search the index for agents matching that canonical name.
 3. If exactly one match is found, return it.
 4. If no match is found, return 404.
-5. If the name matches multiple agents (different `agent_id` values sharing the same canonical `agent_name`), return 409 Conflict with a diagnostic message listing the ambiguous agent IDs.
+5. If the name matches multiple agents, return 409 Conflict with a diagnostic message listing the ambiguous agent IDs.
 
-The response body for a successful resolution SHALL use the same agent summary schema as the listing endpoint.
-
-#### Scenario: Resolution by agent_id returns the matching agent
-- **WHEN** the discovery index contains agent `abc123` (name `AGENTSYS-alpha`)
-- **AND WHEN** a caller sends `GET /houmao/agents/abc123`
-- **THEN** the response status code is 200
-- **AND THEN** the response body contains the agent summary for `abc123`
-
-#### Scenario: Resolution by agent_name returns a unique match
-- **WHEN** the discovery index contains exactly one agent with name `AGENTSYS-alpha`
+#### Scenario: Resolution by agent_name returns a unique HOUMAO match
+- **WHEN** the discovery index contains exactly one agent with name `HOUMAO-alpha`
 - **AND WHEN** a caller sends `GET /houmao/agents/alpha`
 - **THEN** the response status code is 200
 - **AND THEN** the response body contains the agent summary for the matching agent
 
-#### Scenario: Resolution by canonical agent_name is accepted
-- **WHEN** the discovery index contains exactly one agent with name `AGENTSYS-alpha`
-- **AND WHEN** a caller sends `GET /houmao/agents/AGENTSYS-alpha`
+#### Scenario: Resolution by canonical HOUMAO agent_name is accepted
+- **WHEN** the discovery index contains exactly one agent with name `HOUMAO-alpha`
+- **AND WHEN** a caller sends `GET /houmao/agents/HOUMAO-alpha`
 - **THEN** the response status code is 200
 - **AND THEN** the response body contains the agent summary for the matching agent
-
-#### Scenario: Resolution returns 404 for an unknown agent
-- **WHEN** the discovery index contains no agent matching `unknown-id`
-- **AND WHEN** a caller sends `GET /houmao/agents/unknown-id`
-- **THEN** the response status code is 404
-
-#### Scenario: Resolution returns 409 for an ambiguous agent name
-- **WHEN** the discovery index contains two agents both named `AGENTSYS-alpha` with different agent_id values `abc123` and `def456`
-- **AND WHEN** a caller sends `GET /houmao/agents/alpha`
-- **THEN** the response status code is 409
-- **AND THEN** the response body contains a diagnostic message listing the ambiguous agent IDs
 
 ### Requirement: Discovery service configuration is part of PassiveServerConfig
 The `PassiveServerConfig` model SHALL include a `discovery_poll_interval_seconds` field (float, default 5.0) that controls the interval between registry scan cycles.
@@ -164,3 +143,4 @@ The discovery service SHALL log a warning when the tmux server is unreachable ra
 - **WHEN** the tmux server was not running during initial scan cycles
 - **AND WHEN** the tmux server starts and agents have live tmux sessions
 - **THEN** the discovery service picks up those agents on the next scan cycle
+

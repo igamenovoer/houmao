@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
+from importlib import resources
 import json
+import math
 import os
 import socket
 import sqlite3
@@ -13,14 +15,20 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, NoReturn, Protocol, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_support import (
-    mailbox_skill_document_path,
+    mailbox_processing_skill_name,
+    mailbox_processing_skill_reference,
+    mailbox_gateway_skill_name,
+    mailbox_gateway_skill_reference,
+    mailbox_skill_reference,
+    mailbox_skill_name,
+    projected_mailbox_skill_document_path,
     resolve_live_mailbox_binding,
     resolved_mailbox_config_from_payload,
 )
@@ -39,13 +47,19 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHeadlessV1,
     GatewayAttachContractV1,
     GatewayAttachBackendMetadataHoumaoServerV1,
+    GatewayChatSessionSelectorV1,
     GatewayConnectivityState,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
     GatewayCurrentInstanceV1,
     GatewayExecutionState,
+    GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
+    GatewayHeadlessCurrentChatSessionV1,
     GatewayHealthResponseV1,
+    GatewayHeadlessNextPromptOverrideV1,
+    GatewayHeadlessNextPromptSessionRequestV1,
+    GatewayHeadlessStartupDefaultV1,
     GatewayHost,
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
@@ -58,6 +72,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayJsonObject,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayPromptControlErrorV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
@@ -65,6 +82,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewaySurfaceEligibilityState,
     GatewayStoredRequestKind,
     GatewayStatusV1,
+    GatewayWakeupCancelResultV1,
+    GatewayWakeupCreateV1,
+    GatewayWakeupJobV1,
+    GatewayWakeupListV1,
+    GatewayWakeupMode,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayNotifierAuditUnreadMessage,
@@ -92,12 +114,14 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
+from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     tmux_session_exists,
 )
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
 from houmao.server.models import (
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoTerminalSnapshotHistoryResponse,
@@ -113,13 +137,18 @@ from houmao.server.pair_client import (
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
+_WAKEUP_BUSY_RETRY_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
+_TUI_RESET_PROMPT = "/clear"
+_TUI_RESET_READY_WAIT_SECONDS = 15.0
+_TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _GatewayRequestTerminalState = Literal["completed", "failed"]
-_GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
-_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
-_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
-_GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
+_GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
+_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
+_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
+_GATEWAY_TMUX_PANE_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_PANE_ID"
+_MAIL_NOTIFIER_TEMPLATE_RESOURCE = "system_prompts/mailbox/mail-notifier.md"
 
 
 @dataclass(frozen=True)
@@ -154,6 +183,23 @@ class _UnreadMailboxMessage:
     sender_address: str
     sender_display_name: str | None
     subject: str
+
+
+@dataclass
+class _GatewayWakeupJobRecord:
+    """One in-memory wakeup job owned by the live gateway runtime."""
+
+    job_id: str
+    mode: GatewayWakeupMode
+    prompt: str
+    created_at: datetime
+    next_due_at: datetime
+    anchor_due_at: datetime
+    interval_seconds: float | None
+    last_started_at: datetime | None = None
+    executing: bool = False
+    cancel_requested: bool = False
+    deferred_signature: str | None = None
 
 
 @dataclass(frozen=True)
@@ -199,6 +245,28 @@ def _optional_env_string(variable_name: str) -> str | None:
     return stripped or None
 
 
+def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
+    """Return one markdown block with full current mailbox endpoint URLs."""
+
+    return "\n".join(
+        [
+            f"- `GET {base_url}/v1/mail/status`",
+            f"- `POST {base_url}/v1/mail/check`",
+            f"- `POST {base_url}/v1/mail/send`",
+            f"- `POST {base_url}/v1/mail/reply`",
+            f"- `POST {base_url}/v1/mail/state`",
+        ]
+    )
+
+
+def _load_mail_notifier_template() -> str:
+    """Load the packaged markdown notifier prompt template."""
+
+    return (
+        resources.files("houmao.agents.realm_controller.assets") / _MAIL_NOTIFIER_TEMPLATE_RESOURCE
+    ).read_text(encoding="utf-8")
+
+
 class GatewayExecutionAdapter(Protocol):
     """Execution adapter boundary for one gateway-managed target."""
 
@@ -209,7 +277,13 @@ class GatewayExecutionAdapter(Protocol):
     def inspect_target(self) -> _GatewayTargetState:
         """Return current target posture for status and reconciliation."""
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt to the addressed managed target."""
 
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
@@ -289,10 +363,16 @@ class _RestBackedGatewayAdapter:
             prompt_admission_open=connectivity == "connected",
         )
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt to the current runtime-owned terminal."""
 
-        del turn_id
+        del turn_id, session_selection
         terminal_id = self._read_current_terminal_id()
         result = self.m_client.send_terminal_input(terminal_id, prompt)
         if not result.success:
@@ -447,7 +527,13 @@ class _LocalHeadlessGatewayAdapter:
             prompt_admission_open=connected,
         )
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt through resumed local tmux-backed runtime control."""
 
         self._require_live_tmux_session()
@@ -461,7 +547,12 @@ class _LocalHeadlessGatewayAdapter:
                     "Resumed local tmux-backed controller is missing a resumable "
                     "interactive backend."
                 )
-            backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
+            self._send_headless_prompt(
+                backend_session=backend_session,
+                prompt=prompt,
+                turn_id=turn_id,
+                session_selection=session_selection,
+            )
             controller.persist_manifest(refresh_registry=False)
         except RuntimeError as exc:
             raise GatewayError(f"Local tmux-backed prompt submission failed: {exc}") from exc
@@ -485,6 +576,36 @@ class _LocalHeadlessGatewayAdapter:
         if result.status != "ok":
             raise GatewayError(result.detail)
         return result.detail
+
+    def _send_headless_prompt(
+        self,
+        *,
+        backend_session: HeadlessInteractiveSession,
+        prompt: str,
+        turn_id: str | None,
+        session_selection: HeadlessTurnSessionSelection | None,
+    ) -> None:
+        """Call one resumable headless backend with backward-compatible selector support."""
+
+        if session_selection is None:
+            backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_id,
+            )
+            return
+        try:
+            backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_id,
+                session_selection=session_selection,
+            )
+        except TypeError as exc:
+            if "session_selection" not in str(exc):
+                raise
+            backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_id,
+            )
 
     def _resume_controller(self) -> RuntimeSessionController:
         """Return the resumed local runtime controller, materializing it lazily."""
@@ -576,11 +697,38 @@ class _ServerManagedHeadlessGatewayAdapter:
             prompt_admission_open=can_accept_prompt_now,
         )
 
-    def submit_prompt(self, *, prompt: str, turn_id: str | None = None) -> None:
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> None:
         """Submit one prompt through the managed-agent server API."""
 
-        del turn_id
-        response = self._resolve_client().submit_managed_agent_request(
+        client = self._resolve_client()
+        internal_submit = getattr(
+            client,
+            "submit_managed_agent_gateway_internal_headless_prompt",
+            None,
+        )
+        if callable(internal_submit):
+            response = internal_submit(
+                self.m_managed_agent_ref,
+                HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(
+                    prompt=prompt,
+                    turn_id=turn_id,
+                    chat_session=self._selector_payload(session_selection),
+                ),
+            )
+            if not response.success:
+                raise GatewayError(
+                    f"Managed-agent internal headless prompt did not execute: {response.detail}"
+                )
+            return
+
+        del turn_id, session_selection
+        response = client.submit_managed_agent_request(
             self.m_managed_agent_ref,
             HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
         )
@@ -617,6 +765,20 @@ class _ServerManagedHeadlessGatewayAdapter:
                 f"Failed to resolve managed pair authority `{self.m_managed_api_base_url}`: {exc}"
             ) from exc
         return self.m_client
+
+    def _selector_payload(
+        self,
+        session_selection: HeadlessTurnSessionSelection | None,
+    ) -> GatewayChatSessionSelectorV1 | None:
+        """Convert one resolved headless selector into the gateway payload shape."""
+
+        if session_selection is None:
+            return None
+        if session_selection.mode == "exact":
+            assert session_selection.session_id is not None
+            return GatewayChatSessionSelectorV1(mode="exact", id=session_selection.session_id)
+        return GatewayChatSessionSelectorV1(mode=session_selection.mode)
+
 
 
 def _build_gateway_execution_adapter(
@@ -675,9 +837,11 @@ class GatewayServiceRuntime:
             attach_contract=self.m_attach_contract
         )
         self.m_lock = threading.Lock()
+        self.m_wakeup_condition = threading.Condition(self.m_lock)
         self.m_log_lock = threading.Lock()
         self.m_stop_event = threading.Event()
         self.m_worker_thread: threading.Thread | None = None
+        self.m_wakeup_thread: threading.Thread | None = None
         self.m_notifier_thread: threading.Thread | None = None
         self.m_current_epoch = 1
         self.m_current_instance_id: str | None = None
@@ -689,6 +853,11 @@ class GatewayServiceRuntime:
         self.m_tmux_window_index = _optional_env_string(_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR)
         self.m_tmux_pane_id = _optional_env_string(_GATEWAY_TMUX_PANE_ID_ENV_VAR)
         self.m_tui_tracking: SingleSessionTrackingRuntime | None = None
+        self.m_direct_prompt_thread: threading.Thread | None = None
+        self.m_direct_prompt_turn_id: str | None = None
+        self.m_headless_next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
+        self.m_wakeup_jobs: dict[str, _GatewayWakeupJobRecord] = {}
+        self.m_active_wakeup_job_id: str | None = None
 
     @classmethod
     def from_gateway_root(
@@ -746,6 +915,12 @@ class GatewayServiceRuntime:
             daemon=True,
         )
         self.m_worker_thread.start()
+        self.m_wakeup_thread = threading.Thread(
+            target=self._wakeup_loop,
+            name="gateway-wakeup-scheduler",
+            daemon=True,
+        )
+        self.m_wakeup_thread.start()
         self.m_notifier_thread = threading.Thread(
             target=self._notifier_loop,
             name="gateway-mail-notifier",
@@ -765,11 +940,16 @@ class GatewayServiceRuntime:
         """Stop the queue worker and remove ephemeral run metadata."""
 
         self.m_stop_event.set()
+        with self.m_wakeup_condition:
+            self.m_wakeup_condition.notify_all()
         if self.m_worker_thread is not None:
             self.m_worker_thread.join(timeout=2.0)
+        if self.m_wakeup_thread is not None:
+            self.m_wakeup_thread.join(timeout=2.0)
         if self.m_notifier_thread is not None:
             self.m_notifier_thread.join(timeout=2.0)
         with self.m_lock:
+            self._drop_pending_wakeups_locked()
             if self.m_tui_tracking is not None:
                 self.m_tui_tracking.stop()
                 self.m_tui_tracking = None
@@ -809,39 +989,117 @@ class GatewayServiceRuntime:
             tracking = self._require_tui_tracking_locked()
         return tracking.note_prompt_submission(message=prompt)
 
+    def set_headless_next_prompt_session(
+        self,
+        request_payload: GatewayHeadlessNextPromptSessionRequestV1,
+    ) -> GatewayHeadlessControlStateV1:
+        """Store one one-shot override for the next accepted auto headless prompt."""
+
+        del request_payload
+        with self.m_lock:
+            self._require_native_headless_backend_locked()
+            self.m_headless_next_prompt_override = GatewayHeadlessNextPromptOverrideV1(mode="new")
+            return self._build_headless_control_state_locked()
+
     def get_headless_control_state(self) -> GatewayHeadlessControlStateV1:
         """Return read-optimized live headless control posture."""
 
         with self.m_lock:
-            if self.m_attach_contract.backend not in {
-                "claude_headless",
-                "codex_headless",
-                "gemini_headless",
-            }:
+            self._require_native_headless_backend_locked()
+            return self._build_headless_control_state_locked()
+
+    def _build_headless_control_state_locked(self) -> GatewayHeadlessControlStateV1:
+        """Build the current live headless control-state payload."""
+
+        status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+        active_turn_id = self._active_headless_turn_id_locked()
+        tmux_session_live = status.managed_agent_connectivity == "connected"
+        active_execution = status.active_execution
+        can_accept_prompt_now = (
+            tmux_session_live
+            and status.request_admission == "open"
+            and active_execution == "idle"
+            and active_turn_id is None
+        )
+        return GatewayHeadlessControlStateV1(
+            runtime_resumable=tmux_session_live,
+            tmux_session_live=tmux_session_live,
+            can_accept_prompt_now=can_accept_prompt_now,
+            interruptible=active_execution == "running" or active_turn_id is not None,
+            chat_session=self._headless_chat_session_state_locked(),
+            request_admission=status.request_admission,
+            active_execution=active_execution,
+            queue_depth=status.queue_depth,
+            active_turn_id=active_turn_id,
+        )
+
+    def _require_native_headless_backend_locked(self) -> None:
+        """Require a native headless attach backend for headless-only routes."""
+
+        if self.m_attach_contract.backend not in {
+            "claude_headless",
+            "codex_headless",
+            "gemini_headless",
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail="Gateway headless live-state routes are only available for headless backends.",
+            )
+
+    def _headless_chat_session_state_locked(self) -> GatewayHeadlessChatSessionStateV1:
+        """Return the current headless chat-session state from the persisted manifest."""
+
+        manifest_path_value = self.m_attach_contract.manifest_path
+        if manifest_path_value is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Gateway headless chat-session state is unavailable without manifest_path.",
+            )
+        try:
+            handle = load_session_manifest(Path(manifest_path_value).expanduser().resolve())
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        except (OSError, SessionManifestError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Gateway headless chat-session state is unavailable: {exc}",
+            ) from exc
+        if payload.headless is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Gateway headless chat-session state is only available for headless manifests.",
+            )
+        current = (
+            GatewayHeadlessCurrentChatSessionV1(id=payload.headless.session_id)
+            if payload.headless.session_id is not None
+            else None
+        )
+        return GatewayHeadlessChatSessionStateV1(
+            current=current,
+            startup_default=self._startup_default_from_manifest_locked(
+                resume_selection_kind=payload.headless.resume_selection_kind,
+                resume_selection_value=payload.headless.resume_selection_value,
+            ),
+            next_prompt_override=self.m_headless_next_prompt_override,
+        )
+
+    def _startup_default_from_manifest_locked(
+        self,
+        *,
+        resume_selection_kind: str,
+        resume_selection_value: str | None,
+    ) -> GatewayHeadlessStartupDefaultV1:
+        """Map persisted joined-launch selector state into startup-default state."""
+
+        if resume_selection_kind == "last":
+            return GatewayHeadlessStartupDefaultV1(mode="tool_last_or_new")
+        if resume_selection_kind == "exact":
+            if resume_selection_value is None:
                 raise HTTPException(
-                    status_code=422,
-                    detail="Gateway headless live-state routes are only available for headless backends.",
+                    status_code=503,
+                    detail="Headless manifest is missing resume_selection_value for exact startup.",
                 )
-            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
-            active_turn_id = self._active_headless_turn_id_locked()
-            tmux_session_live = status.managed_agent_connectivity == "connected"
-            active_execution = status.active_execution
-            can_accept_prompt_now = (
-                tmux_session_live
-                and status.request_admission == "open"
-                and active_execution == "idle"
-                and active_turn_id is None
-            )
-            return GatewayHeadlessControlStateV1(
-                runtime_resumable=isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter),
-                tmux_session_live=tmux_session_live,
-                can_accept_prompt_now=can_accept_prompt_now,
-                interruptible=active_execution == "running" or active_turn_id is not None,
-                request_admission=status.request_admission,
-                active_execution=active_execution,
-                queue_depth=status.queue_depth,
-                active_turn_id=active_turn_id,
-            )
+            return GatewayHeadlessStartupDefaultV1(mode="exact", id=resume_selection_value)
+        return GatewayHeadlessStartupDefaultV1(mode="new")
 
     def create_request(self, request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
         """Validate admission and persist one gateway-managed request."""
@@ -920,6 +1178,254 @@ class GatewayServiceRuntime:
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
 
+    def create_wakeup(self, request_payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
+        """Register one in-memory wakeup job."""
+
+        with self.m_wakeup_condition:
+            created_at = datetime.now(UTC)
+            if request_payload.after_seconds is not None:
+                due_at = created_at + timedelta(seconds=float(request_payload.after_seconds))
+            else:
+                assert request_payload.deliver_at_utc is not None
+                due_at = _parse_gateway_timestamp(request_payload.deliver_at_utc)
+            job = _GatewayWakeupJobRecord(
+                job_id=self._generate_wakeup_job_id_locked(),
+                mode=request_payload.mode,
+                prompt=request_payload.prompt,
+                created_at=created_at,
+                next_due_at=due_at,
+                anchor_due_at=due_at,
+                interval_seconds=(
+                    float(request_payload.interval_seconds)
+                    if request_payload.interval_seconds is not None
+                    else None
+                ),
+            )
+            self.m_wakeup_jobs[job.job_id] = job
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "wakeup_registered",
+                    "job_id": job.job_id,
+                    "mode": job.mode,
+                    "created_at_utc": self._gateway_datetime_iso(job.created_at),
+                    "next_due_at_utc": self._gateway_datetime_iso(job.next_due_at),
+                    "interval_seconds": job.interval_seconds,
+                },
+            )
+            self._log(
+                f"registered wakeup job_id={job.job_id} mode={job.mode} next_due_at_utc={self._gateway_datetime_iso(job.next_due_at)}"
+            )
+            self.m_wakeup_condition.notify_all()
+            return self._build_wakeup_job_model_locked(job)
+
+    def list_wakeups(self) -> GatewayWakeupListV1:
+        """Return live in-memory wakeup inspection state."""
+
+        with self.m_lock:
+            jobs = sorted(
+                self.m_wakeup_jobs.values(),
+                key=lambda job: (job.next_due_at, job.created_at, job.job_id),
+            )
+            return GatewayWakeupListV1(
+                jobs=[self._build_wakeup_job_model_locked(job) for job in jobs]
+            )
+
+    def get_wakeup(self, *, job_id: str) -> GatewayWakeupJobV1:
+        """Return one live wakeup job by identifier."""
+
+        with self.m_lock:
+            job = self.m_wakeup_jobs.get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail=f"Unknown wakeup job `{job_id}`.")
+            return self._build_wakeup_job_model_locked(job)
+
+    def delete_wakeup(self, *, job_id: str) -> GatewayWakeupCancelResultV1:
+        """Cancel one wakeup job or future repetitions for an active execution."""
+
+        with self.m_wakeup_condition:
+            job = self.m_wakeup_jobs.get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail=f"Unknown wakeup job `{job_id}`.")
+            if job.executing:
+                job.cancel_requested = True
+                detail = (
+                    "Wakeup cancellation recorded; the already-started prompt delivery will "
+                    "continue until completion."
+                )
+            else:
+                del self.m_wakeup_jobs[job_id]
+                detail = "Wakeup canceled."
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "wakeup_canceled",
+                    "job_id": job_id,
+                    "executing": job.executing,
+                    "cancel_requested": True,
+                    "detail": detail,
+                },
+            )
+            self._log(f"canceled wakeup job_id={job_id} executing={job.executing}")
+            self.m_wakeup_condition.notify_all()
+            return GatewayWakeupCancelResultV1(job_id=job_id, detail=detail)
+
+    def _generate_wakeup_job_id_locked(self) -> str:
+        """Return one stable opaque identifier for a live wakeup job."""
+
+        seed = f"{self.m_attach_contract.attach_identity}:{time.time()}:{len(self.m_wakeup_jobs)}"
+        return f"gwakeup-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:12]}"
+
+    def _build_wakeup_job_model_locked(
+        self,
+        job: _GatewayWakeupJobRecord,
+    ) -> GatewayWakeupJobV1:
+        """Build one public inspection model for an in-memory wakeup job."""
+
+        return GatewayWakeupJobV1(
+            job_id=job.job_id,
+            mode=job.mode,
+            prompt=job.prompt,
+            state=self._wakeup_state_locked(job),
+            created_at_utc=self._gateway_datetime_iso(job.created_at),
+            next_due_at_utc=self._gateway_datetime_iso(job.next_due_at),
+            interval_seconds=job.interval_seconds,
+            last_started_at_utc=(
+                self._gateway_datetime_iso(job.last_started_at)
+                if job.last_started_at is not None
+                else None
+            ),
+            cancel_requested=job.cancel_requested,
+        )
+
+    def _wakeup_state_locked(
+        self,
+        job: _GatewayWakeupJobRecord,
+    ) -> Literal["scheduled", "overdue", "executing"]:
+        """Return the public state for one live wakeup job."""
+
+        if job.executing:
+            return "executing"
+        if job.next_due_at <= datetime.now(UTC):
+            return "overdue"
+        return "scheduled"
+
+    def _gateway_datetime_iso(self, value: datetime) -> str:
+        """Render one UTC datetime for the gateway HTTP surface."""
+
+        return value.astimezone(UTC).isoformat()
+
+    def _drop_pending_wakeups_locked(self) -> None:
+        """Log and clear wakeups that vanish with gateway shutdown."""
+
+        if not self.m_wakeup_jobs:
+            return
+        for job in list(self.m_wakeup_jobs.values()):
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "wakeup_lost_on_restart",
+                    "job_id": job.job_id,
+                    "mode": job.mode,
+                    "state": self._wakeup_state_locked(job),
+                    "next_due_at_utc": self._gateway_datetime_iso(job.next_due_at),
+                    "cancel_requested": job.cancel_requested,
+                },
+            )
+            self._log(
+                f"lost in-memory wakeup job_id={job.job_id} state={self._wakeup_state_locked(job)}"
+            )
+        self.m_wakeup_jobs.clear()
+        self.m_active_wakeup_job_id = None
+
+    def control_prompt(
+        self,
+        request_payload: GatewayPromptControlRequestV1,
+    ) -> GatewayPromptControlResultV1:
+        """Dispatch one prompt immediately when the addressed target is ready."""
+
+        dispatch_mode: Literal["tui", "local_headless", "server_headless"]
+        consume_headless_override = False
+        headless_session_selection: HeadlessTurnSessionSelection | None = None
+        tracking: SingleSessionTrackingRuntime | None = None
+        use_tui_reset_workflow = False
+        prompt = request_payload.prompt
+        forced = request_payload.force
+
+        with self.m_lock:
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            dispatch_mode = self._prompt_dispatch_mode_locked(forced=forced)
+            self._validate_prompt_control_locked(
+                status=status,
+                forced=forced,
+                dispatch_mode=dispatch_mode,
+                request_chat_session=request_payload.chat_session,
+            )
+            if not forced:
+                self._require_prompt_ready_locked(
+                    status=status,
+                    dispatch_mode=dispatch_mode,
+                    forced=forced,
+                )
+
+            if dispatch_mode in {"local_headless", "server_headless"}:
+                (
+                    headless_session_selection,
+                    consume_headless_override,
+                ) = self._resolve_headless_prompt_selection_locked(
+                    request_chat_session=request_payload.chat_session,
+                    allow_next_prompt_override=True,
+                    forced=forced,
+                )
+            if dispatch_mode == "local_headless":
+                turn_id = self._next_direct_headless_turn_id_locked()
+                return self._start_direct_headless_prompt_locked(
+                    prompt=prompt,
+                    turn_id=turn_id,
+                    forced=forced,
+                    session_selection=headless_session_selection,
+                    consume_next_prompt_override=consume_headless_override,
+                )
+            tracking = self.m_tui_tracking
+            use_tui_reset_workflow = (
+                dispatch_mode == "tui" and request_payload.chat_session is not None
+            )
+
+        try:
+            if use_tui_reset_workflow:
+                self._dispatch_tui_new_prompt_workflow(prompt=prompt)
+            else:
+                self.m_adapter.submit_prompt(
+                    prompt=prompt,
+                    session_selection=headless_session_selection,
+                )
+        except (GatewayError, CaoApiError, ValidationError) as exc:
+            self._raise_prompt_control_http_error(
+                status_code=422,
+                forced=forced,
+                error_code="dispatch_failed",
+                detail=str(exc),
+            )
+
+        if consume_headless_override:
+            with self.m_lock:
+                self.m_headless_next_prompt_override = None
+
+        if tracking is not None and not use_tui_reset_workflow:
+            tracking.note_prompt_submission(message=prompt)
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "control_prompt_submitted",
+                "forced": forced,
+                "submitted_at_utc": now_utc_iso(),
+            },
+        )
+        return GatewayPromptControlResultV1(
+            forced=forced,
+            detail="Prompt dispatched.",
+        )
+
     def send_control_input(
         self,
         request_payload: GatewayControlInputRequestV1,
@@ -957,6 +1463,426 @@ class GatewayServiceRuntime:
             },
         )
         return GatewayControlInputResultV1(detail=detail)
+
+    def _dispatch_tui_new_prompt_workflow(self, *, prompt: str) -> None:
+        """Clear the current TUI conversation, wait for readiness, then send the prompt."""
+
+        tracking = self.m_tui_tracking
+        if tracking is None:
+            raise GatewayError("Gateway TUI tracking is unavailable for reset-based prompt control.")
+        self.m_adapter.submit_prompt(prompt=_TUI_RESET_PROMPT)
+        tracking.note_prompt_submission(message=_TUI_RESET_PROMPT)
+        self._wait_for_tui_ready_after_reset(tracking=tracking)
+        self.m_adapter.submit_prompt(prompt=prompt)
+        tracking.note_prompt_submission(message=prompt)
+
+    def _wait_for_tui_ready_after_reset(
+        self,
+        *,
+        tracking: SingleSessionTrackingRuntime,
+    ) -> None:
+        """Wait for the tracked TUI surface to stabilize back to prompt-ready."""
+
+        deadline = time.monotonic() + _TUI_RESET_READY_WAIT_SECONDS
+        # Give the reset prompt one poll cycle to take effect before accepting ready again.
+        time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
+        while time.monotonic() < deadline:
+            tracking.refresh_once()
+            with self.m_lock:
+                reasons = self._tui_prompt_not_ready_reasons_locked()
+            if not reasons:
+                return
+            time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
+        raise GatewayError(
+            "TUI reset prompt was submitted, but the surface did not stabilize back to "
+            "prompt-ready posture in time."
+        )
+
+    def _resolve_headless_prompt_selection_locked(
+        self,
+        *,
+        request_chat_session: GatewayChatSessionSelectorV1 | None,
+        allow_next_prompt_override: bool,
+        forced: bool,
+    ) -> tuple[HeadlessTurnSessionSelection, bool]:
+        """Resolve one headless prompt selector into the backend execution selection."""
+        chat_session_state = self._headless_chat_session_state_locked()
+        requested_mode = request_chat_session.mode if request_chat_session is not None else "auto"
+
+        if requested_mode == "new":
+            return HeadlessTurnSessionSelection(mode="new"), False
+        if requested_mode == "tool_last_or_new":
+            return HeadlessTurnSessionSelection(mode="tool_last_or_new"), False
+        if requested_mode == "exact":
+            assert request_chat_session is not None and request_chat_session.id is not None
+            return (
+                HeadlessTurnSessionSelection(
+                    mode="exact",
+                    session_id=request_chat_session.id,
+                ),
+                False,
+            )
+        if requested_mode == "current":
+            current = chat_session_state.current
+            if current is None:
+                self._raise_prompt_control_http_error(
+                    status_code=409,
+                    forced=False,
+                    error_code="missing_current_chat_session",
+                    detail=(
+                        "chat_session.mode=`current` requires a pinned current provider "
+                        "session, but none is available."
+                    ),
+                )
+            return HeadlessTurnSessionSelection(mode="exact", session_id=current.id), False
+
+        if allow_next_prompt_override and chat_session_state.next_prompt_override is not None:
+            return HeadlessTurnSessionSelection(mode="new"), True
+        if chat_session_state.current is not None:
+            return (
+                HeadlessTurnSessionSelection(
+                    mode="exact",
+                    session_id=chat_session_state.current.id,
+                ),
+                False,
+            )
+        startup_default = chat_session_state.startup_default
+        if startup_default.mode == "exact":
+            assert startup_default.id is not None
+            return HeadlessTurnSessionSelection(mode="exact", session_id=startup_default.id), False
+        return HeadlessTurnSessionSelection(mode=startup_default.mode), False
+
+    def _prompt_dispatch_mode_locked(
+        self,
+        *,
+        forced: bool,
+    ) -> Literal["tui", "local_headless", "server_headless"]:
+        """Return the direct prompt-control execution mode for the attached backend."""
+
+        backend = self.m_attach_contract.backend
+        if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
+            return "tui"
+        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+            if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
+                return "server_headless"
+            if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
+                return "local_headless"
+        self._raise_prompt_control_http_error(
+            status_code=501,
+            forced=forced,
+            error_code="unsupported_backend",
+            detail=f"Gateway prompt control is not implemented for backend `{backend}`.",
+        )
+
+    def _validate_prompt_control_locked(
+        self,
+        *,
+        status: GatewayStatusV1,
+        forced: bool,
+        dispatch_mode: Literal["tui", "local_headless", "server_headless"],
+        request_chat_session: GatewayChatSessionSelectorV1 | None,
+    ) -> None:
+        """Reject prompt control for unavailable or reconciliation-blocked gateway state."""
+
+        if status.request_admission == "blocked_reconciliation":
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                forced=forced,
+                error_code="blocked_reconciliation",
+                detail="Gateway prompt control is blocked pending managed-agent reconciliation.",
+            )
+        if status.managed_agent_connectivity != "connected":
+            self._raise_prompt_control_http_error(
+                status_code=503,
+                forced=forced,
+                error_code="unavailable",
+                detail="Gateway prompt control is unavailable because the managed agent is detached.",
+            )
+        if request_chat_session is None:
+            return
+        if dispatch_mode == "tui":
+            if request_chat_session.mode != "new":
+                self._raise_prompt_control_http_error(
+                    status_code=422,
+                    forced=forced,
+                    error_code="invalid_chat_session",
+                    detail=(
+                        "TUI prompt control only supports chat_session.mode=`new`; "
+                        f"got `{request_chat_session.mode}`."
+                    ),
+                )
+            return
+        if dispatch_mode in {"local_headless", "server_headless"}:
+            return
+        self._raise_prompt_control_http_error(
+            status_code=422,
+            forced=forced,
+            error_code="invalid_chat_session",
+            detail="chat_session is unsupported for this gateway target.",
+        )
+
+    def _require_prompt_ready_locked(
+        self,
+        *,
+        status: GatewayStatusV1,
+        dispatch_mode: Literal["tui", "local_headless", "server_headless"],
+        forced: bool,
+    ) -> None:
+        """Require prompt-ready posture for non-forced direct prompt control."""
+
+        if status.active_execution != "idle" or status.queue_depth > 0:
+            reasons: list[str] = []
+            if status.active_execution != "idle":
+                reasons.append(f"active_execution={status.active_execution!r}")
+            if status.queue_depth > 0:
+                reasons.append(f"queue_depth={status.queue_depth}")
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                forced=forced,
+                error_code="not_ready",
+                detail=(
+                    "Gateway prompt rejected because gateway-managed work is already active "
+                    f"({', '.join(reasons)})."
+                ),
+            )
+
+        if dispatch_mode == "tui":
+            self._require_tui_prompt_ready_locked(forced=forced)
+            return
+        if dispatch_mode == "local_headless":
+            active_turn_id = self._active_headless_turn_id_locked()
+            if active_turn_id is not None:
+                self._raise_prompt_control_http_error(
+                    status_code=409,
+                    forced=forced,
+                    error_code="not_ready",
+                    detail=(
+                        "Gateway prompt rejected because a headless turn is already active "
+                        f"(`{active_turn_id}`)."
+                    ),
+                )
+            return
+        if status.terminal_surface_eligibility != "ready":
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                forced=forced,
+                error_code="not_ready",
+                detail=(
+                    "Gateway prompt rejected because the managed headless target is not ready "
+                    "to accept a new prompt."
+                ),
+            )
+
+    def _require_tui_prompt_ready_locked(self, *, forced: bool) -> None:
+        """Require a stable prompt-ready TUI posture for direct prompt control."""
+
+        reasons = self._tui_prompt_not_ready_reasons_locked()
+        if not reasons:
+            return
+        self._raise_prompt_control_http_error(
+            status_code=409,
+            forced=forced,
+            error_code="not_ready",
+            detail=(
+                "Gateway prompt rejected because the TUI is not submit-ready "
+                f"({', '.join(reasons)})."
+            ),
+        )
+
+    def _tui_prompt_not_ready_reasons_locked(self) -> list[str]:
+        """Return TUI prompt-readiness reasons when the tracked surface is not ready."""
+
+        state = self._require_tui_tracking_locked().current_state()
+        reasons: list[str] = []
+        if state.turn.phase != "ready":
+            reasons.append(f"turn.phase={state.turn.phase!r}")
+        if state.surface.accepting_input != "yes":
+            reasons.append(f"surface.accepting_input={state.surface.accepting_input!r}")
+        if state.surface.editing_input != "no":
+            reasons.append(f"surface.editing_input={state.surface.editing_input!r}")
+        if state.surface.ready_posture != "yes":
+            reasons.append(f"surface.ready_posture={state.surface.ready_posture!r}")
+        if not state.stability.stable:
+            reasons.append("stability.stable=false")
+        parsed_surface = state.parsed_surface
+        if parsed_surface is not None:
+            if parsed_surface.business_state != "idle":
+                reasons.append(f"parsed_surface.business_state={parsed_surface.business_state!r}")
+            if parsed_surface.input_mode != "freeform":
+                reasons.append(f"parsed_surface.input_mode={parsed_surface.input_mode!r}")
+        return reasons
+
+    def _notifier_dispatch_mode_locked(
+        self,
+    ) -> Literal["tui", "local_headless", "server_headless"] | None:
+        """Return the notifier readiness mode for the attached backend."""
+
+        backend = self.m_attach_contract.backend
+        if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
+            return "tui"
+        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+            if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
+                return "server_headless"
+            if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
+                return "local_headless"
+        return None
+
+    def _notifier_block_detail_locked(self, *, status: GatewayStatusV1) -> str | None:
+        """Return one human-readable reason when notifier enqueueing must defer."""
+
+        if (
+            status.request_admission != "open"
+            or status.active_execution != "idle"
+            or status.queue_depth > 0
+        ):
+            return (
+                "mail notifier poll deferred because the managed session is busy "
+                f"(admission={status.request_admission}, "
+                f"active_execution={status.active_execution}, "
+                f"queue_depth={status.queue_depth})"
+            )
+
+        dispatch_mode = self._notifier_dispatch_mode_locked()
+        if dispatch_mode == "tui":
+            try:
+                reasons = self._tui_prompt_not_ready_reasons_locked()
+            except HTTPException as exc:
+                return (
+                    "mail notifier poll deferred because live TUI readiness is unavailable "
+                    f"({exc.detail})"
+                )
+            if reasons:
+                return (
+                    "mail notifier poll deferred because the managed session is not prompt-ready "
+                    f"({', '.join(reasons)})"
+                )
+            return None
+
+        if dispatch_mode == "local_headless":
+            active_turn_id = self._active_headless_turn_id_locked()
+            if active_turn_id is not None:
+                return (
+                    "mail notifier poll deferred because the managed session is not prompt-ready "
+                    f"(active_turn_id={active_turn_id!r})"
+                )
+            return None
+
+        if dispatch_mode == "server_headless":
+            if status.terminal_surface_eligibility != "ready":
+                return (
+                    "mail notifier poll deferred because the managed session is not prompt-ready "
+                    f"(terminal_surface_eligibility={status.terminal_surface_eligibility!r})"
+                )
+            return None
+
+        return None
+
+    def _next_direct_headless_turn_id_locked(self) -> str:
+        """Return the next direct-control headless turn id."""
+
+        seed = f"{self.m_attach_contract.attach_identity}:{time.time()}"
+        return f"turn-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:12]}"
+
+    def _start_direct_headless_prompt_locked(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        forced: bool,
+        session_selection: HeadlessTurnSessionSelection | None,
+        consume_next_prompt_override: bool,
+    ) -> GatewayPromptControlResultV1:
+        """Start one native headless prompt in the background and return immediately."""
+
+        self.m_direct_prompt_turn_id = turn_id
+        thread = threading.Thread(
+            target=self._run_direct_headless_prompt,
+            kwargs={
+                "prompt": prompt,
+                "turn_id": turn_id,
+                "session_selection": session_selection,
+            },
+            name=f"gateway-direct-prompt-{turn_id}",
+            daemon=True,
+        )
+        self.m_direct_prompt_thread = thread
+        thread.start()
+        if consume_next_prompt_override:
+            self.m_headless_next_prompt_override = None
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "control_prompt_submitted",
+                "forced": forced,
+                "submitted_at_utc": now_utc_iso(),
+                "turn_id": turn_id,
+            },
+        )
+        self._refresh_status_snapshot(active_execution=self._active_execution_state())
+        return GatewayPromptControlResultV1(
+            forced=forced,
+            detail="Prompt dispatched.",
+        )
+
+    def _run_direct_headless_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        session_selection: HeadlessTurnSessionSelection | None,
+    ) -> None:
+        """Execute one native headless direct prompt in a background thread."""
+
+        try:
+            self.m_adapter.submit_prompt(
+                prompt=prompt,
+                turn_id=turn_id,
+                session_selection=session_selection,
+            )
+        except (GatewayError, CaoApiError, ValidationError) as exc:
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "control_prompt_failed",
+                    "turn_id": turn_id,
+                    "error_detail": str(exc),
+                    "finished_at_utc": now_utc_iso(),
+                },
+            )
+            self._log(f"direct gateway prompt failed turn_id={turn_id} detail={exc}")
+        else:
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "control_prompt_completed",
+                    "turn_id": turn_id,
+                    "finished_at_utc": now_utc_iso(),
+                },
+            )
+        finally:
+            with self.m_lock:
+                if self.m_direct_prompt_turn_id == turn_id:
+                    self.m_direct_prompt_turn_id = None
+                self.m_direct_prompt_thread = None
+                self._refresh_status_snapshot(active_execution=self._active_execution_state())
+                self.m_wakeup_condition.notify_all()
+
+    def _raise_prompt_control_http_error(
+        self,
+        *,
+        status_code: int,
+        forced: bool,
+        error_code: str,
+        detail: str,
+    ) -> NoReturn:
+        """Raise one structured HTTP refusal for direct prompt control."""
+
+        payload = GatewayPromptControlErrorV1(
+            forced=forced,
+            error_code=error_code,
+            detail=detail,
+        )
+        raise HTTPException(status_code=status_code, detail=payload.model_dump(mode="json"))
 
     def get_mail_status(self) -> GatewayMailStatusV1:
         """Return shared mailbox availability for the attached session."""
@@ -1092,6 +2018,7 @@ class GatewayServiceRuntime:
                 self.m_paths.queue_path,
                 enabled=True,
                 interval_seconds=request_payload.interval_seconds,
+                last_notified_digest=None,
                 last_error=None,
             )
             self._log(f"mail notifier enabled interval_seconds={request_payload.interval_seconds}")
@@ -1144,26 +2071,35 @@ class GatewayServiceRuntime:
         """Return durable mailbox config only when live notifier actionability is present."""
 
         mailbox = self._load_mailbox_config()
-        tmux_session_name = (self.m_attach_contract.tmux_session_name or "").strip()
-        if not tmux_session_name:
-            raise GatewayError(
-                "Gateway notifier requires a tmux-backed session identity, but the attach "
-                "contract is missing `tmux_session_name`."
-            )
         try:
-            resolve_live_mailbox_binding(
-                durable_mailbox=mailbox,
-                tmux_session_name=tmux_session_name,
-            )
+            resolve_live_mailbox_binding(durable_mailbox=mailbox)
         except ValueError as exc:
             raise GatewayError(
-                "Gateway notifier requires a live mailbox projection in tmux session "
-                f"`{tmux_session_name}`: {exc}"
+                f"Gateway notifier requires an actionable manifest-backed mailbox binding: {exc}"
             ) from exc
         return mailbox
 
     def _load_mailbox_config(self) -> MailboxResolvedConfig:
         """Load the manifest-backed mailbox config required by mailbox routes."""
+
+        payload = self._load_manifest_payload_for_mailbox_support()
+        try:
+            mailbox = resolved_mailbox_config_from_payload(
+                payload.launch_plan.mailbox,
+                manifest_path=self.m_manifest_path or Path("<unknown>"),
+            )
+        except ValueError as exc:
+            raise GatewayError(
+                f"Runtime-owned session manifest has an invalid mailbox binding: {exc}"
+            ) from exc
+        if mailbox is None:
+            raise GatewayError(
+                "Runtime-owned session manifest launch plan has no mailbox binding; mailbox support is unavailable."
+            )
+        return mailbox
+
+    def _load_manifest_payload_for_mailbox_support(self):
+        """Load and parse the runtime-owned manifest payload required by mailbox routes."""
 
         manifest_path = self.m_attach_contract.manifest_path
         if manifest_path is None:
@@ -1177,21 +2113,102 @@ class GatewayServiceRuntime:
             raise GatewayError(
                 f"Runtime-owned session manifest is unreadable for mailbox support: {exc}"
             ) from exc
+        self.m_manifest_path = handle.path.resolve()
+        return payload
 
-        try:
-            mailbox = resolved_mailbox_config_from_payload(
-                payload.launch_plan.mailbox,
-                manifest_path=handle.path,
+    def _mail_notifier_skill_usage_block(self, *, mailbox: MailboxResolvedConfig) -> str:
+        """Return prompt guidance about installed Houmao mailbox skills for this session."""
+
+        payload = self._load_manifest_payload_for_mailbox_support()
+        tool = payload.launch_plan.tool
+        home_path = Path(payload.launch_plan.home_selector.home_path).resolve()
+        gateway_base_url = f"http://{self.m_host}:{self.m_port}"
+        processing_path = projected_mailbox_skill_document_path(
+            tool=tool,
+            home_path=home_path,
+            skill_reference=mailbox_processing_skill_reference(tool=tool),
+        )
+        gateway_path = projected_mailbox_skill_document_path(
+            tool=tool,
+            home_path=home_path,
+            skill_reference=mailbox_gateway_skill_reference(tool=tool),
+        )
+        transport_path = projected_mailbox_skill_document_path(
+            tool=tool,
+            home_path=home_path,
+            skill_reference=mailbox_skill_reference(mailbox, tool=tool),
+        )
+
+        if not processing_path.is_file():
+            return "\n".join(
+                [
+                    "Houmao mailbox skills are not installed for this session.",
+                    "List unread mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
+                ]
             )
-        except ValueError as exc:
-            raise GatewayError(
-                f"Runtime-owned session manifest has an invalid mailbox binding: {exc}"
-            ) from exc
-        if mailbox is None:
-            raise GatewayError(
-                "Runtime-owned session manifest launch plan has no mailbox binding; mailbox support is unavailable."
+
+        lines = [
+            (
+                "Use the installed Houmao email-processing skill "
+                f"`{mailbox_processing_skill_name()}` for this round."
+            ),
+        ]
+        if tool == "claude":
+            lines.extend(
+                [
+                    f"/{mailbox_processing_skill_name()}",
+                    "In Claude Code the standalone slash-skill line above invokes the installed "
+                    "Houmao skill for this gateway-notified round.",
+                ]
             )
-        return mailbox
+        elif tool == "codex":
+            lines.extend(
+                [
+                    f"${mailbox_processing_skill_name()} {gateway_base_url}",
+                    "In Codex this Houmao skill is installed natively. The standalone line "
+                    "above is the native skill trigger for this gateway-notified round.",
+                ]
+            )
+        elif tool == "gemini":
+            lines.append(
+                "In Gemini this Houmao skill is installed natively. "
+                f"Invoke `{mailbox_processing_skill_name()}` by name for this round."
+            )
+        else:
+            lines.append(
+                "Invoke the installed Houmao email-processing skill by name for this round."
+            )
+        lines.append(
+            "Use the installed Houmao skills directly from the native tool skill surface. "
+            "Do not inspect the current project or runtime home for skill files."
+        )
+        if gateway_path.is_file():
+            if tool != "codex":
+                lines.append(
+                    "Use the lower-level Houmao mailbox gateway skill "
+                    f"`{mailbox_gateway_skill_name()}` by name when you need the exact "
+                    "`/v1/mail/*` operation contract for this round."
+                )
+            else:
+                lines.append(
+                    "If you need the exact `/v1/mail/*` operation contract for this round, "
+                    f"use the lower-level Houmao mailbox gateway skill "
+                    f"`{mailbox_gateway_skill_name()}` after the round skill expands."
+                )
+        if transport_path.is_file():
+            if tool != "codex":
+                lines.append(
+                    "Use the transport-specific Houmao mailbox skill "
+                    f"`{mailbox_skill_name(mailbox)}` by name only for transport-local context "
+                    "and no-gateway fallback."
+                )
+            else:
+                lines.append(
+                    "Use the transport-specific Houmao mailbox skill "
+                    f"`{mailbox_skill_name(mailbox)}` only for transport-local context and "
+                    "no-gateway fallback."
+                )
+        return "\n".join(lines)
 
     def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:
         """Return the cached mailbox adapter while the runtime lock is held."""
@@ -1312,10 +2329,7 @@ class GatewayServiceRuntime:
                     outcome="poll_error",
                     detail=str(exc),
                 )
-                self._log_rate_limited(
-                    "mail_notifier_error",
-                    f"mail notifier poll error: {exc}",
-                )
+                self._log(f"mail notifier poll error: {exc}")
                 return
 
             if not unread_messages:
@@ -1333,42 +2347,12 @@ class GatewayServiceRuntime:
                     unread_digest=None,
                     outcome="empty",
                 )
-                self._log_rate_limited("mail_notifier_empty", "mail notifier poll: no unread mail")
+                self._log("mail notifier poll: no unread mail")
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
-            if unread_digest == record.last_notified_digest:
-                write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
-                    last_poll_at_utc=poll_time_utc,
-                    last_error=None,
-                )
-                self._append_notifier_audit_record(
-                    poll_time_utc=poll_time_utc,
-                    status=status,
-                    unread_messages=unread_messages,
-                    unread_count=len(unread_messages),
-                    unread_digest=unread_digest,
-                    outcome="dedup_skip",
-                    detail="Unread set matched the last delivered reminder digest.",
-                )
-                self._log_rate_limited(
-                    "mail_notifier_dedup",
-                    "mail notifier poll: unread mail unchanged; skipping duplicate reminder",
-                )
-                return
-
-            if (
-                status.request_admission != "open"
-                or status.active_execution != "idle"
-                or status.queue_depth > 0
-            ):
-                busy_detail = (
-                    "mail notifier poll deferred because the managed session is busy "
-                    f"(admission={status.request_admission}, "
-                    f"active_execution={status.active_execution}, "
-                    f"queue_depth={status.queue_depth})"
-                )
+            block_detail = self._notifier_block_detail_locked(status=status)
+            if block_detail is not None:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
                     last_poll_at_utc=poll_time_utc,
@@ -1381,21 +2365,18 @@ class GatewayServiceRuntime:
                     unread_count=len(unread_messages),
                     unread_digest=unread_digest,
                     outcome="busy_skip",
-                    detail=busy_detail,
+                    detail=block_detail,
                 )
-                self._log_rate_limited(
-                    "mail_notifier_busy",
-                    busy_detail,
-                )
+                self._log(block_detail)
                 return
 
-            prompt = self._build_mail_notifier_prompt(unread_messages)
+            prompt = self._build_mail_notifier_prompt()
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
                 last_poll_at_utc=poll_time_utc,
                 last_notification_at_utc=poll_time_utc,
-                last_notified_digest=unread_digest,
+                last_notified_digest=None,
                 last_error=None,
             )
             self._append_notifier_audit_record(
@@ -1417,81 +2398,20 @@ class GatewayServiceRuntime:
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
-    def _build_mail_notifier_prompt(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
+    def _build_mail_notifier_prompt(self) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         mailbox = self._load_mailbox_config()
-        nominated = unread_messages[0]
-        remaining_unread_count = len(unread_messages) - 1
-        sender_label = (
-            f"{nominated.sender_display_name} <{nominated.sender_address}>"
-            if nominated.sender_display_name is not None
-            else nominated.sender_address
-        )
-        lines = [
-            "You have one bounded shared-mailbox task to process.",
-            (
-                "Resolve current mailbox bindings through the runtime-owned helper "
-                "`pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` "
-                "before any direct mailbox access. That helper prefers current process env, "
-                "falls back to the owning tmux session env, and returns the exact attached "
-                "`gateway.base_url` when a live gateway is available. Do not scrape tmux state "
-                "directly or trust stale inherited process env."
-            ),
-            (
-                "Use the runtime-owned mailbox skill document for the current transport at "
-                f"`{mailbox_skill_document_path(mailbox)}` and open it directly instead of "
-                "searching with `rg`, `find`, or slash-skill lookup."
-            ),
-            (
-                "Use shared mailbox operations through the live gateway facade for this turn: "
-                "`POST /v1/mail/check`, `POST /v1/mail/send` or `POST /v1/mail/reply`, and "
-                "`POST /v1/mail/state`."
-            ),
-            (
-                "Use the exact live gateway base URL for this turn: "
-                f"`http://{self.m_host}:{self.m_port}`. This matches the resolver's "
-                "`gateway.base_url`; do not guess another host or port."
-            ),
-            (
-                "Do not inspect repo docs or OpenAPI to rediscover those routine request "
-                "shapes during this turn."
-            ),
-            ('`POST /v1/mail/check` -> `{"schema_version":1,"unread_only":true,"limit":10}`'),
-            (
-                "`POST /v1/mail/send` -> "
-                '`{"schema_version":1,"to":["recipient@agents.localhost"],'
-                '"subject":"...","body_content":"...","attachments":[]}`'
-            ),
-            (
-                "`POST /v1/mail/reply` -> "
-                '`{"schema_version":1,"message_ref":"<opaque message_ref>",'
-                '"body_content":"...","attachments":[]}`'
-            ),
-            (
-                "`POST /v1/mail/state` -> "
-                '`{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`'
-            ),
-            "Process only the nominated target in this turn.",
-            "Mark the target read only after the mailbox action succeeds.",
-            "",
-            "Nominated unread target:",
-            f"- message_ref: {nominated.message_ref}",
-        ]
-        if nominated.thread_ref is not None:
-            lines.append(f"- thread_ref: {nominated.thread_ref}")
-        lines.extend(
-            [
-                f"- from: {sender_label}",
-                f"- subject: {nominated.subject}",
-                f"- created_at_utc: {nominated.created_at_utc}",
-                "",
-                f"Remaining unread after this target: {remaining_unread_count}.",
-            ]
-        )
-        if remaining_unread_count > 0:
-            lines.append("Leave the remaining unread messages queued for later turns.")
-        return "\n".join(lines)
+        base_url = f"http://{self.m_host}:{self.m_port}"
+        rendered = _load_mail_notifier_template()
+        replacements = {
+            "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
+            "{{GATEWAY_BASE_URL}}": base_url,
+            "{{FULL_ENDPOINT_URLS_BLOCK}}": _render_mail_notifier_full_endpoint_urls(base_url),
+        }
+        for placeholder, replacement in replacements.items():
+            rendered = rendered.replace(placeholder, replacement)
+        return rendered.rstrip()
 
     def _enqueue_internal_prompt(self, *, prompt: str) -> str:
         """Insert one internal notifier prompt into durable queue storage."""
@@ -1568,6 +2488,208 @@ class GatewayServiceRuntime:
             enqueued_request_id=enqueued_request_id,
             detail=detail,
         )
+
+    def _wakeup_loop(self) -> None:
+        """Deliver due in-memory wakeups when the gateway becomes idle."""
+
+        while not self.m_stop_event.is_set():
+            wakeup_job: _GatewayWakeupJobRecord | None = None
+            with self.m_wakeup_condition:
+                if self.m_stop_event.is_set():
+                    return
+                wakeup_job = self._due_wakeup_job_locked()
+                if wakeup_job is None:
+                    self.m_wakeup_condition.wait(timeout=self._next_wakeup_wait_seconds_locked())
+                    continue
+                status = self._refresh_status_snapshot(
+                    active_execution=self._active_execution_state()
+                )
+                if (
+                    status.request_admission != "open"
+                    or status.active_execution != "idle"
+                    or status.queue_depth > 0
+                ):
+                    self._record_wakeup_deferral_locked(wakeup_job, status=status)
+                    self.m_wakeup_condition.wait(timeout=_WAKEUP_BUSY_RETRY_INTERVAL_SECONDS)
+                    continue
+
+                wakeup_job.executing = True
+                wakeup_job.last_started_at = datetime.now(UTC)
+                wakeup_job.deferred_signature = None
+                self.m_active_wakeup_job_id = wakeup_job.job_id
+                self._refresh_status_snapshot(active_execution="running")
+                append_gateway_event(
+                    self.m_paths,
+                    {
+                        "kind": "wakeup_started",
+                        "job_id": wakeup_job.job_id,
+                        "mode": wakeup_job.mode,
+                        "started_at_utc": self._gateway_datetime_iso(wakeup_job.last_started_at),
+                        "cancel_requested": wakeup_job.cancel_requested,
+                    },
+                )
+                self._log(f"executing wakeup job_id={wakeup_job.job_id} mode={wakeup_job.mode}")
+
+            error_detail: str | None = None
+            assert wakeup_job is not None
+            try:
+                self._submit_prompt_via_adapter(
+                    prompt=wakeup_job.prompt,
+                    turn_id=None,
+                    session_selection=None,
+                    note_prompt_submission=False,
+                )
+            except (GatewayError, CaoApiError, ValidationError) as exc:
+                error_detail = str(exc)
+            self._finish_wakeup_execution(job_id=wakeup_job.job_id, error_detail=error_detail)
+
+    def _due_wakeup_job_locked(self) -> _GatewayWakeupJobRecord | None:
+        """Return the earliest currently due wakeup job."""
+
+        now = datetime.now(UTC)
+        due_jobs = [
+            job
+            for job in self.m_wakeup_jobs.values()
+            if not job.executing and not job.cancel_requested and job.next_due_at <= now
+        ]
+        if not due_jobs:
+            return None
+        return min(due_jobs, key=lambda job: (job.next_due_at, job.created_at, job.job_id))
+
+    def _next_wakeup_wait_seconds_locked(self) -> float | None:
+        """Return the next condition-wait timeout for the wakeup scheduler."""
+
+        future_due_times = [
+            job.next_due_at
+            for job in self.m_wakeup_jobs.values()
+            if not job.executing and not job.cancel_requested
+        ]
+        if not future_due_times:
+            return None
+        now = datetime.now(UTC)
+        earliest_due_at = min(future_due_times)
+        return max(0.0, (earliest_due_at - now).total_seconds())
+
+    def _record_wakeup_deferral_locked(
+        self,
+        wakeup_job: _GatewayWakeupJobRecord,
+        *,
+        status: GatewayStatusV1,
+    ) -> None:
+        """Emit one deferral record when a due wakeup cannot execute yet."""
+
+        signature = f"{status.request_admission}:{status.active_execution}:{status.queue_depth}"
+        if wakeup_job.deferred_signature == signature:
+            return
+        wakeup_job.deferred_signature = signature
+        detail = (
+            "wakeup deferred because the gateway is busy "
+            f"(admission={status.request_admission}, "
+            f"active_execution={status.active_execution}, "
+            f"queue_depth={status.queue_depth})"
+        )
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "wakeup_deferred",
+                "job_id": wakeup_job.job_id,
+                "mode": wakeup_job.mode,
+                "detail": detail,
+                "next_due_at_utc": self._gateway_datetime_iso(wakeup_job.next_due_at),
+            },
+        )
+        self._log_rate_limited(f"wakeup_deferred:{wakeup_job.job_id}", detail)
+
+    def _finish_wakeup_execution(self, *, job_id: str, error_detail: str | None) -> None:
+        """Finalize one wakeup execution attempt and reschedule if needed."""
+
+        with self.m_wakeup_condition:
+            finished_at = datetime.now(UTC)
+            wakeup_job = self.m_wakeup_jobs.get(job_id)
+            next_due_at_utc: str | None = None
+            if wakeup_job is not None:
+                wakeup_job.executing = False
+                wakeup_job.deferred_signature = None
+                if (
+                    wakeup_job.mode == "repeat"
+                    and wakeup_job.interval_seconds is not None
+                    and not wakeup_job.cancel_requested
+                ):
+                    wakeup_job.next_due_at = self._next_repeat_due_at(
+                        anchor_due_at=wakeup_job.anchor_due_at,
+                        interval_seconds=wakeup_job.interval_seconds,
+                        reference_time=finished_at,
+                    )
+                    next_due_at_utc = self._gateway_datetime_iso(wakeup_job.next_due_at)
+                else:
+                    del self.m_wakeup_jobs[job_id]
+            if self.m_active_wakeup_job_id == job_id:
+                self.m_active_wakeup_job_id = None
+
+            if error_detail is None:
+                append_gateway_event(
+                    self.m_paths,
+                    {
+                        "kind": "wakeup_completed",
+                        "job_id": job_id,
+                        "finished_at_utc": self._gateway_datetime_iso(finished_at),
+                        "next_due_at_utc": next_due_at_utc,
+                    },
+                )
+                if next_due_at_utc is None:
+                    self._log(f"completed wakeup job_id={job_id}")
+                else:
+                    self._log(f"completed wakeup job_id={job_id} next_due_at_utc={next_due_at_utc}")
+            else:
+                append_gateway_event(
+                    self.m_paths,
+                    {
+                        "kind": "wakeup_failed",
+                        "job_id": job_id,
+                        "error_detail": error_detail,
+                        "finished_at_utc": self._gateway_datetime_iso(finished_at),
+                        "next_due_at_utc": next_due_at_utc,
+                    },
+                )
+                if next_due_at_utc is None:
+                    self._log(f"failed wakeup job_id={job_id} detail={error_detail}")
+                else:
+                    self._log(
+                        f"failed wakeup job_id={job_id} detail={error_detail} next_due_at_utc={next_due_at_utc}"
+                    )
+            self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            self.m_wakeup_condition.notify_all()
+
+    def _next_repeat_due_at(
+        self,
+        *,
+        anchor_due_at: datetime,
+        interval_seconds: float,
+        reference_time: datetime,
+    ) -> datetime:
+        """Return the next anchored repeat boundary strictly after the reference time."""
+
+        elapsed_seconds = max(0.0, (reference_time - anchor_due_at).total_seconds())
+        interval_steps = max(1, math.floor(elapsed_seconds / interval_seconds) + 1)
+        return anchor_due_at + timedelta(seconds=interval_seconds * interval_steps)
+
+    def _submit_prompt_via_adapter(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None,
+        session_selection: HeadlessTurnSessionSelection | None,
+        note_prompt_submission: bool,
+    ) -> None:
+        """Submit one prompt through the shared gateway execution adapter."""
+
+        self.m_adapter.submit_prompt(
+            prompt=prompt,
+            turn_id=turn_id,
+            session_selection=session_selection,
+        )
+        if note_prompt_submission and self.m_tui_tracking is not None:
+            self.m_tui_tracking.note_prompt_submission(message=prompt)
 
     def _worker_loop(self) -> None:
         """Process accepted requests serially until shutdown."""
@@ -1666,9 +2788,29 @@ class GatewayServiceRuntime:
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
-                self.m_adapter.submit_prompt(prompt=payload.prompt, turn_id=payload.turn_id)
-                if self.m_tui_tracking is not None and request_kind == "submit_prompt":
-                    self.m_tui_tracking.note_prompt_submission(message=payload.prompt)
+                session_selection: HeadlessTurnSessionSelection | None = None
+                with self.m_lock:
+                    dispatch_mode = self._prompt_dispatch_mode_locked(forced=False)
+                    if payload.chat_session is not None:
+                        if dispatch_mode not in {"local_headless", "server_headless"}:
+                            raise GatewayError(
+                                "Queued prompt chat_session selection is only supported for "
+                                "headless gateway targets."
+                            )
+                        try:
+                            session_selection, _ = self._resolve_headless_prompt_selection_locked(
+                                request_chat_session=payload.chat_session,
+                                allow_next_prompt_override=False,
+                                forced=False,
+                            )
+                        except HTTPException as exc:
+                            raise GatewayError(str(exc.detail)) from exc
+                self._submit_prompt_via_adapter(
+                    prompt=payload.prompt,
+                    turn_id=payload.turn_id,
+                    session_selection=session_selection,
+                    note_prompt_submission=request_kind == "submit_prompt",
+                )
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
                 self.m_adapter.interrupt()
@@ -1732,6 +2874,7 @@ class GatewayServiceRuntime:
                     f"failed gateway request request_id={request_id} detail={error_detail or 'unknown error'}"
                 )
             self._refresh_status_snapshot(active_execution=self._active_execution_state())
+            self.m_wakeup_condition.notify_all()
 
     def _mark_running_requests_failed(self) -> None:
         """Mark requests left running by a prior gateway process as failed."""
@@ -1856,6 +2999,11 @@ class GatewayServiceRuntime:
     def _active_execution_state(self) -> GatewayExecutionState:
         """Return whether a queue item is currently running."""
 
+        direct_prompt_thread = self.m_direct_prompt_thread
+        if direct_prompt_thread is not None and direct_prompt_thread.is_alive():
+            return "running"
+        if self.m_active_wakeup_job_id is not None:
+            return "running"
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             row = connection.execute(
                 """
@@ -1871,6 +3019,13 @@ class GatewayServiceRuntime:
     def _active_headless_turn_id_locked(self) -> str | None:
         """Return the current headless turn id from queued or running prompt work."""
 
+        direct_prompt_thread = self.m_direct_prompt_thread
+        if (
+            direct_prompt_thread is not None
+            and direct_prompt_thread.is_alive()
+            and self.m_direct_prompt_turn_id is not None
+        ):
+            return self.m_direct_prompt_turn_id
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             rows = connection.execute(
                 """
@@ -2075,17 +3230,60 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.send_control_input(request_payload)
 
+    @app.post("/v1/control/prompt", response_model=GatewayPromptControlResultV1)
+    def _control_prompt(
+        request_payload: GatewayPromptControlRequestV1,
+    ) -> GatewayPromptControlResultV1:
+        """Deliver one readiness-gated prompt through the dedicated direct-control surface."""
+
+        return runtime.control_prompt(request_payload)
+
     @app.get("/v1/control/headless/state", response_model=GatewayHeadlessControlStateV1)
     def _headless_state() -> GatewayHeadlessControlStateV1:
         """Serve read-optimized live headless control posture."""
 
         return runtime.get_headless_control_state()
 
+    @app.post(
+        "/v1/control/headless/next-prompt-session",
+        response_model=GatewayHeadlessControlStateV1,
+    )
+    def _headless_next_prompt_session(
+        request_payload: GatewayHeadlessNextPromptSessionRequestV1,
+    ) -> GatewayHeadlessControlStateV1:
+        """Store one one-shot override for the next accepted auto headless prompt."""
+
+        return runtime.set_headless_next_prompt_session(request_payload)
+
     @app.post("/v1/requests", response_model=GatewayAcceptedRequestV1)
     def _create_request(request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
         """Accept one gateway-managed request."""
 
         return runtime.create_request(request_payload)
+
+    @app.post("/v1/wakeups", response_model=GatewayWakeupJobV1)
+    def _create_wakeup(request_payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
+        """Register one gateway-owned in-memory wakeup job."""
+
+        return runtime.create_wakeup(request_payload)
+
+    @app.get("/v1/wakeups", response_model=GatewayWakeupListV1)
+    def _list_wakeups() -> GatewayWakeupListV1:
+        """Serve live wakeup inspection state."""
+
+        return runtime.list_wakeups()
+
+    @app.get("/v1/wakeups/{job_id}", response_model=GatewayWakeupJobV1)
+    def _get_wakeup(job_id: str) -> GatewayWakeupJobV1:
+        """Serve one wakeup job by identifier."""
+
+        return runtime.get_wakeup(job_id=job_id)
+
+    @app.delete("/v1/wakeups/{job_id}", response_model=GatewayWakeupCancelResultV1)
+    def _delete_wakeup(job_id: str) -> GatewayWakeupCancelResultV1:
+        """Cancel one wakeup job or future wakeup repetitions."""
+
+        return runtime.delete_wakeup(job_id=job_id)
 
     @app.get("/v1/mail/status", response_model=GatewayMailStatusV1)
     def _mail_status() -> GatewayMailStatusV1:

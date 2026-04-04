@@ -15,11 +15,13 @@ from fastapi import APIRouter, FastAPI, Query, Response
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
+from houmao.cao.models import CaoSuccessResponse
 from houmao.version import get_version
 
 from .config import HoumaoServerConfig
@@ -34,6 +36,10 @@ from .models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryResponse,
@@ -44,6 +50,8 @@ from .models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -426,6 +434,39 @@ def create_app(
     ) -> HoumaoManagedAgentGatewayRequestAcceptedResponse:
         return resolved_service.submit_managed_agent_gateway_request(agent_ref, request_model)
 
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/prompt")
+    def control_managed_agent_gateway_prompt(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        return resolved_service.control_managed_agent_gateway_prompt(agent_ref, request_model)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/control/headless/state")
+    def get_managed_agent_gateway_headless_control_state(
+        agent_ref: str,
+    ) -> GatewayHeadlessControlStateV1:
+        return resolved_service.get_managed_agent_gateway_headless_control_state(agent_ref)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session")
+    def set_managed_agent_gateway_headless_next_prompt_session(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    ) -> GatewayHeadlessControlStateV1:
+        return resolved_service.set_managed_agent_gateway_headless_next_prompt_session(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/internal/headless-prompt")
+    def submit_managed_agent_gateway_internal_headless_prompt(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    ) -> CaoSuccessResponse:
+        return resolved_service.submit_managed_agent_gateway_internal_headless_prompt(
+            agent_ref,
+            request_model,
+        )
+
     @app.post("/houmao/agents/{agent_ref}/gateway/control/send-keys")
     def send_managed_agent_gateway_control_input(
         agent_ref: str,
@@ -457,6 +498,10 @@ def create_app(
     def managed_agent_mail_status(agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         return resolved_service.managed_agent_mail_status(agent_ref)
 
+    @app.get("/houmao/agents/{agent_ref}/mail/resolve-live")
+    def managed_agent_mail_resolve_live(agent_ref: str) -> dict[str, object]:
+        return resolved_service.managed_agent_mail_resolve_live(agent_ref)
+
     @app.post("/houmao/agents/{agent_ref}/mail/check")
     def check_managed_agent_mail(
         agent_ref: str,
@@ -477,6 +522,13 @@ def create_app(
         request_model: HoumaoManagedAgentMailReplyRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         return resolved_service.reply_managed_agent_mail(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/state")
+    def update_managed_agent_mail_state(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        return resolved_service.update_managed_agent_mail_state(agent_ref, request_model)
 
     @app.get("/houmao/terminals/{terminal_id}/state")
     def terminal_state(terminal_id: TerminalId) -> HoumaoTerminalStateResponse:

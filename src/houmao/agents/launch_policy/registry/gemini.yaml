@@ -1,0 +1,58 @@
+schema_version: 1
+tool: gemini
+strategies:
+  - strategy_id: gemini-unattended-0.36.0
+    operator_prompt_mode: unattended
+    backends:
+      - gemini_headless
+    supported_versions: ">=0.36.0"
+    minimal_inputs:
+      credential_forms:
+        - GEMINI_API_KEY with optional GOOGLE_GEMINI_BASE_URL
+        - GOOGLE_API_KEY with optional GOOGLE_GENAI_USE_VERTEXAI=true
+        - oauth_creds.json with runtime-derived GOOGLE_GENAI_USE_GCA=true when no explicit API-key or Vertex selector is present
+      requires_user_prepared_state: false
+      notes:
+        - Fresh Gemini managed homes do not require user-preseeded settings.json, trusted-folder state, or other startup files for unattended headless startup.
+        - This strategy declares startup compatibility only; Gemini auth readiness remains owned by the existing managed auth-bundle contract.
+        - Runtime-owned Gemini launch policy force-applies YOLO approval mode and disables full-process sandboxing for unattended startup.
+        - Caller-supplied Gemini launch flags that would weaken unattended startup are canonicalized away before provider start and resume-control relaunch.
+        - Gemini workspace settings copied into the runtime home are only patched when they would weaken the maintained unattended approval, sandbox, or tool-availability posture.
+    evidence:
+      - kind: source_reference
+        ref: src/houmao/project/assets/starter_agents/tools/gemini/adapter.yaml
+        note: Houmao-managed Gemini homes project oauth_creds.json under GEMINI_CLI_HOME/.gemini/ and isolate provider state through GEMINI_CLI_HOME.
+      - kind: source_reference
+        ref: src/houmao/agents/brain_builder.py
+        note: OAuth-only managed Gemini homes derive GOOGLE_GENAI_USE_GCA=true automatically when no explicit API-key or Vertex selector is present.
+      - kind: source_reference
+        ref: extern/orphan/gemini-cli/packages/cli/src/config/config.ts
+        note: Gemini CLI resolves YOLO approval mode only from command-line flags in headless mode, and CLI sandbox flags override settings-derived sandbox posture.
+      - kind: source_reference
+        ref: extern/orphan/gemini-cli/packages/core/src/policy/policies/yolo.toml
+        note: YOLO mode allows all tools, which preserves shell and file mutation tools during unattended headless execution.
+      - kind: live_probe
+        ref: gemini --version
+        note: Fresh-home probe on installed Gemini CLI 0.36.0 succeeded for OAuth-backed headless startup, and the maintained unattended posture requires explicit CLI approval/sandbox overrides to preserve all tools.
+    owned_paths:
+      - path: .gemini/settings.json
+        keys:
+          - tools.sandbox
+          - tools.core
+          - tools.exclude
+          - security.disableYoloMode
+          - security.toolSandboxing
+          - admin.secureModeEnabled
+    actions:
+      - kind: provider_hook.call
+        params:
+          hook_id: gemini.canonicalize_unattended_launch_inputs
+      - kind: cli_arg.ensure_present
+        params:
+          arg: --approval-mode=yolo
+      - kind: cli_arg.ensure_present
+        params:
+          arg: --sandbox=false
+      - kind: provider_hook.call
+        params:
+          hook_id: gemini.ensure_unattended_runtime_state

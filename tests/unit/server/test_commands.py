@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from click.testing import CliRunner
 
+from houmao.passive_server.cli import serve_command as passive_serve_command
 from houmao.server.commands.serve import serve_command
 from houmao.server.config import HoumaoServerConfig
 
@@ -71,3 +72,19 @@ def test_serve_command_accepts_compatibility_timing_options(
     assert captured["uvicorn_host"] == "127.0.0.1"
     assert captured["uvicorn_port"] == 9991
     assert captured["uvicorn_log_level"] == "info"
+
+
+def test_houmao_server_serve_help_mentions_project_aware_runtime_root() -> None:
+    result = CliRunner().invoke(serve_command, ["--help"])
+
+    assert result.exit_code == 0
+    assert "this command uses the active project runtime" in result.output
+    assert "HOUMAO_GLOBAL_RUNTIME_DIR" in result.output
+
+
+def test_passive_server_serve_help_mentions_project_aware_runtime_root() -> None:
+    result = CliRunner().invoke(passive_serve_command, ["--help"])
+
+    assert result.exit_code == 0
+    assert "active project runtime root when project" in result.output
+    assert "HOUMAO_GLOBAL_RUNTIME_DIR" in result.output

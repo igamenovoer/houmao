@@ -29,23 +29,24 @@ pixi run python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 ### Two-phase lifecycle
 
-1. **Build phase** (`build-brain`): `src/houmao/agents/brain_builder.py` resolves a recipe or explicit `{tool, skills, config_profile, credential_profile}` request against an agent definition directory. It projects secret-free config, selected skills, and local credentials into a disposable runtime home and emits a secret-free brain manifest plus launch helper.
+1. **Build phase** (`build-brain`): `src/houmao/agents/brain_builder.py` resolves a preset or explicit `{tool, skills, setup, auth}` request against an agent definition directory. It projects secret-free setup files, selected skills, and local auth credentials into a disposable runtime home and emits a secret-free brain manifest plus launch helper.
 2. **Run phase** (`start-session` / `send-prompt` / `stop-session`): `houmao.agents.realm_controller` combines the built manifest with a role package, turns that into a backend-specific `LaunchPlan`, and launches or resumes the live session.
 
 ### Agent definition model
 
-The canonical inputs live in an agent definition directory (default `.agentsys/agents`, override with `AGENTSYS_AGENT_DEF_DIR`). The best in-repo template/reference is `tests/fixtures/agents/`.
+The active project-local model is a catalog-backed `.houmao/` overlay: `.houmao/houmao-config.toml` is the discovery anchor, `.houmao/catalog.sqlite` plus `.houmao/content/` are canonical, and `.houmao/agents/` is the compatibility projection materialized when file-tree consumers still need an agent definition directory.
+
+When code resolves a filesystem agent definition directory without an explicit override, the precedence is: `--agent-def-dir`, then `HOUMAO_AGENT_DEF_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then default `.houmao/agents`. The best in-repo template/reference for raw file-tree inputs is `tests/fixtures/agents/`.
 
 Committed inputs are split by responsibility:
 
-- `brains/tool-adapters/` for per-tool build and launch contracts
-- `brains/skills/` for reusable capability packages
-- `brains/cli-configs/` for secret-free tool config profiles
-- `brains/brain-recipes/` for declarative presets
+- `tools/<tool>/adapter.yaml` for per-tool build and launch contracts
+- `tools/<tool>/setups/<setup>/` for secret-free tool config bundles
+- `skills/<name>/SKILL.md` for reusable capability packages
 - `roles/<role>/system-prompt.md` for role packages
-- `blueprints/` for optional recipe + role bindings
+- `roles/<role>/presets/<tool>/<setup>.yaml` for path-derived presets (role + tool + setup + skills)
 
-Local-only credentials live under `brains/api-creds/<tool>/<profile>/` and must stay uncommitted.
+Local-only credentials live under `tools/<tool>/auth/<auth>/` and must stay uncommitted.
 
 ### Runtime control surfaces
 
@@ -69,17 +70,17 @@ Role injection is backend-specific in `launch_plan.py`:
 - Gemini headless uses a bootstrap message.
 - CAO-backed and Houmao-server-backed sessions use a profile-based role injection path.
 
-For concrete end-to-end workflows, the most useful examples live under `scripts/demo/`. The current README-recommended proof of concept is `scripts/demo/mail-ping-pong-gateway-demo-pack/`.
+For concrete supported workflows, prefer the canonical fixtures under `tests/fixtures/agents/`, the current getting-started docs, and the live explore helpers under `scripts/explore/`. Archived demos under `scripts/demo/legacy/` are historical reference only.
 
 ## Key conventions
 
 - Prefer `pixi run ...` for Python entrypoints, scripts, and tests, even when a plain `python -m ...` command would work.
 - This repository is intentionally breaking-change friendly. Unless a task explicitly asks for compatibility, prefer repairing callers around the new design instead of adding backward-compatibility shims.
-- Keep the secret-free and local-only split intact: config profiles, skills, recipes, roles, and blueprints are repository assets; credential profiles under `brains/api-creds/` are local-only. Generated manifests intentionally persist env var names and local paths, not secret values.
+- Keep the secret-free and local-only split intact: tool setups, skills, presets, and roles are repository assets; auth bundles under `tools/<tool>/auth/` are local-only. Generated manifests intentionally persist env var names and local paths, not secret values.
 - For stateful service, helper, and controller classes, prefix instance members with `m_` and declare them in `__init__`. Do not use `m_` on `pydantic` or `attrs` model fields.
 - Follow the repo Python style from `magic-context/instructions/python-coding-guide.md`: absolute imports, NumPy-style docstrings, module docstrings for non-trivial modules, and explicit `set_xxx()` mutators for validated state changes.
 - `BackendKind` in `src/houmao/agents/realm_controller/models.py` is the authoritative backend list. Adding a backend requires wiring `launch_plan.py` and the related runtime/control surfaces, not just dropping in a backend implementation.
-- Launch overrides are intentionally limited: recipes and direct builds can request secret-free `launch_overrides`, but protocol-required args such as `claude -p`, `gemini -p`, `codex exec --json`, `resume`, and `app-server` stay backend-owned.
+- Launch overrides are intentionally limited: presets and direct builds can request secret-free `launch_overrides`, but protocol-required args such as `claude -p`, `gemini -p`, `codex exec --json`, `resume`, and `app-server` stay backend-owned.
 - Unattended startup is a versioned launch policy resolved at launch time against the installed CLI version; unsupported versions fail closed instead of guessing a bootstrap strategy.
 - Tests are organized by intent: `tests/unit/` for hermetic tests, `tests/integration/` for multi-component or external-service coverage, and `tests/manual/` for scripts that are not CI-collected. The runtime-focused unit suites live in `tests/unit/agents/` and `tests/unit/cao/`.
 - When work touches a third-party integration that has a local source checkout under `extern/orphan/`, inspect that checkout first before falling back to external docs.

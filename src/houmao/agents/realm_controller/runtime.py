@@ -16,10 +16,14 @@ from pathlib import Path
 from typing import Callable, Literal, cast
 
 from houmao.owned_paths import (
-    AGENTSYS_JOB_DIR_ENV_VAR,
-    resolve_mailbox_root,
+    HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
+    HOUMAO_JOB_DIR_ENV_VAR,
     resolve_runtime_root,
     resolve_session_job_dir,
+)
+from houmao.project.overlay import (
+    ensure_project_aware_local_roots,
+    resolve_project_aware_mailbox_root,
 )
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
@@ -59,6 +63,12 @@ from .backends.headless_base import (
     HeadlessSessionState,
     headless_backend_state_payload,
 )
+from .backends.headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+    resolve_headless_display_detail,
+    resolve_headless_display_style,
+)
 from .backends.local_interactive import LocalInteractiveSession
 from .backends.tmux_runtime import (
     TmuxCommandError,
@@ -95,6 +105,8 @@ from .gateway_models import (
     GatewayDesiredConfigV1,
     GatewayHost,
     GatewayJsonObject,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -140,13 +152,11 @@ from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
     default_mailbox_principal_id,
-    mailbox_env_bindings,
-    mailbox_env_var_names,
     mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
-    publish_tmux_live_mailbox_projection,
     refresh_filesystem_mailbox_config,
     resolve_effective_mailbox_config,
+    resolve_live_mailbox_binding,
     resolved_mailbox_config_from_payload,
 )
 from houmao.agents.mailbox_runtime_models import (
@@ -169,6 +179,7 @@ from .models import (
     BackendKind,
     CaoParsingMode,
     GatewayControlResult,
+    HeadlessTurnSessionSelection,
     InteractiveSession,
     LaunchPlan,
     RoleInjectionPlan,
@@ -226,29 +237,25 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
 )
 _PRIMARY_AGENT_WINDOW_INDEX = "0"
 _GATEWAY_AUXILIARY_WINDOW_NAME = "gateway"
-_GATEWAY_EXECUTION_MODE_ENV_VAR = "AGENTSYS_GATEWAY_EXECUTION_MODE"
-_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_ID"
-_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX"
-_GATEWAY_TMUX_PANE_ID_ENV_VAR = "AGENTSYS_GATEWAY_TMUX_PANE_ID"
+_GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
+_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
+_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
+_GATEWAY_TMUX_PANE_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_PANE_ID"
 _BRAIN_ONLY_ROLE_NAME = "brain-only"
 _JOINED_SESSION_ORIGIN = "joined_tmux"
-_MAILBOX_LIVE_ENABLED_METADATA_KEY = "mailbox_live_enabled"
-_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY = "mailbox_live_bindings_version"
 _LOGGER = logging.getLogger(__name__)
+_RETIRED_MAILBOX_METADATA_KEYS = frozenset(
+    {
+        "mailbox_live_enabled",
+        "mailbox_live_bindings_version",
+    }
+)
 
-MailboxActivationState = Literal["active", "pending_relaunch"]
+MailboxActivationState = Literal["active"]
 
 
 class _TmuxLocalDiscoveryUnavailableError(SessionManifestError):
     """Raised when tmux-local discovery pointers are unavailable for fallback."""
-
-
-@dataclass(frozen=True)
-class _MailboxLiveState:
-    """Persisted view of the live session's mailbox posture."""
-
-    enabled: bool
-    bindings_version: str | None
 
 
 @dataclass(frozen=True)
@@ -329,11 +336,30 @@ class RuntimeSessionController:
     agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
     operation_warnings: tuple[str, ...] = ()
 
-    def send_prompt(self, prompt: str) -> list[SessionEvent]:
+    def __post_init__(self) -> None:
+        """Strip retired mailbox-live metadata from persisted launch plans."""
+
+        self.launch_plan = _without_retired_mailbox_metadata(self.launch_plan)
+
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+    ) -> list[SessionEvent]:
         """Send a prompt and persist updated session state."""
 
         self._reset_operation_warnings()
-        events = self.backend_session.send_prompt(prompt)
+        if isinstance(self.backend_session, HeadlessInteractiveSession):
+            if session_selection is None:
+                events = self.backend_session.send_prompt(prompt)
+            else:
+                events = self.backend_session.send_prompt(
+                    prompt,
+                    session_selection=session_selection,
+                )
+        else:
+            events = self.backend_session.send_prompt(prompt)
         self.persist_manifest()
         return events
 
@@ -482,15 +508,8 @@ class RuntimeSessionController:
         except (RuntimeError, ValueError) as exc:
             raise SessionManifestError(f"Failed to refresh mailbox bindings: {exc}") from exc
 
-        updated_launch_plan = _launch_plan_with_mailbox(
-            self.launch_plan,
-            refreshed,
-        )
-        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
-            previous_launch_plan=self.launch_plan,
-            updated_launch_plan=updated_launch_plan,
-            backend=self.launch_plan.backend,
-        )
+        resolve_live_mailbox_binding(durable_mailbox=refreshed)
+        updated_launch_plan = _launch_plan_with_mailbox(self.launch_plan, refreshed)
         _refresh_mailbox_projection_and_backend_launch_plan(
             controller=self,
             previous_launch_plan=self.launch_plan,
@@ -504,16 +523,13 @@ class RuntimeSessionController:
         """Return the current local mailbox activation state, when meaningful."""
 
         mailbox = self.launch_plan.mailbox
-        live_state = _mailbox_live_state(self.launch_plan)
         if mailbox is None:
-            return "pending_relaunch" if live_state.enabled else None
-        if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
-            return "active"
-        if self.launch_plan.backend != "local_interactive":
-            return "active"
-        if live_state.enabled and live_state.bindings_version == mailbox.bindings_version:
-            return "active"
-        return "pending_relaunch"
+            return None
+        try:
+            resolve_live_mailbox_binding(durable_mailbox=mailbox)
+        except ValueError:
+            return None
+        return "active"
 
     def register_filesystem_mailbox(
         self,
@@ -522,6 +538,7 @@ class RuntimeSessionController:
         principal_id: str | None = None,
         address: str | None = None,
         mode: Literal["safe", "force", "stash"] = "safe",
+        confirm_destructive_replace: Callable[[str], bool] | None = None,
     ) -> FilesystemMailboxBindingMutationResult:
         """Attach one filesystem mailbox binding to the current session."""
 
@@ -542,7 +559,13 @@ class RuntimeSessionController:
             )
             or f"{effective_principal_id}@agents.localhost"
         )
-        effective_mailbox_root = resolve_mailbox_root(explicit_root=mailbox_root)
+        working_directory = self.launch_plan.working_directory.resolve()
+        if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):
+            ensure_project_aware_local_roots(cwd=working_directory)
+        effective_mailbox_root = resolve_project_aware_mailbox_root(
+            cwd=working_directory,
+            explicit_root=mailbox_root,
+        )
 
         bootstrap_filesystem_mailbox(effective_mailbox_root)
         mailbox_paths = resolve_filesystem_mailbox_paths(effective_mailbox_root)
@@ -558,6 +581,7 @@ class RuntimeSessionController:
                 manifest_path_hint=str(self.manifest_path.resolve()),
                 role=self.role_name,
             ),
+            confirm_destructive_replace=confirm_destructive_replace,
         )
 
         updated_mailbox = FilesystemMailboxResolvedConfig(
@@ -567,12 +591,11 @@ class RuntimeSessionController:
             filesystem_root=effective_mailbox_root.resolve(),
             bindings_version=mailbox_bindings_version_now(),
         )
+        try:
+            resolve_live_mailbox_binding(durable_mailbox=updated_mailbox)
+        except ValueError as exc:
+            raise SessionManifestError(str(exc)) from exc
         updated_launch_plan = _launch_plan_with_mailbox(self.launch_plan, updated_mailbox)
-        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
-            previous_launch_plan=self.launch_plan,
-            updated_launch_plan=updated_launch_plan,
-            backend=self.launch_plan.backend,
-        )
         _refresh_mailbox_projection_and_backend_launch_plan(
             controller=self,
             previous_launch_plan=self.launch_plan,
@@ -611,11 +634,6 @@ class RuntimeSessionController:
             DeregisterMailboxRequest(mode=mode, address=mailbox.address),
         )
         updated_launch_plan = _launch_plan_without_mailbox(self.launch_plan)
-        updated_launch_plan = _apply_mailbox_live_state_after_mutation(
-            previous_launch_plan=self.launch_plan,
-            updated_launch_plan=updated_launch_plan,
-            backend=self.launch_plan.backend,
-        )
         _refresh_mailbox_projection_and_backend_launch_plan(
             controller=self,
             previous_launch_plan=self.launch_plan,
@@ -697,7 +715,6 @@ class RuntimeSessionController:
                 detail=str(exc),
             )
 
-        self.launch_plan = _launch_plan_with_current_mailbox_live_state(self.launch_plan)
         self.persist_manifest()
         return result
 
@@ -841,6 +858,19 @@ class RuntimeSessionController:
             ),
         )
 
+    def control_prompt_via_gateway(
+        self,
+        prompt: str,
+        *,
+        force: bool = False,
+    ) -> GatewayPromptControlResultV1:
+        """Submit one prompt through the live gateway direct-control path."""
+
+        return _submit_gateway_prompt_control_for_controller(
+            self,
+            GatewayPromptControlRequestV1(prompt=prompt, force=force),
+        )
+
     def interrupt_via_gateway(self) -> GatewayAcceptedRequestV1:
         """Submit an interrupt through the live gateway queue."""
 
@@ -927,6 +957,7 @@ def start_runtime_session(
     brain_manifest_path: Path,
     role_name: str | None,
     runtime_root: Path | None = None,
+    jobs_root: Path | None = None,
     backend: BackendKind | None = None,
     working_directory: Path | None = None,
     api_base_url: str = "http://localhost:9889",
@@ -937,17 +968,21 @@ def start_runtime_session(
     cao_parsing_mode: CaoParsingMode | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
+    mailbox_account_dir: Path | None = None,
     mailbox_principal_id: str | None = None,
     mailbox_address: str | None = None,
     mailbox_stalwart_base_url: str | None = None,
     mailbox_stalwart_jmap_url: str | None = None,
     mailbox_stalwart_management_url: str | None = None,
     mailbox_stalwart_login_identity: str | None = None,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
     blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None,
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
     tmux_session_name: str | None = None,
+    launch_env_overrides: dict[str, str] | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
@@ -958,6 +993,10 @@ def start_runtime_session(
         )
 
     manifest = load_brain_manifest(brain_manifest_path)
+    resolved_gateway_defaults = blueprint_gateway_defaults or _gateway_defaults_from_brain_manifest(
+        manifest,
+        source=str(brain_manifest_path),
+    )
     resolved_role_name = role_name.strip() if role_name is not None and role_name.strip() else None
     if resolved_role_name is None:
         role_package = RolePackage(
@@ -1012,13 +1051,16 @@ def start_runtime_session(
             f"tmux-backed backends: {sorted(_TMUX_BACKED_BACKENDS)}."
         )
 
-    try:
-        job_dir = resolve_session_job_dir(
-            session_id=session_id,
-            working_directory=selected_workdir,
-        )
-    except ValueError as exc:
-        raise SessionManifestError(str(exc)) from exc
+    if jobs_root is not None:
+        job_dir = (jobs_root.resolve() / session_id).resolve()
+    else:
+        try:
+            job_dir = resolve_session_job_dir(
+                session_id=session_id,
+                working_directory=selected_workdir,
+            )
+        except ValueError as exc:
+            raise SessionManifestError(str(exc)) from exc
     job_dir.mkdir(parents=True, exist_ok=True)
 
     declared_mailbox = _declared_mailbox_from_manifest(
@@ -1038,6 +1080,7 @@ def start_runtime_session(
             ),
             transport_override=mailbox_transport,
             filesystem_root_override=mailbox_root,
+            filesystem_account_dir_override=mailbox_account_dir,
             principal_id_override=mailbox_principal_id,
             address_override=mailbox_address,
             stalwart_base_url_override=mailbox_stalwart_base_url,
@@ -1070,6 +1113,15 @@ def start_runtime_session(
         )
     )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
+    launch_plan = _launch_plan_with_transient_env_overrides(
+        launch_plan,
+        env_overrides=launch_env_overrides,
+    )
+    launch_plan = _launch_plan_with_headless_display_controls(
+        launch_plan,
+        style=headless_display_style,
+        detail=headless_display_detail,
+    )
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
@@ -1122,7 +1174,7 @@ def start_runtime_session(
     )
     controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability(
-        blueprint_gateway_defaults=blueprint_gateway_defaults,
+        blueprint_gateway_defaults=resolved_gateway_defaults,
     )
     if gateway_auto_attach:
         attach_result = controller.attach_gateway(
@@ -2144,6 +2196,41 @@ def _declared_mailbox_from_manifest(
         raise SessionManifestError(str(exc)) from exc
 
 
+def _gateway_defaults_from_brain_manifest(
+    manifest: dict[str, object],
+    *,
+    source: str,
+) -> BlueprintGatewayDefaults | None:
+    """Return optional gateway defaults from manifest `inputs.extra.gateway`."""
+
+    inputs = manifest.get("inputs")
+    if inputs is None:
+        return None
+    if not isinstance(inputs, dict):
+        raise SessionManifestError(f"{source}: brain manifest `inputs` must be a mapping")
+
+    extra = inputs.get("extra")
+    if extra is None:
+        return None
+    if not isinstance(extra, dict):
+        raise SessionManifestError(f"{source}: brain manifest `inputs.extra` must be a mapping")
+
+    raw_gateway = extra.get("gateway")
+    if raw_gateway is None:
+        return None
+    if not isinstance(raw_gateway, dict):
+        raise SessionManifestError(
+            f"{source}: brain manifest `inputs.extra.gateway` must be a mapping"
+        )
+
+    try:
+        return BlueprintGatewayDefaults.model_validate(raw_gateway)
+    except Exception as exc:
+        raise SessionManifestError(
+            f"{source}: invalid brain manifest `inputs.extra.gateway`: {exc}"
+        ) from exc
+
+
 def _resolved_mailbox_from_manifest_payload(
     payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
     *,
@@ -2162,100 +2249,14 @@ def _launch_plan_with_mailbox(
     launch_plan: LaunchPlan,
     mailbox: MailboxResolvedConfig,
 ) -> LaunchPlan:
-    mailbox_env = mailbox_env_bindings(mailbox)
-    updated_env = dict(launch_plan.env)
-    updated_env.update(mailbox_env)
-    return replace(
-        launch_plan,
-        env=updated_env,
-        env_var_names=sorted({*launch_plan.env_var_names, *mailbox_env.keys()}),
-        mailbox=mailbox,
-    )
+    return replace(_without_retired_mailbox_metadata(launch_plan), mailbox=mailbox)
 
 
 def _launch_plan_without_mailbox(launch_plan: LaunchPlan) -> LaunchPlan:
     """Return a launch plan with mailbox bindings removed."""
 
-    mailbox = launch_plan.mailbox
-    if mailbox is None:
-        return launch_plan
+    return replace(_without_retired_mailbox_metadata(launch_plan), mailbox=None)
 
-    mailbox_env_names = set(mailbox_env_var_names(mailbox))
-    updated_env = {
-        key: value for key, value in launch_plan.env.items() if key not in mailbox_env_names
-    }
-    updated_env_var_names = [
-        name for name in launch_plan.env_var_names if name not in mailbox_env_names
-    ]
-    return replace(
-        launch_plan,
-        env=updated_env,
-        env_var_names=updated_env_var_names,
-        mailbox=None,
-    )
-
-
-def _mailbox_live_state(launch_plan: LaunchPlan) -> _MailboxLiveState:
-    """Return the persisted live mailbox posture for one launch plan."""
-
-    metadata = launch_plan.metadata
-    raw_enabled = metadata.get(_MAILBOX_LIVE_ENABLED_METADATA_KEY)
-    raw_bindings_version = metadata.get(_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY)
-    if isinstance(raw_enabled, bool):
-        enabled = raw_enabled
-    else:
-        enabled = launch_plan.mailbox is not None
-
-    bindings_version = (
-        raw_bindings_version.strip()
-        if isinstance(raw_bindings_version, str) and raw_bindings_version.strip()
-        else None
-    )
-    if raw_enabled is None and launch_plan.mailbox is not None:
-        bindings_version = launch_plan.mailbox.bindings_version
-    if not enabled:
-        return _MailboxLiveState(enabled=False, bindings_version=bindings_version)
-    return _MailboxLiveState(enabled=True, bindings_version=bindings_version)
-
-
-def _launch_plan_with_mailbox_live_state(
-    launch_plan: LaunchPlan,
-    *,
-    live_enabled: bool,
-    bindings_version: str | None,
-) -> LaunchPlan:
-    """Return a launch plan with explicit live-mailbox posture metadata."""
-
-    metadata = dict(launch_plan.metadata)
-    metadata[_MAILBOX_LIVE_ENABLED_METADATA_KEY] = live_enabled
-    if bindings_version is None:
-        metadata.pop(_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY, None)
-    else:
-        metadata[_MAILBOX_LIVE_BINDINGS_VERSION_METADATA_KEY] = bindings_version
-    return replace(launch_plan, metadata=metadata)
-
-
-def _launch_plan_with_current_mailbox_live_state(launch_plan: LaunchPlan) -> LaunchPlan:
-    """Mark the live mailbox posture as fully synchronized with the launch plan."""
-
-    mailbox = launch_plan.mailbox
-    return _launch_plan_with_mailbox_live_state(
-        launch_plan,
-        live_enabled=mailbox is not None,
-        bindings_version=None if mailbox is None else mailbox.bindings_version,
-    )
-
-
-def _apply_mailbox_live_state_after_mutation(
-    *,
-    previous_launch_plan: LaunchPlan,
-    updated_launch_plan: LaunchPlan,
-    backend: BackendKind,
-) -> LaunchPlan:
-    """Persist live-mailbox posture after one late mailbox mutation."""
-
-    del previous_launch_plan, backend
-    return _launch_plan_with_current_mailbox_live_state(updated_launch_plan)
 
 def _mailbox_mutation_activation_state(
     *,
@@ -2274,86 +2275,28 @@ def _refresh_mailbox_projection_and_backend_launch_plan(
     previous_launch_plan: LaunchPlan,
     updated_launch_plan: LaunchPlan,
 ) -> None:
-    """Refresh live mailbox projection and backend launch plan as one mutation step."""
+    """Refresh backend launch-plan state after one mailbox mutation."""
 
-    projection_refreshed = False
-    try:
-        _refresh_tmux_live_mailbox_projection_for_controller(
-            controller=controller,
-            previous_launch_plan=previous_launch_plan,
-            updated_launch_plan=updated_launch_plan,
-        )
-        projection_refreshed = True
-        _refresh_backend_launch_plan(
-            backend_session=controller.backend_session,
-            launch_plan=updated_launch_plan,
-        )
-    except Exception:
-        if projection_refreshed:
-            _best_effort_restore_tmux_live_mailbox_projection_for_controller(
-                controller=controller,
-                previous_launch_plan=previous_launch_plan,
-                updated_launch_plan=updated_launch_plan,
-            )
-        raise
+    del previous_launch_plan
+    _refresh_backend_launch_plan(
+        backend_session=controller.backend_session,
+        launch_plan=updated_launch_plan,
+    )
 
 
-def _refresh_tmux_live_mailbox_projection_for_controller(
-    *,
-    controller: RuntimeSessionController,
-    previous_launch_plan: LaunchPlan,
-    updated_launch_plan: LaunchPlan,
-) -> None:
-    """Refresh the targeted mailbox projection for one tmux-backed live session."""
+def _without_retired_mailbox_metadata(launch_plan: LaunchPlan) -> LaunchPlan:
+    """Return one launch plan with retired mailbox-live metadata removed."""
 
-    if updated_launch_plan.backend not in _TMUX_BACKED_BACKENDS:
-        return
-    session_name = controller._require_tmux_session_name()
-    if has_tmux_session_shared(session_name=session_name).returncode != 0:
-        raise SessionManifestError(
-            f"Cannot refresh live mailbox projection because tmux session `{session_name}` is unavailable."
-        )
-    try:
-        publish_tmux_live_mailbox_projection(
-            session_name=session_name,
-            previous_mailbox=previous_launch_plan.mailbox,
-            mailbox=updated_launch_plan.mailbox,
-            set_env=lambda current_session_name, env_vars: set_tmux_session_environment_shared(
-                session_name=current_session_name,
-                env_vars=env_vars,
-            ),
-            unset_env=lambda current_session_name, variable_names: (
-                unset_tmux_session_environment_shared(
-                    session_name=current_session_name,
-                    variable_names=variable_names,
-                )
-            ),
-        )
-    except (TmuxCommandError, ValueError) as exc:
-        raise SessionManifestError(
-            f"Failed to refresh tmux live mailbox projection: {exc}"
-        ) from exc
-
-
-def _best_effort_restore_tmux_live_mailbox_projection_for_controller(
-    *,
-    controller: RuntimeSessionController,
-    previous_launch_plan: LaunchPlan,
-    updated_launch_plan: LaunchPlan,
-) -> None:
-    """Best-effort rollback for mailbox projection updates after a later failure."""
-
-    try:
-        _refresh_tmux_live_mailbox_projection_for_controller(
-            controller=controller,
-            previous_launch_plan=updated_launch_plan,
-            updated_launch_plan=previous_launch_plan,
-        )
-    except SessionManifestError as exc:
-        controller._record_registry_warning(
-            "Mailbox projection rollback failed after launch-plan refresh error",
-            exc,
-        )
+    if not any(key in launch_plan.metadata for key in _RETIRED_MAILBOX_METADATA_KEYS):
+        return launch_plan
+    return replace(
+        launch_plan,
+        metadata={
+            key: value
+            for key, value in launch_plan.metadata.items()
+            if key not in _RETIRED_MAILBOX_METADATA_KEYS
+        },
+    )
 
 
 def _normalize_optional_mailbox_text(value: str | None, *, field_name: str) -> str | None:
@@ -2371,12 +2314,60 @@ def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> Laun
     """Return a launch plan with the runtime-owned job-dir binding injected."""
 
     updated_env = dict(launch_plan.env)
-    updated_env[AGENTSYS_JOB_DIR_ENV_VAR] = str(job_dir.resolve())
+    updated_env[HOUMAO_JOB_DIR_ENV_VAR] = str(job_dir.resolve())
     return replace(
         launch_plan,
         env=updated_env,
-        env_var_names=sorted({*launch_plan.env_var_names, AGENTSYS_JOB_DIR_ENV_VAR}),
+        env_var_names=sorted({*launch_plan.env_var_names, HOUMAO_JOB_DIR_ENV_VAR}),
     )
+
+
+def _launch_plan_with_transient_env_overrides(
+    launch_plan: LaunchPlan,
+    *,
+    env_overrides: dict[str, str] | None,
+) -> LaunchPlan:
+    """Apply one-off live-session env overrides without persisting new env names."""
+
+    if not env_overrides:
+        return launch_plan
+
+    base_env_names = set(launch_plan.env_var_names)
+    updated_env = dict(launch_plan.env)
+    updated_env.update(env_overrides)
+    transient_names = frozenset(
+        {
+            *launch_plan.transient_env_var_names,
+            *(name for name in env_overrides if name not in base_env_names),
+        }
+    )
+    return replace(
+        launch_plan,
+        env=updated_env,
+        env_var_names=sorted({*launch_plan.env_var_names, *env_overrides.keys()}),
+        transient_env_var_names=transient_names,
+    )
+
+
+def _launch_plan_with_headless_display_controls(
+    launch_plan: LaunchPlan,
+    *,
+    style: HeadlessDisplayStyle | None,
+    detail: HeadlessDisplayDetail | None,
+) -> LaunchPlan:
+    """Return a launch plan with normalized headless display metadata."""
+
+    if launch_plan.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        return launch_plan
+
+    updated_metadata = dict(launch_plan.metadata)
+    updated_metadata["headless_display_style"] = resolve_headless_display_style(
+        style if style is not None else updated_metadata.get("headless_display_style")
+    )
+    updated_metadata["headless_display_detail"] = resolve_headless_display_detail(
+        detail if detail is not None else updated_metadata.get("headless_display_detail")
+    )
+    return replace(launch_plan, metadata=updated_metadata)
 
 
 def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
@@ -2446,7 +2437,15 @@ def _build_provider_start_launch_plan_for_relaunch(
             updated_launch_plan,
             job_dir=controller.job_dir,
         )
-    return updated_launch_plan
+    return _launch_plan_with_headless_display_controls(
+        updated_launch_plan,
+        style=resolve_headless_display_style(
+            controller.launch_plan.metadata.get("headless_display_style")
+        ),
+        detail=resolve_headless_display_detail(
+            controller.launch_plan.metadata.get("headless_display_detail")
+        ),
+    )
 
 
 def _job_dir_from_manifest_payload(
@@ -3198,7 +3197,7 @@ def _shared_registry_gateway_payload(
         return None
 
     return RegistryGatewayV1(
-        host=cast(GatewayHost, current_instance.host),
+        host=current_instance.host,
         port=current_instance.port,
         state_path=str(paths.state_path.resolve()),
         protocol_version=current_instance.protocol_version,
@@ -3512,6 +3511,17 @@ def _submit_gateway_request_for_controller(
     paths = _require_gateway_paths_for_controller(controller)
     client = _validated_gateway_client_for_controller(controller, paths=paths)
     return client.create_request(request_payload)
+
+
+def _submit_gateway_prompt_control_for_controller(
+    controller: RuntimeSessionController,
+    request_payload: GatewayPromptControlRequestV1,
+) -> GatewayPromptControlResultV1:
+    """Submit one direct prompt-control request through the live gateway client."""
+
+    paths = _require_gateway_paths_for_controller(controller)
+    client = _validated_gateway_client_for_controller(controller, paths=paths)
+    return client.control_prompt(request_payload)
 
 
 def _validated_gateway_client_for_controller(

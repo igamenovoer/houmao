@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -17,8 +18,11 @@ from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
     StalwartMailboxResolvedConfig,
 )
-from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
-from houmao.agents.mailbox_runtime_support import resolved_mailbox_config_from_payload
+from houmao.agents.mailbox_runtime_support import (
+    install_runtime_mailbox_system_skills_for_tool,
+    mailbox_env_bindings,
+    resolved_mailbox_config_from_payload,
+)
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -37,9 +41,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
+    GatewayPromptControlRequestV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
+    GatewayWakeupCreateV1,
 )
 from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
@@ -120,6 +126,20 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout_seconds: float = 5.0,
+    interval_seconds: float = 0.05,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(interval_seconds)
+    raise AssertionError("Timed out waiting for condition.")
+
+
 def _sample_headless_plan(tmp_path: Path) -> LaunchPlan:
     return LaunchPlan(
         backend="claude_headless",
@@ -160,14 +180,16 @@ def _sample_local_interactive_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
-def _sample_cao_plan(tmp_path: Path) -> LaunchPlan:
+def _sample_cao_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
+    executable = "claude" if tool == "claude" else "codex"
+    home_env_var = "CLAUDE_CONFIG_DIR" if tool == "claude" else "CODEX_HOME"
     return LaunchPlan(
         backend="cao_rest",
-        tool="codex",
-        executable="codex",
+        tool=tool,
+        executable=executable,
         args=[],
         working_directory=tmp_path,
-        home_env_var="CODEX_HOME",
+        home_env_var=home_env_var,
         home_path=tmp_path / "home",
         env={},
         env_var_names=[],
@@ -200,10 +222,10 @@ def _sample_houmao_server_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
-def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
+def _sample_cao_plan_with_mailbox(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "AGENTSYS-gpu"
-    address = "AGENTSYS-gpu@agents.localhost"
+    principal_id = "HOUMAO-gpu"
+    address = "HOUMAO-gpu@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
         principal=MailboxPrincipal(principal_id=principal_id, address=address),
@@ -215,13 +237,15 @@ def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-16T08:00:00.000001Z",
     )
+    executable = "claude" if tool == "claude" else "codex"
+    home_env_var = "CLAUDE_CONFIG_DIR" if tool == "claude" else "CODEX_HOME"
     return LaunchPlan(
         backend="cao_rest",
-        tool="codex",
-        executable="codex",
+        tool=tool,
+        executable=executable,
         args=[],
         working_directory=tmp_path,
-        home_env_var="CODEX_HOME",
+        home_env_var=home_env_var,
         home_path=tmp_path / "home",
         env=mailbox_env_bindings(mailbox),
         env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
@@ -236,8 +260,8 @@ def _sample_cao_plan_with_mailbox(tmp_path: Path) -> LaunchPlan:
 
 
 def _sample_cao_plan_with_stalwart_mailbox(tmp_path: Path) -> LaunchPlan:
-    principal_id = "AGENTSYS-gpu"
-    address = "AGENTSYS-gpu@agents.localhost"
+    principal_id = "HOUMAO-gpu"
+    address = "HOUMAO-gpu@agents.localhost"
     jmap_url = "http://stalwart.local/jmap"
     management_url = "http://stalwart.local/api"
     mailbox = StalwartMailboxResolvedConfig(
@@ -384,7 +408,7 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
             backend="cao_rest",
             tool="codex",
             session_id="cao_rest-20260312-120000Z-abcd1234",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://localhost:9889",
@@ -439,9 +463,9 @@ def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
         agent_id="published-alpha",
-        tmux_session_name="AGENTSYS-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     published_env_calls: list[tuple[str, dict[str, str]]] = []
@@ -462,7 +486,7 @@ def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
 
     controller.ensure_gateway_capability()
 
-    assert ("AGENTSYS-gpu",) == tuple({call[0] for call in published_env_calls})
+    assert ("HOUMAO-gpu",) == tuple({call[0] for call in published_env_calls})
     assert any(
         env_vars.get(AGENT_MANIFEST_PATH_ENV_VAR) == str(manifest_path.resolve())
         and env_vars.get(AGENT_ID_ENV_VAR) == "published-alpha"
@@ -478,7 +502,7 @@ def test_legacy_tmux_session_stop_skips_gateway_teardown(tmp_path: Path) -> None
         manifest_path=(tmp_path / "legacy-session.json").resolve(),
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
     )
 
     result = controller.stop()
@@ -500,8 +524,8 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
-        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     monkeypatch.setattr(
@@ -551,8 +575,8 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     monkeypatch.setattr(
@@ -595,7 +619,7 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -610,7 +634,7 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -666,7 +690,7 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -681,17 +705,17 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
         _FakeGatewayTrackingRuntime,
     )
-    monkeypatch.setenv("AGENTSYS_GATEWAY_EXECUTION_MODE", "tmux_auxiliary_window")
-    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_WINDOW_ID", "@9")
-    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_WINDOW_INDEX", "2")
-    monkeypatch.setenv("AGENTSYS_GATEWAY_TMUX_PANE_ID", "%9")
+    monkeypatch.setenv("HOUMAO_GATEWAY_EXECUTION_MODE", "tmux_auxiliary_window")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_WINDOW_ID", "@9")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_WINDOW_INDEX", "2")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_PANE_ID", "%9")
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -729,14 +753,14 @@ def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_p
             launch_plan=_sample_cao_plan(tmp_path),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gpu",
             session_id="cao-rest-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
-                "session_name": "AGENTSYS-gpu",
+                "session_name": "HOUMAO-gpu",
                 "terminal_id": "term-123",
                 "profile_name": "runtime-profile",
                 "profile_path": str(tmp_path / "runtime-profile.md"),
@@ -751,7 +775,7 @@ def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_p
             backend="cao_rest",
             tool="codex",
             session_id="cao-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
@@ -809,7 +833,7 @@ def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_p
     refreshed = refresh_gateway_manifest_publication(paths)
 
     assert refreshed.attach_identity == "cao-rest-1"
-    assert refreshed.tmux_session_name == "AGENTSYS-gpu"
+    assert refreshed.tmux_session_name == "HOUMAO-gpu"
     assert refreshed.gateway_pid == 43210
     assert refreshed.gateway_port == 43123
     assert refreshed.desired_port == 43123
@@ -824,7 +848,7 @@ def test_gateway_service_routes_local_interactive_interrupts_through_runtime_con
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -839,7 +863,7 @@ def test_gateway_service_routes_local_interactive_interrupts_through_runtime_con
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -874,7 +898,7 @@ def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -889,7 +913,7 @@ def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -947,11 +971,11 @@ def test_gateway_service_builds_local_interactive_tui_tracking_identity_from_man
     assert identity.tracked_session_id == "local-interactive-1"
     assert identity.session_name == "local-interactive-1"
     assert identity.tool == "codex"
-    assert identity.tmux_session_name == "AGENTSYS-local"
+    assert identity.tmux_session_name == "HOUMAO-local"
     assert identity.tmux_window_name == "agent"
     assert identity.terminal_aliases == []
-    assert identity.agent_name == "AGENTSYS-local"
-    assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
+    assert identity.agent_name == "HOUMAO-local"
+    assert identity.agent_id == derive_agent_id_from_name("HOUMAO-local")
     assert identity.manifest_path == str(manifest_path)
 
 
@@ -961,7 +985,7 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
 ) -> None:
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
-        tmux_session_name="AGENTSYS-local",
+        tmux_session_name="HOUMAO-local",
         session_id=None,
         backend="local_interactive",
     )
@@ -976,7 +1000,7 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-local",
+        lambda *, session_name: session_name == "HOUMAO-local",
     )
     _FakeGatewayTrackingRuntime.reset()
     monkeypatch.setattr(
@@ -997,11 +1021,11 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
         identity = _FakeGatewayTrackingRuntime.m_identities[0]
         assert identity.tracked_session_id == "local-interactive-1"
         assert identity.session_name == "local-interactive-1"
-        assert identity.tmux_session_name == "AGENTSYS-local"
+        assert identity.tmux_session_name == "HOUMAO-local"
         assert identity.tmux_window_name == "agent"
         assert identity.terminal_aliases == []
-        assert identity.agent_name == "AGENTSYS-local"
-        assert identity.agent_id == derive_agent_id_from_name("AGENTSYS-local")
+        assert identity.agent_name == "HOUMAO-local"
+        assert identity.agent_id == derive_agent_id_from_name("HOUMAO-local")
 
         state_response = client.get("/v1/control/tui/state")
         assert state_response.status_code == 200
@@ -1033,6 +1057,291 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
         runtime.shutdown()
 
     assert _FakeGatewayTrackingRuntime.m_stopped_session_ids == ["local-interactive-1"]
+
+
+def test_gateway_service_routes_local_interactive_prompt_through_direct_control_when_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "action": "submit_prompt",
+            "detail": "Prompt dispatched.",
+            "forced": False,
+            "sent": True,
+            "status": "ok",
+        }
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == [("hello", None)]
+    assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["hello"]
+
+
+def test_gateway_service_rejects_local_interactive_prompt_when_tui_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    def _busy_state(self: _FakeGatewayTrackingRuntime) -> HoumaoTerminalStateResponse:
+        state = _sample_gateway_tracked_state(self.m_identity)
+        return state.model_copy(
+            update={
+                "surface": state.surface.model_copy(
+                    update={"accepting_input": "no", "editing_input": "yes", "ready_posture": "no"}
+                ),
+                "turn": state.turn.model_copy(update={"phase": "active"}),
+                "stability": state.stability.model_copy(update={"stable": False}),
+            }
+        )
+
+    monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _busy_state)
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["error_code"] == "not_ready"
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == []
+    assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
+
+
+def test_gateway_service_force_bypasses_local_interactive_prompt_readiness_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    def _busy_state(self: _FakeGatewayTrackingRuntime) -> HoumaoTerminalStateResponse:
+        state = _sample_gateway_tracked_state(self.m_identity)
+        return state.model_copy(
+            update={
+                "surface": state.surface.model_copy(
+                    update={"accepting_input": "no", "editing_input": "yes", "ready_posture": "no"}
+                ),
+                "turn": state.turn.model_copy(update={"phase": "active"}),
+                "stability": state.stability.model_copy(update={"stable": False}),
+            }
+        )
+
+    monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _busy_state)
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello", force=True).model_dump(mode="json"),
+        )
+        assert response.status_code == 200
+        assert response.json()["forced"] is True
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == [("hello", None)]
+    assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["hello"]
+
+
+def test_gateway_service_rejects_unsupported_backend_for_direct_prompt_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        runtime.m_attach_contract.backend = "codex_app_server"  # type: ignore[assignment]
+        response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert response.status_code == 501
+        assert response.json()["detail"]["error_code"] == "unsupported_backend"
+    finally:
+        runtime.shutdown()
+
+
+def test_gateway_service_rejects_overlapping_local_headless_direct_prompt_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_headless_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(block_prompt=True)
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda **_kwargs: True,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        first_response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="hello").model_dump(mode="json"),
+        )
+        assert first_response.status_code == 200
+        assert fake_session.started_event.wait(timeout=2.0)
+
+        second_response = client.post(
+            "/v1/control/prompt",
+            json=GatewayPromptControlRequestV1(prompt="again").model_dump(mode="json"),
+        )
+        assert second_response.status_code == 409
+        assert second_response.json()["detail"]["error_code"] == "not_ready"
+    finally:
+        fake_session.release_event.set()
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls[0][0] == "hello"
 
 
 def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_server(
@@ -1159,7 +1468,7 @@ def test_ensure_gateway_capability_supports_houmao_server_backend(tmp_path: Path
             backend="houmao_server_rest",
             tool="codex",
             session_id="houmao-server-rest-20260319-120000Z-abcd1234",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
@@ -1196,8 +1505,8 @@ def test_gateway_status_invalidates_stale_live_bindings(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
-        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     captured_unset: dict[str, object] = {}
@@ -1261,7 +1570,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
     status = controller.gateway_status()
 
     assert status.gateway_health == "not_attached"
-    assert captured_unset["session_name"] == "AGENTSYS-gpu"
+    assert captured_unset["session_name"] == "HOUMAO-gpu"
     assert AGENT_GATEWAY_HOST_ENV_VAR in captured_unset["variable_names"]
 
 
@@ -1277,7 +1586,7 @@ def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreat
             backend="houmao_server_rest",
             tool="codex",
             session_id="houmao-server-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://127.0.0.1:9889",
@@ -1296,8 +1605,8 @@ def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreat
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-gpu",
-        tmux_session_name="AGENTSYS-gpu",
+        agent_identity="HOUMAO-gpu",
+        tmux_session_name="HOUMAO-gpu",
     )
 
     tmux_state = {
@@ -1356,7 +1665,7 @@ def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreat
         raise AssertionError(f"Unexpected tmux call: {args}")
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-gpu"
+        assert session_name == "HOUMAO-gpu"
         current = tmux_state["current"]
         if current is None:
             return ()
@@ -1504,7 +1813,7 @@ def test_same_session_gateway_liveness_ignores_current_agent_window(
 
     assert (
         _same_session_gateway_is_alive(
-            session_name="AGENTSYS-local",
+            session_name="HOUMAO-local",
             current_instance=current_instance,
         )
         is True
@@ -1526,8 +1835,8 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     tmux_state = {
@@ -1586,7 +1895,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
         raise AssertionError(f"Unexpected tmux call: {args}")
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-local"
+        assert session_name == "HOUMAO-local"
         current = tmux_state["current"]
         if current is None:
             return ()
@@ -1686,8 +1995,8 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     tmux_state = {
@@ -1723,7 +2032,7 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
         )
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-local"
+        assert session_name == "HOUMAO-local"
         tmux_state["list_calls"] += 1
         if tmux_state["list_calls"] < 3:
             return ()
@@ -1796,8 +2105,8 @@ def test_runtime_owned_foreground_gateway_attach_accepts_current_instance_before
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     def _fake_run_tmux(
@@ -1873,8 +2182,8 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     reserved_window_instance = type(
@@ -1889,7 +2198,7 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
     )()
 
     def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "AGENTSYS-local"
+        assert session_name == "HOUMAO-local"
         return (
             type(
                 "Pane",
@@ -1946,8 +2255,8 @@ def test_same_session_gateway_stale_cleanup_skips_reserved_window_zero(
         manifest_path=manifest_path,
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
-        agent_identity="AGENTSYS-local",
-        tmux_session_name="AGENTSYS-local",
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
     )
 
     reserved_window_instance = type(
@@ -2000,7 +2309,7 @@ class _FakeCaoRestClient:
             id=terminal_id,
             name="developer-1",
             provider="codex",
-            session_name="AGENTSYS-gpu",
+            session_name="HOUMAO-gpu",
             agent_profile="runtime-profile",
             status="idle",
         )
@@ -2019,24 +2328,27 @@ def _seed_cao_gateway_root(
     *,
     terminal_id: str = "term-123",
     mailbox_enabled: bool = False,
+    tool: str = "codex",
 ) -> Path:
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
     plan = (
-        _sample_cao_plan_with_mailbox(tmp_path) if mailbox_enabled else _sample_cao_plan(tmp_path)
+        _sample_cao_plan_with_mailbox(tmp_path, tool=tool)
+        if mailbox_enabled
+        else _sample_cao_plan(tmp_path, tool=tool)
     )
     payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=plan,
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gpu",
             session_id="cao-rest-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state={
                 "api_base_url": "http://localhost:9889",
-                "session_name": "AGENTSYS-gpu",
+                "session_name": "HOUMAO-gpu",
                 "terminal_id": terminal_id,
                 "profile_name": "runtime-profile",
                 "profile_path": str(tmp_path / "runtime-profile.md"),
@@ -2050,9 +2362,9 @@ def _seed_cao_gateway_root(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,
             backend="cao_rest",
-            tool="codex",
+            tool=tool,
             session_id="cao-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://localhost:9889",
@@ -2081,9 +2393,9 @@ def _seed_headless_gateway_root(
             launch_plan=_sample_headless_plan(tmp_path),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-headless",
-            agent_id=derive_agent_id_from_name("AGENTSYS-headless"),
-            tmux_session_name="AGENTSYS-headless",
+            agent_name="HOUMAO-headless",
+            agent_id=derive_agent_id_from_name("HOUMAO-headless"),
+            tmux_session_name="HOUMAO-headless",
             session_id="claude-headless-1",
             agent_def_dir=agent_def_dir,
             backend_state={
@@ -2100,7 +2412,7 @@ def _seed_headless_gateway_root(
             backend="claude_headless",
             tool="claude",
             session_id="claude-headless-1",
-            tmux_session_name="AGENTSYS-headless",
+            tmux_session_name="HOUMAO-headless",
             working_directory=tmp_path,
             backend_state={"session_id": "claude-session-1"},
             agent_def_dir=tmp_path / "agents",
@@ -2115,16 +2427,16 @@ def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
         "turn_index": 2,
         "role_bootstrap_applied": True,
         "working_directory": str(tmp_path),
-        "tmux_session_name": "AGENTSYS-local",
+        "tmux_session_name": "HOUMAO-local",
     }
     payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=_sample_local_interactive_plan(tmp_path),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-local",
-            agent_id=derive_agent_id_from_name("AGENTSYS-local"),
-            tmux_session_name="AGENTSYS-local",
+            agent_name="HOUMAO-local",
+            agent_id=derive_agent_id_from_name("HOUMAO-local"),
+            tmux_session_name="HOUMAO-local",
             session_id="local-interactive-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
             backend_state=backend_state,
@@ -2137,7 +2449,7 @@ def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
             backend="local_interactive",
             tool="codex",
             session_id="local-interactive-1",
-            tmux_session_name="AGENTSYS-local",
+            tmux_session_name="HOUMAO-local",
             working_directory=tmp_path,
             backend_state=backend_state,
             agent_def_dir=tmp_path / "agents",
@@ -2151,7 +2463,7 @@ class _FakeGatewayHeadlessSession:
         self,
         *,
         block_prompt: bool = False,
-        tmux_session_name: str = "AGENTSYS-headless",
+        tmux_session_name: str = "HOUMAO-headless",
         session_id: str | None = "claude-session-1",
         backend: str = "claude_headless",
     ) -> None:
@@ -2234,11 +2546,11 @@ class _FakeManagedPairClient:
             session_name=None,
             terminal_id=None,
             runtime_session_id=agent_ref,
-            tmux_session_name="AGENTSYS-headless",
+            tmux_session_name="HOUMAO-headless",
             tmux_window_name="agent",
             manifest_path="/tmp/manifest.json",
             session_root="/tmp/runtime",
-            agent_name="AGENTSYS-headless",
+            agent_name="HOUMAO-headless",
             agent_id=agent_ref,
         )
         summary_state = HoumaoManagedAgentStateResponse(
@@ -2431,12 +2743,12 @@ def _seed_cao_gateway_root_with_stalwart_mailbox(
             launch_plan=plan,
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
-            tmux_session_name="AGENTSYS-gpu",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gpu",
             backend_state={
                 "api_base_url": "http://localhost:9889",
-                "session_name": "AGENTSYS-gpu",
+                "session_name": "HOUMAO-gpu",
                 "terminal_id": terminal_id,
                 "profile_name": "runtime-profile",
                 "profile_path": str(tmp_path / "runtime-profile.md"),
@@ -2472,7 +2784,7 @@ def _seed_cao_gateway_root_with_stalwart_mailbox(
             backend="cao_rest",
             tool="codex",
             session_id="cao-rest-1",
-            tmux_session_name="AGENTSYS-gpu",
+            tmux_session_name="HOUMAO-gpu",
             working_directory=tmp_path,
             backend_state={
                 "api_base_url": "http://localhost:9889",
@@ -2518,17 +2830,21 @@ def _deliver_unread_mailbox_message(
     message_id: str = "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
     created_at_utc: str = "2026-03-16T09:00:00Z",
     subject: str = "Gateway unread reminder",
+    recipient_principal_id: str = "HOUMAO-gpu",
+    recipient_address: str = "HOUMAO-gpu@agents.localhost",
+    body_markdown: str = "Body\n",
 ) -> str:
     mailbox_root = tmp_path / "mailbox"
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-gpu",
-        address="AGENTSYS-gpu@agents.localhost",
+        principal_id=recipient_principal_id,
+        address=recipient_address,
     )
     bootstrap_filesystem_mailbox(mailbox_root, principal=sender)
+    bootstrap_filesystem_mailbox(mailbox_root, principal=recipient)
 
     staged_message = mailbox_root / "staging" / "gateway-unread.md"
     request = DeliveryRequest.from_payload(
@@ -2556,7 +2872,7 @@ def _deliver_unread_mailbox_message(
             "headers": {},
         }
     )
-    _write_canonical_staged_message(staged_message, request)
+    _write_canonical_staged_message(staged_message, request, body_markdown=body_markdown)
     deliver_message(mailbox_root, request)
     return request.message_id
 
@@ -2569,6 +2885,243 @@ def test_gateway_request_model_rejects_invalid_submit_prompt_payload() -> None:
         )
 
 
+def test_gateway_wakeup_model_validates_schedule_and_repeat_shape() -> None:
+    with pytest.raises(ValidationError, match="exactly one of after_seconds or deliver_at_utc"):
+        GatewayWakeupCreateV1(
+            mode="one_off",
+            prompt="wake up",
+            after_seconds=10,
+            deliver_at_utc="2026-03-31T00:00:00+00:00",
+        )
+
+    with pytest.raises(ValidationError, match="repeat wakeups require interval_seconds"):
+        GatewayWakeupCreateV1(
+            mode="repeat",
+            prompt="wake up",
+            after_seconds=10,
+        )
+
+    with pytest.raises(ValidationError, match="one_off wakeups must not include interval_seconds"):
+        GatewayWakeupCreateV1(
+            mode="one_off",
+            prompt="wake up",
+            after_seconds=10,
+            interval_seconds=30,
+        )
+
+
+def test_gateway_wakeup_routes_register_list_and_cancel_scheduled_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    create_response = client.post(
+        "/v1/wakeups",
+        json=GatewayWakeupCreateV1(
+            mode="one_off",
+            prompt="scheduled wakeup",
+            after_seconds=60,
+        ).model_dump(mode="json"),
+    )
+
+    assert create_response.status_code == 200
+    wakeup_payload = create_response.json()
+    assert wakeup_payload["mode"] == "one_off"
+    assert wakeup_payload["state"] == "scheduled"
+    job_id = str(wakeup_payload["job_id"])
+
+    list_response = client.get("/v1/wakeups")
+    assert list_response.status_code == 200
+    assert [job["job_id"] for job in list_response.json()["jobs"]] == [job_id]
+
+    get_response = client.get(f"/v1/wakeups/{job_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["prompt"] == "scheduled wakeup"
+
+    cancel_response = client.delete(f"/v1/wakeups/{job_id}")
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["action"] == "cancel_wakeup"
+    assert cancel_response.json()["job_id"] == job_id
+
+    assert client.get(f"/v1/wakeups/{job_id}").status_code == 404
+    assert client.delete(f"/v1/wakeups/{job_id}").status_code == 404
+    assert runtime.status().queue_depth == 0
+
+
+def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _BlockingRepeatFakeCaoRestClient(_FakeCaoRestClient):
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            super().__init__(base_url=base_url, timeout_seconds=timeout_seconds)
+            self.first_repeat_started = threading.Event()
+            self.release_first_repeat = threading.Event()
+            self.repeat_prompt_count = 0
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_prompts.append((terminal_id, message))
+            if message == "repeat wakeup":
+                self.repeat_prompt_count += 1
+                if self.repeat_prompt_count == 1:
+                    self.first_repeat_started.set()
+                    assert self.release_first_repeat.wait(timeout=5.0)
+            return CaoSuccessResponse(success=True)
+
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    fake_client = _BlockingRepeatFakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        wakeup = runtime.create_wakeup(
+            GatewayWakeupCreateV1(
+                mode="repeat",
+                prompt="repeat wakeup",
+                after_seconds=0.05,
+                interval_seconds=0.05,
+            )
+        )
+
+        _wait_until(lambda: fake_client.first_repeat_started.is_set())
+        time.sleep(0.16)
+        fake_client.release_first_repeat.set()
+
+        _wait_until(lambda: fake_client.repeat_prompt_count >= 2)
+        time.sleep(0.02)
+        assert fake_client.repeat_prompt_count == 2
+
+        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
+        assert live_job.mode == "repeat"
+        assert live_job.state in {"scheduled", "overdue"}
+        assert live_job.cancel_requested is False
+    finally:
+        runtime.delete_wakeup(job_id=wakeup.job_id)
+        runtime.shutdown()
+
+
+def test_gateway_wakeup_defers_while_busy_and_cancel_records_active_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _BlockingBusyFakeCaoRestClient(_FakeCaoRestClient):
+        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
+            super().__init__(base_url=base_url, timeout_seconds=timeout_seconds)
+            self.busy_prompt_started = threading.Event()
+            self.release_busy_prompt = threading.Event()
+            self.wakeup_prompt_started = threading.Event()
+            self.release_wakeup_prompt = threading.Event()
+
+        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
+            self.submitted_prompts.append((terminal_id, message))
+            if message == "busy-work":
+                self.busy_prompt_started.set()
+                assert self.release_busy_prompt.wait(timeout=5.0)
+            if message == "repeat wakeup":
+                self.wakeup_prompt_started.set()
+                assert self.release_wakeup_prompt.wait(timeout=5.0)
+            return CaoSuccessResponse(success=True)
+
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    fake_client = _BlockingBusyFakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    paths = gateway_paths_from_manifest_path(
+        default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    )
+    assert paths is not None
+
+    runtime.start()
+    try:
+        runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(prompt="busy-work"),
+            )
+        )
+        _wait_until(lambda: fake_client.busy_prompt_started.is_set())
+
+        wakeup = runtime.create_wakeup(
+            GatewayWakeupCreateV1(
+                mode="repeat",
+                prompt="repeat wakeup",
+                after_seconds=0.01,
+                interval_seconds=1,
+            )
+        )
+
+        _wait_until(lambda: runtime.get_wakeup(job_id=wakeup.job_id).state == "overdue")
+        log_deadline = time.monotonic() + 5.0
+        while time.monotonic() < log_deadline:
+            if (
+                paths.log_path.is_file()
+                and "wakeup deferred because the gateway is busy"
+                in paths.log_path.read_text(encoding="utf-8")
+            ):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("Expected wakeup deferral log line.")
+
+        fake_client.release_busy_prompt.set()
+        _wait_until(lambda: fake_client.wakeup_prompt_started.is_set())
+
+        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
+        assert live_job.state == "executing"
+        assert live_job.cancel_requested is False
+
+        cancel_result = runtime.delete_wakeup(job_id=wakeup.job_id)
+        assert cancel_result.canceled is True
+        assert "already-started prompt delivery" in cancel_result.detail
+
+        canceled_job = runtime.get_wakeup(job_id=wakeup.job_id)
+        assert canceled_job.state == "executing"
+        assert canceled_job.cancel_requested is True
+
+        fake_client.release_wakeup_prompt.set()
+        _wait_until(
+            lambda: (
+                [message for _, message in fake_client.submitted_prompts].count("repeat wakeup")
+                == 1
+            )
+        )
+        time.sleep(1.1)
+        assert [message for _, message in fake_client.submitted_prompts].count("repeat wakeup") == 1
+
+        with pytest.raises(HTTPException, match="Unknown wakeup job"):
+            runtime.get_wakeup(job_id=wakeup.job_id)
+    finally:
+        fake_client.release_busy_prompt.set()
+        fake_client.release_wakeup_prompt.set()
+        runtime.shutdown()
+
+
 def test_gateway_service_accepts_requests_and_separates_health(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2578,6 +3131,21 @@ def test_gateway_service_accepts_requests_and_separates_health(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -2625,6 +3193,21 @@ def test_gateway_service_starts_from_manifest_when_internal_attach_contract_is_m
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -2690,7 +3273,7 @@ def test_gateway_service_rest_backed_recovery_relaunches_from_manifest_authority
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
-        lambda *, session_name: session_name == "AGENTSYS-gpu",
+        lambda *, session_name: session_name == "HOUMAO-gpu",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -2714,6 +3297,21 @@ def test_gateway_service_restart_recovers_accepted_requests(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -2866,7 +3464,7 @@ def test_gateway_mail_notifier_rejects_enablement_when_manifest_is_missing(
         )
 
 
-def test_gateway_mail_notifier_rejects_enablement_without_live_projection(
+def test_gateway_mail_notifier_supports_manifest_backed_mailbox_without_tmux_projection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2888,12 +3486,13 @@ def test_gateway_mail_notifier_rejects_enablement_without_live_projection(
 
     status = runtime.get_mail_notifier()
     assert status.enabled is False
-    assert status.supported is False
-    assert status.support_error is not None
-    assert "live mailbox projection" in status.support_error
+    assert status.supported is True
+    assert status.support_error is None
 
-    with pytest.raises(HTTPException, match="live mailbox projection"):
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+    enabled = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+    assert enabled.supported is True
+    assert enabled.enabled is True
+    assert enabled.interval_seconds == 60
 
 
 def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtrip(
@@ -2931,7 +3530,7 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     send_response = client.post(
         "/v1/mail/send",
         json=GatewayMailSendRequestV1(
-            to=["AGENTSYS-sender@agents.localhost"],
+            to=["HOUMAO-sender@agents.localhost"],
             subject="Gateway route send",
             body_content="filesystem send body",
         ).model_dump(mode="json"),
@@ -2999,7 +3598,7 @@ def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mu
 
     local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
         mailbox_root,
-        address="AGENTSYS-gpu@agents.localhost",
+        address="HOUMAO-gpu@agents.localhost",
     )
     with sqlite3.connect(local_sqlite_path) as connection:
         state_row = connection.execute(
@@ -3124,7 +3723,7 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                     "preview": "preview",
                     "body": "full body",
                     "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
-                    "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                    "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                     "cc": [],
                     "replyTo": [],
                     "attachments": [],
@@ -3197,7 +3796,7 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                 "preview": "preview",
                 "body": "full body",
                 "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
-                "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                 "cc": [],
                 "replyTo": [],
                 "attachments": [],
@@ -3207,6 +3806,11 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
         _FakeStalwartJmapClient,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -3293,7 +3897,7 @@ def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization
                 "preview": "preview",
                 "body": "full body",
                 "from": [{"email": "sender@agents.localhost", "name": "Sender"}],
-                "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                 "cc": [],
                 "replyTo": [],
                 "attachments": [],
@@ -3322,7 +3926,7 @@ def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization
     assert "explicit boolean `unread` state" in response.json()["detail"]
 
 
-def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_restart(
+def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_restart(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3337,6 +3941,11 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -3349,14 +3958,17 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
         assert status.enabled is True
         assert status.supported is True
 
-        deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and not fake_client.submitted_prompts:
-            time.sleep(0.05)
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 2, timeout_seconds=5.0)
 
-        assert len(fake_client.submitted_prompts) == 1
-        assert message_id in fake_client.submitted_prompts[0][1]
-        time.sleep(1.3)
-        assert len(fake_client.submitted_prompts) == 1
+        first_prompt = fake_client.submitted_prompts[0][1]
+        repeated_prompt = fake_client.submitted_prompts[1][1]
+        assert message_id not in first_prompt
+        assert message_id not in repeated_prompt
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in first_prompt
+        )
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in first_prompt
     finally:
         runtime.shutdown()
 
@@ -3368,8 +3980,7 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
     )
     runtime.start()
     try:
-        time.sleep(1.3)
-        assert fake_client.submitted_prompts == []
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
         status = runtime.get_mail_notifier()
         assert status.enabled is True
         assert status.last_notification_at_utc is not None
@@ -3381,27 +3992,68 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_deduplicates_after_
     assert "mail notifier enqueued" in log_text
     audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
     enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
-    dedup_rows = [row for row in audit_rows if row.outcome == "dedup_skip"]
     assert enqueued_rows
-    assert dedup_rows
+    assert not any(row.outcome == "dedup_skip" for row in audit_rows)
+    assert len(enqueued_rows) >= 2
     assert enqueued_rows[-1].unread_count == 1
     assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
     assert enqueued_rows[-1].enqueued_request_id is not None
-    assert all(row.unread_digest == enqueued_rows[-1].unread_digest for row in dedup_rows)
 
 
-def test_gateway_mail_notifier_deduplicates_even_if_prompt_rendering_changes(
+def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_and_repeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
-    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
-    _deliver_unread_mailbox_message(tmp_path)
-    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    message_id = _deliver_unread_mailbox_message(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
-        lambda *args, **kwargs: fake_client,
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    readiness = {"busy": True}
+
+    def _tracking_state(self: _FakeGatewayTrackingRuntime) -> HoumaoTerminalStateResponse:
+        state = _sample_gateway_tracked_state(self.m_identity)
+        if not readiness["busy"]:
+            return state
+        return state.model_copy(
+            update={
+                "surface": state.surface.model_copy(
+                    update={"accepting_input": "no", "editing_input": "yes", "ready_posture": "no"}
+                ),
+                "turn": state.turn.model_copy(update={"phase": "active"}),
+                "stability": state.stability.model_copy(update={"stable": False}),
+            }
+        )
+
+    monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _tracking_state)
+
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="HOUMAO-gpu",
+        address="HOUMAO-gpu@agents.localhost",
+        filesystem_root=(tmp_path / "mailbox").resolve(),
+        bindings_version="2026-03-16T08:00:00.000001Z",
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -3409,27 +4061,206 @@ def test_gateway_mail_notifier_deduplicates_even_if_prompt_rendering_changes(
         host="127.0.0.1",
         port=43123,
     )
+    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
+    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
         runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
 
-        deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and not fake_client.submitted_prompts:
-            time.sleep(0.05)
-
-        assert len(fake_client.submitted_prompts) == 1
-        monkeypatch.setattr(
-            runtime,
-            "_build_mail_notifier_prompt",
-            lambda unread_messages: "a completely rewritten notifier prompt",
-        )
         time.sleep(1.3)
-        assert len(fake_client.submitted_prompts) == 1
+        assert fake_session.prompt_calls == []
+
+        readiness["busy"] = False
+        _wait_until(lambda: len(fake_session.prompt_calls) >= 1, timeout_seconds=5.0)
+        first_prompt = fake_session.prompt_calls[0][0]
+        assert message_id not in first_prompt
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in first_prompt
+        )
+
+        readiness["busy"] = True
+        prompt_count = len(fake_session.prompt_calls)
+        time.sleep(1.3)
+        assert len(fake_session.prompt_calls) == prompt_count
+
+        readiness["busy"] = False
+        _wait_until(lambda: len(fake_session.prompt_calls) >= prompt_count + 1, timeout_seconds=5.0)
+        repeated_prompt = fake_session.prompt_calls[-1][0]
+        assert message_id not in repeated_prompt
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in repeated_prompt
+        )
     finally:
         runtime.shutdown()
 
+    paths = gateway_paths_from_manifest_path(
+        default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    )
+    assert paths is not None
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    assert busy_rows
+    assert enqueued_rows
+    assert len(enqueued_rows) >= 2
+    assert not any(row.outcome == "dedup_skip" for row in audit_rows)
+    assert any(row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows)
+    log_text = paths.log_path.read_text(encoding="utf-8")
+    assert "mail notifier poll deferred because the managed session is not prompt-ready" in log_text
+    assert "suppressed" not in log_text
 
-def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt(
+
+def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unattended_args(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="HOUMAO-gpu",
+        address="HOUMAO-gpu@agents.localhost",
+        filesystem_root=(tmp_path / "mailbox").resolve(),
+        bindings_version="2026-04-02T12:00:00.000001Z",
+    )
+    launch_plan = LaunchPlan(
+        backend="gemini_headless",
+        tool="gemini",
+        executable="gemini",
+        args=["--approval-mode=yolo", "--sandbox=false"],
+        working_directory=tmp_path,
+        home_env_var="GEMINI_CLI_HOME",
+        home_path=tmp_path / "home",
+        env=mailbox_env_bindings(mailbox),
+        env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
+        role_injection=RoleInjectionPlan(
+            method="bootstrap_message",
+            role_name="role",
+            prompt="role prompt",
+            bootstrap_message="bootstrap",
+        ),
+        metadata={},
+        mailbox=mailbox,
+    )
+
+    manifest_path = default_manifest_path(tmp_path, "gemini_headless", "gemini-headless-1")
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=launch_plan,
+            role_name="role",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+            tmux_session_name="HOUMAO-gemini",
+            session_id="gemini-headless-1",
+            agent_def_dir=(tmp_path / "agents").resolve(),
+            backend_state={"session_id": "sess-gemini-1"},
+        )
+    )
+    write_session_manifest(manifest_path, payload)
+    gateway_root = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="gemini_headless",
+            tool="gemini",
+            session_id="gemini-headless-1",
+            tmux_session_name="HOUMAO-gemini",
+            working_directory=tmp_path,
+            backend_state={"session_id": "sess-gemini-1"},
+            agent_def_dir=tmp_path / "agents",
+        )
+    ).gateway_root
+    install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=tmp_path / "home")
+
+    output_path = tmp_path / "tmp" / "gateway-mail-processed.txt"
+
+    class _GeminiGatewayHeadlessSession:
+        def __init__(self) -> None:
+            self.backend = "gemini_headless"
+            self.state = type(
+                "State",
+                (),
+                {
+                    "turn_index": 0,
+                    "tmux_session_name": "HOUMAO-gemini",
+                    "session_id": "sess-gemini-1",
+                },
+            )()
+            self.prompt_calls: list[tuple[str, str | None]] = []
+
+        def send_prompt(
+            self, prompt: str, *, turn_artifact_dir_name: str | None = None
+        ) -> list[object]:
+            self.prompt_calls.append((prompt, turn_artifact_dir_name))
+            if (
+                "--approval-mode=yolo" in launch_plan.args
+                and "--sandbox=false" in launch_plan.args
+                and "List unread mail through the shared gateway mailbox API for this round."
+                in prompt
+            ):
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text("processed by gemini notifier\n", encoding="utf-8")
+            self.state.turn_index += 1
+            return []
+
+        def interrupt(self) -> SessionControlResult:
+            return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
+
+    fake_session = _GeminiGatewayHeadlessSession()
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _GeminiGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-gemini",
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
+    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        _deliver_unread_mailbox_message(tmp_path)
+        _wait_until(lambda: output_path.exists(), timeout_seconds=5.0)
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls
+    prompt = fake_session.prompt_calls[0][0]
+    assert "List unread mail through the shared gateway mailbox API for this round." in prompt
+    assert "In Gemini this Houmao skill is installed natively." in prompt
+    assert "Invoke `houmao-process-emails-via-gateway` by name for this round." in prompt
+    assert (
+        "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway` by name"
+    ) in prompt
+    assert (
+        "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` by name"
+        in prompt
+    )
+    assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+    assert ".agents/skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+    assert ".agents/skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+    assert "Open `" not in prompt
+    assert output_path.read_text(encoding="utf-8") == "processed by gemini notifier\n"
+
+
+def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gateway_skill(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3438,22 +4269,30 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
     _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
+    install_runtime_mailbox_system_skills_for_tool(tool="codex", home_path=tmp_path / "home")
     first_message_id = _deliver_unread_mailbox_message(
         tmp_path,
         message_id="msg-20260316T090000Z-11111111111111111111111111111111",
         created_at_utc="2026-03-16T09:00:00Z",
         subject="Gateway unread reminder one",
+        body_markdown="TOP-SECRET-ONE\n",
     )
     second_message_id = _deliver_unread_mailbox_message(
         tmp_path,
         message_id="msg-20260316T090100Z-22222222222222222222222222222222",
         created_at_utc="2026-03-16T09:01:00Z",
         subject="Gateway unread reminder two",
+        body_markdown="TOP-SECRET-TWO\n",
     )
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -3471,21 +4310,53 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
 
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
-        assert first_message_id in prompt
+        assert first_message_id not in prompt
         assert second_message_id not in prompt
-        assert "thread_ref: filesystem:" in prompt
-        assert "from: AGENTSYS-sender@agents.localhost" in prompt
-        assert "subject: Gateway unread reminder one" in prompt
-        assert "Remaining unread after this target: 1." in prompt
-        assert "resolve-live" in prompt
-        assert "gateway.base_url" in prompt
-        assert "prefers current process env, falls back to the owning tmux session env" in prompt
-        assert "email-via-filesystem" in prompt
-        assert "skills/mailbox/email-via-filesystem/SKILL.md" in prompt
-        assert "Do not inspect repo docs or OpenAPI" in prompt
-        assert "This matches the resolver's `gateway.base_url`" in prompt
-        assert '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}' in prompt
-        assert "POST /v1/mail/state" in prompt
+        assert "Unread email summaries in the current snapshot:" not in prompt
+        assert prompt.index(
+            "List unread mail through the shared gateway mailbox API for this round."
+        ) < prompt.index(
+            "Gateway mailbox operations for this round use the exact live gateway base URL:"
+        )
+        assert "List unread mail through the shared gateway mailbox API for this round." in prompt
+        assert "Choose which unread email or emails are relevant to process" in prompt
+        assert "thread_ref: filesystem:" not in prompt
+        assert "from: HOUMAO-sender@agents.localhost" not in prompt
+        assert "subject: Gateway unread reminder one" not in prompt
+        assert "subject: Gateway unread reminder two" not in prompt
+        assert "TOP-SECRET-ONE" not in prompt
+        assert "TOP-SECRET-TWO" not in prompt
+        assert "Nominated unread target" not in prompt
+        assert "Remaining unread after this target" not in prompt
+        assert (
+            "Use the installed Houmao email-processing skill "
+            "`houmao-process-emails-via-gateway` for this round."
+        ) in prompt
+        assert "In Codex this Houmao skill is installed natively." in prompt
+        assert "$houmao-process-emails-via-gateway http://127.0.0.1:43123" in prompt
+        assert "not as a registered slash skill" not in prompt
+        assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
+        assert "Use the installed Houmao mailbox gateway skill" not in prompt
+        assert "use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway`" in prompt
+        assert "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem`" in prompt
+        assert "Do not inspect the current project or runtime home for skill files." in prompt
+        assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
+        assert "http://127.0.0.1:43123" in prompt
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/check`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/send`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/reply`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/state`" in prompt
+        assert "curl -sS -X POST" not in prompt
+        assert "stop and wait for the next notification" in prompt
+        assert "Houmao mailbox skills are not installed for this session." not in prompt
+        assert "python -m houmao.agents.mailbox_runtime_support" not in prompt
         assert "deliver_message.py" not in prompt
         assert "update_mailbox_state.py" not in prompt
     finally:
@@ -3502,7 +4373,106 @@ def test_gateway_mail_notifier_nominates_oldest_target_with_gateway_first_prompt
     ]
 
 
-def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates(
+def test_gateway_mail_notifier_renders_claude_native_skill_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True, tool="claude")
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=tmp_path / "home")
+    _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not fake_client.submitted_prompts:
+            time.sleep(0.05)
+
+        assert len(fake_client.submitted_prompts) == 1
+        prompt = fake_client.submitted_prompts[0][1]
+        assert "Claude Code the standalone slash-skill line above invokes the installed Houmao skill" in prompt
+        assert "/houmao-process-emails-via-gateway" in prompt
+        assert "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway` by name" in prompt
+        assert "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` by name" in prompt
+        assert "Do not inspect the current project or runtime home for skill files." in prompt
+        assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "not as a registered slash skill" not in prompt
+    finally:
+        runtime.shutdown()
+
+
+def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not fake_client.submitted_prompts:
+            time.sleep(0.05)
+
+        assert len(fake_client.submitted_prompts) == 1
+        prompt = fake_client.submitted_prompts[0][1]
+        assert "Houmao mailbox skills are not installed for this session." in prompt
+        assert (
+            "List unread mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn."
+            in prompt
+        )
+        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
+        assert "http://127.0.0.1:43123" in prompt
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
+        assert "houmao-process-emails-via-gateway" not in prompt
+        assert "houmao-email-via-agent-gateway" not in prompt
+    finally:
+        runtime.shutdown()
+
+
+def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchanged_unread_mail(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3540,7 +4510,7 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
                     "preview": "preview",
                     "body": "full body",
                     "from": [{"email": "sender@agents.localhost"}],
-                    "to": [{"email": "AGENTSYS-gpu@agents.localhost"}],
+                    "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
                     "cc": [],
                     "replyTo": [],
                     "attachments": [],
@@ -3552,6 +4522,21 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
@@ -3580,26 +4565,35 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_enqueues_and_deduplicates
         while time.monotonic() < deadline:
             audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
             outcomes = {row.outcome for row in audit_rows}
-            if {"busy_skip", "enqueued", "dedup_skip"} <= outcomes and len(
-                fake_client.submitted_prompts
-            ) >= 2:
+            if (
+                "busy_skip" in outcomes
+                and len([row for row in audit_rows if row.outcome == "enqueued"]) >= 2
+                and len(fake_client.submitted_prompts) >= 3
+            ):
                 break
             time.sleep(0.05)
 
         assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
-        assert len(fake_client.submitted_prompts) == 2
-        assert "stalwart:mail-1" in fake_client.submitted_prompts[1][1]
-        assert "POST /v1/mail/state" in fake_client.submitted_prompts[1][1]
+        assert len(fake_client.submitted_prompts) >= 3
+        assert "stalwart:mail-1" not in fake_client.submitted_prompts[1][1]
+        assert "stalwart:mail-1" not in fake_client.submitted_prompts[2][1]
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in fake_client.submitted_prompts[1][1]
+        )
+        assert (
+            "- `POST http://127.0.0.1:43123/v1/mail/state`" in fake_client.submitted_prompts[1][1]
+        )
     finally:
         runtime.shutdown()
 
     audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
     busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
     enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
-    dedup_rows = [row for row in audit_rows if row.outcome == "dedup_skip"]
     assert busy_rows
     assert enqueued_rows
-    assert dedup_rows
+    assert len(enqueued_rows) >= 2
+    assert not any(row.outcome == "dedup_skip" for row in audit_rows)
     assert enqueued_rows[-1].unread_summary[0].message_ref == "stalwart:mail-1"
 
 
@@ -3693,6 +4687,11 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
     )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -3715,7 +4714,11 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
 
         assert fake_client.submitted_prompts[0] == ("term-123", "busy-work")
         assert len(fake_client.submitted_prompts) == 2
-        assert message_id in fake_client.submitted_prompts[1][1]
+        assert message_id not in fake_client.submitted_prompts[1][1]
+        assert (
+            "List unread mail through the shared gateway mailbox API for this round."
+            in fake_client.submitted_prompts[1][1]
+        )
     finally:
         runtime.shutdown()
 

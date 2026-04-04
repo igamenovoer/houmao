@@ -1,8 +1,0 @@
-{
-  "case_id": "claude_explicit_success",
-  "description": "Drive Claude through one simple explicit-input success turn.",
-  "observed_version": "2.1.81 (Claude Code)",
-  "schema_version": 1,
-  "settle_seconds": 1.0,
-  "tool": "claude"
-}

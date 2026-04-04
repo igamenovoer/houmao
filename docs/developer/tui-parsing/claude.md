@@ -130,7 +130,7 @@ These events describe parser observations, not runtime lifecycle decisions. The 
 
 Claude is version-aware. The parser selects a preset through this order:
 
-1. `AGENTSYS_CLAUDE_CODE_VERSION` (or the legacy `AGENTSYS_CAO_CLAUDE_CODE_VERSION`)
+1. `HOUMAO_CAO_CLAUDE_CODE_VERSION`
 2. banner detection from `Claude Code vX.Y.Z`
 3. latest known preset fallback
 

@@ -1,0 +1,147 @@
+{
+  "agent_def_dir": "<ABSOLUTE_PATH>",
+  "artifacts": {
+    "brain_build": "<ARTIFACT_PATH:brain_build>",
+    "cao_start": "<ARTIFACT_PATH:cao_start>",
+    "inspect": "<ARTIFACT_PATH:inspect>",
+    "prompt_events": "<ARTIFACT_PATH:prompt_events>",
+    "prompt_result": "<ARTIFACT_PATH:prompt_result>",
+    "report": "<ARTIFACT_PATH:report>",
+    "report_sanitized": "<ARTIFACT_PATH:report_sanitized>",
+    "session_start": "<ARTIFACT_PATH:session_start>",
+    "stop": "<ARTIFACT_PATH:stop>"
+  },
+  "cao": {
+    "artifact_dir": "<ABSOLUTE_PATH>",
+    "base_url": "<CAO_BASE_URL>",
+    "healthy": true,
+    "home_dir": "<ABSOLUTE_PATH>",
+    "launcher_config_path": "<ABSOLUTE_PATH>",
+    "launcher_result_file": "<ABSOLUTE_PATH>",
+    "log_file": "<ABSOLUTE_PATH>",
+    "managed": true,
+    "message": "<CAO_MESSAGE>",
+    "ownership_file": "<ABSOLUTE_PATH>",
+    "ownership_verified": true,
+    "profile_store": "<ABSOLUTE_PATH>",
+    "reused_existing_process": "<CAO_REUSE_STATE>",
+    "runtime_root": "<ABSOLUTE_PATH>",
+    "started_current_run": "<CAO_START_STATE>"
+  },
+  "demo": "skill-invocation-demo-pack",
+  "demo_output_dir": "<ABSOLUTE_PATH>",
+  "generated_at_utc": "<TIMESTAMP>",
+  "marker": {
+    "exists": true,
+    "expected_payload": {
+      "marker_kind": "workspace_probe_handshake",
+      "probe_id": "skill-invocation-demo",
+      "schema_version": 1,
+      "status": "ok"
+    },
+    "marker_path": "<ABSOLUTE_PATH>",
+    "matches_expected": true,
+    "observed_payload": {
+      "marker_kind": "workspace_probe_handshake",
+      "probe_id": "skill-invocation-demo",
+      "schema_version": 1,
+      "status": "ok"
+    },
+    "relative_path": ".houmao-skill-invocation-demo/markers/workspace-probe.json",
+    "valid_json": true
+  },
+  "parameters": {
+    "agent_def_dir": "<ABSOLUTE_PATH>",
+    "automatic": {
+      "marker_timeout_seconds": 180
+    },
+    "backend": "local_interactive",
+    "cao_base_url": "<CAO_BASE_URL>",
+    "demo_id": "skill-invocation-demo-pack",
+    "parsing_mode": "shadow_only",
+    "project_fixture": "<ABSOLUTE_PATH>",
+    "prompt": {
+      "expected_marker_payload": {
+        "marker_kind": "workspace_probe_handshake",
+        "probe_id": "skill-invocation-demo",
+        "schema_version": 1,
+        "status": "ok"
+      },
+      "marker_relative_path": ".houmao-skill-invocation-demo/markers/workspace-probe.json",
+      "trigger_file": "inputs/trigger_prompt.md",
+      "trigger_phrase": "workspace probe handshake"
+    },
+    "schema_version": 1,
+    "tool_lanes": {
+      "claude": {
+        "agent_identity": "<AGENT_IDENTITY>",
+        "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/claude/default.yaml"
+      },
+      "codex": {
+        "agent_identity": "<AGENT_IDENTITY>",
+        "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml"
+      }
+    }
+  },
+  "preflight": {
+    "blueprint_path": "<ABSOLUTE_PATH>",
+    "brain_recipe_path": "<ABSOLUTE_PATH>",
+    "config_profile": "default",
+    "credential_env_path": "<ABSOLUTE_PATH>",
+    "credential_profile": "personal-a-default",
+    "credential_profile_dir": "<ABSOLUTE_PATH>",
+    "launch_executable": "<TOOL_EXECUTABLE>",
+    "optional_credential_paths": "<OPTIONAL_CREDENTIAL_PATHS>",
+    "required_credential_paths": "<REQUIRED_CREDENTIAL_PATHS>",
+    "role_name": "skill-invocation-demo",
+    "selected_allowlisted_env_keys": "<ALLOWLISTED_ENV_KEYS>",
+    "selected_tool": "<SELECTED_TOOL>",
+    "tool_adapter_path": "<ABSOLUTE_PATH>",
+    "usable_auth_json": "<USABLE_AUTH_JSON>"
+  },
+  "project_workdir": "<ABSOLUTE_PATH>",
+  "prompt": {
+    "prompt_events_path": "<ABSOLUTE_PATH>",
+    "prompt_path": "<ABSOLUTE_PATH>",
+    "prompt_result_path": "<ABSOLUTE_PATH>",
+    "prompt_text": "Please perform the workspace probe handshake for this workspace.\nFollow the installed instructions for that handshake and then reply with the relative marker path you wrote.\nDo not mention any internal skill install path.\n",
+    "summary": {
+      "done_message": "<DONE_MESSAGE>",
+      "event_count": "<EVENT_COUNT>",
+      "event_kinds": "<EVENT_KINDS>",
+      "marker_status_after_prompt": {
+        "exists": true,
+        "matches_expected": true,
+        "observed_payload": {
+          "marker_kind": "workspace_probe_handshake",
+          "probe_id": "skill-invocation-demo",
+          "schema_version": 1,
+          "status": "ok"
+        },
+        "valid_json": true
+      },
+      "prompt_path": "<ABSOLUTE_PATH>",
+      "prompt_text": "Please perform the workspace probe handshake for this workspace.\nFollow the installed instructions for that handshake and then reply with the relative marker path you wrote.\nDo not mention any internal skill install path.\n",
+      "trigger_phrase": "workspace probe handshake"
+    },
+    "trigger_phrase": "workspace probe handshake"
+  },
+  "runtime_root": "<ABSOLUTE_PATH>",
+  "selected_blueprint": "<SELECTED_BLUEPRINT>",
+  "selected_tool": "<SELECTED_TOOL>",
+  "verification": {
+    "passed": true,
+    "reasons": []
+  },
+  "watch": {
+    "agent_identity": "<AGENT_IDENTITY>",
+    "cao_base_url": "<CAO_BASE_URL>",
+    "cao_session_name": "<CAO_SESSION_NAME>",
+    "cao_terminal_id": "<CAO_TERMINAL_ID>",
+    "job_dir": "<ABSOLUTE_PATH>",
+    "parsing_mode": "shadow_only",
+    "session_manifest": "<ABSOLUTE_PATH>",
+    "tmux_session_name": "<TMUX_SESSION_NAME>",
+    "tmux_window_name": "<TMUX_WINDOW_NAME>"
+  }
+}

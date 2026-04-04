@@ -1,4 +1,4 @@
-"""Provider-specific launch-policy hooks for Codex and Claude."""
+"""Provider-specific launch-policy hooks for Claude, Codex, and Gemini."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import tomllib
 from contextlib import contextmanager
 import fcntl
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from houmao.agents.launch_policy.models import LaunchPolicyError, LaunchPolicyRequest
 
@@ -19,10 +19,20 @@ _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CLAUDE_API_KEY_SUFFIX_LEN = 20
 _CODEX_AUTH_FILENAME = "auth.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
+_CODEX_UNATTENDED_APPROVAL_POLICY = "never"
+_CODEX_UNATTENDED_SANDBOX_MODE = "danger-full-access"
+_CODEX_MODEL_MIGRATION_SOURCE = "gpt-5.3-codex"
+_CODEX_MODEL_MIGRATION_TARGET = "gpt-5.4"
+_GEMINI_SETTINGS_PATH = Path(".gemini") / "settings.json"
 _PROVIDER_STATE_LOCK_FILENAME = ".houmao-launch-policy.lock"
 
 
-def run_provider_hook(*, hook_id: str, request: LaunchPolicyRequest) -> None:
+def run_provider_hook(
+    *,
+    hook_id: str,
+    request: LaunchPolicyRequest,
+    args: list[str] | None = None,
+) -> None:
     """Dispatch one stable provider hook id."""
 
     if hook_id == "claude.ensure_api_key_approval":
@@ -31,14 +41,23 @@ def run_provider_hook(*, hook_id: str, request: LaunchPolicyRequest) -> None:
     if hook_id == "claude.ensure_project_trust":
         _claude_ensure_project_trust(request)
         return
-    if hook_id == "codex.validate_minimal_inputs":
-        _codex_validate_minimal_inputs(request)
+    if hook_id == "codex.canonicalize_unattended_launch_inputs":
+        _codex_canonicalize_unattended_launch_inputs(args)
+        return
+    if hook_id == "codex.validate_credential_readiness":
+        _codex_validate_credential_readiness(request)
         return
     if hook_id == "codex.ensure_project_trust":
         _codex_ensure_project_trust(request)
         return
     if hook_id == "codex.ensure_model_migration_state":
         _codex_ensure_model_migration_state(request)
+        return
+    if hook_id == "gemini.canonicalize_unattended_launch_inputs":
+        _gemini_canonicalize_unattended_launch_inputs(args)
+        return
+    if hook_id == "gemini.ensure_unattended_runtime_state":
+        _gemini_ensure_unattended_runtime_state(request)
         return
     raise LaunchPolicyError(f"Unknown provider hook `{hook_id}`.")
 
@@ -157,7 +176,7 @@ def _load_json_state_with_repair(path: Path, *, repair_invalid: bool) -> dict[st
 
 
 @contextmanager
-def provider_state_mutation_lock(home_path: Path):
+def provider_state_mutation_lock(home_path: Path) -> Iterator[None]:
     """Serialize provider-state mutation across one runtime home."""
 
     home_path.mkdir(parents=True, exist_ok=True)
@@ -210,6 +229,132 @@ def _codex_config_path(request: LaunchPolicyRequest) -> Path:
     """Return the runtime `config.toml` path."""
 
     return request.home_path / _CODEX_CONFIG_FILENAME
+
+
+def _gemini_settings_path(request: LaunchPolicyRequest) -> Path:
+    """Return the runtime Gemini settings path."""
+
+    return request.home_path / _GEMINI_SETTINGS_PATH
+
+
+def validate_codex_credential_readiness(
+    *,
+    home_path: Path,
+    env: Mapping[str, str],
+    error_factory: type[Exception] | None = None,
+) -> None:
+    """Validate that Codex has credentials for the resolved provider contract."""
+
+    message = _codex_credential_readiness_error(home_path=home_path, env=env)
+    if message is None:
+        return
+    factory = error_factory or LaunchPolicyError
+    raise factory(message)
+
+
+def ensure_codex_unattended_runtime_state(
+    *,
+    home_path: Path,
+    working_directory: Path,
+    repair_invalid: bool = False,
+) -> None:
+    """Force strategy-owned unattended Codex state into the runtime home."""
+
+    config_path = home_path / _CODEX_CONFIG_FILENAME
+    set_toml_key(
+        path=config_path,
+        key_path=("approval_policy",),
+        value=_CODEX_UNATTENDED_APPROVAL_POLICY,
+        repair_invalid=repair_invalid,
+    )
+    set_toml_key(
+        path=config_path,
+        key_path=("sandbox_mode",),
+        value=_CODEX_UNATTENDED_SANDBOX_MODE,
+        repair_invalid=repair_invalid,
+    )
+    set_toml_key(
+        path=config_path,
+        key_path=("notice", "hide_full_access_warning"),
+        value=True,
+        repair_invalid=repair_invalid,
+    )
+    set_toml_key(
+        path=config_path,
+        key_path=("projects", str(_resolve_codex_trust_target(working_directory)), "trust_level"),
+        value="trusted",
+        repair_invalid=repair_invalid,
+    )
+    _ensure_codex_model_migration_state(
+        config_path=config_path,
+        repair_invalid=repair_invalid,
+    )
+
+
+def canonicalize_codex_unattended_launch_args(args: list[str]) -> None:
+    """Strip caller overrides that target Codex unattended-owned launch surfaces."""
+
+    canonicalized: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        next_token = args[index + 1] if index + 1 < len(args) else None
+
+        if token in {
+            "--full-auto",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--yolo",
+        }:
+            index += 1
+            continue
+        if token.startswith("--ask-for-approval=") or token.startswith("--sandbox="):
+            index += 1
+            continue
+        if token in {"-a", "--ask-for-approval", "-s", "--sandbox"}:
+            index += 1
+            if next_token is not None and not next_token.startswith("-"):
+                index += 1
+            continue
+        if token.startswith("--config="):
+            if _codex_override_targets_owned_surface(token.partition("=")[2]):
+                index += 1
+                continue
+        if token in {"-c", "--config"} and next_token is not None:
+            if _codex_override_targets_owned_surface(next_token):
+                index += 2
+                continue
+
+        canonicalized.append(token)
+        index += 1
+
+    args[:] = canonicalized
+
+
+def canonicalize_gemini_unattended_launch_args(args: list[str]) -> None:
+    """Strip caller overrides that target Gemini unattended-owned launch surfaces."""
+
+    canonicalized: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        next_token = args[index + 1] if index + 1 < len(args) else None
+
+        if token in {"-y", "--yolo"}:
+            index += 1
+            continue
+        if token.startswith("--approval-mode=") or token.startswith("--sandbox="):
+            index += 1
+            continue
+        if token in {"--approval-mode", "--sandbox"}:
+            index += 1
+            if next_token is not None and not next_token.startswith("-"):
+                index += 1
+            continue
+
+        canonicalized.append(token)
+        index += 1
+
+    args[:] = canonicalized
 
 
 def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
@@ -268,63 +413,41 @@ def _claude_ensure_project_trust(request: LaunchPolicyRequest) -> None:
     write_json_state(state_path, payload)
 
 
-def _codex_validate_minimal_inputs(request: LaunchPolicyRequest) -> None:
-    """Require either auth.json or an env-backed custom-provider contract."""
+def _codex_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
+    """Canonicalize caller launch args for the Codex unattended strategy."""
 
-    if _has_usable_auth_json(request.home_path / _CODEX_AUTH_FILENAME):
+    if args is None:
         return
-    if request.env.get("OPENAI_API_KEY", "").strip():
+    canonicalize_codex_unattended_launch_args(args)
+
+
+def _gemini_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
+    """Canonicalize caller launch args for the Gemini unattended strategy."""
+
+    if args is None:
         return
+    canonicalize_gemini_unattended_launch_args(args)
 
-    config_payload = load_toml_state(_codex_config_path(request))
-    model_provider_name = config_payload.get("model_provider")
-    if not isinstance(model_provider_name, str) or not model_provider_name.strip():
-        raise LaunchPolicyError(
-            "Codex unattended launch requires `auth.json`, `OPENAI_API_KEY`, or a "
-            "config-backed env-only provider with `requires_openai_auth = false`."
-        )
 
-    providers = config_payload.get("model_providers")
-    if not isinstance(providers, dict):
-        raise LaunchPolicyError(
-            "Codex unattended launch requires `auth.json`, `OPENAI_API_KEY`, or a "
-            "config-backed env-only provider with `requires_openai_auth = false`."
-        )
+def _codex_validate_credential_readiness(request: LaunchPolicyRequest) -> None:
+    """Require either Codex auth state or an env-only provider contract."""
 
-    provider_payload = providers.get(model_provider_name)
-    if not isinstance(provider_payload, dict):
-        raise LaunchPolicyError(
-            "Codex unattended launch requires `auth.json`, `OPENAI_API_KEY`, or a "
-            "config-backed env-only provider with `requires_openai_auth = false`."
-        )
-
-    requires_auth = provider_payload.get("requires_openai_auth", True)
-    wire_api = provider_payload.get("wire_api")
-    env_key = provider_payload.get("env_key", "OPENAI_API_KEY")
-
-    if requires_auth is not False or wire_api != "responses":
-        raise LaunchPolicyError(
-            "Codex unattended launch requires `auth.json`, `OPENAI_API_KEY`, or a "
-            "config-backed env-only provider with `requires_openai_auth = false` "
-            'and `wire_api = "responses"`.'
-        )
-    if not isinstance(env_key, str) or not env_key.strip():
-        raise LaunchPolicyError(
-            "Codex env-only provider config must declare a non-empty `env_key`."
-        )
-    if not request.env.get(env_key, "").strip():
-        raise LaunchPolicyError(
-            f"Codex env-only provider `{model_provider_name}` requires env var `{env_key}`."
-        )
+    validate_codex_credential_readiness(
+        home_path=request.home_path,
+        env=request.env,
+    )
 
 
 def _codex_ensure_project_trust(request: LaunchPolicyRequest) -> None:
     """Seed Codex project trust for the resolved working directory."""
 
-    trust_target = _resolve_codex_trust_target(request.working_directory)
     set_toml_key(
         path=_codex_config_path(request),
-        key_path=("projects", str(trust_target), "trust_level"),
+        key_path=(
+            "projects",
+            str(_resolve_codex_trust_target(request.working_directory)),
+            "trust_level",
+        ),
         value="trusted",
         repair_invalid=request.application_kind == "provider_start",
     )
@@ -333,25 +456,31 @@ def _codex_ensure_project_trust(request: LaunchPolicyRequest) -> None:
 def _codex_ensure_model_migration_state(request: LaunchPolicyRequest) -> None:
     """Seed Codex startup migration state for the current supported version."""
 
-    config_path = _codex_config_path(request)
-    payload = load_toml_state(
-        config_path,
+    _ensure_codex_model_migration_state(
+        config_path=_codex_config_path(request),
         repair_invalid=request.application_kind == "provider_start",
     )
-    model_value = payload.get("model")
-    if model_value is None or model_value == "gpt-5.3-codex":
-        set_toml_key(
-            path=config_path,
-            key_path=("model",),
-            value="gpt-5.4",
-            repair_invalid=request.application_kind == "provider_start",
-        )
-        set_toml_key(
-            path=config_path,
-            key_path=("notice", "model_migrations", "gpt-5.3-codex"),
-            value="gpt-5.4",
-            repair_invalid=request.application_kind == "provider_start",
-        )
+
+
+def _gemini_ensure_unattended_runtime_state(request: LaunchPolicyRequest) -> None:
+    """Repair or sanitize Gemini runtime-home settings for unattended launch."""
+
+    settings_path = _gemini_settings_path(request)
+    if not settings_path.exists():
+        return
+
+    payload = _load_json_state_with_repair(
+        settings_path,
+        repair_invalid=request.application_kind == "provider_start",
+    )
+    _set_nested_json_value(payload, ("tools", "sandbox"), False)
+    _delete_nested_json_key(payload, ("tools", "core"))
+    _delete_nested_json_key(payload, ("tools", "exclude"))
+    _set_nested_json_value(payload, ("security", "disableYoloMode"), False)
+    _set_nested_json_value(payload, ("security", "toolSandboxing"), False)
+    _set_nested_json_value(payload, ("admin", "secureModeEnabled"), False)
+    _prune_empty_mappings(payload)
+    write_json_state(settings_path, payload)
 
 
 def _has_usable_auth_json(path: Path) -> bool:
@@ -377,6 +506,149 @@ def _resolve_codex_trust_target(working_directory: Path) -> Path:
         if (candidate / ".git").exists():
             return candidate
     return resolved
+
+
+def _codex_credential_readiness_error(
+    *,
+    home_path: Path,
+    env: Mapping[str, str],
+) -> str | None:
+    """Return one operator-facing Codex credential-readiness failure message."""
+
+    if _has_usable_auth_json(home_path / _CODEX_AUTH_FILENAME):
+        return None
+
+    config_payload = load_toml_state(home_path / _CODEX_CONFIG_FILENAME)
+    model_provider_name = config_payload.get("model_provider")
+    if not isinstance(model_provider_name, str) or not model_provider_name.strip():
+        return (
+            "Codex credential readiness requires `auth.json` or a config-backed env-only "
+            'provider with `requires_openai_auth = false` and `wire_api = "responses"`.'
+        )
+
+    providers = config_payload.get("model_providers")
+    if not isinstance(providers, dict):
+        return (
+            "Codex credential readiness requires `auth.json` or a config-backed env-only "
+            'provider with `requires_openai_auth = false` and `wire_api = "responses"`.'
+        )
+
+    provider_payload = providers.get(model_provider_name)
+    if not isinstance(provider_payload, dict):
+        return (
+            "Codex credential readiness requires `auth.json` or a config-backed env-only "
+            'provider with `requires_openai_auth = false` and `wire_api = "responses"`.'
+        )
+
+    requires_auth = provider_payload.get("requires_openai_auth", True)
+    wire_api = provider_payload.get("wire_api")
+    env_key = provider_payload.get("env_key", "OPENAI_API_KEY")
+
+    if requires_auth is not False or wire_api != "responses":
+        return (
+            "Codex credential readiness requires `auth.json` or a config-backed env-only "
+            'provider with `requires_openai_auth = false` and `wire_api = "responses"`.'
+        )
+    if not isinstance(env_key, str) or not env_key.strip():
+        return "Codex env-only provider config must declare a non-empty `env_key`."
+    if not env.get(env_key, "").strip():
+        return f"Codex env-only provider `{model_provider_name}` requires env var `{env_key}`."
+    return None
+
+
+def _codex_override_targets_owned_surface(raw_override: str) -> bool:
+    """Return whether one `-c key=value` override targets unattended-owned state."""
+
+    key, separator, _ = raw_override.partition("=")
+    if not separator:
+        return False
+    normalized = key.strip()
+    if not normalized:
+        return False
+    if normalized in {
+        "approval_policy",
+        "sandbox_mode",
+        "notice.hide_full_access_warning",
+    }:
+        return True
+    if normalized.startswith("notice.model_migrations.") and normalized.endswith(
+        _CODEX_MODEL_MIGRATION_SOURCE
+    ):
+        return True
+    return normalized.startswith("projects.") and normalized.endswith(".trust_level")
+
+
+def _set_nested_json_value(
+    payload: dict[str, Any],
+    key_path: tuple[str, ...],
+    value: Any,
+) -> None:
+    """Set one nested JSON key while preserving sibling content."""
+
+    target: dict[str, Any] = payload
+    for key in key_path[:-1]:
+        existing = target.get(key)
+        if not isinstance(existing, dict):
+            existing = {}
+            target[key] = existing
+        target = existing
+    target[key_path[-1]] = value
+
+
+def _delete_nested_json_key(payload: dict[str, Any], key_path: tuple[str, ...]) -> None:
+    """Delete one nested JSON key when present."""
+
+    target: dict[str, Any] | None = payload
+    parents: list[tuple[dict[str, Any], str]] = []
+    for key in key_path[:-1]:
+        if not isinstance(target, dict):
+            return
+        existing = target.get(key)
+        if not isinstance(existing, dict):
+            return
+        parents.append((target, key))
+        target = existing
+    if not isinstance(target, dict):
+        return
+    target.pop(key_path[-1], None)
+    for parent, key in reversed(parents):
+        child = parent.get(key)
+        if isinstance(child, dict) and not child:
+            parent.pop(key, None)
+
+
+def _prune_empty_mappings(payload: dict[str, Any]) -> None:
+    """Remove empty nested mappings created during Gemini settings repair."""
+
+    for value in payload.values():
+        if isinstance(value, dict):
+            _prune_empty_mappings(value)
+    empty_keys = [key for key, value in payload.items() if isinstance(value, dict) and not value]
+    for key in empty_keys:
+        payload.pop(key, None)
+
+
+def _ensure_codex_model_migration_state(*, config_path: Path, repair_invalid: bool) -> None:
+    """Seed Codex model-migration state in the runtime config."""
+
+    payload = load_toml_state(
+        config_path,
+        repair_invalid=repair_invalid,
+    )
+    model_value = payload.get("model")
+    if model_value is None or model_value == _CODEX_MODEL_MIGRATION_SOURCE:
+        set_toml_key(
+            path=config_path,
+            key_path=("model",),
+            value=_CODEX_MODEL_MIGRATION_TARGET,
+            repair_invalid=repair_invalid,
+        )
+        set_toml_key(
+            path=config_path,
+            key_path=("notice", "model_migrations", _CODEX_MODEL_MIGRATION_SOURCE),
+            value=_CODEX_MODEL_MIGRATION_TARGET,
+            repair_invalid=repair_invalid,
+        )
 
 
 def _render_toml_mapping(payload: Mapping[str, Any], *, prefix: tuple[str, ...] = ()) -> str:

@@ -527,7 +527,7 @@ def test_completion_pipeline_mailbox_observer_bypasses_stability_window() -> Non
         baseline_projection: DialogProjection,
     ) -> dict[str, object] | None:
         del snapshot, baseline_projection
-        if "AGENTSYS_MAIL_RESULT_BEGIN" not in raw_output_text:
+        if "HOUMAO_MAIL_RESULT_BEGIN" not in raw_output_text:
             return None
         return {"mail_result_surfaces": [raw_output_text]}
 
@@ -561,10 +561,10 @@ def test_completion_pipeline_mailbox_observer_bypasses_stability_window() -> Non
             business_state="idle",
             input_mode="freeform",
             projection_text="baseline\nsentinel",
-            raw_output_text="AGENTSYS_MAIL_RESULT_BEGIN\n{}\nAGENTSYS_MAIL_RESULT_END",
+            raw_output_text="HOUMAO_MAIL_RESULT_BEGIN\n{}\nHOUMAO_MAIL_RESULT_END",
         ),
     )
     assert isinstance(results[-1], CompletedResult)
     assert results[-1].completion_payload == {
-        "mail_result_surfaces": ["AGENTSYS_MAIL_RESULT_BEGIN\n{}\nAGENTSYS_MAIL_RESULT_END"]
+        "mail_result_surfaces": ["HOUMAO_MAIL_RESULT_BEGIN\n{}\nHOUMAO_MAIL_RESULT_END"]
     }

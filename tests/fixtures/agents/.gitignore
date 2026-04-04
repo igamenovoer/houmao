@@ -1,6 +1,2 @@
-# Local credential/state files for api-creds fixture variants
-brains/api-creds/**/env/*.env
-brains/api-creds/**/files/credentials.json
-brains/api-creds/**/files/auth.json
-brains/api-creds/**/files/oauth_creds.json
-brains/api-creds/**/files/.claude.json
+# Local-only credential/state trees for fixture variants
+tools/**/auth/**

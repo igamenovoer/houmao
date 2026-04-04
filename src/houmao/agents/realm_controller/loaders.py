@@ -103,13 +103,18 @@ def load_brain_manifest(path: Path) -> dict[str, Any]:
 
     payload = _load_mapping_file(path)
     schema_version = payload.get("schema_version")
-    if schema_version != 2:
+    if schema_version != 3:
         if schema_version == 1:
             raise LaunchPlanError(
                 f"{path}: brain manifest uses legacy schema_version=1. Rebuild the brain "
-                "home with the current builder to get schema_version=2 launch-overrides support."
+                "home with the current builder to get schema_version=3 preset support."
             )
-        raise LaunchPlanError(f"{path}: brain manifest must use schema_version=2")
+        if schema_version == 2:
+            raise LaunchPlanError(
+                f"{path}: brain manifest uses schema_version=2. Rebuild the brain home with the "
+                "current builder to get schema_version=3 preset support."
+            )
+        raise LaunchPlanError(f"{path}: brain manifest must use schema_version=3")
     if not isinstance(payload.get("runtime"), dict):
         raise LaunchPlanError(f"Manifest missing `runtime` mapping: {path}")
     if not isinstance(payload.get("credentials"), dict):
@@ -193,8 +198,6 @@ def load_role_package(agent_def_dir: Path, role_name: str) -> RolePackage:
     if not role_path.is_file():
         raise LaunchPlanError(f"Role prompt not found: {role_path}")
     prompt = role_path.read_text(encoding="utf-8").strip()
-    if not prompt:
-        raise LaunchPlanError(f"Role prompt is empty: {role_path}")
     return RolePackage(role_name=role_name, system_prompt=prompt, path=role_path)
 
 

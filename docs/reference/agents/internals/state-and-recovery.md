@@ -28,21 +28,21 @@ For tmux-backed sessions, the runtime publishes discovery pointers into tmux ses
 
 Core runtime pointers:
 
-- `AGENTSYS_MANIFEST_PATH`
-- `AGENTSYS_AGENT_ID`
-- `AGENTSYS_AGENT_DEF_DIR`
+- `HOUMAO_MANIFEST_PATH`
+- `HOUMAO_AGENT_ID`
+- `HOUMAO_AGENT_DEF_DIR`
 
 Live gateway pointers, present only while a gateway is attached:
 
-- `AGENTSYS_AGENT_GATEWAY_HOST`
-- `AGENTSYS_AGENT_GATEWAY_PORT`
-- `AGENTSYS_GATEWAY_STATE_PATH`
-- `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
+- `HOUMAO_AGENT_GATEWAY_HOST`
+- `HOUMAO_AGENT_GATEWAY_PORT`
+- `HOUMAO_GATEWAY_STATE_PATH`
+- `HOUMAO_GATEWAY_PROTOCOL_VERSION`
 
 Important rule:
 
 - tmux env helps the runtime rediscover a session quickly, but the manifest and validated live gateway artifacts remain the durable source of truth.
-- For attached shared-mailbox work, callers should not scrape these gateway vars directly. The runtime-owned helper `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live` is the supported surface; it prefers current process env, falls back to the owning tmux session env, and validates the live gateway binding before returning `gateway.base_url`.
+- For attached shared-mailbox work, callers should not scrape these gateway vars directly. The supported surface is `pixi run houmao-mgr agents mail resolve-live`; it prefers manifest-first current-session discovery, falls back to the owning tmux session env when needed, and validates the live gateway binding before returning `gateway.base_url`.
 
 ## Manifest Persistence
 
@@ -64,7 +64,7 @@ Runtime-owned responsibilities:
 - validate and load persisted manifests,
 - resolve tmux-backed names into manifest paths,
 - persist updated session state after runtime-managed actions,
-- detach a live gateway during `stop-session` for tmux-backed sessions when possible,
+- detach a live gateway during `agents stop` for tmux-backed sessions when possible,
 - clear stale live gateway bindings and restore offline gateway state when a live gateway can no longer be validated.
 
 Outside runtime-owned scope:

@@ -22,7 +22,7 @@ def _registration(
         tool="claude",
         observed_tool_version=observed_tool_version,
         manifest_path=str(manifest_path),
-        tmux_session_name="AGENTSYS-gpu",
+        tmux_session_name="HOUMAO-gpu",
         tmux_window_name="developer-1",
     )
 

@@ -13,11 +13,11 @@ strategies:
     minimal_inputs:
       credential_forms:
         - auth.json
-        - OPENAI_API_KEY
-        - env-only custom provider config with requires_openai_auth=false and wire_api=responses
+        - config-backed env-only provider with requires_openai_auth=false, wire_api=responses, and its declared env_key present
       requires_user_prepared_state: false
       notes:
-        - Runtime-owned config.toml synthesis seeds trust, approval, sandbox, and migration state.
+        - Runtime-owned config.toml synthesis force-overrides trust, approval, sandbox, and migration state in the runtime home.
+        - Caller launch args and config overrides that target unattended-owned no-prompt surfaces are canonicalized away.
         - User-authored no-prompt config files are not required.
     evidence:
       - kind: source_reference
@@ -41,7 +41,10 @@ strategies:
     actions:
       - kind: provider_hook.call
         params:
-          hook_id: codex.validate_minimal_inputs
+          hook_id: codex.canonicalize_unattended_launch_inputs
+      - kind: provider_hook.call
+        params:
+          hook_id: codex.validate_credential_readiness
       - kind: toml.set
         params:
           path: config.toml

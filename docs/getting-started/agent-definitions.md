@@ -1,130 +1,168 @@
 # Agent Definition Directory
 
-The **agent definition directory** is the canonical source of truth for everything Houmao needs to build and run agent brains. It contains tool adapters, skills, configuration profiles, credentials, recipes, roles, and blueprints — organized by responsibility and split between committed repository assets and local-only secrets.
+The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is role-scoped presets plus tool-scoped setup/auth bundles.
 
-The default location is `.agentsys/agents/` (override with the `AGENTSYS_AGENT_DEF_DIR` environment variable). The best starting template is `tests/fixtures/agents/`.
+For repo-local workflows, the supported path is `houmao-mgr project init`, which creates:
+
+```text
+<repo>/
+└── .houmao/
+    ├── .gitignore
+    ├── houmao-config.toml
+    ├── catalog.sqlite
+    ├── content/
+    └── agents/   # compatibility projection, materialized on demand
+```
+
+The whole `.houmao/` overlay is local-only by default because `.houmao/.gitignore` contains `*`.
+
+CI or controlled automation can bypass the default `<cwd>/.houmao` location by setting `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path`. When that env var is set, Houmao treats `/abs/path` itself as the overlay root and resolves `houmao-config.toml`, `catalog.sqlite`, `agents/`, and `mailbox/` directly under that directory.
+
+Ambient overlay discovery is controlled separately by `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`:
+
+- `ancestor` is the default and searches for the nearest ancestor `.houmao/houmao-config.toml`, stopping at the Git repository boundary.
+- `cwd_only` skips parent search and inspects only `<cwd>/.houmao/houmao-config.toml`.
+
+This discovery-mode env only affects ambient lookup. It does not override `HOUMAO_PROJECT_OVERLAY_DIR`.
+
+Commands that need an agent-definition root resolve it with this precedence:
+
+1. explicit CLI `--agent-def-dir`
+2. `HOUMAO_AGENT_DEF_DIR`
+3. `HOUMAO_PROJECT_OVERLAY_DIR`
+4. ambient project-overlay discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`
+5. default `<pwd>/.houmao/agents`
+
+`HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path. If it points at an overlay that already contains `houmao-config.toml`, that selected overlay becomes the discovery anchor. If it points at an overlay directory without config yet, project-aware fallback paths come from `<overlay-root>/agents` until you initialize it. When `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` is unset, Houmao uses `ancestor`. When it is set to `cwd_only`, ambient discovery ignores parent overlays and falls back to `<cwd>/.houmao/agents` if no cwd-local overlay config exists.
+
+Maintained project-aware local-state commands reuse that same active overlay for other defaults too: runtime state lands under `<active-overlay>/runtime`, managed-session jobs land under `<active-overlay>/jobs/<session-id>/`, and filesystem mailbox state lands under `<active-overlay>/mailbox` unless an explicit CLI or env override wins first.
 
 ## Directory Layout
 
+```text
+<repo>/
+└── .houmao/
+    ├── houmao-config.toml
+    ├── catalog.sqlite
+    ├── content/
+    │   ├── prompts/
+    │   ├── auth/
+    │   ├── skills/
+    │   └── setups/
+    ├── agents/                       # compatibility projection, materialized on demand
+    │   ├── skills/
+    │   │   └── <skill>/SKILL.md
+    │   ├── roles/
+    │   │   └── <role>/
+    │   │       ├── system-prompt.md
+    │   │       └── presets/
+    │   │           └── <tool>/
+    │   │               └── <setup>.yaml
+    │   ├── tools/
+    │   │   └── <tool>/
+    │   │       ├── adapter.yaml
+    │   │       ├── setups/
+    │   │       │   └── <setup>/...
+    │   │       └── auth/
+    │   │           └── <auth>/...
+    │   └── compatibility-profiles/   # optional, created only when explicitly enabled
+    └── mailbox/                      # optional, created only when mailbox workflows are enabled
 ```
-<agent-def-dir>/
-├── blueprints/                          # Recipe + role bindings (YAML)
-│   ├── gpu-kernel-coder-claude.yaml
-│   └── ...
-├── brains/
-│   ├── tool-adapters/                   # Per-tool build & launch contracts (YAML)
-│   │   └── <tool>.yaml
-│   ├── skills/                          # Reusable capability packages
-│   │   └── <name>/SKILL.md
-│   ├── cli-configs/                     # Secret-free tool config profiles
-│   │   ├── claude/default/settings.json
-│   │   ├── codex/default/config.toml
-│   │   └── gemini/default/...
-│   ├── api-creds/                       # Local-only credentials (GITIGNORED)
-│   │   ├── claude/<profile>/env/vars.env
-│   │   ├── codex/<profile>/env/vars.env
-│   │   └── gemini/<profile>/env/vars.env
-│   └── brain-recipes/                   # Declarative presets (YAML)
-│       ├── claude/<name>.yaml
-│       ├── codex/<name>.yaml
-│       └── gemini/<name>.yaml
-├── roles/                               # Role prompt packages
-│   └── <role>/system-prompt.md
-└── compatibility-profiles/              # Optional compatibility metadata
-```
+
+`houmao-mgr project init` seeds the managed content roots and the SQLite catalog. It does not create `.houmao/agents/`, `compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` unless you opt into workflows that need those paths explicitly.
+
+The repo-local project surface is intentionally split into three views:
+
+- `houmao-mgr project agents ...` for low-level filesystem-oriented source management
+- `houmao-mgr project easy ...` for higher-level specialist and instance authoring
+- `houmao-mgr project mailbox ...` for project-scoped mailbox-root operations against `.houmao/mailbox`
 
 ## Directory Reference
 
-### `brains/tool-adapters/` — Per-Tool Build & Launch Contracts *(required)*
+### `catalog.sqlite`
 
-Each supported CLI tool (e.g., `claude`, `codex`, `gemini`) has a YAML adapter file that defines its build-time and launch-time contract. The adapter tells `BrainBuilder` how to:
+The canonical semantic store for project-local specialists, roles, presets, setup profiles, skill packages, auth profiles, and managed content references. Advanced operators can inspect stable read views such as `v_specialists`, `v_presets`, and `v_content_refs` directly with SQLite tooling.
 
-- Locate the tool's launch executable
-- Inject environment variables (the `env_injection_mode`)
-- Map credential files from the agent definition directory into the runtime home
-- Apply tool-specific launch arguments
+### `content/`
 
-Tool adapters are the foundation of the build phase. Without an adapter for a given tool, no brain can be built for it.
+Managed file-backed payload storage. Large text blobs and tree-shaped payloads such as prompt files, auth bundles, skill packages, and setup bundles live here even though their semantic relationships are owned by `catalog.sqlite`.
 
-### `brains/skills/` — Reusable Capability Packages *(required per recipe)*
+### `skills/`
 
-Skills are self-contained capability modules that get projected into the agent's runtime home during the build phase. Each skill lives in its own subdirectory and must contain a `SKILL.md` file that describes the capability in a format the target agent CLI can consume.
+Reusable capability packages projected into runtime homes. Under `.houmao/agents/` this is now a compatibility projection fed from `catalog.sqlite` and `.houmao/content/`.
 
-Skills are referenced by name in brain recipes and build requests. A recipe might select `["code-review", "testing", "documentation"]` from the available skill pool. Only the selected skills are materialized into the runtime home.
+### `roles/<role>/system-prompt.md`
 
-### `brains/cli-configs/` — Secret-Free Tool Config Profiles *(required per recipe)*
+The role prompt and behavior policy for one logical agent role. The file is canonical even for promptless roles and may be intentionally empty to mean "no system prompt."
 
-Configuration profiles contain tool-specific settings files that are safe to commit to version control. These are projected into the runtime home during build, providing the agent CLI with its working configuration.
+### `roles/<role>/presets/<tool>/<setup>.yaml`
 
-The directory structure is `cli-configs/<tool>/<profile>/`, where:
+The canonical declarative launch preset. The file path derives:
 
-- `<tool>` matches the tool adapter name (e.g., `claude`, `codex`, `gemini`)
-- `<profile>` is a named configuration variant (e.g., `default`, `restricted`, `full-access`)
+- `role` from `<role>`
+- `tool` from `<tool>`
+- `setup` from `<setup>`
 
-Examples:
+The YAML stores only the data that is not path-derived:
 
-- `cli-configs/claude/default/settings.json` — Claude CLI settings
-- `cli-configs/codex/default/config.toml` — Codex CLI configuration
+- `skills`
+- optional `auth`
+- optional `launch`
+- optional `mailbox`
+- optional `extra`
 
-**These files must never contain secrets.** API keys, tokens, and credentials belong in `api-creds/`.
+### `tools/<tool>/adapter.yaml`
 
-### `brains/api-creds/` — Local-Only Credentials *(gitignored, required per recipe)*
+The tool adapter defines how Houmao projects setup files, skills, and auth material into the runtime home, plus the tool-specific launch contract.
 
-Credential profiles contain the secret material (API keys, authentication tokens, environment variable files) needed to actually run the agent CLI. These are **never committed** — the directory is excluded via `.gitignore` and `pyproject.toml`.
+### `tools/<tool>/setups/<setup>/`
 
-The directory structure mirrors `cli-configs/`: `api-creds/<tool>/<profile>/env/vars.env`. During the build phase, `BrainBuilder` copies the selected credential profile into the runtime home according to the mappings defined in the tool adapter.
+Secret-free setup bundles for one tool. The canonical file-backed payloads live under `.houmao/content/setups/`; the `.houmao/agents/tools/<tool>/setups/` tree is the compatibility projection that builders and runtime currently consume.
 
-Each developer must populate their own `api-creds/` directory locally. The structure is documented here and in the tool adapter files so the required files are discoverable.
+### `tools/<tool>/auth/<auth>/`
 
-### `brains/brain-recipes/` — Declarative Presets *(recommended)*
+Local-only auth bundles for one tool. The canonical file-backed payloads live under `.houmao/content/auth/`; the `.houmao/agents/tools/<tool>/auth/<name>/` tree is the compatibility projection that legacy file-based flows still read.
 
-A brain recipe is a YAML file that bundles a complete build specification into a single reusable preset:
+### `compatibility-profiles/`
 
-- **`tool`**: Which CLI tool to target
-- **`skills`**: List of skill names to include
-- **`config_profile`**: Which secret-free config profile to use
-- **`credential_profile`**: Which local credential profile to use
-- **`launch_overrides`**: Optional secret-free launch argument overrides
+Optional compatibility metadata for specialized CAO or server-facing flows. `houmao-mgr project init` does not create this subtree by default; use `houmao-mgr project init --with-compatibility-profiles` when you want the optional root pre-created.
 
-Recipes live under `brain-recipes/<tool>/<name>.yaml`. They are the recommended way to define reproducible brain builds — instead of passing `--tool`, `--skill`, `--config-profile`, and `--cred-profile` individually, you point at a recipe file.
+### `.houmao/mailbox/`
 
-### `roles/` — Role Prompt Packages *(required)*
-
-A role defines the system prompt and behavior policy for an agent session. Each role lives in its own subdirectory and must contain a `system-prompt.md` file.
-
-Roles are paired with built brains at launch time. The `RuntimeSessionController` reads the role's system prompt and applies it to the session using a backend-specific injection strategy (native developer instructions for Codex, appended system prompt for Claude, bootstrap message for Gemini, etc.).
-
-### `blueprints/` — Recipe + Role Bindings *(recommended)*
-
-Blueprints bind a brain recipe to a role in a single YAML file, providing a complete "build and run" specification. Instead of separately specifying `--recipe` and `--role`, you can reference a blueprint that pairs them.
-
-Blueprints are optional but recommended for standardized agent configurations that are used repeatedly.
-
-### `compatibility-profiles/` — Optional Compatibility Metadata
-
-Contains optional metadata about CLI version compatibility requirements. This supports the versioned launch policy system, which resolves unattended startup strategies against the installed CLI version and fails closed for unsupported versions.
+Optional project-local mailbox root. `houmao-mgr project init` does not create it by default. Enable it only when you want repo-scoped mailbox registrations and direct mailbox reads through `houmao-mgr project mailbox ...`.
 
 ## Committed vs. Local-Only
 
 | Directory | Committed | Description |
 |---|---|---|
-| `brains/tool-adapters/` | ✅ Yes | Per-tool build contracts |
-| `brains/skills/` | ✅ Yes | Capability packages |
-| `brains/cli-configs/` | ✅ Yes | Secret-free configuration |
-| `brains/brain-recipes/` | ✅ Yes | Declarative build presets |
-| `brains/api-creds/` | ❌ No | Local-only credentials |
-| `roles/` | ✅ Yes | Role prompt packages |
-| `blueprints/` | ✅ Yes | Recipe + role bindings |
-| `compatibility-profiles/` | ✅ Yes | Version compatibility metadata |
+| `.houmao/catalog.sqlite` | ❌ No | Canonical project-local semantic catalog |
+| `.houmao/content/` | ❌ No | Managed prompt/auth/skill/setup payload store |
+| `.houmao/agents/skills/` | ❌ No | Repo-local reusable capability packages |
+| `.houmao/agents/roles/` | ❌ No | Repo-local role prompts and presets |
+| `.houmao/agents/tools/<tool>/adapter.yaml` | ❌ No | Local copy of the tool projection and launch contract |
+| `.houmao/agents/tools/<tool>/setups/` | ❌ No | Local copy of secret-free setup bundles |
+| `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles |
+| `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata, not created by default |
+| `.houmao/mailbox/` | ❌ No | Optional project-local mailbox root |
 
-The generated runtime homes (under `tmp/` by default) are also gitignored. They contain projected copies of configs and credentials and are safe to delete and rebuild at any time.
+Generated runtime homes, manifests, mailbox state, and jobs are also local-only operator state. When maintained build and launch flows place runtime artifacts under `.houmao/runtime`, mailbox state under `.houmao/mailbox`, and scratch jobs under `.houmao/jobs/`, those subtrees remain overlay-local runtime state rather than tracked project source.
 
-## How the Pieces Connect
+## How The Pieces Connect
 
-1. A **tool adapter** defines *how* to build and launch for a specific CLI tool.
-2. **Skills**, **cli-configs**, and **api-creds** provide the *what* — the capabilities, settings, and secrets that get projected into the runtime home.
-3. A **brain recipe** bundles a specific combination of tool + skills + config profile + credential profile into a reusable preset.
-4. A **role** defines *who* the agent is — its system prompt and behavior policy.
-5. A **blueprint** binds a recipe to a role for a complete "build and launch" specification.
+1. Houmao persists project-local semantic objects in `.houmao/catalog.sqlite` and stores prompt/auth/skill/setup payloads under `.houmao/content/`.
+2. When current builders or launchers need a file tree, Houmao materializes the `.houmao/agents/` compatibility projection from the catalog plus managed content refs.
+3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to `roles/<role>/presets/<tool>/default.yaml` inside the projection.
+4. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings, including durable `launch.env_records` when present. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
+5. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, and any durable `launch.env_records` to materialize a runtime home.
+6. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
 
-During the **build phase**, `BrainBuilder` reads the recipe (or explicit parameters), resolves them against the agent definition directory using the tool adapter, and materializes a runtime home with all the projected files. During the **run phase**, the runtime home is paired with a role and dispatched to a backend.
+## Authoring Paths
+
+The compatibility `.houmao/agents/` tree can still be inspected directly, but project-local truth now lives in the catalog and managed content store. The main UX layers are:
+
+- `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist persisted into the catalog and projected into the compatibility tree.
+- for maintained easy launch paths, `project easy specialist create ...` persists unattended launch posture by default; pass `--no-unattended` to persist `launch.prompt_mode: as_is` instead.
+- persistent non-credential launch env belongs to specialist config via repeatable `project easy specialist create --env-set NAME=value`, which projects into `launch.env_records` and survives relaunch.
+- `project easy instance launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
+- one-off runtime env belongs to `project easy instance launch --env-set NAME=value|NAME`; it applies to the current live session only and is dropped by relaunch.
+- `project agents ...` is the low-level maintenance surface when you want to inspect or mutate the compatibility projection directly.

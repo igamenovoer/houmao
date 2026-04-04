@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from importlib import resources
-from importlib.resources.abc import Traversable
 import json
 from pathlib import Path
 import os
@@ -14,12 +12,14 @@ import re
 import sys
 from typing import Any, Callable, Literal, Mapping, cast
 
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import MailboxBootstrapError, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import (
     resolve_active_mailbox_dir,
     resolve_active_mailbox_inbox_dir,
     resolve_active_mailbox_local_sqlite_path,
+    resolve_filesystem_mailbox_paths,
 )
+from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
 from houmao.mailbox.stalwart import (
     STALWART_BASE_URL_ENV_VAR,
     StalwartError,
@@ -44,6 +44,12 @@ from houmao.agents.realm_controller.gateway_storage import (
     gateway_paths_from_manifest_path,
     load_gateway_current_instance,
 )
+from houmao.agents.system_skills import (
+    install_system_skills_for_home,
+    project_system_skills_to_destination,
+    system_skill_reference_for_name,
+    system_skills_destination_for_tool,
+)
 
 from .mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
@@ -54,7 +60,7 @@ from .mailbox_runtime_models import (
     StalwartMailboxResolvedConfig,
 )
 
-AGENT_NAMESPACE_PREFIX = "AGENTSYS-"
+AGENT_NAMESPACE_PREFIX = "HOUMAO-"
 _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _COLLAPSE_DASH_RE = re.compile(r"-{2,}")
 _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
@@ -63,38 +69,46 @@ MAILBOX_TRANSPORT_NONE = "none"
 MAILBOX_TRANSPORT_FILESYSTEM = "filesystem"
 MAILBOX_TRANSPORT_STALWART = "stalwart"
 MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
-MAILBOX_FILESYSTEM_SKILL_NAME = "email-via-filesystem"
-MAILBOX_STALWART_SKILL_NAME = "email-via-stalwart"
+MAILBOX_PROCESSING_SKILL_NAME = "houmao-process-emails-via-gateway"
+MAILBOX_GATEWAY_SKILL_NAME = "houmao-email-via-agent-gateway"
+MAILBOX_FILESYSTEM_SKILL_NAME = "houmao-email-via-filesystem"
+MAILBOX_STALWART_SKILL_NAME = "houmao-email-via-stalwart"
+MAILBOX_PROCESSING_SKILL_REFERENCE = (
+    f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_PROCESSING_SKILL_NAME}"
+)
+MAILBOX_GATEWAY_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_GATEWAY_SKILL_NAME}"
 MAILBOX_FILESYSTEM_SKILL_REFERENCE = (
     f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_FILESYSTEM_SKILL_NAME}"
 )
 MAILBOX_STALWART_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_STALWART_SKILL_NAME}"
 MAILBOX_PRIMARY_SKILL_REFERENCES = (
+    MAILBOX_PROCESSING_SKILL_REFERENCE,
+    MAILBOX_GATEWAY_SKILL_REFERENCE,
     MAILBOX_FILESYSTEM_SKILL_REFERENCE,
     MAILBOX_STALWART_SKILL_REFERENCE,
 )
 
 _MAILBOX_COMMON_ENV_VARS = (
-    "AGENTSYS_MAILBOX_TRANSPORT",
-    "AGENTSYS_MAILBOX_PRINCIPAL_ID",
-    "AGENTSYS_MAILBOX_ADDRESS",
-    "AGENTSYS_MAILBOX_BINDINGS_VERSION",
+    "HOUMAO_MAILBOX_TRANSPORT",
+    "HOUMAO_MAILBOX_PRINCIPAL_ID",
+    "HOUMAO_MAILBOX_ADDRESS",
+    "HOUMAO_MAILBOX_BINDINGS_VERSION",
 )
 _MAILBOX_FILESYSTEM_ENV_VARS = (
-    "AGENTSYS_MAILBOX_FS_ROOT",
-    "AGENTSYS_MAILBOX_FS_SQLITE_PATH",
-    "AGENTSYS_MAILBOX_FS_INBOX_DIR",
-    "AGENTSYS_MAILBOX_FS_MAILBOX_DIR",
-    "AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH",
+    "HOUMAO_MAILBOX_FS_ROOT",
+    "HOUMAO_MAILBOX_FS_SQLITE_PATH",
+    "HOUMAO_MAILBOX_FS_INBOX_DIR",
+    "HOUMAO_MAILBOX_FS_MAILBOX_DIR",
+    "HOUMAO_MAILBOX_FS_LOCAL_SQLITE_PATH",
 )
 _MAILBOX_EMAIL_ENV_VARS = (
-    "AGENTSYS_MAILBOX_EMAIL_JMAP_URL",
-    "AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL",
-    "AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY",
-    "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF",
-    "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE",
+    "HOUMAO_MAILBOX_EMAIL_JMAP_URL",
+    "HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL",
+    "HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY",
+    "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF",
+    "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE",
 )
-MailboxBindingSource = Literal["tmux_session_env", "process_env"]
+MailboxBindingSource = Literal["manifest_binding", "process_env", "tmux_session_env"]
 ResolveLiveSource = Literal["auto", "tmux_session_env", "process_env"]
 LiveGatewayBindingSource = Literal[
     "process_env",
@@ -139,15 +153,12 @@ class LiveMailboxBindingResolution:
 
     mailbox: MailboxResolvedConfig
     source: MailboxBindingSource
-    env_bindings: dict[str, str]
     gateway: LiveGatewayBindingResolution | None = None
 
     def payload(self) -> dict[str, Any]:
         """Return a JSON-safe payload for helper and diagnostic surfaces."""
 
-        mailbox_payload = self.mailbox.redacted_payload()
-        if isinstance(self.mailbox, StalwartMailboxResolvedConfig) and self.mailbox.credential_file:
-            mailbox_payload["credential_file"] = str(self.mailbox.credential_file.resolve())
+        mailbox_payload = _structured_live_mailbox_payload(self.mailbox)
         return {
             "source": self.source,
             "transport": self.mailbox.transport,
@@ -155,7 +166,6 @@ class LiveMailboxBindingResolution:
             "address": self.mailbox.address,
             "bindings_version": self.mailbox.bindings_version,
             "mailbox": mailbox_payload,
-            "env": dict(self.env_bindings),
             "gateway": self.gateway.payload() if self.gateway is not None else None,
         }
 
@@ -295,12 +305,22 @@ def resolved_mailbox_config_from_payload(
         )
         if filesystem_root is None:
             raise ValueError("persisted filesystem mailbox payload is missing filesystem_root")
+        mailbox_kind = _require_optional_non_blank_str(
+            payload.get("mailbox_kind"),
+            field="launch_plan.mailbox.mailbox_kind",
+        )
+        mailbox_path = _require_optional_non_blank_str(
+            payload.get("mailbox_path"),
+            field="launch_plan.mailbox.mailbox_path",
+        )
         return FilesystemMailboxResolvedConfig(
             transport="filesystem",
             principal_id=principal_id,
             address=address,
             filesystem_root=Path(filesystem_root).resolve(),
             bindings_version=bindings_version,
+            mailbox_kind=cast(Literal["in_root", "symlink"], mailbox_kind or "in_root"),
+            mailbox_path=None if mailbox_path is None else Path(mailbox_path).resolve(),
         )
 
     if transport == MAILBOX_TRANSPORT_STALWART:
@@ -350,6 +370,7 @@ def resolve_effective_mailbox_config(
     agent_identity: str | None = None,
     transport_override: str | None = None,
     filesystem_root_override: Path | None = None,
+    filesystem_account_dir_override: Path | None = None,
     principal_id_override: str | None = None,
     address_override: str | None = None,
     stalwart_base_url_override: str | None = None,
@@ -391,12 +412,24 @@ def resolve_effective_mailbox_config(
         filesystem_root = resolve_mailbox_root(
             explicit_root=filesystem_root_override or declared_root,
         )
+        mailbox_paths = resolve_filesystem_mailbox_paths(filesystem_root)
+        mailbox_account_dir = (
+            filesystem_account_dir_override.resolve()
+            if filesystem_account_dir_override is not None
+            else None
+        )
         return FilesystemMailboxResolvedConfig(
             transport="filesystem",
             principal_id=principal_id,
             address=address,
             filesystem_root=filesystem_root.resolve(),
             bindings_version=mailbox_bindings_version_now(),
+            mailbox_kind="symlink" if mailbox_account_dir is not None else "in_root",
+            mailbox_path=(
+                mailbox_account_dir
+                if mailbox_account_dir is not None
+                else mailbox_paths.mailbox_entry_path(address)
+            ),
         )
 
     if transport == MAILBOX_TRANSPORT_STALWART:
@@ -434,12 +467,20 @@ def refresh_filesystem_mailbox_config(
 ) -> FilesystemMailboxResolvedConfig:
     """Return an updated filesystem mailbox binding with a fresh version stamp."""
 
+    next_root = (filesystem_root or config.filesystem_root).resolve()
+    next_mailbox_path = (
+        config.mailbox_path
+        if config.mailbox_kind == "symlink"
+        else resolve_filesystem_mailbox_paths(next_root).mailbox_entry_path(config.address)
+    )
     return FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=config.principal_id,
         address=config.address,
-        filesystem_root=(filesystem_root or config.filesystem_root).resolve(),
+        filesystem_root=next_root,
         bindings_version=mailbox_bindings_version_now(),
+        mailbox_kind=config.mailbox_kind,
+        mailbox_path=next_mailbox_path,
     )
 
 
@@ -484,20 +525,25 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
     if isinstance(config, FilesystemMailboxResolvedConfig):
         mailbox_root = config.filesystem_root.resolve()
         mailbox_dir = resolve_active_mailbox_dir(mailbox_root, address=config.address)
+        if mailbox_dir.resolve() != config.mailbox_path:
+            raise ValueError(
+                "filesystem mailbox binding does not match the active mailbox registration "
+                f"for `{config.address}`: expected `{config.mailbox_path}`, found `{mailbox_dir}`"
+            )
         inbox_dir = resolve_active_mailbox_inbox_dir(mailbox_root, address=config.address)
         local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
             mailbox_root, address=config.address
         )
         return {
-            "AGENTSYS_MAILBOX_TRANSPORT": config.transport,
-            "AGENTSYS_MAILBOX_PRINCIPAL_ID": config.principal_id,
-            "AGENTSYS_MAILBOX_ADDRESS": config.address,
-            "AGENTSYS_MAILBOX_BINDINGS_VERSION": config.bindings_version,
-            "AGENTSYS_MAILBOX_FS_ROOT": str(mailbox_root),
-            "AGENTSYS_MAILBOX_FS_SQLITE_PATH": str(mailbox_root / "index.sqlite"),
-            "AGENTSYS_MAILBOX_FS_INBOX_DIR": str(inbox_dir),
-            "AGENTSYS_MAILBOX_FS_MAILBOX_DIR": str(mailbox_dir),
-            "AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH": str(local_sqlite_path),
+            "HOUMAO_MAILBOX_TRANSPORT": config.transport,
+            "HOUMAO_MAILBOX_PRINCIPAL_ID": config.principal_id,
+            "HOUMAO_MAILBOX_ADDRESS": config.address,
+            "HOUMAO_MAILBOX_BINDINGS_VERSION": config.bindings_version,
+            "HOUMAO_MAILBOX_FS_ROOT": str(mailbox_root),
+            "HOUMAO_MAILBOX_FS_SQLITE_PATH": str(mailbox_root / "index.sqlite"),
+            "HOUMAO_MAILBOX_FS_INBOX_DIR": str(inbox_dir),
+            "HOUMAO_MAILBOX_FS_MAILBOX_DIR": str(mailbox_dir),
+            "HOUMAO_MAILBOX_FS_LOCAL_SQLITE_PATH": str(local_sqlite_path),
         }
 
     credential_file = config.credential_file
@@ -506,15 +552,15 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
             "stalwart mailbox env bindings require a materialized credential file for this session"
         )
     return {
-        "AGENTSYS_MAILBOX_TRANSPORT": config.transport,
-        "AGENTSYS_MAILBOX_PRINCIPAL_ID": config.principal_id,
-        "AGENTSYS_MAILBOX_ADDRESS": config.address,
-        "AGENTSYS_MAILBOX_BINDINGS_VERSION": config.bindings_version,
-        "AGENTSYS_MAILBOX_EMAIL_JMAP_URL": config.jmap_url,
-        "AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL": config.management_url,
-        "AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY": config.login_identity,
-        "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF": config.credential_ref,
-        "AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE": str(credential_file.resolve()),
+        "HOUMAO_MAILBOX_TRANSPORT": config.transport,
+        "HOUMAO_MAILBOX_PRINCIPAL_ID": config.principal_id,
+        "HOUMAO_MAILBOX_ADDRESS": config.address,
+        "HOUMAO_MAILBOX_BINDINGS_VERSION": config.bindings_version,
+        "HOUMAO_MAILBOX_EMAIL_JMAP_URL": config.jmap_url,
+        "HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL": config.management_url,
+        "HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY": config.login_identity,
+        "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF": config.credential_ref,
+        "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE": str(credential_file.resolve()),
     }
 
 
@@ -530,34 +576,14 @@ def resolve_live_mailbox_binding(
     *,
     durable_mailbox: MailboxResolvedConfig,
     tmux_session_name: str | None = None,
-    source: MailboxBindingSource = "tmux_session_env",
+    source: MailboxBindingSource = "manifest_binding",
     env_reader: Callable[[str], str | None] | None = None,
 ) -> LiveMailboxBindingResolution:
-    """Resolve one live mailbox projection from the runtime-owned live source."""
+    """Resolve actionable mailbox state from the durable manifest-backed binding."""
 
-    resolved_env_reader = env_reader
-    if resolved_env_reader is None:
-        if source == "process_env":
-            resolved_env_reader = _optional_env
-        else:
-            if tmux_session_name is None or not tmux_session_name.strip():
-                raise ValueError(
-                    "tmux-backed live mailbox resolution requires a non-empty tmux session name"
-                )
-            resolved_env_reader = _tmux_mailbox_env_reader(tmux_session_name.strip())
-    env_bindings = _read_live_mailbox_env_bindings(
-        durable_mailbox=durable_mailbox,
-        env_reader=resolved_env_reader,
-    )
-    mailbox = _mailbox_config_from_live_env_bindings(
-        durable_mailbox=durable_mailbox,
-        env_bindings=env_bindings,
-    )
-    return LiveMailboxBindingResolution(
-        mailbox=mailbox,
-        source=source,
-        env_bindings=env_bindings,
-    )
+    del tmux_session_name, env_reader
+    _structured_live_mailbox_payload(durable_mailbox)
+    return LiveMailboxBindingResolution(mailbox=durable_mailbox, source=source)
 
 
 def resolve_live_mailbox_binding_from_manifest_path(
@@ -571,21 +597,11 @@ def resolve_live_mailbox_binding_from_manifest_path(
 ) -> LiveMailboxBindingResolution:
     """Resolve one live mailbox binding starting from a runtime-owned manifest path."""
     handle, durable_mailbox, tmux_session_name = _load_live_mailbox_manifest_context(manifest_path)
-    mailbox_resolution = _resolve_live_mailbox_binding_with_fallbacks(
-        durable_mailbox=durable_mailbox,
-        tmux_session_name=tmux_session_name,
-        source=source,
-        process_env_reader=process_env_reader,
-        tmux_env_reader=tmux_env_reader,
-    )
+    mailbox_resolution = resolve_live_mailbox_binding(durable_mailbox=durable_mailbox)
     resolved_gateway = resolve_live_gateway_binding_from_manifest_path(
         manifest_path=handle.path,
         tmux_session_name=tmux_session_name,
-        source=(
-            gateway_source
-            if gateway_source is not None
-            else cast(ResolveLiveGatewaySource, source)
-        ),
+        source=(gateway_source if gateway_source is not None else "current_instance_record"),
         process_env_reader=process_env_reader,
         tmux_env_reader=tmux_env_reader,
         gateway_client_factory=gateway_client_factory,
@@ -593,7 +609,6 @@ def resolve_live_mailbox_binding_from_manifest_path(
     return LiveMailboxBindingResolution(
         mailbox=mailbox_resolution.mailbox,
         source=mailbox_resolution.source,
-        env_bindings=mailbox_resolution.env_bindings,
         gateway=resolved_gateway,
     )
 
@@ -623,6 +638,66 @@ def resolve_live_mailbox_binding_from_agent_identity(
         gateway_client_factory=gateway_client_factory,
         gateway_source="current_instance_record",
     )
+
+
+def _structured_live_mailbox_payload(mailbox: MailboxResolvedConfig) -> dict[str, Any]:
+    """Return one structured, actionable mailbox payload derived from the durable binding."""
+
+    if isinstance(mailbox, FilesystemMailboxResolvedConfig):
+        mailbox_root = mailbox.filesystem_root.resolve()
+        try:
+            mailbox_dir = resolve_active_mailbox_dir(
+                mailbox_root, address=mailbox.address
+            ).resolve()
+            inbox_dir = resolve_active_mailbox_inbox_dir(
+                mailbox_root, address=mailbox.address
+            ).resolve()
+            local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+                mailbox_root,
+                address=mailbox.address,
+            ).resolve()
+        except MailboxBootstrapError as exc:
+            raise ValueError(str(exc)) from exc
+        if mailbox_dir != mailbox.mailbox_path:
+            raise ValueError(
+                "manifest-backed filesystem mailbox binding does not match the current active "
+                f"mailbox registration for `{mailbox.address}`: expected `{mailbox.mailbox_path}`, "
+                f"found `{mailbox_dir}`"
+            )
+        return {
+            "transport": mailbox.transport,
+            "principal_id": mailbox.principal_id,
+            "address": mailbox.address,
+            "bindings_version": mailbox.bindings_version,
+            "filesystem": {
+                "root": str(mailbox_root),
+                "mailbox_kind": mailbox.mailbox_kind,
+                "mailbox_path": str(mailbox_dir),
+                "inbox_path": str(inbox_dir),
+                "sqlite_path": str((mailbox_root / "index.sqlite").resolve()),
+                "local_sqlite_path": str(local_sqlite_path),
+            },
+        }
+
+    credential_file = mailbox.credential_file
+    if credential_file is None or not credential_file.is_file():
+        raise ValueError(
+            "stalwart mailbox binding is missing the session credential file required for "
+            "current mailbox work"
+        )
+    return {
+        "transport": mailbox.transport,
+        "principal_id": mailbox.principal_id,
+        "address": mailbox.address,
+        "bindings_version": mailbox.bindings_version,
+        "stalwart": {
+            "jmap_url": mailbox.jmap_url,
+            "management_url": mailbox.management_url,
+            "login_identity": mailbox.login_identity,
+            "credential_ref": mailbox.credential_ref,
+            "credential_file": str(credential_file.resolve()),
+        },
+    }
 
 
 def resolve_live_gateway_binding_from_manifest_path(
@@ -713,13 +788,29 @@ def bootstrap_resolved_mailbox(
     """Bootstrap or materialize one resolved mailbox binding for a session."""
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
-        bootstrap_filesystem_mailbox(
-            config.filesystem_root,
-            principal=MailboxPrincipal(
-                principal_id=config.principal_id,
+        resolved_root = config.filesystem_root.resolve()
+        mailbox_path = config.mailbox_path
+        assert mailbox_path is not None
+        if config.mailbox_kind == "symlink":
+            try:
+                mailbox_path.relative_to(resolved_root)
+            except ValueError:
+                pass
+            else:
+                raise ValueError(
+                    "filesystem private mailbox directory must live outside the shared mailbox root"
+                )
+        bootstrap_filesystem_mailbox(resolved_root)
+        register_mailbox(
+            resolved_root,
+            RegisterMailboxRequest(
+                mode="safe",
                 address=config.address,
+                owner_principal_id=config.principal_id,
+                mailbox_kind=config.mailbox_kind,
+                mailbox_path=mailbox_path,
                 manifest_path_hint=(
-                    str(manifest_path_hint.resolve()) if manifest_path_hint else None
+                    str(manifest_path_hint.resolve()) if manifest_path_hint is not None else None
                 ),
                 role=role_name,
             ),
@@ -752,12 +843,12 @@ def bootstrap_resolved_mailbox(
     )
 
 
-def mailbox_skill_reference(config: MailboxResolvedConfig) -> str:
+def mailbox_skill_reference(config: MailboxResolvedConfig, *, tool: str | None = None) -> str:
     """Return the primary projected mailbox skill reference for one transport."""
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
-        return MAILBOX_FILESYSTEM_SKILL_REFERENCE
-    return MAILBOX_STALWART_SKILL_REFERENCE
+        return _mailbox_skill_reference_for_name(MAILBOX_FILESYSTEM_SKILL_NAME, tool=tool)
+    return _mailbox_skill_reference_for_name(MAILBOX_STALWART_SKILL_NAME, tool=tool)
 
 
 def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
@@ -768,42 +859,141 @@ def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
     return MAILBOX_STALWART_SKILL_NAME
 
 
+def mailbox_gateway_skill_reference(*, tool: str | None = None) -> str:
+    """Return the primary projected shared-gateway mailbox skill reference."""
+
+    return _mailbox_skill_reference_for_name(MAILBOX_GATEWAY_SKILL_NAME, tool=tool)
+
+
+def mailbox_processing_skill_reference(*, tool: str | None = None) -> str:
+    """Return the primary projected gateway email-processing skill reference."""
+
+    return _mailbox_skill_reference_for_name(MAILBOX_PROCESSING_SKILL_NAME, tool=tool)
+
+
+def mailbox_gateway_skill_name() -> str:
+    """Return the stable shared-gateway mailbox skill name."""
+
+    return MAILBOX_GATEWAY_SKILL_NAME
+
+
+def mailbox_processing_skill_name() -> str:
+    """Return the stable gateway email-processing skill name."""
+
+    return MAILBOX_PROCESSING_SKILL_NAME
+
+
 def mailbox_skill_document_path(
     config: MailboxResolvedConfig,
     *,
     skills_destination: str = "skills",
+    tool: str | None = None,
 ) -> str:
     """Return the primary mailbox skill document path for the active skill destination."""
 
-    return f"{skills_destination}/{mailbox_skill_reference(config)}/SKILL.md"
+    return f"{skills_destination}/{mailbox_skill_reference(config, tool=tool)}/SKILL.md"
 
 
-def project_runtime_mailbox_system_skills(destination_root: Path) -> tuple[str, ...]:
+def mailbox_gateway_skill_document_path(
+    *,
+    skills_destination: str = "skills",
+    tool: str | None = None,
+) -> str:
+    """Return the primary gateway mailbox skill document path."""
+
+    return f"{skills_destination}/{mailbox_gateway_skill_reference(tool=tool)}/SKILL.md"
+
+
+def mailbox_processing_skill_document_path(
+    *,
+    skills_destination: str = "skills",
+    tool: str | None = None,
+) -> str:
+    """Return the primary gateway email-processing skill document path."""
+
+    return f"{skills_destination}/{mailbox_processing_skill_reference(tool=tool)}/SKILL.md"
+
+
+def mailbox_skills_destination_for_tool(tool: str) -> str:
+    """Return the active runtime-owned skill destination for one supported tool."""
+
+    return system_skills_destination_for_tool(tool)
+
+
+def mailbox_primary_skill_references(*, tool: str | None = None) -> tuple[str, ...]:
+    """Return the visible mailbox skill references for one tool projection contract."""
+
+    return (
+        mailbox_processing_skill_reference(tool=tool),
+        mailbox_gateway_skill_reference(tool=tool),
+        _mailbox_skill_reference_for_name(MAILBOX_FILESYSTEM_SKILL_NAME, tool=tool),
+        _mailbox_skill_reference_for_name(MAILBOX_STALWART_SKILL_NAME, tool=tool),
+    )
+
+
+def projected_mailbox_skill_document_path(
+    *,
+    tool: str,
+    home_path: Path,
+    skill_reference: str,
+) -> Path:
+    """Return one installed mailbox skill document path for a specific tool home."""
+
+    return (
+        home_path.resolve()
+        / mailbox_skills_destination_for_tool(tool)
+        / skill_reference
+        / "SKILL.md"
+    ).resolve()
+
+
+def install_runtime_mailbox_system_skills_for_tool(
+    *, tool: str, home_path: Path
+) -> tuple[str, ...]:
+    """Project runtime-owned mailbox skills into one concrete tool home."""
+
+    result = install_system_skills_for_home(
+        tool=tool,
+        home_path=home_path,
+        skill_names=(
+            MAILBOX_PROCESSING_SKILL_NAME,
+            MAILBOX_GATEWAY_SKILL_NAME,
+            MAILBOX_FILESYSTEM_SKILL_NAME,
+            MAILBOX_STALWART_SKILL_NAME,
+        ),
+    )
+    return tuple(
+        system_skill_reference_for_name(skill_name, tool=tool)
+        for skill_name in result.resolved_skill_names
+    )
+
+
+def project_runtime_mailbox_system_skills(
+    destination_root: Path,
+    *,
+    tool: str | None = None,
+) -> tuple[str, ...]:
     """Project packaged runtime-owned mailbox skills into one brain home.
 
     Project the packaged mailbox skill tree only into the visible mailbox path.
     """
 
-    source_root = (
-        resources.files("houmao.agents.realm_controller.assets") / "system_skills" / "mailbox"
+    return project_system_skills_to_destination(
+        destination_root,
+        tool=tool,
+        skill_names=(
+            MAILBOX_PROCESSING_SKILL_NAME,
+            MAILBOX_GATEWAY_SKILL_NAME,
+            MAILBOX_FILESYSTEM_SKILL_NAME,
+            MAILBOX_STALWART_SKILL_NAME,
+        ),
     )
-    primary_root = destination_root / MAILBOX_PRIMARY_NAMESPACE_DIR
-    _copy_resource_tree(source_root, primary_root)
-    return MAILBOX_PRIMARY_SKILL_REFERENCES
 
 
-def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:
-    """Copy packaged text resources into a destination tree."""
+def _mailbox_skill_reference_for_name(skill_name: str, *, tool: str | None = None) -> str:
+    """Return the projected skill reference for one mailbox skill name."""
 
-    for child in source_root.iterdir():
-        destination_path = destination_root / child.name
-        if child.is_dir():
-            destination_path.mkdir(parents=True, exist_ok=True)
-            _copy_resource_tree(child, destination_path)
-            continue
-
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-        destination_path.write_text(child.read_text(encoding="utf-8"), encoding="utf-8")
+    return system_skill_reference_for_name(skill_name, tool=tool)
 
 
 def _resolve_declared_mailbox_root(*, declared_root: str | None, runtime_root: Path) -> Path | None:
@@ -1112,9 +1302,7 @@ def _validate_live_gateway_binding(
             f"{current_instance.protocol_version!r}"
         )
     if current_instance.host != host or current_instance.port != port:
-        raise ValueError(
-            "gateway binding does not match the authoritative current-instance record"
-        )
+        raise ValueError("gateway binding does not match the authoritative current-instance record")
     if not state_path.is_absolute() or state_path.resolve() != expected_state_path.resolve():
         raise ValueError("gateway state_path does not match the runtime-owned gateway state path")
 
@@ -1207,16 +1395,16 @@ def _mailbox_config_from_live_env_bindings(
     durable_mailbox: MailboxResolvedConfig,
     env_bindings: dict[str, str],
 ) -> MailboxResolvedConfig:
-    transport = env_bindings["AGENTSYS_MAILBOX_TRANSPORT"]
+    transport = env_bindings["HOUMAO_MAILBOX_TRANSPORT"]
     if transport != durable_mailbox.transport:
         raise ValueError(
             "current live mailbox projection transport "
             f"{transport!r} does not match durable mailbox transport {durable_mailbox.transport!r}"
         )
 
-    principal_id = env_bindings["AGENTSYS_MAILBOX_PRINCIPAL_ID"]
-    address = env_bindings["AGENTSYS_MAILBOX_ADDRESS"]
-    bindings_version = env_bindings["AGENTSYS_MAILBOX_BINDINGS_VERSION"]
+    principal_id = env_bindings["HOUMAO_MAILBOX_PRINCIPAL_ID"]
+    address = env_bindings["HOUMAO_MAILBOX_ADDRESS"]
+    bindings_version = env_bindings["HOUMAO_MAILBOX_BINDINGS_VERSION"]
     if principal_id != durable_mailbox.principal_id:
         raise ValueError(
             "current live mailbox principal_id "
@@ -1236,13 +1424,19 @@ def _mailbox_config_from_live_env_bindings(
         )
 
     if isinstance(durable_mailbox, FilesystemMailboxResolvedConfig):
-        filesystem_root = Path(env_bindings["AGENTSYS_MAILBOX_FS_ROOT"]).resolve()
+        filesystem_root = Path(env_bindings["HOUMAO_MAILBOX_FS_ROOT"]).resolve()
+        mailbox_dir = Path(env_bindings["HOUMAO_MAILBOX_FS_MAILBOX_DIR"]).resolve()
+        expected_in_root_path = resolve_filesystem_mailbox_paths(
+            filesystem_root
+        ).mailbox_entry_path(address)
         mailbox = FilesystemMailboxResolvedConfig(
             transport="filesystem",
             principal_id=principal_id,
             address=address,
             filesystem_root=filesystem_root,
             bindings_version=bindings_version,
+            mailbox_kind="in_root" if mailbox_dir == expected_in_root_path else "symlink",
+            mailbox_path=mailbox_dir,
         )
         expected_bindings = mailbox_env_bindings(mailbox)
         _validate_live_env_bindings_match_expected(
@@ -1251,7 +1445,7 @@ def _mailbox_config_from_live_env_bindings(
         )
         return mailbox
 
-    credential_file = Path(env_bindings["AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_FILE"]).resolve()
+    credential_file = Path(env_bindings["HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE"]).resolve()
     if not credential_file.is_file():
         raise ValueError(
             "current live mailbox projection points at a missing Stalwart credential file: "
@@ -1261,10 +1455,10 @@ def _mailbox_config_from_live_env_bindings(
         transport="stalwart",
         principal_id=principal_id,
         address=address,
-        jmap_url=env_bindings["AGENTSYS_MAILBOX_EMAIL_JMAP_URL"],
-        management_url=env_bindings["AGENTSYS_MAILBOX_EMAIL_MANAGEMENT_URL"],
-        login_identity=env_bindings["AGENTSYS_MAILBOX_EMAIL_LOGIN_IDENTITY"],
-        credential_ref=env_bindings["AGENTSYS_MAILBOX_EMAIL_CREDENTIAL_REF"],
+        jmap_url=env_bindings["HOUMAO_MAILBOX_EMAIL_JMAP_URL"],
+        management_url=env_bindings["HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL"],
+        login_identity=env_bindings["HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY"],
+        credential_ref=env_bindings["HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF"],
         bindings_version=bindings_version,
         credential_file=credential_file,
     )
@@ -1298,7 +1492,7 @@ def _resolve_live_manifest_path(value: str | None) -> Path:
     manifest_path_value = value or _optional_env(AGENT_MANIFEST_PATH_ENV_VAR)
     if manifest_path_value is None:
         raise ValueError(
-            "resolve-live requires --manifest-path or the AGENTSYS_MANIFEST_PATH env var"
+            "resolve-live requires --manifest-path or the HOUMAO_MANIFEST_PATH env var"
         )
     manifest_path = Path(manifest_path_value).expanduser()
     if not manifest_path.is_absolute():
@@ -1323,7 +1517,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     target_group = resolve_live.add_mutually_exclusive_group()
     target_group.add_argument(
         "--manifest-path",
-        help="Absolute runtime-owned session manifest path. Defaults to AGENTSYS_MANIFEST_PATH.",
+        help="Absolute runtime-owned session manifest path. Defaults to HOUMAO_MANIFEST_PATH.",
     )
     target_group.add_argument(
         "--agent-identity",

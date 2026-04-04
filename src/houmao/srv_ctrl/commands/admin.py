@@ -10,8 +10,8 @@ import click
 
 from houmao.agents.realm_controller.registry_storage import cleanup_stale_live_agent_records
 
-from .cleanup_support import CleanupAction, build_cleanup_payload
-from .common import emit_json
+from .cleanup_support import CleanupAction, build_cleanup_payload, emit_cleanup_payload
+from .project_aware_wording import runtime_root_option_help
 from .runtime_cleanup import (
     CleanupResolutionError,
     cleanup_runtime_builds,
@@ -21,6 +21,24 @@ from .runtime_cleanup import (
 )
 
 
+class _AdminGroup(click.Group):
+    """Admin group that provides migration guidance for retired subcommands."""
+
+    def resolve_command(
+        self,
+        ctx: click.Context,
+        args: list[str],
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        """Resolve commands and intercept retired cleanup aliases."""
+
+        if args and args[0] == "cleanup-registry":
+            raise click.UsageError(
+                "No such command 'cleanup-registry'. Use `houmao-mgr admin cleanup registry`.",
+                ctx=ctx,
+            )
+        return super().resolve_command(ctx, args)
+
+
 def _runtime_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
     """Attach the shared runtime-root option."""
 
@@ -28,10 +46,7 @@ def _runtime_root_option(function: Callable[..., Any]) -> Callable[..., Any]:
         "--runtime-root",
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
-        help=(
-            "Runtime root override. Defaults to `AGENTSYS_GLOBAL_RUNTIME_DIR` or the shared "
-            "Houmao runtime root."
-        ),
+        help=runtime_root_option_help(),
     )(function)
 
 
@@ -48,7 +63,7 @@ def _registry_tmux_check_option(function: Callable[..., Any]) -> Callable[..., A
     )(function)
 
 
-@click.group(name="admin")
+@click.group(name="admin", cls=_AdminGroup)
 def admin_group() -> None:
     """Local maintenance commands; these do not call `houmao-server`."""
 
@@ -79,37 +94,7 @@ def cleanup_registry_command(
 ) -> None:
     """Clean stale shared-registry live-agent directories on the local host."""
 
-    emit_json(
-        _registry_cleanup_payload(
-            grace_seconds=grace_seconds,
-            dry_run=dry_run,
-            probe_local_tmux=(not no_tmux_check),
-        )
-    )
-
-
-@admin_group.command(name="cleanup-registry")
-@click.option(
-    "--grace-seconds",
-    default=300,
-    show_default=True,
-    type=click.IntRange(min=0),
-    help="Extra grace period after lease expiry before removing stale directories.",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Preview stale shared-registry records without deleting them.",
-)
-@_registry_tmux_check_option
-def cleanup_registry_alias_command(
-    grace_seconds: int,
-    dry_run: bool,
-    no_tmux_check: bool,
-) -> None:
-    """Compatibility alias for `houmao-mgr admin cleanup registry`."""
-
-    emit_json(
+    emit_cleanup_payload(
         _registry_cleanup_payload(
             grace_seconds=grace_seconds,
             dry_run=dry_run,
@@ -255,7 +240,7 @@ def _emit_runtime_cleanup(payload: dict[str, object]) -> None:
     """Emit one runtime cleanup payload with consistent click error handling."""
 
     try:
-        emit_json(payload)
+        emit_cleanup_payload(payload)
     except CleanupResolutionError as exc:
         raise click.ClickException(str(exc)) from exc
 

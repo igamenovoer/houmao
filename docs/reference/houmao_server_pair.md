@@ -14,7 +14,7 @@ For the deeper explanation of live terminal tracking and managed-agent state, se
 Primary entrypoints for the pair:
 
 - `houmao-server`: serves Houmao-owned root routes, managed-agent routes, terminal-tracking routes, and a legacy `/cao/*` compatibility namespace
-- `houmao-mgr`: exposes `server`, `agents`, `brains`, `mailbox`, and `admin` command groups
+- `houmao-mgr`: exposes `server`, `agents`, `brains`, `project`, `mailbox`, and `admin` command groups
 - `houmao-cli`: legacy runtime-local CLI, not part of the supported pair
 
 Representative usage:
@@ -22,11 +22,25 @@ Representative usage:
 ```bash
 houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
-AGENTSYS_AGENT_DEF_DIR=/path/to/agents houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex
+houmao-mgr project init
+houmao-mgr project agents tools codex auth add --name default --api-key your-api-key-here
+houmao-mgr project easy specialist create \
+  --name gpu \
+  --system-prompt "You are a GPU specialist." \
+  --tool codex \
+  --api-key your-api-key-here \
+  --env-set OPENAI_MODEL=gpt-5.4
+OPENAI_BASE_URL=https://api.example.test/v1 \
+houmao-mgr project easy instance launch \
+  --specialist gpu \
+  --name gpu \
+  --env-set FEATURE_FLAG_X=1 \
+  --env-set OPENAI_BASE_URL
+houmao-mgr project mailbox init
 houmao-mgr server status --port 9889
 houmao-mgr server sessions list --port 9889
-houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider codex --headless
-houmao-mgr agents launch --agents gpu-kernel-coder --agent-name gpu --provider claude_code
+houmao-mgr agents launch --agents your-role --agent-name gpu --provider codex --headless
+houmao-mgr agents launch --agents your-role --agent-name gpu --provider claude_code
 houmao-mgr agents join --agent-name gpu
 houmao-mgr agents join --headless --agent-name reviewer --provider codex --launch-args exec --launch-args=--json --resume-id last
 houmao-mgr mailbox init --mailbox-root tmp/shared-mail
@@ -36,10 +50,30 @@ houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state.
 houmao-mgr agents relaunch --agent-name gpu
 houmao-mgr agents gateway attach --agent-name gpu
 houmao-mgr agents gateway attach
-houmao-mgr brains build --tool codex --skill skills/mailbox --config-profile dev --cred-profile openai
+houmao-mgr brains build --tool codex --skill skills/mailbox --setup dev --auth openai
 houmao-mgr admin cleanup registry --grace-seconds 0
 houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 ```
+
+Gemini note:
+
+- Project-local Gemini auth bundles now support `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, and `oauth_creds.json` through `houmao-mgr project agents tools gemini auth add|set`.
+- `houmao-mgr project easy specialist create --tool gemini` exposes the same maintained Gemini inputs through `--api-key`, optional `--base-url`, and `--gemini-oauth-creds`.
+- Managed Gemini homes resume follow-up headless turns with the persisted Gemini `session_id` in the same recorded working directory instead of relying on `--resume latest`.
+
+Prompt-policy note:
+
+- current brain construction and preset-backed launch flows treat omitted prompt mode as the unattended default
+- use `launch.prompt_mode: as_is` when you want provider startup posture left unchanged
+- `houmao-mgr project easy specialist create --no-unattended ...` persists that `as_is` posture into the specialist config and generated preset
+
+Easy launch env note:
+
+- `houmao-mgr project easy specialist create --env-set NAME=value` stores durable non-credential launch env under `launch.env_records`
+- persistent `launch.env_records` survive preset-backed rebuild and relaunch because they are specialist-owned launch semantics
+- `houmao-mgr project easy instance launch --env-set NAME=value|NAME` applies one-off env only to the current live session and drops it on relaunch
+- inherited one-off `NAME` bindings resolve from the invoking shell environment at launch time
+- durable specialist env remains separate from auth-bundle env, and auth-owned or Houmao-owned reserved names are rejected
 
 ## Server Startup Controls
 
@@ -89,20 +123,32 @@ Retired standalone surfaces (legacy):
 - `server`
 - `agents`
 - `brains`
+- `project`
 - `mailbox`
 - `admin`
+
+Repo-local authoring under `project` is intentionally split into three views:
+
+```text
+houmao-mgr project
+├── init | status
+├── agents  # low-level `.houmao/agents/` management
+├── easy    # specialist / instance authoring
+└── mailbox # project-scoped mailbox-root operations
+```
 
 Authority is split intentionally:
 
 - `server ...` manages the houmao-server process and server-owned sessions
 - `agents launch` builds and launches locally without `houmao-server`
 - `agents join` adopts an existing tmux-backed TUI or headless logical session into the same managed-agent control plane without pretending Houmao launched the current process itself
+- `project ...` bootstraps the repo-local `.houmao/` overlay, reports discovery state, and exposes `agents`, `easy`, and `mailbox` views over the project-local sources
 - `mailbox ...` manages the shared filesystem mailbox root, address lifecycle, and inactive-registration cleanup without `houmao-server`
 - `agents mailbox ...` attaches or removes one late filesystem mailbox binding on an existing local managed agent
 - `agents cleanup ...` handles one manifest-scoped local cleanup target for session envelopes, session-local logs, or session-local mailbox secrets
 - `agents ...` follow-up commands discover agents through the shared registry first and only hit `houmao-server` when needed
 - `brains build` is a local brain-construction wrapper
-- `admin cleanup ...` is local shared-registry and runtime maintenance; `admin cleanup-registry` remains as a compatibility alias for the registry-only command
+- `admin cleanup ...` is local shared-registry and runtime maintenance; use `admin cleanup registry` for the registry janitor and `--print-json` only when you need the machine-readable cleanup payload
 
 For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
 
@@ -113,7 +159,7 @@ For local serverless mailbox usage, the preferred `houmao-mgr` workflow is:
 3. `houmao-mgr agents mailbox register --agent-name <friendly-name> --mailbox-root <path>`
 4. `houmao-mgr agents mail ...`
 
-This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmux-backed managed sessions, including sessions adopted through `agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. When direct mailbox work needs the current binding set explicitly, resolve it through `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`. That helper also surfaces optional live `gateway.base_url` data for attached `/v1/mail/*` work instead of requiring ad hoc port rediscovery.
+This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmux-backed managed sessions, including sessions adopted through `agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. When direct mailbox work needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. Inside the owning tmux session, selectors may be omitted; outside tmux, or when targeting a different agent, use an explicit `--agent-id` or `--agent-name`. The resolver also surfaces optional live `gateway.base_url` data for attached `/v1/mail/*` work instead of requiring ad hoc port rediscovery.
 
 ## Adopting Existing Sessions With `agents join`
 
@@ -122,7 +168,7 @@ This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmu
 Use it when:
 
 - the provider TUI is already running and you do not want Houmao to restart it
-- you already have a native headless tmux session and want later `turn submit`, `state`, `show`, or `interrupt` commands to target it through the normal managed-agent flow
+- you already have a native headless tmux session and want later `turn submit`, `state`, or `interrupt` commands to target it through the normal managed-agent flow
 
 V1 assumptions are intentionally narrow:
 
@@ -159,8 +205,8 @@ houmao-mgr agents join --headless \
 Operational behavior after a successful join:
 
 - Houmao creates the normal runtime envelope: session root, `manifest.json`, placeholder artifacts, `gateway/`, and workspace-local `job_dir`
-- the tmux session publishes the same discovery pointers as a native launch: `AGENTSYS_MANIFEST_PATH`, `AGENTSYS_AGENT_ID`, `AGENTSYS_AGENT_DEF_DIR`, and `AGENTSYS_JOB_DIR`
-- the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents show`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
+- the tmux session publishes the same discovery pointers as a native launch: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, and `HOUMAO_JOB_DIR`
+- the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
 
 Relaunch posture is explicit:
 
@@ -180,7 +226,7 @@ Supported modes:
 
 Current-session mode is intentionally strict:
 
-- the tmux session must publish `AGENTSYS_MANIFEST_PATH` or, failing that, `AGENTSYS_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`
+- the tmux session must publish `HOUMAO_MANIFEST_PATH` or, failing that, `HOUMAO_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`
 - the resolved manifest must belong to the current tmux session
 - the resolved manifest must use `backend = "houmao_server_rest"`
 - manifest-declared attach authority is authoritative
@@ -189,7 +235,7 @@ Current-session mode is intentionally strict:
 The matching relaunch surface is `houmao-mgr agents relaunch`.
 
 - explicit relaunch resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract first
-- current-session relaunch runs inside the owning tmux session, resolves the manifest through `AGENTSYS_MANIFEST_PATH` or shared-registry fallback from `AGENTSYS_AGENT_ID`, and refreshes the tmux-backed runtime surface without rebuilding the managed-agent home
+- current-session relaunch runs inside the owning tmux session, resolves the manifest through `HOUMAO_MANIFEST_PATH` or shared-registry fallback from `HOUMAO_AGENT_ID`, and refreshes the tmux-backed runtime surface without rebuilding the managed-agent home
 
 Pair-managed tmux topology is intentionally narrow:
 
@@ -245,6 +291,9 @@ The pair exposes three public server surfaces:
   - `GET /houmao/agents/{agent_ref}/gateway`
   - `POST /houmao/agents/{agent_ref}/gateway/attach`
   - `POST /houmao/agents/{agent_ref}/gateway/detach`
+  - `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
+  - `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`
+  - `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`
   - `POST /houmao/agents/{agent_ref}/gateway/requests`
   - `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`

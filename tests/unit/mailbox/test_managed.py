@@ -9,7 +9,9 @@ import sys
 import pytest
 
 from houmao.mailbox.filesystem import (
+    MailboxBootstrapError,
     bootstrap_filesystem_mailbox,
+    initialize_mailbox_local_sqlite_schema,
     load_active_mailbox_registration,
 )
 from houmao.mailbox.managed import (
@@ -116,13 +118,13 @@ def _delivery_payload(tmp_path: Path) -> dict[str, object]:
         "references": [],
         "created_at_utc": "2026-03-11T04:15:00Z",
         "sender": {
-            "principal_id": "AGENTSYS-sender",
-            "address": "AGENTSYS-sender@agents.localhost",
+            "principal_id": "HOUMAO-sender",
+            "address": "HOUMAO-sender@agents.localhost",
         },
         "to": [
             {
-                "principal_id": "AGENTSYS-recipient",
-                "address": "AGENTSYS-recipient@agents.localhost",
+                "principal_id": "HOUMAO-recipient",
+                "address": "HOUMAO-recipient@agents.localhost",
             }
         ],
         "cc": [],
@@ -147,7 +149,7 @@ def _state_update_payload() -> dict[str, object]:
     """Return one valid mailbox-state update payload."""
 
     return {
-        "address": "AGENTSYS-recipient@agents.localhost",
+        "address": "HOUMAO-recipient@agents.localhost",
         "message_id": "msg-20260311T041500Z-a1b2c3d4e5f64798aabbccddeeff0011",
         "read": True,
         "starred": False,
@@ -168,11 +170,11 @@ def _register_payload(tmp_path: Path) -> dict[str, object]:
 
     return {
         "mode": "safe",
-        "address": "AGENTSYS-register@agents.localhost",
-        "owner_principal_id": "AGENTSYS-register",
+        "address": "HOUMAO-register@agents.localhost",
+        "owner_principal_id": "HOUMAO-register",
         "mailbox_kind": "in_root",
         "mailbox_path": str(
-            (tmp_path / "mailbox" / "mailboxes" / "AGENTSYS-register@agents.localhost").resolve()
+            (tmp_path / "mailbox" / "mailboxes" / "HOUMAO-register@agents.localhost").resolve()
         ),
         "display_name": "Register Agent",
     }
@@ -183,7 +185,7 @@ def _deregister_payload() -> dict[str, object]:
 
     return {
         "mode": "purge",
-        "address": "AGENTSYS-register@agents.localhost",
+        "address": "HOUMAO-register@agents.localhost",
     }
 
 
@@ -194,7 +196,7 @@ def _deregister_payload() -> dict[str, object]:
             DeliveryRequest,
             _delivery_payload,
             lambda request, tmp_path: (
-                request.sender.address == "AGENTSYS-sender@agents.localhost"
+                request.sender.address == "HOUMAO-sender@agents.localhost"
                 and request.attachments[0].size_bytes == 7
                 and request.staged_message_path == (tmp_path / "staging" / "message.md").resolve()
             ),
@@ -220,7 +222,7 @@ def _deregister_payload() -> dict[str, object]:
                 request.mailbox_kind == "in_root"
                 and request.mailbox_path
                 == (
-                    tmp_path / "mailbox" / "mailboxes" / "AGENTSYS-register@agents.localhost"
+                    tmp_path / "mailbox" / "mailboxes" / "HOUMAO-register@agents.localhost"
                 ).resolve()
             ),
         ),
@@ -250,7 +252,7 @@ def test_managed_request_models_accept_valid_payloads(
                 **_delivery_payload(tmp_path),
                 "to": [
                     {
-                        "principal_id": "AGENTSYS-recipient",
+                        "principal_id": "HOUMAO-recipient",
                         "address": "invalid recipient",
                     }
                 ],
@@ -331,7 +333,7 @@ def test_register_mailbox_script_validation_failure_emits_one_json_error_without
     assert result.stderr == ""
     assert parsed["ok"] is False
     assert "$.owner_principal_id" in str(parsed["error"])
-    assert not paths.mailbox_entry_path("AGENTSYS-register@agents.localhost").exists()
+    assert not paths.mailbox_entry_path("HOUMAO-register@agents.localhost").exists()
     with sqlite3.connect(paths.sqlite_path) as connection:
         registration_count = connection.execute(
             "SELECT COUNT(*) FROM mailbox_registrations"
@@ -343,12 +345,12 @@ def test_deliver_message_script_validation_failure_emits_one_json_error_without_
     tmp_path: Path,
 ) -> None:
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-recipient",
-        address="AGENTSYS-recipient@agents.localhost",
+        principal_id="HOUMAO-recipient",
+        address="HOUMAO-recipient@agents.localhost",
     )
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
     bootstrap_filesystem_mailbox(paths.root, principal=recipient)
@@ -384,13 +386,13 @@ def test_deliver_message_script_validation_failure_emits_one_json_error_without_
 
 def test_register_mailbox_enforces_one_active_registration_per_address(tmp_path: Path) -> None:
     original = MailboxPrincipal(
-        principal_id="AGENTSYS-research",
-        address="AGENTSYS-research@agents.localhost",
+        principal_id="HOUMAO-research",
+        address="HOUMAO-research@agents.localhost",
     )
     replacement = RegisterMailboxRequest(
         mode="force",
         address=original.address,
-        owner_principal_id="AGENTSYS-new-owner",
+        owner_principal_id="HOUMAO-new-owner",
         mailbox_kind="in_root",
         mailbox_path=(tmp_path / "mailbox" / "mailboxes" / original.address).resolve(),
     )
@@ -414,7 +416,7 @@ def test_register_mailbox_enforces_one_active_registration_per_address(tmp_path:
             RegisterMailboxRequest(
                 mode="safe",
                 address=original.address,
-                owner_principal_id="AGENTSYS-conflict",
+                owner_principal_id="HOUMAO-conflict",
                 mailbox_kind="in_root",
                 mailbox_path=paths.mailbox_entry_path(original.address),
             ),
@@ -425,7 +427,7 @@ def test_register_mailbox_enforces_one_active_registration_per_address(tmp_path:
     assert forced["replaced_registration_id"]
 
     active_registration = load_active_mailbox_registration(paths.root, address=original.address)
-    assert active_registration.owner_principal_id == "AGENTSYS-new-owner"
+    assert active_registration.owner_principal_id == "HOUMAO-new-owner"
 
     with sqlite3.connect(paths.sqlite_path) as connection:
         rows = connection.execute(
@@ -438,14 +440,14 @@ def test_register_mailbox_enforces_one_active_registration_per_address(tmp_path:
             (original.address,),
         ).fetchall()
 
-    assert rows[0] == ("AGENTSYS-research", "inactive")
-    assert rows[1] == ("AGENTSYS-new-owner", "active")
+    assert rows[0] == ("HOUMAO-research", "inactive")
+    assert rows[1] == ("HOUMAO-new-owner", "active")
 
 
 def test_register_mailbox_stash_preserves_previous_mailbox_artifact(tmp_path: Path) -> None:
     original = MailboxPrincipal(
-        principal_id="AGENTSYS-bob",
-        address="AGENTSYS-bob@agents.localhost",
+        principal_id="HOUMAO-bob",
+        address="HOUMAO-bob@agents.localhost",
     )
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=original)
     preserved_note = paths.mailbox_entry_path(original.address) / "archive" / "keep.md"
@@ -456,7 +458,7 @@ def test_register_mailbox_stash_preserves_previous_mailbox_artifact(tmp_path: Pa
         RegisterMailboxRequest(
             mode="stash",
             address=original.address,
-            owner_principal_id="AGENTSYS-carol",
+            owner_principal_id="HOUMAO-carol",
             mailbox_kind="in_root",
             mailbox_path=paths.mailbox_entry_path(original.address),
         ),
@@ -479,20 +481,352 @@ def test_register_mailbox_stash_preserves_previous_mailbox_artifact(tmp_path: Pa
             (original.address,),
         ).fetchall()
 
-    assert rows[0] == ("AGENTSYS-bob", "stashed", str(stashed_path))
-    assert rows[1] == ("AGENTSYS-carol", "active", str(paths.mailbox_entry_path(original.address)))
+    assert rows[0] == ("HOUMAO-bob", "stashed", str(stashed_path))
+    assert rows[1] == ("HOUMAO-carol", "active", str(paths.mailbox_entry_path(original.address)))
+
+
+def test_register_mailbox_safe_symlink_reuses_same_target_registration(tmp_path: Path) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    private_mailbox = (tmp_path / "private-mailboxes" / recipient.address).resolve()
+
+    created = register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=private_mailbox,
+        ),
+    )
+    reused = register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=private_mailbox,
+        ),
+    )
+
+    assert created["ok"] is True
+    assert reused["reused_existing"] is True
+    assert paths.mailbox_entry_path(recipient.address).is_symlink()
+    assert paths.mailbox_entry_path(recipient.address).resolve() == private_mailbox
+
+
+def test_register_mailbox_safe_symlink_rejects_real_directory_at_address_slot(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    paths.mailbox_entry_path(recipient.address).mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(
+        ManagedMailboxOperationError,
+        match="mailbox entry already exists and is not a symlink",
+    ):
+        register_mailbox(
+            paths.root,
+            RegisterMailboxRequest(
+                mode="safe",
+                address=recipient.address,
+                owner_principal_id=recipient.principal_id,
+                mailbox_kind="symlink",
+                mailbox_path=(tmp_path / "private-mailboxes" / recipient.address).resolve(),
+            ),
+        )
+
+
+def test_register_mailbox_safe_symlink_rejects_different_existing_symlink_target(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    competing_target = (tmp_path / "competing-private-mailboxes" / recipient.address).resolve()
+    competing_target.mkdir(parents=True, exist_ok=True)
+    paths.mailbox_entry_path(recipient.address).parent.mkdir(parents=True, exist_ok=True)
+    paths.mailbox_entry_path(recipient.address).symlink_to(competing_target)
+
+    with pytest.raises(
+        ManagedMailboxOperationError,
+        match="mailbox symlink points to a different target",
+    ):
+        register_mailbox(
+            paths.root,
+            RegisterMailboxRequest(
+                mode="safe",
+                address=recipient.address,
+                owner_principal_id=recipient.principal_id,
+                mailbox_kind="symlink",
+                mailbox_path=(tmp_path / "private-mailboxes" / recipient.address).resolve(),
+            ),
+        )
+
+
+def test_register_mailbox_safe_symlink_rejects_private_mailbox_inside_shared_root(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+
+    with pytest.raises(
+        ManagedMailboxOperationError,
+        match="outside the shared mailbox root",
+    ):
+        register_mailbox(
+            paths.root,
+            RegisterMailboxRequest(
+                mode="safe",
+                address=recipient.address,
+                owner_principal_id=recipient.principal_id,
+                mailbox_kind="symlink",
+                mailbox_path=(paths.root / "private" / recipient.address).resolve(),
+            ),
+        )
+
+
+def test_register_mailbox_rejects_duplicate_private_mailbox_path_across_addresses(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    first = MailboxPrincipal(
+        principal_id="HOUMAO-private-1",
+        address="HOUMAO-private-1@agents.localhost",
+    )
+    second = MailboxPrincipal(
+        principal_id="HOUMAO-private-2",
+        address="HOUMAO-private-2@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    shared_private_mailbox = (tmp_path / "private-mailboxes" / "shared").resolve()
+
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=first.address,
+            owner_principal_id=first.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=shared_private_mailbox,
+        ),
+    )
+
+    with pytest.raises(
+        ManagedMailboxOperationError,
+        match="already active for",
+    ):
+        register_mailbox(
+            paths.root,
+            RegisterMailboxRequest(
+                mode="safe",
+                address=second.address,
+                owner_principal_id=second.principal_id,
+                mailbox_kind="symlink",
+                mailbox_path=shared_private_mailbox,
+            ),
+        )
+
+
+def test_register_mailbox_safe_symlink_preserves_existing_private_mailbox_state(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    private_mailbox = (tmp_path / "private-mailboxes" / recipient.address).resolve()
+    (private_mailbox / "archive").mkdir(parents=True, exist_ok=True)
+    (private_mailbox / "archive" / "keep.md").write_text("keep me\n", encoding="utf-8")
+    initialize_mailbox_local_sqlite_schema(private_mailbox / "mailbox.sqlite")
+    with sqlite3.connect(private_mailbox / "mailbox.sqlite") as connection:
+        connection.execute(
+            """
+            INSERT INTO message_state (
+                message_id,
+                thread_id,
+                created_at_utc,
+                subject,
+                is_read,
+                is_starred,
+                is_archived,
+                is_deleted
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "msg-1",
+                "thread-1",
+                "2026-03-29T12:00:00Z",
+                "Preserve local state",
+                1,
+                0,
+                0,
+                0,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO thread_summaries (
+                thread_id,
+                normalized_subject,
+                latest_message_id,
+                latest_message_created_at_utc,
+                unread_count
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("thread-1", "preserve local state", "msg-1", "2026-03-29T12:00:00Z", 0),
+        )
+        connection.commit()
+
+    result = register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=private_mailbox,
+        ),
+    )
+    registration = load_active_mailbox_registration(paths.root, address=recipient.address)
+
+    assert result["ok"] is True
+    assert registration.mailbox_kind == "symlink"
+    assert registration.mailbox_path == private_mailbox
+    assert paths.mailbox_entry_path(recipient.address).is_symlink()
+    assert (private_mailbox / "archive" / "keep.md").read_text(encoding="utf-8") == "keep me\n"
+    with sqlite3.connect(private_mailbox / "mailbox.sqlite") as connection:
+        row = connection.execute(
+            "SELECT message_id, thread_id FROM message_state WHERE message_id = ?",
+            ("msg-1",),
+        ).fetchone()
+    assert row == ("msg-1", "thread-1")
+
+
+def test_register_mailbox_safe_symlink_unreadable_local_state_fails_without_tty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    private_mailbox = (tmp_path / "private-mailboxes" / recipient.address).resolve()
+    private_mailbox.mkdir(parents=True, exist_ok=True)
+    (private_mailbox / "mailbox.sqlite").write_text("not a sqlite database", encoding="utf-8")
+    monkeypatch.setattr("houmao.mailbox.managed._has_interactive_terminal", lambda *streams: False)
+
+    with pytest.raises(
+        ManagedMailboxOperationError,
+        match="would need replacement, but no interactive TTY is available",
+    ):
+        register_mailbox(
+            paths.root,
+            RegisterMailboxRequest(
+                mode="safe",
+                address=recipient.address,
+                owner_principal_id=recipient.principal_id,
+                mailbox_kind="symlink",
+                mailbox_path=private_mailbox,
+            ),
+        )
+
+    with pytest.raises(MailboxBootstrapError, match="no active mailbox registration exists"):
+        load_active_mailbox_registration(paths.root, address=recipient.address)
+    assert not paths.mailbox_entry_path(recipient.address).exists()
+
+
+def test_register_mailbox_safe_symlink_prompts_before_replacing_unreadable_local_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    private_mailbox = (tmp_path / "private-mailboxes" / recipient.address).resolve()
+    private_mailbox.mkdir(parents=True, exist_ok=True)
+    (private_mailbox / "mailbox.sqlite").write_text("not a sqlite database", encoding="utf-8")
+    monkeypatch.setattr("houmao.mailbox.managed._has_interactive_terminal", lambda *streams: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "yes")
+
+    result = register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=private_mailbox,
+        ),
+    )
+
+    assert result["ok"] is True
+    assert list(private_mailbox.glob("mailbox.sqlite.local-unusable-*.bak"))
+    with sqlite3.connect(private_mailbox / "mailbox.sqlite") as connection:
+        connection.execute("SELECT COUNT(*) FROM message_state").fetchone()
 
 
 def test_deliver_message_routes_by_address_and_state_updates_use_active_registration(
     tmp_path: Path,
 ) -> None:
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-recipient",
-        address="AGENTSYS-recipient@agents.localhost",
+        principal_id="HOUMAO-recipient",
+        address="HOUMAO-recipient@agents.localhost",
     )
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
     bootstrap_filesystem_mailbox(paths.root, principal=recipient)
@@ -577,12 +911,12 @@ def test_deregister_mailbox_purge_preserves_canonical_history_and_symlink_target
     tmp_path: Path,
 ) -> None:
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-private",
-        address="AGENTSYS-private@agents.localhost",
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
     )
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
     private_mailbox = tmp_path / "private-mailboxes" / recipient.address
@@ -674,12 +1008,12 @@ def test_deregister_mailbox_purge_preserves_canonical_history_and_symlink_target
 
 def test_repair_mailbox_index_rebuilds_address_based_projections_and_state(tmp_path: Path) -> None:
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-recipient",
-        address="AGENTSYS-recipient@agents.localhost",
+        principal_id="HOUMAO-recipient",
+        address="HOUMAO-recipient@agents.localhost",
     )
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
     bootstrap_filesystem_mailbox(paths.root, principal=recipient)
@@ -748,12 +1082,12 @@ def test_repair_mailbox_index_rebuilds_address_based_projections_and_state(tmp_p
 
 def test_bootstrap_migrates_legacy_shared_mailbox_state_into_local_sqlite(tmp_path: Path) -> None:
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-recipient",
-        address="AGENTSYS-recipient@agents.localhost",
+        principal_id="HOUMAO-recipient",
+        address="HOUMAO-recipient@agents.localhost",
     )
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
     bootstrap_filesystem_mailbox(paths.root, principal=recipient)
@@ -854,12 +1188,12 @@ def test_bootstrap_migrates_legacy_shared_mailbox_state_into_local_sqlite(tmp_pa
 
 def test_repair_mailbox_index_rebuilds_unreadable_local_mailbox_state(tmp_path: Path) -> None:
     sender = MailboxPrincipal(
-        principal_id="AGENTSYS-sender",
-        address="AGENTSYS-sender@agents.localhost",
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
     )
     recipient = MailboxPrincipal(
-        principal_id="AGENTSYS-recipient",
-        address="AGENTSYS-recipient@agents.localhost",
+        principal_id="HOUMAO-recipient",
+        address="HOUMAO-recipient@agents.localhost",
     )
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
     bootstrap_filesystem_mailbox(paths.root, principal=recipient)

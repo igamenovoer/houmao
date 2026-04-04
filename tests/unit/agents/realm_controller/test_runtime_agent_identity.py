@@ -55,7 +55,7 @@ def _isolate_shared_registry(
 ) -> None:
     """Force registry lookups to stay inside each test's temp directory."""
 
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
 
 
 def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
@@ -68,10 +68,21 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
     manifest_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "inputs:",
                 "  tool: codex",
+                "  skills: []",
+                "  setup: default",
+                "  auth: default",
+                "  adapter_path: /tmp/tool-adapter.yaml",
+                "  preset_path: null",
+                "launch_policy:",
+                "  operator_prompt_mode: as_is",
                 "runtime:",
+                f"  runtime_root: {tmp_path}",
+                "  home_id: test-home",
+                f"  home_path: {tmp_path / 'home'}",
+                f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
                 "  launch_executable: codex",
                 "  launch_home_selector:",
                 "    env_var: CODEX_HOME",
@@ -81,11 +92,18 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
                 "      args: []",
                 "      tool_params: {}",
                 "    requested_overrides:",
-                "      recipe: null",
+                "      preset: null",
                 "      direct: null",
                 "    tool_metadata:",
                 "      tool_params: {}",
+                "    construction_provenance:",
+                "      adapter_path: /tmp/tool-adapter.yaml",
+                "      preset_path: null",
+                "      preset_overrides_present: false",
+                "      direct_overrides_present: false",
                 "credentials:",
+                f"  auth_path: {tmp_path / 'auth'}",
+                "  projected_files: []",
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
@@ -198,7 +216,7 @@ def _publish_registry_resolution_record(
     *,
     manifest_path: Path,
     agent_def_dir: Path,
-    session_name: str = "AGENTSYS-gpu",
+    session_name: str = "HOUMAO-gpu",
 ) -> None:
     """Publish one fresh shared-registry record for resolution tests."""
 
@@ -261,7 +279,7 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
         parsing_mode=parsing_mode,
     )
@@ -276,10 +294,10 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
     ) -> subprocess.CompletedProcess[str]:
         assert cmd[0] == "tmux"
         if cmd[1:3] == ["has-session", "-t"]:
-            assert cmd[3] == "AGENTSYS-gpu"
+            assert cmd[3] == "HOUMAO-gpu"
             return _completed(cmd)
         if cmd[1:3] == ["show-environment", "-t"]:
-            assert cmd[3] == "AGENTSYS-gpu"
+            assert cmd[3] == "HOUMAO-gpu"
             if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
                 return _completed(
                     cmd,
@@ -291,10 +309,14 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"HOUMAO-gpu-270b87"},
+    )
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
-    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
     assert resolved.agent_def_dir == tmux_agent_def_dir.resolve()
 
@@ -314,7 +336,7 @@ def test_resolve_agent_identity_name_fails_when_tmux_session_missing(
         return _completed(
             cmd,
             returncode=1,
-            stderr="can't find session: AGENTSYS-gpu",
+            stderr="can't find session: HOUMAO-gpu",
         )
 
     monkeypatch.setattr("subprocess.run", _fake_run)
@@ -338,7 +360,7 @@ def test_resolve_agent_identity_name_fails_when_manifest_pointer_missing(
         call_index["count"] += 1
         if call_index["count"] == 1:
             return _completed(cmd)
-        return _completed(cmd, returncode=1, stderr="unknown variable: AGENTSYS_MANIFEST_PATH")
+        return _completed(cmd, returncode=1, stderr="unknown variable: HOUMAO_MANIFEST_PATH")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
     with pytest.raises(SessionManifestError, match="Manifest pointer missing"):
@@ -355,10 +377,10 @@ def test_resolve_agent_identity_name_falls_back_when_manifest_pointer_missing(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     _publish_registry_resolution_record(
         manifest_path=manifest_path,
         agent_def_dir=agent_def_dir,
@@ -375,13 +397,13 @@ def test_resolve_agent_identity_name_falls_back_when_manifest_pointer_missing(
         del check, capture_output, text, timeout
         if cmd[1:3] == ["has-session", "-t"]:
             return _completed(cmd)
-        return _completed(cmd, returncode=1, stderr="unknown variable: AGENTSYS_MANIFEST_PATH")
+        return _completed(cmd, returncode=1, stderr="unknown variable: HOUMAO_MANIFEST_PATH")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
 
-    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
     assert resolved.agent_def_dir == agent_def_dir.resolve()
 
@@ -397,8 +419,8 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu-270b87",
-        agent_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu-270b87",
+        agent_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao-suffixed.json",
     )
 
@@ -412,12 +434,12 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
         if cmd[1:3] == ["has-session", "-t"]:
-            assert cmd[3] == "AGENTSYS-gpu"
-            return _completed(cmd, returncode=1, stderr="can't find session: AGENTSYS-gpu")
+            assert cmd[3] == "HOUMAO-gpu"
+            return _completed(cmd, returncode=1, stderr="can't find session: HOUMAO-gpu")
         if cmd[1:3] == ["list-sessions", "-F"]:
-            return _completed(cmd, stdout="AGENTSYS-gpu-270b87\n")
+            return _completed(cmd, stdout="HOUMAO-gpu-270b87\n")
         if cmd[1:3] == ["show-environment", "-t"]:
-            assert cmd[3] == "AGENTSYS-gpu-270b87"
+            assert cmd[3] == "HOUMAO-gpu-270b87"
             if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
                 return _completed(
                     cmd,
@@ -429,11 +451,15 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"HOUMAO-gpu-270b87"},
+    )
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
 
-    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
     assert resolved.agent_def_dir == tmux_agent_def_dir.resolve()
 
@@ -446,7 +472,7 @@ def test_resolve_agent_identity_name_fails_when_manifest_mismatch(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-other",
+        session_name="HOUMAO-other",
         path=tmp_path / "sessions" / "cao.json",
     )
 
@@ -460,7 +486,7 @@ def test_resolve_agent_identity_name_fails_when_manifest_mismatch(
     ) -> subprocess.CompletedProcess[str]:
         if cmd[1] == "has-session":
             return _completed(cmd)
-        return _completed(cmd, stdout=f"AGENTSYS_MANIFEST_PATH={manifest_path}\n")
+        return _completed(cmd, stdout=f"HOUMAO_MANIFEST_PATH={manifest_path}\n")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
 
@@ -477,15 +503,15 @@ def test_resolve_agent_identity_name_fails_when_multiple_suffixed_sessions_match
     manifest_path_a = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu-270b87",
-        agent_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu-270b87",
+        agent_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao-a.json",
     )
     manifest_path_b = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu-270b873",
-        agent_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu-270b873",
+        agent_name="HOUMAO-gpu",
         agent_id="270b8738f2f97092e572b73d19e6f923",
         path=tmp_path / "sessions" / "cao-b.json",
     )
@@ -500,11 +526,11 @@ def test_resolve_agent_identity_name_fails_when_multiple_suffixed_sessions_match
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
         if cmd[1:3] == ["has-session", "-t"]:
-            return _completed(cmd, returncode=1, stderr="can't find session: AGENTSYS-gpu")
+            return _completed(cmd, returncode=1, stderr="can't find session: HOUMAO-gpu")
         if cmd[1:3] == ["list-sessions", "-F"]:
-            return _completed(cmd, stdout="AGENTSYS-gpu-270b87\nAGENTSYS-gpu-270b873\n")
+            return _completed(cmd, stdout="HOUMAO-gpu-270b87\nHOUMAO-gpu-270b873\n")
         if cmd[1:3] == ["show-environment", "-t"]:
-            manifest_path = manifest_path_a if cmd[3] == "AGENTSYS-gpu-270b87" else manifest_path_b
+            manifest_path = manifest_path_a if cmd[3] == "HOUMAO-gpu-270b87" else manifest_path_b
             if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
                 return _completed(
                     cmd,
@@ -516,6 +542,10 @@ def test_resolve_agent_identity_name_fails_when_multiple_suffixed_sessions_match
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"HOUMAO-gpu-270b87", "HOUMAO-gpu-270b873"},
+    )
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     with pytest.raises(SessionManifestError, match="matched multiple tmux sessions"):
@@ -532,7 +562,7 @@ def test_resolve_agent_identity_name_uses_explicit_agent_def_dir_override_for_le
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
     show_environment_variables: list[str] = []
@@ -578,16 +608,16 @@ def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
 
     now = datetime.now(UTC)
     publish_live_agent_record(
         LiveAgentRegistryRecordV2(
-            agent_name="AGENTSYS-gpu",
-            agent_id=derive_agent_id_from_name("AGENTSYS-gpu"),
+            agent_name="HOUMAO-gpu",
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
             generation_id="generation-1",
             published_at=now.isoformat(timespec="seconds"),
             lease_expires_at=(now + timedelta(hours=24)).isoformat(timespec="seconds"),
@@ -597,7 +627,7 @@ def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
                 session_root=str(manifest_path.parent.resolve()),
                 agent_def_dir=str(agent_def_dir.resolve()),
             ),
-            terminal=RegistryTerminalV1(session_name="AGENTSYS-gpu"),
+            terminal=RegistryTerminalV1(session_name="HOUMAO-gpu"),
         )
     )
 
@@ -610,13 +640,13 @@ def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
         timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
-        return _completed(cmd, returncode=1, stderr="can't find session: AGENTSYS-gpu")
+        return _completed(cmd, returncode=1, stderr="can't find session: HOUMAO-gpu")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
 
     resolved = resolve_agent_identity(agent_identity="gpu", base=tmp_path)
 
-    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
     assert resolved.agent_def_dir == agent_def_dir.resolve()
 
@@ -629,7 +659,7 @@ def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_missing(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
 
@@ -672,10 +702,10 @@ def test_resolve_agent_identity_name_falls_back_when_agent_def_dir_pointer_stale
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
-    monkeypatch.setenv("AGENTSYS_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     _publish_registry_resolution_record(
         manifest_path=manifest_path,
         agent_def_dir=agent_def_dir,
@@ -691,7 +721,7 @@ def test_resolve_agent_identity_name_falls_back_when_agent_def_dir_pointer_stale
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
         if cmd[1:3] == ["list-sessions", "-F"]:
-            return _completed(cmd, stdout="AGENTSYS-gpu\n")
+            return _completed(cmd, stdout="HOUMAO-gpu\n")
         if cmd[1:3] == ["has-session", "-t"]:
             return _completed(cmd)
         if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
@@ -708,7 +738,7 @@ def test_resolve_agent_identity_name_falls_back_when_agent_def_dir_pointer_stale
 
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
 
-    assert resolved.canonical_agent_identity == "AGENTSYS-gpu"
+    assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
     assert resolved.agent_def_dir == agent_def_dir.resolve()
 
@@ -721,7 +751,7 @@ def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_blank(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
 
@@ -760,7 +790,7 @@ def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_is_relativ
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
 
@@ -799,7 +829,7 @@ def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_is_stale(
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / "cao.json",
     )
     stale_agent_def_dir = tmp_path / "missing-agent-defs"
@@ -845,7 +875,7 @@ def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
         agent_def_dir,
         tmp_path,
         backend=backend,
-        session_name="AGENTSYS-gpu",
+        session_name="HOUMAO-gpu",
         path=tmp_path / "sessions" / f"{backend}.json",
     )
 
@@ -900,9 +930,9 @@ def test_resolve_start_session_identity_uses_timestamp_based_tmux_handle_for_raw
     )
 
     assert resolved.agent_name == "gpu"
-    assert resolved.canonical_agent_name == "AGENTSYS-gpu"
+    assert resolved.canonical_agent_name == "HOUMAO-gpu"
     assert resolved.agent_id == "deadbeefcafefeed"
-    assert resolved.tmux_session_name == "AGENTSYS-gpu-1760000123456"
+    assert resolved.tmux_session_name == "HOUMAO-gpu-1760000123456"
 
 
 def test_resolve_start_session_identity_rejects_reserved_prefixed_raw_agent_name() -> None:
@@ -911,7 +941,7 @@ def test_resolve_start_session_identity_rejects_reserved_prefixed_raw_agent_name
             manifest={},
             tool="codex",
             role_name="gpu-kernel-coder",
-            requested_agent_name="AGENTSYS-gpu",
+            requested_agent_name="HOUMAO-gpu",
             requested_agent_identity=None,
             requested_agent_id=None,
         )
@@ -920,7 +950,7 @@ def test_resolve_start_session_identity_rejects_reserved_prefixed_raw_agent_name
 def test_resolve_start_session_identity_fails_when_generated_default_name_collides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    canonical_agent_name = "AGENTSYS-gpu"
+    canonical_agent_name = "HOUMAO-gpu"
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
         lambda: {f"{canonical_agent_name}-1760000123456"},
@@ -960,7 +990,7 @@ def test_resolve_start_session_identity_preserves_explicit_tmux_session_name_ove
     )
 
     assert resolved.agent_name == "gpu"
-    assert resolved.canonical_agent_name == "AGENTSYS-gpu"
+    assert resolved.canonical_agent_name == "HOUMAO-gpu"
     assert resolved.tmux_session_name == "custom-gpu"
 
 
@@ -989,7 +1019,7 @@ def test_tmux_backed_manifest_build_rejects_suffixed_handle_without_explicit_ide
                 brain_manifest_path=brain_manifest_path,
                 backend_state={
                     "api_base_url": "http://localhost:9889",
-                    "session_name": "AGENTSYS-gpu-270b87",
+                    "session_name": "HOUMAO-gpu-270b87",
                     "terminal_id": "term-1",
                     "profile_name": "runtime-profile",
                     "profile_path": str(tmp_path / "runtime-profile.md"),

@@ -24,6 +24,7 @@ from houmao.mailbox.managed import (
     register_mailbox,
 )
 from houmao.agents.realm_controller.registry_storage import RegistryCleanupAction
+from houmao.project.overlay import bootstrap_project_overlay
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -114,6 +115,14 @@ def test_admin_cleanup_runtime_help_mentions_runtime_subcommands() -> None:
     assert "mailbox-credentials" in result.output
 
 
+def test_admin_cleanup_runtime_sessions_help_mentions_project_aware_runtime_root() -> None:
+    result = CliRunner().invoke(cli, ["admin", "cleanup", "runtime", "sessions", "--help"])
+
+    assert result.exit_code == 0
+    assert "this command uses the active project runtime" in result.output
+    assert "HOUMAO_GLOBAL_RUNTIME_DIR" in result.output
+
+
 def test_admin_cleanup_registry_help_mentions_no_tmux_check() -> None:
     result = CliRunner().invoke(cli, ["admin", "cleanup", "registry", "--help"])
 
@@ -122,12 +131,20 @@ def test_admin_cleanup_registry_help_mentions_no_tmux_check() -> None:
     assert "--probe-local-tmux" not in result.output
 
 
-def test_admin_cleanup_registry_alias_help_mentions_no_tmux_check() -> None:
-    result = CliRunner().invoke(cli, ["admin", "cleanup-registry", "--help"])
+def test_admin_help_does_not_list_cleanup_registry_alias() -> None:
+    result = CliRunner().invoke(cli, ["admin", "--help"])
 
     assert result.exit_code == 0
-    assert "--no-tmux-check" in result.output
-    assert "--probe-local-tmux" not in result.output
+    assert "cleanup" in result.output
+    assert "cleanup-registry" not in result.output
+
+
+def test_admin_cleanup_registry_alias_reports_migration_hint() -> None:
+    result = CliRunner().invoke(cli, ["admin", "cleanup-registry"])
+
+    assert result.exit_code == 2
+    assert "No such command 'cleanup-registry'" in result.output
+    assert "houmao-mgr admin cleanup registry" in result.output
 
 
 def test_admin_cleanup_registry_probes_tmux_by_default(
@@ -158,7 +175,10 @@ def test_admin_cleanup_registry_probes_tmux_by_default(
         "houmao.srv_ctrl.commands.admin.cleanup_stale_live_agent_records", _fake_cleanup
     )
 
-    result = CliRunner().invoke(cli, ["admin", "cleanup", "registry", "--grace-seconds", "0"])
+    result = CliRunner().invoke(
+        cli,
+        ["--print-json", "admin", "cleanup", "registry", "--grace-seconds", "0"],
+    )
 
     assert result.exit_code == 0, result.output
     assert captured_kwargs["probe_local_tmux"] is True
@@ -167,12 +187,24 @@ def test_admin_cleanup_registry_probes_tmux_by_default(
     assert payload["resolution"]["probe_local_tmux"] is True
 
 
-def test_admin_cleanup_registry_alias_no_tmux_check_disables_probe(
+def test_admin_cleanup_registry_plain_output_lists_action_lines(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     captured_kwargs: dict[str, object] = {}
     registry_root = (tmp_path / "registry").resolve()
+    planned_action = RegistryCleanupAction(
+        agent_id="dead-agent",
+        path=(registry_root / "live_agents" / "dead-agent").resolve(),
+        outcome="planned",
+        reason="local tmux liveness probe did not find the owning session",
+    )
+    preserved_action = RegistryCleanupAction(
+        agent_id="live-agent",
+        path=(registry_root / "live_agents" / "live-agent").resolve(),
+        outcome="preserved",
+        reason="local tmux liveness probe confirmed the owning session",
+    )
 
     def _fake_cleanup(**kwargs: object) -> SimpleNamespace:
         captured_kwargs.update(kwargs)
@@ -181,8 +213,8 @@ def test_admin_cleanup_registry_alias_no_tmux_check_disables_probe(
             removed_agent_ids=(),
             preserved_agent_ids=("live-agent",),
             failed_agent_ids=(),
-            planned_agent_ids=(),
-            actions=(),
+            planned_agent_ids=("dead-agent",),
+            actions=(planned_action, preserved_action),
         )
 
     monkeypatch.setattr(
@@ -191,14 +223,20 @@ def test_admin_cleanup_registry_alias_no_tmux_check_disables_probe(
 
     result = CliRunner().invoke(
         cli,
-        ["admin", "cleanup-registry", "--grace-seconds", "0", "--no-tmux-check"],
+        ["--print-plain", "admin", "cleanup", "registry", "--grace-seconds", "0", "--dry-run"],
     )
 
     assert result.exit_code == 0, result.output
-    assert captured_kwargs["probe_local_tmux"] is False
-    payload = json.loads(result.output)
-    assert payload["probe_local_tmux"] is False
-    assert payload["resolution"]["probe_local_tmux"] is False
+    assert captured_kwargs["probe_local_tmux"] is True
+    assert "Cleanup Plan:" in result.output
+    assert "Planned Actions (1):" in result.output
+    assert str(planned_action.path) in result.output
+    assert planned_action.reason in result.output
+    assert "Preserved Actions (1):" in result.output
+    assert str(preserved_action.path) in result.output
+    assert preserved_action.reason in result.output
+    assert "[1 items]" not in result.output
+    assert "{...}" not in result.output
 
 
 def test_agents_cleanup_help_mentions_session_logs_and_mailbox() -> None:
@@ -321,6 +359,54 @@ def test_runtime_build_cleanup_dry_run_reports_unreferenced_manifest_home_pair(
     assert planned_paths == {str(manifest_path), str(home_path)}
 
 
+def test_cleanup_runtime_builds_defaults_to_project_overlay_runtime_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    monkeypatch.chdir(repo_root)
+
+    payload = runtime_cleanup.cleanup_runtime_builds(
+        runtime_root=None,
+        older_than_seconds=0,
+        dry_run=True,
+    )
+
+    assert payload["scope"]["runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
+    assert (
+        payload["resolution"]["runtime_root_detail"]
+        == "Selected the active project runtime root from the current project overlay."
+    )
+    assert (repo_root / ".houmao" / "houmao-config.toml").exists()
+
+
+def test_cleanup_runtime_builds_explicit_runtime_root_wins_over_project_overlay_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    explicit_runtime_root = (tmp_path / "shared-runtime").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    explicit_runtime_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
+    monkeypatch.chdir(repo_root)
+
+    payload = runtime_cleanup.cleanup_runtime_builds(
+        runtime_root=explicit_runtime_root,
+        older_than_seconds=0,
+        dry_run=True,
+    )
+
+    assert payload["scope"]["runtime_root"] == str(explicit_runtime_root)
+    assert (
+        payload["resolution"]["runtime_root_detail"]
+        == "Selected runtime root from the explicit `--runtime-root` override."
+    )
+    assert (repo_root / ".houmao" / "houmao-config.toml").exists()
+
+
 def test_mailbox_cleanup_dry_run_reports_inactive_registration_and_preserves_messages(
     tmp_path: Path,
 ) -> None:
@@ -329,17 +415,17 @@ def test_mailbox_cleanup_dry_run_reports_inactive_registration_and_preserves_mes
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
-            address="AGENTSYS-cleanup@agents.localhost",
-            owner_principal_id="AGENTSYS-cleanup",
+            address="HOUMAO-cleanup@agents.localhost",
+            owner_principal_id="HOUMAO-cleanup",
             mailbox_kind="in_root",
-            mailbox_path=paths.mailbox_entry_path("AGENTSYS-cleanup@agents.localhost"),
+            mailbox_path=paths.mailbox_entry_path("HOUMAO-cleanup@agents.localhost"),
         ),
     )
     deregister_mailbox(
         paths.root,
         DeregisterMailboxRequest(
             mode="deactivate",
-            address="AGENTSYS-cleanup@agents.localhost",
+            address="HOUMAO-cleanup@agents.localhost",
         ),
     )
     message_path = (paths.messages_dir / "keep.md").resolve()
@@ -348,6 +434,7 @@ def test_mailbox_cleanup_dry_run_reports_inactive_registration_and_preserves_mes
     result = CliRunner().invoke(
         cli,
         [
+            "--print-json",
             "mailbox",
             "cleanup",
             "--mailbox-root",
@@ -371,13 +458,13 @@ def test_mailbox_cleanup_removes_inactive_registration_and_keeps_messages(
     tmp_path: Path,
 ) -> None:
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
-    address = "AGENTSYS-cleanup@agents.localhost"
+    address = "HOUMAO-cleanup@agents.localhost"
     register_mailbox(
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
             address=address,
-            owner_principal_id="AGENTSYS-cleanup",
+            owner_principal_id="HOUMAO-cleanup",
             mailbox_kind="in_root",
             mailbox_path=paths.mailbox_entry_path(address),
         ),
@@ -395,6 +482,7 @@ def test_mailbox_cleanup_removes_inactive_registration_and_keeps_messages(
     result = CliRunner().invoke(
         cli,
         [
+            "--print-json",
             "mailbox",
             "cleanup",
             "--mailbox-root",
@@ -411,3 +499,90 @@ def test_mailbox_cleanup_removes_inactive_registration_and_keeps_messages(
             (address,),
         ).fetchone()[0]
     assert remaining == 0
+
+
+def test_mailbox_cleanup_plain_output_lists_action_lines(tmp_path: Path) -> None:
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
+    address = "HOUMAO-cleanup@agents.localhost"
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=address,
+            owner_principal_id="HOUMAO-cleanup",
+            mailbox_kind="in_root",
+            mailbox_path=paths.mailbox_entry_path(address),
+        ),
+    )
+    deregister_mailbox(
+        paths.root,
+        DeregisterMailboxRequest(
+            mode="deactivate",
+            address=address,
+        ),
+    )
+    (paths.messages_dir / "keep.md").write_text("keep\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-plain",
+            "mailbox",
+            "cleanup",
+            "--mailbox-root",
+            str(paths.root),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Cleanup Plan:" in result.output
+    assert "Planned Actions (1):" in result.output
+    assert str(paths.mailbox_entry_path(address)) in result.output
+    assert "inactive mailbox registration is no longer active and is eligible for cleanup" in (
+        result.output
+    )
+    assert "Preserved Actions (1):" in result.output
+    assert str(paths.messages_dir.resolve()) in result.output
+    assert "[1 items]" not in result.output
+    assert "{...}" not in result.output
+
+
+def test_mailbox_cleanup_fancy_output_lists_action_lines(tmp_path: Path) -> None:
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
+    address = "HOUMAO-cleanup@agents.localhost"
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=address,
+            owner_principal_id="HOUMAO-cleanup",
+            mailbox_kind="in_root",
+            mailbox_path=paths.mailbox_entry_path(address),
+        ),
+    )
+    deregister_mailbox(
+        paths.root,
+        DeregisterMailboxRequest(
+            mode="deactivate",
+            address=address,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-fancy",
+            "mailbox",
+            "cleanup",
+            "--mailbox-root",
+            str(paths.root),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Planned Actions" in result.output
+    assert "mailbox_registration" in result.output
+    assert "Preserved Actions" in result.output
+    assert "canonical_messages" in result.output

@@ -9,7 +9,8 @@ import click
 
 from houmao.agents.realm_controller.errors import SessionManifestError
 
-from ..common import emit_json, managed_agent_selector_options
+from ..cleanup_support import emit_cleanup_payload
+from ..common import managed_agent_selector_options
 from ..runtime_cleanup import (
     CleanupResolutionError,
     cleanup_managed_session,
@@ -134,6 +135,6 @@ def _run_and_emit_cleanup(build_payload: Callable[[], dict[str, object]]) -> Non
     """Run one cleanup producer and emit the resulting JSON payload."""
 
     try:
-        emit_json(build_payload())
+        emit_cleanup_payload(build_payload())
     except (CleanupResolutionError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc

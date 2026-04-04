@@ -18,8 +18,8 @@ Those layers are kept separate so a session can stay gateway-capable even when n
 Stable attachability is published through the manifest-first contract:
 
 - tmux discovery env:
-  - `AGENTSYS_MANIFEST_PATH`
-  - `AGENTSYS_AGENT_ID`
+  - `HOUMAO_MANIFEST_PATH`
+  - `HOUMAO_AGENT_ID`
 - runtime-owned manifest authority:
   - `<session-root>/manifest.json`
 - derived outward-facing gateway bookkeeping:
@@ -38,7 +38,7 @@ Representative internal bootstrap payload for a `cao_rest` session:
   "schema_version": 1,
   "attach_identity": "cao-rest-1",
   "backend": "cao_rest",
-  "tmux_session_name": "AGENTSYS-gpu",
+  "tmux_session_name": "HOUMAO-gpu",
   "working_directory": "/abs/path/repo",
   "backend_metadata": {
     "api_base_url": "http://localhost:9889",
@@ -71,7 +71,7 @@ Representative `houmao_server_rest` internal bootstrap payload:
     "parsing_mode": "shadow_only"
   },
   "manifest_path": "/abs/path/.houmao/runtime/sessions/houmao_server_rest/cao-gpu/manifest.json",
-  "agent_def_dir": "/abs/path/.agentsys/agents",
+  "agent_def_dir": "/abs/path/repo/.houmao/agents",
   "runtime_session_id": "cao-gpu",
   "desired_host": "127.0.0.1",
   "desired_port": 43123
@@ -89,8 +89,8 @@ Current v1 scope:
 
 Pair-managed current-session attach rules:
 
-- tmux-published `AGENTSYS_MANIFEST_PATH` is the preferred current-session manifest locator
-- when `AGENTSYS_MANIFEST_PATH` is missing or stale, `AGENTSYS_AGENT_ID` plus the shared registry must resolve exactly one fresh `runtime.manifest_path`
+- tmux-published `HOUMAO_MANIFEST_PATH` is the preferred current-session manifest locator
+- when `HOUMAO_MANIFEST_PATH` is missing or stale, `HOUMAO_AGENT_ID` plus the shared registry must resolve exactly one fresh `runtime.manifest_path`
 - the resolved manifest must belong to the current tmux session
 - the resolved manifest must use `backend = "houmao_server_rest"`
 - manifest-declared pair attach authority is authoritative for current-session pair attach
@@ -102,17 +102,17 @@ Live bindings exist only while a gateway process is running.
 
 Published tmux env vars:
 
-- `AGENTSYS_AGENT_GATEWAY_HOST`
-- `AGENTSYS_AGENT_GATEWAY_PORT`
-- `AGENTSYS_GATEWAY_STATE_PATH`
-- `AGENTSYS_GATEWAY_PROTOCOL_VERSION`
+- `HOUMAO_AGENT_GATEWAY_HOST`
+- `HOUMAO_AGENT_GATEWAY_PORT`
+- `HOUMAO_GATEWAY_STATE_PATH`
+- `HOUMAO_GATEWAY_PROTOCOL_VERSION`
 
 Important rules:
 
 - The runtime validates these bindings structurally before trusting them.
 - `GET /health` is the authoritative liveness check for the live gateway.
 - A dead gateway can leave stale env behind temporarily; validation plus health probing is what cleans that up.
-- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run python -m houmao.agents.mailbox_runtime_support resolve-live`.
+- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run houmao-mgr agents mail resolve-live`.
 
 ## HTTP Surface
 
@@ -120,12 +120,17 @@ Current v1 routes:
 
 - `GET /health`
 - `GET /v1/status`
+- `POST /v1/control/prompt`
 - `GET /v1/control/tui/state`
 - `GET /v1/control/tui/history`
 - `POST /v1/control/tui/note-prompt`
 - `POST /v1/control/send-keys`
 - `GET /v1/control/headless/state`
 - `POST /v1/requests`
+- `POST /v1/wakeups`
+- `GET /v1/wakeups`
+- `GET /v1/wakeups/{job_id}`
+- `DELETE /v1/wakeups/{job_id}`
 - `GET /v1/mail/status`
 - `POST /v1/mail/check`
 - `POST /v1/mail/send`
@@ -160,7 +165,7 @@ Representative live status:
   "protocol_version": "v1",
   "attach_identity": "cao-rest-1",
   "backend": "cao_rest",
-  "tmux_session_name": "AGENTSYS-gpu",
+  "tmux_session_name": "HOUMAO-gpu",
   "gateway_health": "healthy",
   "managed_agent_connectivity": "connected",
   "managed_agent_recovery": "idle",
@@ -187,7 +192,7 @@ Representative seeded offline status:
   "protocol_version": "v1",
   "attach_identity": "cao-rest-1",
   "backend": "cao_rest",
-  "tmux_session_name": "AGENTSYS-gpu",
+  "tmux_session_name": "HOUMAO-gpu",
   "gateway_health": "not_attached",
   "managed_agent_connectivity": "unavailable",
   "managed_agent_recovery": "idle",
@@ -242,9 +247,11 @@ Current public request kinds:
 - `submit_prompt`
 - `interrupt`
 
-The notifier reminder path does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
+The wakeup timer path does not add a new public request kind. Wakeup jobs are registered and inspected only through `/v1/wakeups`, and due wakeups execute as gateway-owned in-memory behavior instead of becoming another public `POST /v1/requests` kind.
 
-`POST /v1/requests` stays the semantic queued prompt surface. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
+The notifier reminder path also does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
+
+`POST /v1/requests` stays the semantic queued prompt surface. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
 
 Representative prompt submission:
 
@@ -278,6 +285,133 @@ Observable current error semantics:
 - unavailable managed-agent admission returns HTTP `503`.
 
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
+
+### `/v1/wakeups`
+
+This route family manages direct gateway-owned wakeups without going through the durable request queue.
+
+Supported routes:
+
+- `POST /v1/wakeups`
+- `GET /v1/wakeups`
+- `GET /v1/wakeups/{job_id}`
+- `DELETE /v1/wakeups/{job_id}`
+
+Wakeup jobs are process-local in-memory state:
+
+- pending wakeups are lost when the gateway stops or restarts
+- due-but-not-yet-delivered wakeups are also lost on restart
+- wakeups do not create rows in `queue.sqlite` until or unless some other gateway feature persists its own internal work
+- `GET /v1/wakeups` reports only the current live gateway process state
+
+Representative create request:
+
+```json
+{
+  "schema_version": 1,
+  "mode": "repeat",
+  "prompt": "Review the inbox again.",
+  "after_seconds": 300,
+  "interval_seconds": 300
+}
+```
+
+Representative job response:
+
+```json
+{
+  "schema_version": 1,
+  "job_id": "gwakeup-deadbeefcafe",
+  "mode": "repeat",
+  "prompt": "Review the inbox again.",
+  "state": "scheduled",
+  "created_at_utc": "2026-03-31T00:00:00+00:00",
+  "next_due_at_utc": "2026-03-31T00:05:00+00:00",
+  "interval_seconds": 300.0,
+  "last_started_at_utc": null,
+  "cancel_requested": false
+}
+```
+
+Current behavior:
+
+- wakeups support `one_off` and `repeat` modes
+- callers must set exactly one of `after_seconds` or `deliver_at_utc`
+- repeating wakeups require `interval_seconds`
+- due wakeups run only when `request_admission=open`, `active_execution=idle`, and durable queue depth is zero
+- when the gateway is busy, due wakeups stay pending and show `state = "overdue"`
+- repeating wakeups keep anchored cadence and do not backfill missed intervals as an immediate burst
+- deleting a scheduled or overdue wakeup removes it immediately
+- deleting an executing wakeup only stops future occurrences; the already-started prompt continues until completion
+- unknown wakeup ids return HTTP `404`
+
+### `POST /v1/control/prompt`
+
+This route is the direct prompt-control surface for gateway-managed sessions. It returns success only after the prompt has been admitted for immediate live dispatch on the current target, and it refuses by default when the target is not prompt-ready.
+
+Representative request:
+
+```json
+{
+  "schema_version": 1,
+  "prompt": "hello",
+  "force": false
+}
+```
+
+Headless prompt control also accepts an optional structured chat-session selector:
+
+```json
+{
+  "schema_version": 1,
+  "prompt": "hello",
+  "force": false,
+  "chat_session": {
+    "mode": "tool_last_or_new"
+  }
+}
+```
+
+Representative success response:
+
+```json
+{
+  "status": "ok",
+  "action": "submit_prompt",
+  "sent": true,
+  "forced": false,
+  "detail": "Prompt dispatched."
+}
+```
+
+Representative refusal payload (returned under an HTTP error status):
+
+```json
+{
+  "detail": {
+    "status": "error",
+    "action": "submit_prompt",
+    "sent": false,
+    "forced": false,
+    "error_code": "not_ready",
+    "detail": "Gateway prompt rejected because the TUI is not submit-ready."
+  }
+}
+```
+
+Current behavior:
+
+- TUI-backed sessions (`cao_rest`, `houmao_server_rest`, and `local_interactive`) require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
+- TUI-backed sessions accept `chat_session.mode = "new"` as a reset-then-send workflow that submits `/clear`, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
+- TUI-backed sessions reject explicit `chat_session.mode = "auto" | "current" | "tool_last_or_new" | "exact"` with HTTP `422`
+- native local headless sessions require no active gateway-managed execution and no queued gateway work before prompt dispatch unless `force=true`
+- native headless sessions accept `chat_session.mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"`; `chat_session.id` is required only for `mode = "exact"`
+- omitted headless `chat_session` means `mode = "auto"`, which resolves in order as pending `next_prompt_override`, pinned `current`, persisted `startup_default`, then fresh `new`
+- `chat_session.mode = "current"` fails explicitly when the managed session has no pinned current provider session
+- server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`
+- `force=true` bypasses only readiness/busy posture; it does not bypass blank prompt validation, detached state, reconciliation blocking, or unsupported backends
+- `codex_app_server` direct gateway prompt control is not implemented
+- successful direct prompt control records gateway-owned prompt-note evidence for TUI-backed sessions
 
 ### `GET /v1/control/tui/state`
 
@@ -337,7 +471,7 @@ Current behavior:
 - the route accepts the same exact `<[key-name]>` grammar as runtime `send-keys`, including optional whole-string literal escaping with `escape_special_keys=true`
 - the route does not enqueue a `submit_prompt` request in `queue.sqlite`
 - the route does not create gateway-owned prompt-tracking notes by itself
-- for attached `local_interactive` sessions, semantic prompt submission still belongs on `POST /v1/requests` with kind `submit_prompt`, while `POST /v1/control/send-keys` remains the operator/debug raw-control path
+- semantic prompt submission remains separate on `POST /v1/control/prompt` for immediate control or `POST /v1/requests` for queued execution, while `POST /v1/control/send-keys` remains the operator/debug raw-control path
 - REST-backed and server-managed headless gateway targets currently reject this route with HTTP `422` because they do not preserve exact tmux key semantics on that path
 
 ### `GET /v1/control/headless/state`
@@ -345,6 +479,23 @@ Current behavior:
 This route returns the read-optimized `GatewayHeadlessControlStateV1` for attached native headless backends.
 
 `local_interactive` sessions do not use this route. When attached, they expose gateway-owned live TUI state through `/v1/control/tui/*` instead.
+
+The headless control-state payload includes `chat_session` with:
+
+- `current`: the concrete provider session id currently pinned by the managed session, or `null`
+- `startup_default`: the first-chat fallback policy using `mode = "new" | "tool_last_or_new" | "exact"`
+- `next_prompt_override`: the one-shot live override consumed only by the next accepted direct prompt whose effective mode is `auto`
+
+`POST /v1/control/headless/next-prompt-session` stores that one-shot override. In v1 it accepts only:
+
+```json
+{
+  "schema_version": 1,
+  "mode": "new"
+}
+```
+
+That override is live gateway state only. It is not persisted across restart, it is ignored by queued `/v1/requests` prompt execution, and it remains pending when later direct prompts explicitly request `new`, `current`, `tool_last_or_new`, or `exact`.
 
 ### `GET /v1/mail/status`
 
@@ -356,8 +507,8 @@ Representative response:
 {
   "schema_version": 1,
   "transport": "filesystem",
-  "principal_id": "AGENTSYS-gpu",
-  "address": "AGENTSYS-gpu@agents.localhost",
+  "principal_id": "HOUMAO-gpu",
+  "address": "HOUMAO-gpu@agents.localhost",
   "bindings_version": "2026-03-19T08:00:00.000001Z"
 }
 ```
@@ -382,8 +533,8 @@ Representative response:
 {
   "schema_version": 1,
   "transport": "filesystem",
-  "principal_id": "AGENTSYS-gpu",
-  "address": "AGENTSYS-gpu@agents.localhost",
+  "principal_id": "HOUMAO-gpu",
+  "address": "HOUMAO-gpu@agents.localhost",
   "unread_only": true,
   "message_count": 1,
   "unread_count": 1,
@@ -396,11 +547,11 @@ Representative response:
       "unread": true,
       "body_preview": "Hello from the shared mailbox surface",
       "sender": {
-        "address": "AGENTSYS-sender@agents.localhost"
+        "address": "HOUMAO-sender@agents.localhost"
       },
       "to": [
         {
-          "address": "AGENTSYS-gpu@agents.localhost"
+          "address": "HOUMAO-gpu@agents.localhost"
         }
       ],
       "cc": [],
@@ -426,7 +577,7 @@ Representative request:
 ```json
 {
   "schema_version": 1,
-  "to": ["AGENTSYS-orchestrator@agents.localhost"],
+  "to": ["HOUMAO-orchestrator@agents.localhost"],
   "cc": [],
   "subject": "Investigate parser drift",
   "body_content": "Hello from the gateway facade",
@@ -469,8 +620,8 @@ Representative response:
 {
   "schema_version": 1,
   "transport": "filesystem",
-  "principal_id": "AGENTSYS-gpu",
-  "address": "AGENTSYS-gpu@agents.localhost",
+  "principal_id": "HOUMAO-gpu",
+  "address": "HOUMAO-gpu@agents.localhost",
   "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
   "read": true
 }
@@ -523,14 +674,14 @@ Support contract rules:
 
 - The gateway resolves the runtime-owned session manifest through internal bootstrap metadata, typically `attach.json.manifest_path`.
 - It inspects `payload.launch_plan.mailbox` in that manifest as the durable mailbox capability record.
-- For tmux-backed managed sessions, it additionally resolves the current targeted `AGENTSYS_MAILBOX_*` projection from the owning tmux session environment before treating notifier behavior as supported.
-- The notifier wake-up prompt itself stays on the runtime-owned discovery contract for the agent turn: it points the agent at `resolve-live`, which prefers current process env, falls back to the owning tmux session env, and returns optional `gateway.base_url` data when a valid live gateway is attached.
-- Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current tmux-backed live mailbox projection is unavailable or incomplete for actionable mailbox work.
-- Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, deduplication, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
+- It validates current mailbox actionability from that manifest-backed binding and transport-local prerequisites before treating notifier behavior as supported.
+- The notifier wake-up prompt itself stays on the runtime-owned discovery contract for the agent turn: it points the agent at `resolve-live`, which derives current mailbox fields from the durable binding and returns optional `gateway.base_url` data when a valid live gateway is attached.
+- Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current manifest-backed binding is not actionable for notifier work.
+- Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
-- Wake-up prompts nominate exactly one actionable unread target using the oldest unread message by `created_at_utc` with a stable tie-breaker.
-- The prompt includes the nominated `message_ref`, optional `thread_ref`, sender context, subject, and the remaining unread count beyond that nominated target.
-- Deduplication stays keyed to the full unread set rather than the prompt text or the nominated target alone, so reminder rewrites do not create duplicate wake-ups when mailbox truth is unchanged.
+- Wake-up prompts summarize the current unread snapshot and let the agent choose which unread message or messages to inspect and handle.
+- Each reminder includes the unread `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every unread message in that snapshot.
+- If unread mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on unread truth plus live prompt readiness rather than on reminder history.
 
 Detailed inspection note:
 

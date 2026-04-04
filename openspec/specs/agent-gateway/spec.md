@@ -35,43 +35,19 @@ The gateway companion SHALL direct its own logs away from the contractual operat
 - **AND THEN** normal gateway activity does not inject its own text into the operator-facing TUI surface
 
 ### Requirement: Pair-owned gateway attach for managed `houmao_server_rest` sessions supports explicit and current-session targeting
-The system SHALL expose `houmao-mgr agents gateway attach` as the pair-owned gateway attach surface for pair-managed tmux-backed TUI sessions whose runtime backend is `houmao_server_rest`.
+When called through the current-session contract, the command SHALL require execution inside the target agent's tmux session, SHALL discover the current tmux session as the attach context, SHALL prefer `HOUMAO_MANIFEST_PATH` from that tmux session when present and valid, and SHALL otherwise use `HOUMAO_AGENT_ID` from that same tmux session to resolve exactly one fresh shared-registry record and `runtime.manifest_path`.
 
-When called with an explicit managed-agent selector, the command SHALL resolve the target through the Houmao managed-agent identity namespace and SHALL execute attach through the managed-agent gateway attach route rather than through raw `cao` or raw runtime CLI semantics.
+Current-session attach SHALL NOT fall back to retired `AGENTSYS_*` names. It SHALL also NOT fall back to `HOUMAO_GATEWAY_ATTACH_PATH`, `HOUMAO_GATEWAY_ROOT`, `terminal_id`, cwd, ambient shell env, or another server target when manifest or shared-registry discovery is invalid or stale.
 
-When called through the current-session contract, the command SHALL require execution inside the target agent's tmux session, SHALL discover the current tmux session as the attach context, SHALL prefer `AGENTSYS_MANIFEST_PATH` from that tmux session when present and valid, SHALL otherwise use `AGENTSYS_AGENT_ID` from that same tmux session to resolve exactly one fresh shared-registry record and `runtime.manifest_path`, SHALL require the resolved manifest to belong to the current tmux session, SHALL derive attach authority from that manifest, and SHALL refuse the attach when those inputs are missing, stale, ambiguous, identify a non-`houmao_server_rest` session, or fail to resolve exactly one managed agent on the persisted pair authority.
+#### Scenario: Current-session attach prefers HOUMAO manifest pointer
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from the owning tmux session
+- **AND WHEN** that tmux session publishes a valid `HOUMAO_MANIFEST_PATH`
+- **THEN** the attach flow resolves authority from that manifest pointer
 
-`houmao-mgr` SHALL NOT require the user to address raw `cao_rest` or child-CAO topology in order to attach a gateway for pair-managed sessions, and current-session attach SHALL NOT fall back to `AGENTSYS_GATEWAY_ATTACH_PATH`, `AGENTSYS_GATEWAY_ROOT`, `terminal_id`, cwd, ambient shell env, or another server target when manifest or shared-registry discovery is invalid or stale.
-
-#### Scenario: Explicit attach resolves through managed-agent identity
-- **WHEN** a developer runs `houmao-mgr agents gateway attach --agent-id abc123` for a pair-managed `houmao_server_rest` session
-- **THEN** the command resolves that target through the managed-agent identity namespace
-- **AND THEN** the attach request is issued through the Houmao managed-agent gateway lifecycle surface
-
-#### Scenario: Current-session attach prefers the tmux-published manifest pointer
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
-- **AND WHEN** that tmux session publishes a valid `AGENTSYS_MANIFEST_PATH`
-- **THEN** the command loads that manifest directly as the current-session attach authority
-- **AND THEN** the command does not require an explicit agent identity
-
-#### Scenario: Current-session attach falls back to shared registry by agent id
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
-- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale in that session
-- **AND WHEN** the tmux session publishes `AGENTSYS_AGENT_ID`
-- **THEN** the command resolves exactly one fresh shared-registry record by that authoritative `agent_id`
-- **AND THEN** it uses the resolved `runtime.manifest_path` as the attach authority input
-
-#### Scenario: Current-session attach uses manifest-declared server authority
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a pair-managed agent tmux session
-- **AND WHEN** the resolved manifest declares attach authority `api_base_url=<server>` with managed-agent ref `<agent-ref>`
-- **THEN** the command issues the managed-agent gateway attach request against `<server>` with `<agent-ref>` as `{agent_ref}`
-- **AND THEN** it does not retarget the request through legacy gateway pointers, `terminal_id`, or another alias
-
-#### Scenario: Current-session attach fails closed without usable manifest-first discovery
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from a tmux session whose `AGENTSYS_MANIFEST_PATH` is unusable
-- **AND WHEN** `AGENTSYS_AGENT_ID` is missing, stale, or does not resolve exactly one fresh shared-registry record
-- **THEN** the command fails explicitly
-- **AND THEN** it does not guess from cwd, ambient shell env, or raw CAO state
+#### Scenario: Current-session attach falls back to HOUMAO agent id through the shared registry
+- **WHEN** a developer runs `houmao-mgr agents gateway attach` from a tmux session whose `HOUMAO_MANIFEST_PATH` is unusable
+- **AND WHEN** the tmux session publishes `HOUMAO_AGENT_ID`
+- **THEN** the attach flow resolves authority through exactly one fresh shared-registry record
 
 ### Requirement: Pair-managed `houmao_server_rest` gateway companions may run in an auxiliary tmux window without redefining the agent surface
 For pair-managed tmux-backed `houmao_server_rest` sessions, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session for normal operation.
@@ -105,9 +81,7 @@ For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, th
 
 When that foreground mode is active, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
 
-When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL resolve that surface from the persisted auxiliary pane or window identity through session-wide tmux pane lookup, SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
-
-Same-session foreground gateway liveness SHALL NOT depend on which tmux window is currently active in the session.
+When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
 
 The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
 
@@ -127,12 +101,6 @@ The gateway companion SHALL continue writing its own durable logs to gateway-own
 - **THEN** the runtime determines local gateway liveness from the auxiliary tmux pane state for that window
 - **AND THEN** the runtime waits for successful gateway health responses before treating the gateway as ready
 - **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle
-
-#### Scenario: Current agent window does not hide the live gateway pane
-- **WHEN** tmux window `0` is current for a runtime-owned tmux-backed session
-- **AND WHEN** the live gateway companion pane remains in auxiliary window `1`
-- **THEN** foreground gateway liveness still resolves that auxiliary pane from the persisted gateway surface identity
-- **AND THEN** the runtime does not clear live gateway state solely because the agent window is current
 
 ### Requirement: Same-session gateway live state persists an authoritative execution handle
 The runtime SHALL persist one authoritative live gateway record under `<session-root>/gateway/run/current-instance.json`.
@@ -276,34 +244,16 @@ That runtime-owned discovery path SHALL surface at minimum the current `host`, `
 - **AND THEN** any existing `gateway_manifest.json` is treated as derived publication rather than as the authoritative input
 
 ### Requirement: Native headless gateway attach supports tmux current-session targeting without requiring a live worker process
-For native headless tmux-backed sessions, the system SHALL allow gateway attach from inside the owning tmux session using manifest-first discovery from `AGENTSYS_MANIFEST_PATH` or `AGENTSYS_AGENT_ID`.
+For native headless tmux-backed sessions, the system SHALL allow gateway attach from inside the owning tmux session using manifest-first discovery from `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`.
 
-Current-session headless attach SHALL target the logical headless session described by the manifest rather than assuming a currently running headless worker process already exists.
-
-The system SHALL keep tmux window `0` reserved for the headless agent console surface, and any same-session gateway surface used during attach SHALL remain off window `0`.
-
-When the resolved manifest declares native headless relaunch authority, gateway attach SHALL treat that manifest-owned authority as sufficient to manage future headless turns even when no current headless process pid is published.
-
-#### Scenario: Current-session headless attach uses manifest-first discovery
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a native headless tmux session
-- **AND WHEN** that session publishes a valid `AGENTSYS_MANIFEST_PATH`
-- **THEN** the command loads that manifest as the current-session attach authority
-- **AND THEN** it does not require a currently running headless worker process
-
-#### Scenario: Headless attach falls back to shared registry by agent id
-- **WHEN** a developer runs `houmao-mgr agents gateway attach` from inside a native headless tmux session
-- **AND WHEN** `AGENTSYS_MANIFEST_PATH` is missing, blank, or stale
-- **AND WHEN** the tmux session publishes `AGENTSYS_AGENT_ID`
-- **THEN** the command resolves exactly one fresh shared-registry record by that authoritative `agent_id`
-- **AND THEN** it uses the resolved `runtime.manifest_path` as the attach authority input
-
-#### Scenario: Headless attach succeeds between turns with no live agent pid
-- **WHEN** a native headless session has a valid manifest and tmux discovery metadata
-- **AND WHEN** no current headless worker process is running because the previous turn already ended
-- **THEN** gateway attach remains valid for that logical session
-- **AND THEN** the gateway uses manifest-owned launch authority to manage future turns
+#### Scenario: Native headless attach accepts HOUMAO current-session discovery
+- **WHEN** a developer runs gateway attach from inside the owning native headless tmux session
+- **AND WHEN** that session publishes a valid `HOUMAO_MANIFEST_PATH`
+- **THEN** the system resolves the target from `HOUMAO_MANIFEST_PATH`
 
 ### Requirement: Gateway bootstrap artifacts are internal runtime state rather than supported public authority
+Gateway bootstrap artifacts SHALL remain internal runtime state rather than supported public authority.
+
 The system MAY keep internal gateway bootstrap artifacts such as `attach.json` under the session-owned gateway root when runtime or server internals still need them for startup seeding, offline status materialization, or managed-agent metadata transfer.
 
 Those artifacts SHALL be treated as internal runtime state rather than supported public authority for attach or control behavior.
@@ -377,10 +327,83 @@ When a gateway instance starts successfully with a system-assigned port, the sys
 - **THEN** the system records that resolved host and port as the desired listener for the gateway root
 - **AND THEN** a later restart of that same gateway root reuses that listener unless a caller explicitly overrides it
 
+### Requirement: Gateway supports ephemeral one-off and repeating wakeup jobs
+The live gateway SHALL expose dedicated wakeup routes for direct timer registration without requiring mailbox participation.
+
+That wakeup surface SHALL include:
+
+- `POST /v1/wakeups`
+- `GET /v1/wakeups`
+- `GET /v1/wakeups/{job_id}`
+- `DELETE /v1/wakeups/{job_id}`
+
+Each wakeup job SHALL include a predefined prompt and SHALL use either:
+
+- one-off mode with exactly one requested due time, or
+- repeating mode with an interval and next due time.
+
+The gateway SHALL keep registered wakeup jobs entirely in the live gateway process memory. Pending wakeup jobs and due-but-not-yet-executed wakeup occurrences SHALL NOT survive gateway shutdown or restart.
+
+Deleting a wakeup job SHALL cancel that job while it remains scheduled. Deleting a repeating wakeup job SHALL stop future repetitions. If execution of one wakeup occurrence has already started, deleting the job SHALL NOT retroactively retract that already-started prompt execution.
+
+Unknown `job_id` lookups or cancellations SHALL fail explicitly rather than pretending the wakeup still exists.
+
+#### Scenario: Caller registers one one-off wakeup
+- **WHEN** a caller submits `POST /v1/wakeups` with a predefined prompt and one one-off due time
+- **THEN** the live gateway returns a wakeup job identifier for that scheduled wakeup
+- **AND THEN** the new wakeup is visible through `GET /v1/wakeups` and `GET /v1/wakeups/{job_id}` while it remains scheduled
+
+#### Scenario: Caller registers one repeating wakeup
+- **WHEN** a caller submits `POST /v1/wakeups` with mode `repeat`, a predefined prompt, and a repeat interval
+- **THEN** the live gateway schedules a repeating wakeup for that job
+- **AND THEN** later inspection shows that the job remains registered until it is canceled or the gateway stops
+
+#### Scenario: Gateway restart drops pending wakeups
+- **WHEN** the live gateway stops or restarts while one or more wakeup jobs are still scheduled
+- **THEN** those pending wakeup jobs are lost
+- **AND THEN** the restarted gateway does not recover them from gateway persistence artifacts
+
+#### Scenario: Canceling a repeating wakeup stops future occurrences
+- **WHEN** a caller deletes a repeating wakeup job that is still registered
+- **THEN** the live gateway cancels that wakeup job explicitly
+- **AND THEN** no later repeating occurrences are scheduled for that deleted job
+
+### Requirement: Due wakeups remain gateway-owned low-priority internal prompt delivery
+When a wakeup becomes due, the gateway SHALL treat delivery of that wakeup prompt as gateway-owned internal execution behavior rather than as a new externally visible public request kind.
+
+The public terminal-mutating request-kind set SHALL remain limited to `submit_prompt` and `interrupt`.
+
+Before a due wakeup prompt starts execution, the gateway SHALL require:
+
+- request admission to be open,
+- no active terminal-mutating execution,
+- zero durable public queue depth.
+
+If those conditions are not satisfied when a wakeup becomes due, the gateway SHALL keep that wakeup pending in memory and SHALL retry later instead of dropping the reminder or converting it into durable queued work.
+
+Repeating wakeups SHALL maintain at most one pending due occurrence per job. Missed intervals during a busy period SHALL NOT produce a catch-up burst of multiple immediate prompt deliveries once the gateway becomes idle again.
+
+#### Scenario: Busy gateway defers a due wakeup
+- **WHEN** a wakeup becomes due while request admission is blocked, active execution is running, or durable public queue depth is non-zero
+- **THEN** the gateway does not start that wakeup prompt immediately
+- **AND THEN** the wakeup remains pending in memory until a later safe execution opportunity
+
+#### Scenario: Due wakeup does not expand the public request-kind set
+- **WHEN** a wakeup prompt is delivered after becoming due
+- **THEN** that delivery happens through gateway-owned internal behavior rather than a new public `POST /v1/requests` kind
+- **AND THEN** the public terminal-mutating request kinds remain exactly `submit_prompt` and `interrupt`
+
+#### Scenario: Repeating wakeup does not backfill missed intervals as a burst
+- **WHEN** a repeating wakeup remains overdue across multiple interval boundaries because the gateway is busy
+- **THEN** the gateway preserves at most one pending overdue occurrence for that repeating job
+- **AND THEN** the gateway does not emit one immediate prompt for every missed interval once the gateway becomes idle
+
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
-The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, gateway-owned notifier control, and, when permitted by mailbox bindings and listener policy, shared mailbox operations on the resolved listener address for that session.
+The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, wakeup registration and inspection, gateway-owned notifier control, and, when permitted by mailbox bindings and listener policy, shared mailbox operations on the resolved listener address for that session.
 
 The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
+
+The wakeup HTTP API SHALL additionally expose `POST /v1/wakeups`, `GET /v1/wakeups`, `GET /v1/wakeups/{job_id}`, and `DELETE /v1/wakeups/{job_id}`.
 
 For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
 
@@ -394,6 +417,8 @@ When the gateway mail notifier capability is implemented, that HTTP API SHALL ad
 
 `POST /v1/requests` SHALL accept typed request-creation payloads and SHALL return the accepted queued request record.
 
+The wakeup routes SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to mutate gateway memory or private runtime objects directly.
+
 The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
 
 The shared mailbox routes SHALL be limited to mailbox status, `check`, `send`, `reply`, and explicit single-message read-state update behaviors supported by both the filesystem and `stalwart` transports.
@@ -404,11 +429,13 @@ That HTTP API SHALL be served by the gateway sidecar itself and SHALL use struct
 
 Request-validation failures on `POST /v1/requests` SHALL return HTTP `422`. Explicit gateway policy rejection SHALL return HTTP `403`. Request-state conflicts such as reconciliation-required admission blocking SHALL return HTTP `409`. Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
 
+Wakeup-route validation failures SHALL return HTTP `422`. Unknown wakeup identifiers on `GET /v1/wakeups/{job_id}` or `DELETE /v1/wakeups/{job_id}` SHALL return HTTP `404`.
+
 Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifier behavior for sessions that cannot support it SHALL fail explicitly rather than pretending that notifier polling is active.
 
 Shared mailbox route validation failures SHALL return HTTP `422`. Calls to mailbox routes for sessions without mailbox bindings SHALL fail explicitly rather than pretending mailbox support exists. When the live gateway listener is bound to `0.0.0.0`, the `/v1/mail/*` routes SHALL fail explicitly as unavailable until an authentication model exists for broader listeners.
 
-Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, notifier status, or shared mailbox state.
+Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, wakeup state, notifier status, or shared mailbox state.
 
 #### Scenario: Health inspection uses default loopback surface
 - **WHEN** a tool inspects a gateway-managed session whose resolved gateway host is `127.0.0.1`
@@ -429,6 +456,16 @@ Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the termi
 - **WHEN** a tool submits gateway-managed terminal-mutating work for a session whose resolved gateway host is `0.0.0.0`
 - **THEN** it may submit that work through `POST /v1/requests` on any reachable host interface address on the resolved port
 - **AND THEN** the gateway validates and records the request before it can compete for execution
+
+#### Scenario: Wakeup registration uses the live gateway HTTP surface
+- **WHEN** a caller needs to register or inspect one live wakeup job for an attached gateway-managed session
+- **THEN** the caller uses the dedicated `/v1/wakeups` route family on that live gateway listener
+- **AND THEN** the caller does not need to mutate private runtime state or transport queue artifacts directly
+
+#### Scenario: Unknown wakeup identifier fails explicitly
+- **WHEN** a caller requests `GET /v1/wakeups/{job_id}` or `DELETE /v1/wakeups/{job_id}` for a non-existent wakeup job
+- **THEN** the gateway rejects that call explicitly
+- **AND THEN** it does not pretend that the requested wakeup still exists
 
 #### Scenario: Filesystem-backed mailbox check uses the dedicated gateway mail surface
 - **WHEN** a caller performs mailbox `check` against a mailbox-enabled session whose resolved mailbox transport is `filesystem`
@@ -718,23 +755,34 @@ The gateway SHALL avoid unbounded log spam from high-frequency identical poll ou
 - **AND THEN** the gateway avoids emitting an unbounded identical busy message on every single short poll forever
 
 ### Requirement: Gateway notifier wake-up semantics are unread-set based rather than per-message based
-When gateway-owned notifier behavior is enabled for a mailbox-backed session, the gateway SHALL treat notification eligibility as a function of whether unread mail exists for that session and whether the session is eligible to receive a reminder prompt.
+When gateway-owned notifier behavior is enabled for a mailbox-backed session, the gateway SHALL treat notification eligibility as a function of whether unread mail exists for that session and whether the session is currently eligible to receive a reminder prompt.
 
-If a poll cycle finds multiple unread messages, the gateway MAY enqueue a single internal reminder prompt that summarizes the unread set for that cycle, including message metadata such as titles or identifiers.
+If a poll cycle finds multiple unread messages, the gateway SHALL support satisfying notifier behavior with a single internal reminder prompt that summarizes the unread set for that cycle, including message metadata such as titles or identifiers.
 
 The gateway SHALL NOT require one internal reminder prompt per unread message in order to satisfy notifier behavior.
 
-If the unread set has not changed since the last successful reminder and the messages remain unread, the gateway MAY skip emitting a duplicate reminder until the unread set changes or the messages are marked read explicitly.
+If the unread set remains unchanged after an earlier reminder was delivered or enqueued, and a later poll finds the session eligible to accept a new prompt again, the gateway SHALL continue treating that unchanged unread set as eligible for another reminder.
+
+The gateway SHALL NOT suppress a later reminder solely because a prior reminder targeted the same unread snapshot.
 
 #### Scenario: Multiple unread messages can be summarized in one reminder prompt
 - **WHEN** one notifier poll cycle observes more than one unread message for the same mailbox-backed session
 - **THEN** the gateway may enqueue one internal reminder prompt that summarizes the unread set observed in that cycle
 - **AND THEN** the gateway does not need to enqueue one reminder per unread message
 
-#### Scenario: Unchanged unread set does not force duplicate reminders
+#### Scenario: Unchanged unread set remains eligible after the session becomes ready again
 - **WHEN** the notifier previously delivered or enqueued a reminder for one unread set
 - **AND WHEN** a later poll finds the same unread set still present and still unread
-- **THEN** the gateway may treat that later poll as a duplicate and skip enqueueing a second reminder for the unchanged unread set
+- **AND WHEN** the managed session is again eligible to accept a new prompt
+- **THEN** the gateway continues treating that unread set as eligible for another reminder
+- **AND THEN** it does not suppress that later reminder solely because the unread snapshot is unchanged
+
+#### Scenario: Operator activity does not retire unread reminder eligibility
+- **WHEN** unread mail remains present after a prior reminder
+- **AND WHEN** operator-driven commands or other unrelated session activity interrupt, replace, or sidetrack the earlier reminder flow
+- **AND WHEN** a later poll finds the managed session eligible to accept a new prompt again
+- **THEN** the gateway still treats the remaining unread mail as eligible for notifier reminder delivery
+- **AND THEN** reminder eligibility continues to depend on unread mail plus live prompt readiness rather than on prior reminder history
 
 ### Requirement: Gateway notifier records structured per-poll decision auditing for later review
 When gateway-owned notifier behavior is enabled, the gateway SHALL record one structured notifier-decision audit record for each enabled poll cycle in a queryable SQLite audit table under the gateway state root.
@@ -943,28 +991,114 @@ Those read-optimized gateway-backed state artifacts or equivalent gateway-owned 
 - **THEN** it reads that state through the live gateway HTTP surface for that agent
 - **AND THEN** it does not treat gateway-private session-root files as the authoritative live-state transport
 
+### Requirement: Gateway exposes explicit headless chat-session state and next-prompt override control
+For native headless gateway targets, the live gateway SHALL expose dedicated headless chat-session control routes:
+
+- `GET /v1/control/headless/state`
+- `POST /v1/control/headless/next-prompt-session`
+
+`GET /v1/control/headless/state` SHALL return the gateway's current headless control-state payload for the addressed managed session.
+
+That payload SHALL include a `chat_session` state object with at least:
+
+- `current`, describing the concrete provider session currently pinned by the managed agent or `null` when none is pinned
+- `startup_default`, describing the managed agent's first-chat fallback policy using one of `new`, `tool_last_or_new`, or `exact`
+- `next_prompt_override`, containing either `null` or a one-shot override object
+
+When `startup_default.mode = exact`, the state payload SHALL include the exact provider session id used by that startup default.
+
+In v1, `POST /v1/control/headless/next-prompt-session` SHALL be valid only for native headless gateway targets and SHALL accept only `mode = new`. It SHALL set `chat_session.next_prompt_override` so the next accepted prompt whose effective selector is `auto` uses a fresh provider chat.
+
+That one-shot override SHALL:
+
+- be gateway-local live state rather than durable persisted state,
+- be lost if the gateway stops or restarts,
+- be consumed only when the next accepted `auto` prompt is admitted,
+- remain pending when a later prompt explicitly requests `new`, `current`, `tool_last_or_new`, or `exact`,
+- not affect queued gateway requests, wakeup delivery, mail-notifier behavior, or other internal gateway-generated prompts.
+
+`POST /v1/control/headless/next-prompt-session` SHALL return the updated headless control-state payload after storing the pending override.
+
+For TUI-backed or otherwise non-headless targets, both routes SHALL reject the request with validation semantics rather than pretending that a headless control surface exists.
+
+#### Scenario: Headless state reports current session, startup default, and pending override
+- **WHEN** a caller requests `GET /v1/control/headless/state` for a native headless gateway target
+- **THEN** the response includes `chat_session.current`, `chat_session.startup_default`, and `chat_session.next_prompt_override`
+- **AND THEN** the caller can distinguish the managed agent's pinned current session from its startup policy and one-shot override posture
+
+#### Scenario: Next-prompt override is consumed by the next accepted auto prompt
+- **WHEN** a caller first submits `POST /v1/control/headless/next-prompt-session` with `mode = new`
+- **AND WHEN** the next accepted public `POST /v1/control/prompt` for that same headless target omits `chat_session` or explicitly sets `chat_session.mode = auto`
+- **THEN** that prompt uses a fresh provider chat
+- **AND THEN** a later `GET /v1/control/headless/state` no longer reports a pending next-prompt override
+
+#### Scenario: Explicit non-auto prompt does not consume the pending next-prompt override
+- **WHEN** a caller first submits `POST /v1/control/headless/next-prompt-session` with `mode = new`
+- **AND WHEN** a later accepted `POST /v1/control/prompt` for that same headless target explicitly requests `chat_session.mode = current`
+- **THEN** the gateway resolves that prompt using the explicit selector
+- **AND THEN** the pending next-prompt override remains visible until a later accepted auto prompt consumes it or the gateway stops
+
+#### Scenario: Restart clears the pending next-prompt override
+- **WHEN** a native headless gateway target has a pending next-prompt override
+- **AND WHEN** the gateway stops or restarts before an accepted auto prompt consumes it
+- **THEN** the restarted gateway no longer reports that pending override
+- **AND THEN** the override is not recovered from durable gateway state
+
+#### Scenario: TUI target rejects headless chat-session control routes
+- **WHEN** a caller requests `GET /v1/control/headless/state` or `POST /v1/control/headless/next-prompt-session` for a TUI-backed gateway target
+- **THEN** the gateway rejects that request with validation semantics
+- **AND THEN** it does not pretend that a headless control surface exists for that target
+
 ### Requirement: Gateway exposes semantic prompt submission separately from raw send-keys control
 
 For gateway-managed tmux-backed sessions, the gateway SHALL keep semantic prompt submission separate from raw key/control-input delivery.
 
-`POST /v1/requests` SHALL remain the semantic queued request surface for `submit_prompt` and `interrupt`.
+The gateway SHALL expose two semantic prompt surfaces:
+
+- `POST /v1/requests` as the queued gateway request surface for `submit_prompt` and `interrupt`
+- `POST /v1/control/prompt` as the immediate prompt-control surface for "send now or refuse now" prompt dispatch
+
+For native headless targets, `POST /v1/control/prompt` SHALL additionally accept an optional structured `chat_session` selector object.
+
+That headless-only selector SHALL use:
+
+- `chat_session.mode = auto | new | current | tool_last_or_new | exact`
+- `chat_session.id` required only when `mode = exact`
+
+For headless prompt control:
+
+- omitting `chat_session` SHALL be equivalent to `chat_session.mode = auto`
+- `new` SHALL mean "use a fresh provider chat for this prompt"
+- `current` SHALL mean "use the managed agent's pinned current provider session"
+- `tool_last_or_new` SHALL mean "ask the underlying tool to resume its latest stored chat and start fresh if none exists"
+- `exact` SHALL mean "use this exact provider session identifier"
 
 The gateway SHALL additionally expose a dedicated raw control-input endpoint for send-keys style delivery. That endpoint SHALL accept exact `<[key-name]>` control-input sequences using the same contract as the runtime tmux-control-input capability, including optional full-string literal escaping.
 
-The semantic gateway prompt path SHALL treat the provided prompt body as literal text, SHALL NOT interpret `<[key-name]>` substrings as special keys, and SHALL automatically submit once at the end.
+Both semantic gateway prompt surfaces SHALL treat the provided prompt body as literal text, SHALL NOT interpret `<[key-name]>` substrings as special keys, and SHALL automatically submit once at the end.
 
 The dedicated raw control-input endpoint SHALL NOT enqueue a durable `submit_prompt` request, SHALL NOT claim that a managed prompt turn was submitted, and SHALL NOT trigger gateway prompt-submission tracking hooks by itself.
 
-#### Scenario: Gateway prompt submission remains on the queued semantic request surface
+For TUI-backed targets, `POST /v1/control/prompt` SHALL accept `chat_session.mode = new` and SHALL reject `chat_session.mode = auto | current | tool_last_or_new | exact` with validation semantics rather than ignoring the field.
 
-- **WHEN** a caller submits managed prompt work through the gateway
-- **THEN** the caller uses `POST /v1/requests` with kind `submit_prompt`
-- **AND THEN** the gateway treats that work as semantic prompt submission rather than generic key injection
+Malformed `chat_session` payloads, including missing `id` for `exact` or unexpected `id` for other modes, SHALL be rejected with validation semantics.
+
+#### Scenario: Gateway direct prompt control returns immediate dispatch semantics
+
+- **WHEN** a caller submits managed prompt work through `POST /v1/control/prompt`
+- **THEN** the gateway returns success only after that prompt has been admitted for immediate live dispatch on the current target
+- **AND THEN** the response does not pretend that the prompt was merely queued for later execution
+
+#### Scenario: Gateway queued prompt submission remains on the request surface
+
+- **WHEN** a caller submits queued gateway work through `POST /v1/requests` with kind `submit_prompt`
+- **THEN** the gateway treats that work as queued semantic prompt submission rather than generic key injection
+- **AND THEN** the route remains distinct from `POST /v1/control/prompt`
 
 #### Scenario: Gateway raw send-keys uses a separate control endpoint
 
 - **WHEN** a caller needs to inject the raw control-input sequence `"/model<[Enter]><[Down]>"` into a live gateway-managed TUI
-- **THEN** the caller uses the dedicated gateway raw control-input endpoint rather than `POST /v1/requests`
+- **THEN** the caller uses the dedicated gateway raw control-input endpoint rather than `POST /v1/requests` or `POST /v1/control/prompt`
 - **AND THEN** the gateway applies the exact `<[key-name]>` parsing rules without claiming that a semantic prompt turn was submitted
 
 #### Scenario: Gateway send-prompt keeps special-key-looking text literal
@@ -972,6 +1106,133 @@ The dedicated raw control-input endpoint SHALL NOT enqueue a durable `submit_pro
 - **WHEN** a caller submits gateway prompt text `type <[Enter]> literally`
 - **THEN** the gateway semantic prompt path treats `<[Enter]>` as literal text
 - **AND THEN** the gateway performs one automatic final submit instead of interpreting that substring as a raw keypress
+
+#### Scenario: Headless direct prompt control accepts explicit tool-native latest selection
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with `chat_session.mode = tool_last_or_new`
+- **THEN** the gateway resolves that request by asking the tool to resume its latest stored chat or start fresh if none exists
+- **AND THEN** the gateway does not reinterpret that selector as the managed agent's current pinned session
+
+#### Scenario: TUI direct prompt control accepts explicit new-session reset request
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
+- **THEN** the gateway accepts that request as a TUI conversation-reset workflow
+- **AND THEN** it does not reinterpret that selector as headless provider-session state
+
+#### Scenario: TUI direct prompt control rejects unsupported explicit session selector
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = current`
+- **THEN** the gateway rejects that request with validation semantics
+- **AND THEN** it does not ignore the selector and pretend that ordinary prompt control succeeded
+
+### Requirement: Gateway direct prompt control only dispatches when the addressed agent is prompt-ready unless forced
+
+For gateway-managed prompt control through `POST /v1/control/prompt`, the gateway SHALL reject prompt dispatch by default unless the addressed target is ready to accept a new prompt immediately.
+
+For TUI-backed sessions, the direct prompt-control path SHALL evaluate prompt readiness from the gateway-owned TUI state and SHALL require at minimum:
+
+- `turn.phase = "ready"`
+- `surface.accepting_input = "yes"`
+- `surface.editing_input = "no"`
+- `surface.ready_posture = "yes"`
+- `stability.stable = true`
+
+When a parsed surface is available for that TUI state, the gateway SHALL additionally require `parsed_surface.business_state = "idle"` and `parsed_surface.input_mode = "freeform"` before treating the target as prompt-ready.
+
+For native headless sessions, the direct prompt-control path SHALL require that authoritative runtime control is operable and that no active execution or active turn is already running for that managed session.
+
+For TUI-backed sessions with `chat_session.mode = new`, the direct prompt-control path SHALL:
+
+- require an initial prompt-ready TUI posture suitable for semantic prompt submission,
+- send a semantic reset prompt such as `/clear`,
+- wait until the tracked TUI state stabilizes back to prompt-ready posture,
+- send the caller's actual prompt only after that post-reset stabilization succeeds.
+
+If the TUI target lacks a supported reset workflow, if the reset prompt cannot be admitted, or if post-reset stabilization does not succeed, the gateway SHALL fail the request explicitly and SHALL NOT claim that the caller's actual prompt was delivered.
+
+For native headless sessions, the gateway SHALL resolve the effective chat-session selector as follows:
+
+- `chat_session.mode = auto` resolves in this order:
+  - `chat_session.next_prompt_override` when present,
+  - `chat_session.current` when present,
+  - `chat_session.startup_default`,
+  - `new`
+- `chat_session.mode = current` requires `chat_session.current` to exist and SHALL fail explicitly when no current session is pinned
+- `chat_session.mode = tool_last_or_new` asks the tool to resume its latest stored chat and falls back to fresh if none exists
+- `chat_session.mode = exact` uses the provided exact provider session id
+- `chat_session.mode = new` forces fresh provider-chat bootstrap
+
+After a successful headless prompt turn, the resolved concrete provider session id returned by the tool SHALL become the managed agent's `chat_session.current` when one is reported.
+
+When the request sets `force = true`, the gateway MAY bypass readiness checks, but it SHALL still reject unavailable, reconciliation-blocked, invalid-selector, incompatible-target, or unsupported-target requests explicitly.
+
+#### Scenario: Prompt-ready TUI accepts immediate prompt control
+
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target
+- **AND WHEN** the gateway-owned TUI state reports a stable ready posture with no active editing state
+- **THEN** the gateway dispatches the prompt immediately
+- **AND THEN** the success response states that the prompt was sent
+
+#### Scenario: Busy TUI refuses direct prompt control by default
+
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target
+- **AND WHEN** the gateway-owned TUI state does not satisfy the prompt-ready contract
+- **AND WHEN** the request does not set `force = true`
+- **THEN** the gateway rejects that prompt explicitly
+- **AND THEN** it does not return a success payload claiming the prompt was sent
+
+#### Scenario: TUI new mode clears the conversation before sending the prompt
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
+- **AND WHEN** the gateway-owned TUI state reports a stable ready posture
+- **THEN** the gateway first sends the configured reset prompt such as `/clear`
+- **AND THEN** after the TUI stabilizes back to ready posture, the gateway sends the caller's actual prompt
+
+#### Scenario: TUI new mode fails when post-clear stabilization does not complete
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
+- **AND WHEN** the reset prompt is sent but the TUI does not stabilize back to ready posture within the allowed wait
+- **THEN** the gateway rejects that request explicitly
+- **AND THEN** it does not claim that the caller's actual prompt was delivered
+
+#### Scenario: Force bypasses prompt-readiness refusal but not gateway availability failures
+
+- **WHEN** a caller submits `POST /v1/control/prompt` with `force = true`
+- **AND WHEN** the addressed target is connected but not currently prompt-ready
+- **THEN** the gateway may dispatch the prompt anyway
+- **AND THEN** the same route still rejects unavailable or reconciliation-blocked gateway state explicitly
+
+#### Scenario: Headless prompt control rejects overlapping work
+
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target
+- **AND WHEN** that target already has active execution in flight
+- **THEN** the gateway rejects that prompt explicitly
+- **AND THEN** it does not start overlapping headless prompt work
+
+#### Scenario: Auto mode prefers the managed agent's current pinned session
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with omitted `chat_session`
+- **AND WHEN** that managed agent already has `chat_session.current`
+- **THEN** the gateway resolves that prompt against the pinned current provider session
+- **AND THEN** it does not re-query the tool's global latest-session storage for that prompt
+
+#### Scenario: Current mode fails when no pinned current session exists
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with `chat_session.mode = current`
+- **AND WHEN** the managed agent does not have `chat_session.current`
+- **THEN** the gateway rejects that request explicitly
+- **AND THEN** it does not silently fall back to `auto`, startup default, or fresh bootstrap
+
+#### Scenario: Unsupported backend rejects direct prompt control explicitly
+
+- **WHEN** a caller submits `POST /v1/control/prompt` for backend `codex_app_server`
+- **THEN** the gateway rejects that request as not implemented
+- **AND THEN** it does not pretend that prompt readiness was evaluated successfully
+
+### Requirement: Gateway raw send-keys bypasses prompt-readiness and busy gating
+
+For gateway-managed raw control input through `POST /v1/control/send-keys`, the gateway SHALL forward the exact control-input request without first requiring that the addressed agent is idle, stable, or prompt-ready.
+
+The route MAY still reject the request for ordinary gateway availability failures such as detached gateway state, reconciliation blocking, or invalid control-input payloads.
+
+#### Scenario: Raw send-keys still forwards while the TUI is busy
+
+- **WHEN** a caller submits `POST /v1/control/send-keys` while the gateway-owned TUI state reports active work
+- **THEN** the gateway forwards that raw control-input request immediately
+- **AND THEN** it does not reject the request only because the agent is not prompt-ready
 
 ### Requirement: Gateway semantic prompt submission for local interactive sessions uses the runtime semantic prompt path
 

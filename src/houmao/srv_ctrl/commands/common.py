@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 import os
 import shutil
 import subprocess
 from typing import Any, ParamSpec, Sequence, TypeVar, cast
 
 import click
-from pydantic import BaseModel
 
 from houmao.agents.realm_controller.agent_identity import normalize_user_managed_agent_name
 from houmao.agents.realm_controller.errors import SessionManifestError
@@ -192,7 +190,7 @@ def managed_agent_selector_options(function: _FC) -> _FC:
         default=None,
         help=(
             "Raw creation-time friendly managed-agent name. Do not include the "
-            "`AGENTSYS-` prefix."
+            "`HOUMAO-` prefix."
         ),
     )(function)
     function = click.option(
@@ -201,6 +199,16 @@ def managed_agent_selector_options(function: _FC) -> _FC:
         help="Authoritative managed-agent id.",
     )(function)
     return function
+
+
+def overwrite_confirm_option(function: _FC) -> _FC:
+    """Attach the shared destructive overwrite confirmation flag."""
+
+    return click.option(
+        "--yes",
+        is_flag=True,
+        help="Confirm destructive overwrite non-interactively when required.",
+    )(function)
 
 
 def require_managed_agent_ref(agent_ref: str) -> str:
@@ -236,17 +244,6 @@ def resolve_managed_agent_selector(
     return normalized_agent_id, normalized_agent_name
 
 
-def emit_json(payload: object) -> None:
-    """Render one model or JSON-compatible payload with stable formatting."""
-
-    normalized: object
-    if isinstance(payload, BaseModel):
-        normalized = payload.model_dump(mode="json")
-    else:
-        normalized = payload
-    click.echo(json.dumps(normalized, indent=2, sort_keys=True))
-
-
 def pair_request(
     call: Callable[_ParamT, _ReturnT], /, *args: _ParamT.args, **kwargs: _ParamT.kwargs
 ) -> _ReturnT:
@@ -256,6 +253,54 @@ def pair_request(
         return call(*args, **kwargs)
     except CaoApiError as exc:
         raise click.ClickException(exc.detail) from exc
+
+
+def has_interactive_terminal(*streams: Any) -> bool:
+    """Return whether the provided streams appear interactive."""
+
+    resolved_streams = streams or (click.get_text_stream("stdin"), click.get_text_stream("stdout"))
+    for stream in resolved_streams:
+        isatty = getattr(stream, "isatty", None)
+        if isatty is None or not callable(isatty) or not bool(isatty()):
+            return False
+    return True
+
+
+def confirm_destructive_action(
+    *,
+    prompt: str,
+    yes: bool,
+    non_interactive_message: str,
+    cancelled_message: str,
+) -> None:
+    """Confirm one destructive CLI action or raise an operator-facing error."""
+
+    if yes:
+        return
+    if not has_interactive_terminal():
+        raise click.ClickException(non_interactive_message)
+    if not click.confirm(prompt, default=False):
+        raise click.ClickException(cancelled_message)
+
+
+def build_destructive_confirmation_callback(
+    *,
+    yes: bool,
+    non_interactive_message: str,
+    cancelled_message: str = "Mailbox registration cancelled.",
+) -> Callable[[str], bool]:
+    """Build one managed-mailbox replacement confirmation callback."""
+
+    def _confirm(prompt: str) -> bool:
+        confirm_destructive_action(
+            prompt=prompt,
+            yes=yes,
+            non_interactive_message=non_interactive_message,
+            cancelled_message=cancelled_message,
+        )
+        return True
+
+    return _confirm
 
 
 def resolve_prompt_text(*, prompt: str | None) -> str:

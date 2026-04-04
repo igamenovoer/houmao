@@ -1,72 +1,90 @@
 # Mailbox Common Workflows
 
-This page explains the practical v1 procedures for bootstrapping a mailbox, reading mail, sending mail, replying, and deciding when transport-local filesystem rules need to be inspected first.
+This page explains the practical v1 procedures for bootstrapping a mailbox, resolving current bindings, reading mail, sending mail, replying, marking processed mail read, and deciding when filesystem rules or compatibility helpers need deeper inspection.
 
 ## Mental Model
 
 The safest workflow is simple:
 
 1. Let the runtime create or validate the mailbox root.
-2. Treat `rules/` as the mailbox-local operating manual.
-3. Use runtime-owned `mail` commands for session-facing actions.
-4. Prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when it is attached.
-5. Use managed helpers only for direct filesystem operations that touch locks or SQLite.
-
-That order matters because the mailbox root may have mailbox-local rules, a private mailbox registration path, or managed helper requirements that are not obvious from a single path listing.
+2. Treat `rules/` as the mailbox-local operating manual, not as an ordinary execution protocol.
+3. Resolve the current live mailbox binding through `houmao-mgr agents mail resolve-live`.
+4. Prefer the live gateway `/v1/mail/*` facade when it is attached.
+5. Otherwise use `houmao-mgr agents mail check|send|reply|mark-read`.
+6. Touch `rules/scripts/` only for compatibility, debugging, or repair workflows that intentionally bypass the ordinary managed path.
 
 ## Bootstrap And First Inspection
 
-When you enable mailbox support on `start-session`, the runtime bootstraps the filesystem root, registers the current address, projects the mailbox skill, and persists the resolved mailbox binding.
+For the preferred local serverless workflow:
 
-After bootstrap, inspect these first:
+1. `pixi run houmao-mgr mailbox init --mailbox-root <path>`
+2. `pixi run houmao-mgr agents launch ...` or `pixi run houmao-mgr agents join ...`
+3. `pixi run houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
+
+After bootstrap, inspect these first when you are new to a mailbox root or are recovering an environment:
 
 - `<mailbox_root>/rules/README.md`
 - `<mailbox_root>/rules/protocols/filesystem-mailbox-v1.md`
-- `<mailbox_root>/rules/scripts/requirements.txt`
 
-Use this step whenever you are new to a mailbox root, recovering an environment, or about to touch shared state directly.
+If you intentionally need compatibility helpers for repair or debugging, inspect `<mailbox_root>/rules/scripts/requirements.txt` at that point, not as part of every ordinary mailbox turn.
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
+    participant CLI as houmao-mgr
     participant RT as Runtime
     participant FS as Mailbox<br/>root
-    participant Reg as Registration
-    Op->>RT: start session with<br/>filesystem mailbox
-    RT->>FS: create or validate root
-    RT->>Reg: safe register address
-    RT-->>Op: session manifest<br/>with mailbox binding
-    Op->>FS: inspect rules/ README<br/>protocol and requirements
+    Op->>CLI: mailbox init
+    CLI->>FS: bootstrap root
+    Op->>CLI: agents launch or join
+    CLI->>RT: create or adopt session
+    Op->>CLI: agents mailbox register
+    RT->>FS: register address and persist binding
+    Op->>CLI: agents mail resolve-live
+    CLI-->>Op: normalized binding and optional gateway
 ```
+
+## Resolve Live Bindings
+
+Use `resolve-live` whenever you need the exact current binding set or the exact live shared-mailbox gateway endpoint.
+
+```bash
+pixi run houmao-mgr agents mail resolve-live --agent-name research
+```
+
+Important details:
+
+- Inside the owning managed tmux session, selectors may be omitted.
+- Outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
+- When the returned payload includes `gateway.base_url`, that is the supported discovery path for attached `/v1/mail/*` work instead of ad hoc host or port guessing.
 
 ## Read Mail Safely
 
-Use `mail check` when you want the session to interpret or summarize mailbox content using the runtime-owned contract.
+Use `agents mail check` when you want manager-owned or gateway-backed mailbox reads.
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail check \
-  --agent-identity AGENTSYS-research \
+pixi run houmao-mgr agents mail check \
+  --agent-name research \
   --unread-only \
   --limit 10
 ```
 
 Operational guidance:
 
-- Re-read the current mailbox bindings before each action.
-- Treat `AGENTSYS_MAILBOX_FS_LOCAL_SQLITE_PATH` as the source of truth for unread versus read state and mailbox-local thread summaries.
-- Treat `AGENTSYS_MAILBOX_FS_SQLITE_PATH` as the shared structural catalog, not as the mailbox-view read or unread authority.
-- Read canonical content by following projections back to `messages/<date>/<message-id>.md`.
+- Re-resolve current bindings when you switch shells, sessions, or long-running automation contexts.
+- Treat `mailbox.filesystem.local_sqlite_path` as the source of truth for unread versus read state and mailbox-local thread summaries.
+- Treat `mailbox.filesystem.sqlite_path` as the shared structural catalog, not as the mailbox-view read or unread authority.
 - Only mark a message read after the mailbox action or processing step has completed successfully.
-- If `AGENTSYS_MAILBOX_BINDINGS_VERSION` changed, reload paths and retry from current bindings.
+- If a manager fallback result is `authoritative: false`, verify with `agents mail check`, filesystem inspection, or transport-native mailbox state.
 
 ## Send New Mail
 
-Use `mail send` for session-owned composition.
+Use `agents mail send` for manager-owned composition.
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail send \
-  --agent-identity AGENTSYS-research \
-  --to AGENTSYS-orchestrator@agents.localhost \
+pixi run houmao-mgr agents mail send \
+  --agent-name research \
+  --to HOUMAO-orchestrator@agents.localhost \
   --subject "Investigate parser drift" \
   --body-file body.md \
   --attach notes.txt
@@ -74,66 +92,55 @@ pixi run python -m houmao.agents.realm_controller mail send \
 
 Stepwise expectations:
 
-1. The runtime validates attachment paths and body source.
-2. The runtime prompts the session with the mailbox skill and a structured request.
-3. If a live loopback gateway mailbox facade is attached, the session uses the shared gateway route for the ordinary send action instead of reconstructing direct helper recipes.
-4. If direct filesystem access is required, the session inspects `rules/`.
-5. If that direct action touches `index.sqlite`, mailbox-local `mailbox.sqlite`, or `locks/`, the session uses the managed helper under `rules/scripts/`.
-6. The delivery flow stages the message, moves it into the canonical store, creates inbox or sent projections, updates the shared catalog plus mailbox-local mailbox state, and returns one JSON result.
+1. The CLI validates attachment paths and body source.
+2. Houmao resolves current mailbox authority for the target managed agent.
+3. If a live loopback gateway mailbox facade is attached, shared mailbox operations use that gateway route.
+4. Otherwise Houmao uses manager-owned direct execution when it can prove authority.
+5. Only when direct authority is unavailable does the local live TUI fallback submit a mailbox prompt into the session.
+6. Submission-only fallback results require separate verification.
 
-```mermaid
-sequenceDiagram
-    participant CLI as mail send
-    participant RT as Runtime
-    participant Ses as Session
-    participant Scr as Managed<br/>scripts
-    participant FS as Messages and<br/>projections
-    participant DB as index.sqlite
-    CLI->>RT: validated send args
-    RT->>Ses: mailbox skill request
-    Ses->>Scr: deliver_message.py
-    Scr->>FS: move staged message<br/>to canonical path
-    Scr->>FS: create inbox and sent<br/>symlink projections
-    Scr->>DB: insert message, recipients,<br/>attachments, state, summary
-    Ses-->>RT: one JSON result
-    RT-->>CLI: structured stdout
-```
+## Reply And Mark Read
 
-## Reply To Existing Mail
-
-Use `mail reply` when you already know the parent shared `message_ref`.
+Use `agents mail reply` when you already know the parent shared `message_ref`.
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail reply \
-  --agent-identity AGENTSYS-research \
+pixi run houmao-mgr agents mail reply \
+  --agent-name research \
   --message-ref filesystem:msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
 ```
 
-Reply-specific guidance:
+After you successfully process one nominated unread message, mark that same `message_ref` read:
 
-- Treat the reply target as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
-- Preserve the existing `thread_id`.
-- Set `in_reply_to` to the direct parent.
-- Extend `references`; do not infer threading from subject text alone.
-- When a live gateway facade is attached, use the shared gateway routines for `check`, `reply`, and the follow-up `POST /v1/mail/state` read acknowledgment.
-- Use the same rules-first and managed-helper expectations as `mail send` only when direct filesystem fallback is required.
+```bash
+pixi run houmao-mgr agents mail mark-read \
+  --agent-name research \
+  --message-ref filesystem:msg-20260312T050000Z-parent
+```
+
+Reply and mark-read guidance:
+
+- Treat `message_ref` as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
+- When a live gateway facade is attached, use the shared gateway routines for `check`, `reply`, and `POST /v1/mail/state`.
+- When the manager-owned fallback path is in use, `houmao-mgr agents mail mark-read` is the supported explicit read-acknowledgement command.
+- If `mark-read` returns `authoritative: false`, verify through `agents mail check`, filesystem inspection, or transport-native mailbox state before assuming the message was marked read.
 
 ## When `rules/` Inspection Is Mandatory
 
 Inspect mailbox-local `rules/` before:
 
-- invoking Python helper scripts from `rules/scripts/`,
+- running direct filesystem repair or recovery work,
+- invoking compatibility Python helpers from `rules/scripts/`,
 - touching `index.sqlite`,
 - touching any `.lock` file,
-- assuming a layout detail that could be mailbox-local policy rather than transport-wide policy,
-- reacting to a mailbox that claims to be initialized but is missing managed assets.
+- assuming a layout detail that could be mailbox-local policy rather than transport-wide policy.
 
 If managed `rules/scripts/` assets are missing, treat that as a bootstrap or initialization problem, not a prompt to author replacement scripts in place.
 
 ## Source References
 
-- [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
+- [`src/houmao/srv_ctrl/commands/agents/mail.py`](../../../../src/houmao/srv_ctrl/commands/agents/mail.py)
+- [`src/houmao/srv_ctrl/commands/managed_agents.py`](../../../../src/houmao/srv_ctrl/commands/managed_agents.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/mailbox/assets/rules/README.md`](../../../../src/houmao/mailbox/assets/rules/README.md)

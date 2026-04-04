@@ -1,8 +1,6 @@
 ## Purpose
 Define the `houmao-mgr server` lifecycle and server-session management command surface.
-
 ## Requirements
-
 ### Requirement: `houmao-mgr server` group exposes server lifecycle commands
 `houmao-mgr` SHALL expose a `server` command group for managing the `houmao-server` process lifecycle.
 
@@ -87,3 +85,40 @@ These commands SHALL contact the running `houmao-server` to retrieve or mutate s
 - **WHEN** an operator runs `houmao-mgr server stop` and no server is reachable
 - **THEN** the command reports that no server is running to stop
 - **AND THEN** it exits cleanly without an error stack trace
+
+### Requirement: `houmao-mgr server start` resolves the runtime root project-aware by default
+When `houmao-mgr server start` runs in project context without an explicit `--runtime-root`, the effective runtime root SHALL default to `<active-overlay>/runtime`.
+
+When no active project overlay exists and no stronger override is supplied, the command SHALL ensure `<cwd>/.houmao` exists and use `<cwd>/.houmao/runtime` as the resulting default runtime root.
+
+Explicit `--runtime-root` input SHALL continue to win over project-aware defaults.
+
+#### Scenario: Server start uses overlay-local runtime by default in project context
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr server start` without `--runtime-root`
+- **THEN** the command starts or reuses `houmao-server` using `/repo/.houmao/runtime` as the effective runtime root
+- **AND THEN** owned server artifacts for that start path are written under the overlay-local runtime root
+
+#### Scenario: Explicit runtime-root override still wins for server start
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr server start --runtime-root /tmp/houmao-server-runtime`
+- **THEN** the command uses `/tmp/houmao-server-runtime` as the effective runtime root
+- **AND THEN** it does not replace that explicit override with `/repo/.houmao/runtime`
+
+### Requirement: Server help and startup wording describe project-aware runtime-root selection
+Maintained `houmao-mgr server ...` and `houmao-server ...` operator-facing help text plus startup or status wording SHALL describe project-aware runtime-root selection consistently.
+
+When no explicit runtime-root override wins and project context is active, help text SHALL describe the default server artifact scope as the active project runtime root.
+
+When `--runtime-root` or `HOUMAO_GLOBAL_RUNTIME_DIR` wins, operator-facing wording SHALL describe that scope as an explicit runtime-root selection rather than as an active project runtime root.
+
+#### Scenario: Server help text describes the project-aware runtime-root default
+- **WHEN** an operator runs `houmao-mgr server start --help` or `houmao-server serve --help`
+- **THEN** the help output explains that `--runtime-root` overrides the active project runtime root when project context is active
+- **AND THEN** it does not imply that maintained server artifacts always default to the shared runtime root
+
+#### Scenario: Startup result describes the resolved runtime-root source accurately
+- **WHEN** an operator starts a server without an explicit runtime-root override in project context
+- **THEN** the startup result describes the resolved server artifact scope as the active project runtime root
+- **AND THEN** the wording changes when an explicit runtime-root override is supplied so the explicit override remains visible to the operator
+

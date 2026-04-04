@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -37,6 +38,10 @@ from .models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayPromptControlRequest,
+    HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentHistoryResponse,
@@ -47,6 +52,8 @@ from .models import (
     HoumaoManagedAgentMailCheckResponse,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
+    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -429,6 +436,64 @@ class HoumaoServerClient(CaoRestClient):
             json_body=request_model.model_dump(mode="json"),
         )
 
+    def control_managed_agent_gateway_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayPromptControlRequest,
+    ) -> HoumaoManagedAgentGatewayPromptControlResponse:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/control/prompt`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/control/prompt",
+            HoumaoManagedAgentGatewayPromptControlResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def get_managed_agent_gateway_headless_control_state(
+        self,
+        agent_ref: str,
+    ) -> GatewayHeadlessControlStateV1:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/control/headless/state",
+            GatewayHeadlessControlStateV1,
+        )
+
+    def set_managed_agent_gateway_headless_next_prompt_session(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    ) -> GatewayHeadlessControlStateV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/control/headless/next-prompt-session",
+            GatewayHeadlessControlStateV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def submit_managed_agent_gateway_internal_headless_prompt(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    ) -> CaoSuccessResponse:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/internal/headless-prompt`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/internal/headless-prompt",
+            CaoSuccessResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
     def send_managed_agent_gateway_control_input(
         self,
         agent_ref: str,
@@ -498,6 +563,26 @@ class HoumaoServerClient(CaoRestClient):
             HoumaoManagedAgentMailStatusResponse,
         )
 
+    def get_managed_agent_mail_resolve_live(
+        self,
+        agent_ref: str,
+    ) -> dict[str, object]:
+        """Call `GET /houmao/agents/{agent_ref}/mail/resolve-live`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        payload, _, _url = self._request_root_json(
+            "GET",
+            f"/houmao/agents/{escaped}/mail/resolve-live",
+        )
+        if not isinstance(payload, dict):
+            raise CaoApiError(
+                method="GET",
+                url=f"{self.base_url}/houmao/agents/{escaped}/mail/resolve-live",
+                detail="Expected an object response.",
+                payload=payload,
+            )
+        return payload
+
     def check_managed_agent_mail(
         self,
         agent_ref: str,
@@ -540,6 +625,21 @@ class HoumaoServerClient(CaoRestClient):
             "POST",
             f"/houmao/agents/{escaped}/mail/reply",
             HoumaoManagedAgentMailActionResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def update_managed_agent_mail_state(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailStateRequest,
+    ) -> HoumaoManagedAgentMailStateResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/state`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/state",
+            HoumaoManagedAgentMailStateResponse,
             json_body=request_model.model_dump(mode="json"),
         )
 

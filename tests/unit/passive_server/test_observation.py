@@ -36,9 +36,9 @@ from tests.unit.passive_server.test_discovery import _make_record
 def _make_observer(
     *,
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
+    agent_name: str = "HOUMAO-alpha",
     tool: str = "claude",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    session_name: str = "HOUMAO-alpha-abc123",
 ) -> AgentTuiObserver:
     """Create an observer for testing."""
 
@@ -54,7 +54,7 @@ def _stub_tmux_target() -> ResolvedTmuxTarget:
     """Create a minimal resolved tmux target."""
 
     pane = TmuxPaneRecord(
-        session_name="AGENTSYS-alpha-abc123",
+        session_name="HOUMAO-alpha-abc123",
         window_id="@0",
         window_index="0",
         window_name="main",
@@ -123,8 +123,8 @@ def _stub_parse_result_error() -> OfficialParseResult:
 
 def _agent(
     agent_id: str = "abc123",
-    agent_name: str = "AGENTSYS-alpha",
-    session_name: str = "AGENTSYS-alpha-abc123",
+    agent_name: str = "HOUMAO-alpha",
+    session_name: str = "HOUMAO-alpha-abc123",
 ) -> DiscoveredAgent:
     """Create a DiscoveredAgent for test injection."""
 
@@ -265,7 +265,7 @@ class TestObserverStateAccessors:
         state = obs.current_state()
         assert isinstance(state, AgentTuiStateResponse)
         assert state.agent_id == "abc123"
-        assert state.agent_name == "AGENTSYS-alpha"
+        assert state.agent_name == "HOUMAO-alpha"
         assert state.diagnostics is not None
         assert state.surface is not None
         assert state.turn is not None
@@ -403,8 +403,8 @@ class TestObservationServicePollLoop:
         svc = TuiObservationService(discovery=discovery, config=config)
 
         # Create two agents and their observers
-        a1 = _agent(agent_id="a1", agent_name="AGENTSYS-alpha", session_name="s1")
-        a2 = _agent(agent_id="a2", agent_name="AGENTSYS-beta", session_name="s2")
+        a1 = _agent(agent_id="a1", agent_name="HOUMAO-alpha", session_name="s1")
+        a2 = _agent(agent_id="a2", agent_name="HOUMAO-beta", session_name="s2")
         discovery.m_index.replace({"a1": a1, "a2": a2})
         svc._reconcile_observers(discovery.index.list_all())
 

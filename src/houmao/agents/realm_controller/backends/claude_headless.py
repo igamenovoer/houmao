@@ -34,7 +34,10 @@ class ClaudeHeadlessSession(HeadlessInteractiveSession):
         )
 
     def _bootstrap_args(self) -> list[str]:
-        if self._plan.role_injection.method == "native_append_system_prompt":
+        if (
+            self._plan.role_injection.method == "native_append_system_prompt"
+            and self._plan.role_injection.prompt
+        ):
             return ["--append-system-prompt", self._plan.role_injection.prompt]
         return []
 

@@ -1,6 +1,5 @@
 ## Purpose
 Define the canonical mailbox message model, addressing rules, threading, attachments, and recipient-state semantics shared across mailbox transports.
-
 ## Requirements
 ### Requirement: Canonical mailbox message envelope
 The system SHALL preserve transport-neutral mailbox message semantics in a canonical model that includes at minimum:
@@ -73,15 +72,14 @@ For non-filesystem mailbox transports such as `stalwart`, shared mailbox operati
 The system SHALL address mailbox participants by mailbox principal rather than by a transient session handle.
 
 Each mailbox principal SHALL include:
-
 - a stable `principal_id`, and
 - an email-like address suitable for the selected transport.
 
-For agent participants, the system SHALL use the canonical `AGENTSYS-...` agent identity as the default `principal_id` unless an explicit mailbox binding overrides it.
+For agent participants, the system SHALL use the canonical `HOUMAO-...` agent identity as the default `principal_id` unless an explicit mailbox binding overrides it.
 
 #### Scenario: Agent mailbox uses canonical agent identity
-- **WHEN** an agent participant with canonical identity `AGENTSYS-research` is registered for mailbox delivery
-- **THEN** the system addresses that participant using `principal_id=AGENTSYS-research`
+- **WHEN** an agent participant with canonical identity `HOUMAO-research` is registered for mailbox delivery
+- **THEN** the system addresses that participant using `principal_id=HOUMAO-research`
 - **AND THEN** outbound mailbox messages preserve the participant's configured email-like address separately from any live session manifest path
 
 #### Scenario: Human mailbox uses the same principal model
@@ -177,3 +175,4 @@ The system SHALL make newly delivered messages discoverable through recipient-sp
 - **WHEN** a human participant returns to a mailbox thread after the original message delivery time
 - **THEN** the system preserves the full message thread and the participant's mailbox state
 - **AND THEN** the human can read or reply within the same thread asynchronously
+
