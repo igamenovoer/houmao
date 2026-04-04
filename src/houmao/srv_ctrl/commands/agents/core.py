@@ -18,6 +18,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     attach_tmux_session as attach_tmux_session_shared,
     list_tmux_panes,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+)
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.agents.realm_controller.errors import (
@@ -175,11 +179,13 @@ def launch_managed_agent_locally(
     provider: str,
     yolo: bool,
     working_directory: Path,
+    headless_display_style: HeadlessDisplayStyle,
+    headless_display_detail: HeadlessDisplayDetail,
     launch_env_overrides: dict[str, str] | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
-):
+) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
 
     project_roots = ensure_project_aware_local_roots(cwd=working_directory)
@@ -242,6 +248,8 @@ def launch_managed_agent_locally(
             mailbox_transport=mailbox_transport,
             mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,
+            headless_display_style=headless_display_style if headless else None,
+            headless_display_detail=headless_display_detail if headless else None,
         )
     except LaunchPolicyResolutionError as exc:
         raise click.ClickException(
@@ -340,6 +348,20 @@ def agents_group() -> None:
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option(
+    "--headless-display-style",
+    type=click.Choice(["plain", "json", "fancy"]),
+    default="plain",
+    show_default=True,
+    help="Managed headless live output style.",
+)
+@click.option(
+    "--headless-display-detail",
+    type=click.Choice(["concise", "detail"]),
+    default="concise",
+    show_default=True,
+    help="Managed headless live output detail level.",
+)
+@click.option(
     "--provider",
     default=_DEFAULT_PROVIDER,
     show_default=True,
@@ -353,6 +375,8 @@ def launch_agents_command(
     auth: str | None,
     session_name: str | None,
     headless: bool,
+    headless_display_style: HeadlessDisplayStyle,
+    headless_display_detail: HeadlessDisplayDetail,
     provider: str,
     yolo: bool,
 ) -> None:
@@ -369,6 +393,8 @@ def launch_agents_command(
         provider=provider,
         yolo=yolo,
         working_directory=working_directory,
+        headless_display_style=headless_display_style,
+        headless_display_detail=headless_display_detail,
     )
 
     emit_local_launch_completion(

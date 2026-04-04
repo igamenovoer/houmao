@@ -1556,6 +1556,8 @@ def launch_easy_instance_command(
         provider=specialist_metadata.provider,
         yolo=yolo,
         working_directory=Path.cwd().resolve(),
+        headless_display_style="plain",
+        headless_display_detail="concise",
         launch_env_overrides=launch_env_overrides,
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,

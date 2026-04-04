@@ -660,6 +660,9 @@ def test_build_launch_plan_codex_headless_sets_cli_mode_metadata(
 
     assert "app-server" not in plan.args
     assert plan.metadata["codex_headless_cli_mode"] == "exec_json_resume"
+    assert plan.metadata["headless_output_format"] == "stream-json"
+    assert plan.metadata["headless_display_style"] == "plain"
+    assert plan.metadata["headless_display_detail"] == "concise"
 
 
 @pytest.mark.parametrize(

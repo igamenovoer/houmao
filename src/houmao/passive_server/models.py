@@ -171,6 +171,8 @@ class PassiveHeadlessLaunchRequest(_PassiveModel):
     role_name: str | None = None
     agent_name: str | None = None
     agent_id: str | None = None
+    headless_display_style: Literal["plain", "json", "fancy"] | None = None
+    headless_display_detail: Literal["concise", "detail"] | None = None
     mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None
 
     @field_validator(

@@ -821,9 +821,7 @@ class HoumaoManagedAgentGatewayHeadlessControlStateResponse(GatewayHeadlessContr
     """Managed-agent gateway headless control-state payload."""
 
 
-class HoumaoManagedAgentGatewayNextPromptSessionRequest(
-    GatewayHeadlessNextPromptSessionRequestV1
-):
+class HoumaoManagedAgentGatewayNextPromptSessionRequest(GatewayHeadlessNextPromptSessionRequestV1):
     """Managed-agent gateway next-prompt-session request payload."""
 
 
@@ -922,6 +920,8 @@ class HoumaoHeadlessLaunchRequest(_HoumaoModel):
     role_name: str | None = None
     agent_name: str | None = None
     agent_id: str | None = None
+    headless_display_style: Literal["plain", "json", "fancy"] | None = None
+    headless_display_detail: Literal["concise", "detail"] | None = None
     mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None
 
     @field_validator(

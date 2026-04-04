@@ -21,6 +21,10 @@ from houmao.agents.realm_controller.gateway_storage import (
     write_attach_contract,
     write_gateway_status,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    CanonicalHeadlessEvent,
+    canonical_headless_event_artifact_path,
+)
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
     RegistryIdentityV1,
@@ -2152,3 +2156,89 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
     assert history.entries[0].summary == "Turn turn-001 completed successfully."
     assert shared_state.last_turn.result == "success"
     assert shared_state.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
+
+
+def test_headless_turn_events_prefer_canonical_artifact_for_server_managed_agent(
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    service.m_managed_headless_store.write_authority(
+        ManagedHeadlessAuthorityRecord(
+            tracked_agent_id="claude-headless-5",
+            backend="claude_headless",
+            tool="claude",
+            manifest_path=str(tmp_path / "missing" / "manifest.json"),
+            session_root=str(tmp_path / "missing"),
+            tmux_session_name="HOUMAO-history",
+            agent_def_dir=str(tmp_path / "missing-agent-defs"),
+            agent_name="HOUMAO-history",
+            agent_id=None,
+            created_at_utc="2026-03-20T09:00:00+00:00",
+            updated_at_utc="2026-03-20T09:00:00+00:00",
+        )
+    )
+    turn_dir = tmp_path / "turn-artifacts" / "turn-001"
+    turn_dir.mkdir(parents=True)
+    stdout_path = turn_dir / "stdout.jsonl"
+    stderr_path = turn_dir / "stderr.log"
+    status_path = turn_dir / "exitcode"
+    stdout_path.write_text(
+        '{"type":"assistant","message":"raw stdout should not win","session_id":"claude-session-2"}\n',
+        encoding="utf-8",
+    )
+    stderr_path.write_text("", encoding="utf-8")
+    status_path.write_text("0\n", encoding="utf-8")
+    canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+    canonical_path.write_text(
+        json.dumps(
+            CanonicalHeadlessEvent(
+                kind="assistant",
+                message="canonical event wins",
+                turn_index=1,
+                provider="claude",
+                provider_event_type="assistant.text",
+                session_id="claude-session-2",
+                data={"text": "canonical event wins"},
+            ).to_artifact_record(),
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    service.m_managed_headless_store.write_turn_record(
+        ManagedHeadlessTurnRecord(
+            tracked_agent_id="claude-headless-5",
+            turn_id="turn-001",
+            turn_index=1,
+            status="completed",
+            started_at_utc="2026-03-20T09:01:00+00:00",
+            completed_at_utc="2026-03-20T09:02:00+00:00",
+            turn_artifact_dir=str(turn_dir),
+            tmux_session_name="HOUMAO-history",
+            tmux_window_name=HEADLESS_AGENT_WINDOW_NAME,
+            stdout_path=str(stdout_path),
+            stderr_path=str(stderr_path),
+            status_path=str(status_path),
+            completion_source="process_exit",
+            returncode=0,
+            history_summary="Turn turn-001 completed successfully.",
+        )
+    )
+
+    service.startup()
+    try:
+        events = service.headless_turn_events("claude-headless-5", "turn-001")
+    finally:
+        service.shutdown()
+
+    assert [event.kind for event in events.entries] == ["assistant"]
+    assert events.entries[0].message == "canonical event wins"

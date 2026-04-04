@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -9,6 +10,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.headless_output import (
+    CanonicalHeadlessEvent,
+    canonical_headless_event_artifact_path,
+)
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.models import SessionEvent
 from houmao.passive_server.config import PassiveServerConfig
@@ -21,7 +26,7 @@ from houmao.passive_server.models import (
     PassiveHeadlessTurnRequest,
 )
 from houmao.passive_server.service import PassiveServerService
-from houmao.server.managed_agents import ManagedHeadlessAuthorityRecord
+from houmao.server.managed_agents import ManagedHeadlessAuthorityRecord, ManagedHeadlessTurnRecord
 from houmao.server.models import HoumaoHeadlessLaunchMailboxOptions
 from tests.unit.passive_server.test_discovery import _make_record
 
@@ -701,3 +706,65 @@ class TestTurnFinalization:
         assert events.entries[0].message == "hello from worker"
         assert "hello from worker" in stdout_text
         assert stderr_text == "warning line\n"
+
+    def test_turn_events_prefer_canonical_artifact(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        svc = _make_service(tmp_path)
+        authority = _seed_managed_handle(svc, tracked_agent_id="tracked-canonical")
+        turn_dir = svc.m_headless.m_store.agent_root(
+            tracked_agent_id=authority.tracked_agent_id
+        ) / ("artifacts/turn-001")
+        turn_dir.mkdir(parents=True, exist_ok=True)
+        stdout_path = turn_dir / "stdout.jsonl"
+        stderr_path = turn_dir / "stderr.log"
+        status_path = turn_dir / "exitcode"
+        stdout_path.write_text(
+            '{"type":"assistant","message":"raw stdout should not win","session_id":"sess-passive"}\n',
+            encoding="utf-8",
+        )
+        stderr_path.write_text("", encoding="utf-8")
+        status_path.write_text("0\n", encoding="utf-8")
+        canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+        canonical_path.write_text(
+            json.dumps(
+                CanonicalHeadlessEvent(
+                    kind="assistant",
+                    message="canonical passive event wins",
+                    turn_index=1,
+                    provider="claude",
+                    provider_event_type="assistant.text",
+                    session_id="sess-passive",
+                    data={"text": "canonical passive event wins"},
+                ).to_artifact_record(),
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        svc.m_headless.m_store.write_turn_record(
+            ManagedHeadlessTurnRecord(
+                tracked_agent_id=authority.tracked_agent_id,
+                turn_id="turn-001",
+                turn_index=1,
+                status="completed",
+                started_at_utc="2026-03-20T09:01:00+00:00",
+                completed_at_utc="2026-03-20T09:02:00+00:00",
+                turn_artifact_dir=str(turn_dir),
+                tmux_session_name=authority.tmux_session_name,
+                tmux_window_name="agent",
+                stdout_path=str(stdout_path),
+                stderr_path=str(stderr_path),
+                status_path=str(status_path),
+                completion_source="process_exit",
+                returncode=0,
+                history_summary="Turn turn-001 completed successfully.",
+            )
+        )
+
+        events = svc.m_headless.turn_events(authority.tracked_agent_id, "turn-001")
+
+        assert not isinstance(events, tuple)
+        assert [entry.kind for entry in events.entries] == ["assistant"]
+        assert events.entries[0].message == "canonical passive event wins"

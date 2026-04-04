@@ -157,3 +157,14 @@ Thinking policy for concise:
 
 - The public CLI `stream-json` protocol is flatter than the internal Gemini core stream. It is sufficient for answer text and tool lifecycle rendering, but it hides some reasoning-specific information that exists internally.
 - If Houmao sticks to public `stream-json` only, Gemini concise output should not pretend to know the thinking-token count when that count is absent from the captured public stream.
+
+## Current Parser Notes
+
+The implementation in this change normalizes Gemini records as follows:
+
+- `init` becomes the canonical session event and provides the shared session identity;
+- assistant `message` records become canonical assistant output and are merged into the answer body during replay;
+- `tool_use` and `tool_result` become canonical action request/result events;
+- `error` becomes a canonical diagnostic event;
+- `result.stats` becomes the canonical completion and usage footer;
+- because the public CLI footer does not expose thinking-token counts, default concise rendering omits Gemini reasoning/accounting lines unless richer captured data becomes available later.

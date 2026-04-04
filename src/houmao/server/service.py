@@ -47,6 +47,10 @@ from houmao.agents.realm_controller.gateway_storage import (
     resolve_internal_gateway_attach_contract,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessProvider,
+    resolve_headless_provider,
+)
 from houmao.agents.realm_controller.backends.headless_runner import (
     load_headless_turn_events,
     load_headless_process_metadata,
@@ -839,6 +843,8 @@ class HoumaoServerService:
                     if request_model.mailbox is not None
                     else None
                 ),
+                headless_display_style=request_model.headless_display_style,
+                headless_display_detail=request_model.headless_display_detail,
                 registry_launch_authority="external",
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
@@ -1027,11 +1033,12 @@ class HoumaoServerService:
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
         )
-        stdout_path = Path(turn_record.stdout_path) if turn_record.stdout_path is not None else None
+        turn_dir = Path(turn_record.turn_artifact_dir)
         entries: list[HoumaoHeadlessTurnEvent] = []
-        if stdout_path is not None and stdout_path.exists():
+        if turn_dir.exists():
             for event in load_headless_turn_events(
-                stdout_path=stdout_path,
+                turn_dir=turn_dir,
+                provider=self._headless_provider(tracked_agent_id=tracked_agent_id),
                 output_format=self._headless_output_format(
                     tracked_agent_id=tracked_agent_id,
                 ),
@@ -1281,7 +1288,7 @@ class HoumaoServerService:
             if request_model.turn_id is not None
             else "Managed headless prompt dispatched."
         )
-        return CaoSuccessResponse(success=True, detail=detail)
+        return CaoSuccessResponse(success=True, detail=detail)  # type: ignore[call-arg]
 
     def send_managed_agent_gateway_control_input(
         self,
@@ -2617,7 +2624,9 @@ class HoumaoServerService:
         """Return current/startup chat-session state for one managed headless agent."""
 
         controller = handle.controller
-        if controller is not None and isinstance(controller.backend_session, HeadlessInteractiveSession):
+        if controller is not None and isinstance(
+            controller.backend_session, HeadlessInteractiveSession
+        ):
             state = controller.backend_session.state
             current = (
                 GatewayHeadlessCurrentChatSessionV1(id=state.session_id)
@@ -2635,7 +2644,9 @@ class HoumaoServerService:
 
         try:
             payload = parse_session_manifest_payload(
-                load_session_manifest(Path(handle.authority.manifest_path).expanduser().resolve()).payload,
+                load_session_manifest(
+                    Path(handle.authority.manifest_path).expanduser().resolve()
+                ).payload,
                 source=handle.authority.manifest_path,
             )
         except (OSError, SessionManifestError):
@@ -3757,7 +3768,8 @@ class HoumaoServerService:
                 final_status = "failed"
             if stdout_path.exists():
                 events = load_headless_turn_events(
-                    stdout_path=stdout_path,
+                    turn_dir=turn_dir,
+                    provider=self._headless_provider(tracked_agent_id=tracked_agent_id),
                     output_format=self._headless_output_format(tracked_agent_id=tracked_agent_id),
                     turn_index=turn_record.turn_index,
                 )
@@ -3864,6 +3876,24 @@ class HoumaoServerService:
         if isinstance(output_format, str) and output_format.strip():
             return output_format
         return "stream-json"
+
+    def _headless_provider(self, *, tracked_agent_id: str) -> HeadlessProvider:
+        """Return the canonical provider identity for one managed headless agent."""
+
+        handle = self._require_headless_handle(tracked_agent_id)
+        if (
+            handle.controller is not None
+            and getattr(handle.controller.launch_plan, "tool", None) is not None
+            and getattr(handle.controller.launch_plan, "backend", None) is not None
+        ):
+            return resolve_headless_provider(
+                tool=handle.controller.launch_plan.tool,
+                backend=handle.controller.launch_plan.backend,
+            )
+        return resolve_headless_provider(
+            tool=handle.authority.tool,
+            backend=handle.authority.backend,
+        )
 
     def _run_headless_turn_worker(
         self,

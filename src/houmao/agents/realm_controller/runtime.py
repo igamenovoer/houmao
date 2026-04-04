@@ -63,6 +63,12 @@ from .backends.headless_base import (
     HeadlessSessionState,
     headless_backend_state_payload,
 )
+from .backends.headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+    resolve_headless_display_detail,
+    resolve_headless_display_style,
+)
 from .backends.local_interactive import LocalInteractiveSession
 from .backends.tmux_runtime import (
     TmuxCommandError,
@@ -969,6 +975,8 @@ def start_runtime_session(
     mailbox_stalwart_jmap_url: str | None = None,
     mailbox_stalwart_management_url: str | None = None,
     mailbox_stalwart_login_identity: str | None = None,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
     blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None,
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
@@ -1108,6 +1116,11 @@ def start_runtime_session(
     launch_plan = _launch_plan_with_transient_env_overrides(
         launch_plan,
         env_overrides=launch_env_overrides,
+    )
+    launch_plan = _launch_plan_with_headless_display_controls(
+        launch_plan,
+        style=headless_display_style,
+        detail=headless_display_detail,
     )
 
     backend_session = _create_backend_session(
@@ -2336,6 +2349,27 @@ def _launch_plan_with_transient_env_overrides(
     )
 
 
+def _launch_plan_with_headless_display_controls(
+    launch_plan: LaunchPlan,
+    *,
+    style: HeadlessDisplayStyle | None,
+    detail: HeadlessDisplayDetail | None,
+) -> LaunchPlan:
+    """Return a launch plan with normalized headless display metadata."""
+
+    if launch_plan.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        return launch_plan
+
+    updated_metadata = dict(launch_plan.metadata)
+    updated_metadata["headless_display_style"] = resolve_headless_display_style(
+        style if style is not None else updated_metadata.get("headless_display_style")
+    )
+    updated_metadata["headless_display_detail"] = resolve_headless_display_detail(
+        detail if detail is not None else updated_metadata.get("headless_display_detail")
+    )
+    return replace(launch_plan, metadata=updated_metadata)
+
+
 def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
     """Return whether one backend relaunch must rebuild provider-start state."""
 
@@ -2403,7 +2437,15 @@ def _build_provider_start_launch_plan_for_relaunch(
             updated_launch_plan,
             job_dir=controller.job_dir,
         )
-    return updated_launch_plan
+    return _launch_plan_with_headless_display_controls(
+        updated_launch_plan,
+        style=resolve_headless_display_style(
+            controller.launch_plan.metadata.get("headless_display_style")
+        ),
+        detail=resolve_headless_display_detail(
+            controller.launch_plan.metadata.get("headless_display_detail")
+        ),
+    )
 
 
 def _job_dir_from_manifest_payload(
@@ -3155,7 +3197,7 @@ def _shared_registry_gateway_payload(
         return None
 
     return RegistryGatewayV1(
-        host=cast(GatewayHost, current_instance.host),
+        host=current_instance.host,
         port=current_instance.port,
         state_path=str(paths.state_path.resolve()),
         protocol_version=current_instance.protocol_version,

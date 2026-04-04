@@ -159,3 +159,13 @@ Thinking policy for concise:
 
 - The inspected Claude schema clearly exposes reasoning text blocks, but it does not define one obvious mandatory top-level `thinking_tokens` field in the same way Gemini exposes `thoughtsTokenCount` in lower-level usage metadata.
 - Claude system task records are useful for progress rendering, but they should not replace the final `result` object as the canonical completion footer.
+
+## Current Parser Notes
+
+The implementation in this change normalizes Claude records as follows:
+
+- `assistant.text` becomes canonical assistant output and is streamed directly as the main answer body;
+- `assistant.thinking` is preserved as canonical reasoning detail but omitted from default concise rendering;
+- `assistant.tool_use` and `assistant.tool_result` become canonical action request/result events;
+- `system.*` becomes canonical progress output and is shown only in `detail` human rendering;
+- `result` becomes the canonical completion footer and primary source of usage, stop reason, and session identity.

@@ -8,6 +8,10 @@ from types import SimpleNamespace
 import pytest
 
 import houmao.srv_ctrl.commands.managed_agents as managed_agents_module
+from houmao.agents.realm_controller.backends.headless_output import (
+    CanonicalHeadlessEvent,
+    canonical_headless_event_artifact_path,
+)
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.manifest import (
@@ -288,6 +292,52 @@ def test_resolve_managed_agent_target_reports_local_name_miss_before_default_pai
         "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
         "or `--agent-id <id>`."
     ) in message
+
+
+def test_local_headless_turn_event_loader_prefers_canonical_artifact(tmp_path: Path) -> None:
+    turn_dir = tmp_path / "turn-0001"
+    turn_dir.mkdir(parents=True)
+    stdout_path = turn_dir / "stdout.jsonl"
+    stdout_path.write_text(
+        '{"type":"assistant","message":"raw stdout should not win","session_id":"sess-local"}\n',
+        encoding="utf-8",
+    )
+    canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+    canonical_path.write_text(
+        json.dumps(
+            CanonicalHeadlessEvent(
+                kind="assistant",
+                message="canonical local event wins",
+                turn_index=1,
+                provider="claude",
+                provider_event_type="assistant.text",
+                session_id="sess-local",
+                data={"text": "canonical local event wins"},
+            ).to_artifact_record(),
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    snapshot = managed_agents_module._LocalHeadlessTurnSnapshot(
+        turn_id="turn-0001",
+        turn_index=1,
+        status="completed",
+        started_at_utc="2026-03-20T09:01:00+00:00",
+        completed_at_utc="2026-03-20T09:02:00+00:00",
+        completion_source="process_exit",
+        stdout_path=stdout_path,
+        stderr_path=None,
+        status_path=None,
+        returncode=0,
+        history_summary="turn-0001 completed",
+        error=None,
+    )
+
+    events = managed_agents_module._load_turn_events(snapshot, provider="claude")
+
+    assert [event.kind for event in events] == ["assistant"]
+    assert events[0].message == "canonical local event wins"
 
 
 def test_resolve_managed_agent_target_reports_exact_tmux_alias_hint_on_local_name_miss(

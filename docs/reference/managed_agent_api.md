@@ -238,7 +238,11 @@ Optional launch fields:
 
 - `agent_name`
 - `agent_id`
+- `headless_display_style`
+- `headless_display_detail`
 - `mailbox`
+
+`headless_display_style` defaults to `plain` and `headless_display_detail` defaults to `concise` for managed headless sessions. These controls affect live bridge rendering and later CLI replay semantics; they do not change the raw provider artifacts.
 
 Launch-time gateway flags are intentionally not part of this contract. Gateway lifecycle remains a later explicit `/gateway/attach` action.
 
@@ -246,8 +250,8 @@ For managed headless agents, durable post-turn inspection stays on the `/turns/*
 
 - `POST /houmao/agents/{agent_ref}/turns` accepts one managed headless prompt turn and returns a durable turn handle; it now also accepts optional `chat_session` with `mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"` and `id` required only for `mode = "exact"`
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}` reports persisted turn status
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` returns structured event records derived from machine-readable output
-- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `/stderr` expose the durable artifacts directly
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` returns canonical semantic headless event records with normalized assistant, action, completion, provider, and session semantics
+- `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `/stderr` expose the durable raw provider artifacts directly
 
 `/history` remains bounded and coarse even for headless agents. Durable headless detail lives on `/turns/*`, not on `/history`.
 

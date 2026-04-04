@@ -77,6 +77,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     set_tmux_session_environment,
     unset_tmux_session_environment,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    resolve_headless_display_detail,
+    resolve_headless_display_style,
+)
 from houmao.server.models import HoumaoHeadlessLaunchRequest
 from houmao.srv_ctrl.commands.project_aware_wording import (
     describe_local_jobs_root_selection,
@@ -592,6 +596,8 @@ def materialize_headless_launch_request(
     provider: str,
     agent_profile: str,
     working_directory: Path,
+    headless_display_style: str | None = None,
+    headless_display_detail: str | None = None,
 ) -> HoumaoHeadlessLaunchRequest:
     """Resolve pair convenience inputs into a native headless launch request."""
 
@@ -631,6 +637,8 @@ def materialize_headless_launch_request(
         role_name=target.role_name,
         agent_name=None,
         agent_id=None,
+        headless_display_style=resolve_headless_display_style(headless_display_style),
+        headless_display_detail=resolve_headless_display_detail(headless_display_detail),
     )
 
 
@@ -808,6 +816,15 @@ def _build_join_launch_plan(
         metadata={
             "session_origin": "joined_tmux",
             "joined_launch_mode": "headless" if headless else "tui",
+            **(
+                {
+                    "headless_output_format": "stream-json",
+                    "headless_display_style": "plain",
+                    "headless_display_detail": "concise",
+                }
+                if headless
+                else {}
+            ),
             **({"tmux_window_name": tmux_window_name} if tmux_window_name is not None else {}),
         },
     )

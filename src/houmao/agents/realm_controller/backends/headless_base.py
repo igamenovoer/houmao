@@ -22,6 +22,11 @@ from ..models import (
 )
 from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
 from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
+from .headless_output import (
+    resolve_headless_display_detail,
+    resolve_headless_display_style,
+    resolve_headless_provider,
+)
 from .headless_runner import HeadlessCliRunner
 from .tmux_runtime import (
     TmuxCommandError,
@@ -87,6 +92,16 @@ class HeadlessInteractiveSession:
         )
         self._runner = HeadlessCliRunner()
         self._output_format = output_format
+        self._provider = resolve_headless_provider(
+            tool=launch_plan.tool,
+            backend=backend,
+        )
+        self._display_style = resolve_headless_display_style(
+            launch_plan.metadata.get("headless_display_style")
+        )
+        self._display_detail = resolve_headless_display_detail(
+            launch_plan.metadata.get("headless_display_detail")
+        )
         self._session_manifest_path = session_manifest_path.resolve()
         self._agent_def_dir = agent_def_dir.resolve() if agent_def_dir is not None else None
         self._turn_artifacts_root = (
@@ -141,6 +156,9 @@ class HeadlessInteractiveSession:
             "cwd": self._plan.working_directory,
             "turn_index": turn_index,
             "output_format": self._output_format,
+            "provider": self._provider,
+            "display_style": self._display_style,
+            "display_detail": self._display_detail,
             "tmux_session_name": session_name,
             "turn_artifacts_root": self._turn_artifacts_root,
         }
@@ -180,6 +198,9 @@ class HeadlessInteractiveSession:
                     else None,
                     "stderr_path": str(run_result.stderr_path)
                     if run_result.stderr_path is not None
+                    else None,
+                    "canonical_path": str(run_result.canonical_path)
+                    if run_result.canonical_path is not None
                     else None,
                     "completion_source": run_result.completion_source,
                 },
@@ -239,6 +260,16 @@ class HeadlessInteractiveSession:
         """Replace the launch plan and republish tmux session environment."""
 
         self._plan = launch_plan
+        self._provider = resolve_headless_provider(
+            tool=launch_plan.tool,
+            backend=self.backend,
+        )
+        self._display_style = resolve_headless_display_style(
+            launch_plan.metadata.get("headless_display_style")
+        )
+        self._display_detail = resolve_headless_display_detail(
+            launch_plan.metadata.get("headless_display_detail")
+        )
         self._publish_tmux_session_environment()
 
     def relaunch(self) -> SessionControlResult:

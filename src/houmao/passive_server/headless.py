@@ -18,6 +18,10 @@ from typing import Any, Literal, cast
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessInteractiveSession,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessProvider,
+    resolve_headless_provider,
+)
 from houmao.agents.realm_controller.backends.headless_runner import (
     load_headless_turn_events,
     read_headless_turn_return_code,
@@ -109,7 +113,7 @@ class HeadlessAgentService:
     def __init__(self, config: PassiveServerConfig) -> None:
         self.m_config = config
         adapter = _StoreConfigAdapter(config.managed_agents_root)
-        self.m_store = ManagedHeadlessStore(config=adapter)
+        self.m_store = ManagedHeadlessStore(config=cast(Any, adapter))
         self.m_handles: dict[str, _ManagedHeadlessHandle] = {}
         self.m_lock = threading.Lock()
 
@@ -241,6 +245,8 @@ class HeadlessAgentService:
                 mailbox_stalwart_jmap_url=mailbox_stalwart_jmap_url,
                 mailbox_stalwart_management_url=mailbox_stalwart_management_url,
                 mailbox_stalwart_login_identity=mailbox_stalwart_login_identity,
+                headless_display_style=request.headless_display_style,
+                headless_display_detail=request.headless_display_detail,
                 registry_launch_authority="external",
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
@@ -420,33 +426,31 @@ class HeadlessAgentService:
             return (404, {"detail": f"Turn not found: {turn_id}"})
 
         entries: list[HoumaoHeadlessTurnEvent] = []
-        if record.stdout_path:
-            stdout_path = Path(record.stdout_path)
-            if stdout_path.is_file():
-                try:
-                    events = load_headless_turn_events(
-                        stdout_path=stdout_path,
-                        output_format=self._headless_output_format(
-                            tracked_agent_id=tracked_agent_id
-                        ),
-                        turn_index=record.turn_index,
-                    )
-                    for event in events:
-                        entries.append(
-                            HoumaoHeadlessTurnEvent(
-                                kind=event.kind,
-                                message=event.message,
-                                turn_index=event.turn_index,
-                                timestamp_utc=event.timestamp_utc,
-                                payload=event.payload,
-                            )
+        turn_dir = Path(record.turn_artifact_dir)
+        if turn_dir.is_dir():
+            try:
+                events = load_headless_turn_events(
+                    turn_dir=turn_dir,
+                    provider=self._headless_provider(tracked_agent_id=tracked_agent_id),
+                    output_format=self._headless_output_format(tracked_agent_id=tracked_agent_id),
+                    turn_index=record.turn_index,
+                )
+                for event in events:
+                    entries.append(
+                        HoumaoHeadlessTurnEvent(
+                            kind=event.kind,
+                            message=event.message,
+                            turn_index=event.turn_index,
+                            timestamp_utc=event.timestamp_utc,
+                            payload=event.payload,
                         )
-                except (OSError, RuntimeError, ValueError):
-                    log.warning(
-                        "Failed to load persisted headless turn events for %s/%s",
-                        tracked_agent_id,
-                        turn_id,
                     )
+            except (OSError, RuntimeError, ValueError):
+                log.warning(
+                    "Failed to load persisted headless turn events for %s/%s",
+                    tracked_agent_id,
+                    turn_id,
+                )
 
         return PassiveHeadlessTurnEventsResponse(
             tracked_agent_id=tracked_agent_id,
@@ -604,8 +608,10 @@ class HeadlessAgentService:
         """Return live control posture for one passive-server-managed headless agent."""
 
         handle = self._require_handle(tracked_agent_id)
-        authority = handle.authority if handle is not None else self.m_store.read_authority(
-            tracked_agent_id=tracked_agent_id
+        authority = (
+            handle.authority
+            if handle is not None
+            else self.m_store.read_authority(tracked_agent_id=tracked_agent_id)
         )
         if authority is None:
             return None
@@ -754,6 +760,26 @@ class HeadlessAgentService:
             return output_format
         return "stream-json"
 
+    def _headless_provider(self, *, tracked_agent_id: str) -> HeadlessProvider:
+        """Return the canonical provider identity for one managed headless agent."""
+
+        handle = self._require_handle(tracked_agent_id)
+        if handle is None:
+            raise RuntimeError(f"Managed headless agent not found: {tracked_agent_id}")
+        if (
+            handle.controller is not None
+            and getattr(handle.controller.launch_plan, "tool", None) is not None
+            and getattr(handle.controller.launch_plan, "backend", None) is not None
+        ):
+            return resolve_headless_provider(
+                tool=handle.controller.launch_plan.tool,
+                backend=handle.controller.launch_plan.backend,
+            )
+        return resolve_headless_provider(
+            tool=handle.authority.tool,
+            backend=handle.authority.backend,
+        )
+
     def _refresh_turn_record(
         self,
         *,
@@ -804,11 +830,12 @@ class HeadlessAgentService:
                     final_status = "interrupted"
                 else:
                     final_status = "failed"
-                if completion_source is None and stdout_path.exists():
+                if completion_source is None and turn_dir.exists():
                     try:
                         completion_source = self._completion_source_from_events(
                             load_headless_turn_events(
-                                stdout_path=stdout_path,
+                                turn_dir=turn_dir,
+                                provider=self._headless_provider(tracked_agent_id=tracked_agent_id),
                                 output_format=self._headless_output_format(
                                     tracked_agent_id=tracked_agent_id
                                 ),

@@ -123,3 +123,13 @@ The parser layer should keep enough structure that concise and detail are differ
 - action result metadata;
 - completion and usage metadata;
 - provider provenance and raw passthrough payloads for debug/detail surfaces.
+
+## Implementation Alignment In This Change
+
+The current implementation follows this contract with these concrete defaults:
+
+- live managed headless rendering defaults to `style=plain` and `detail=concise`;
+- replay through `houmao-mgr agents turn events` uses the same canonical renderer core as the live bridge path;
+- canonical `json + detail` includes provider provenance (`provider_event_type`), canonical session identity when known, and `raw` payload context;
+- `concise` hides reasoning/session/progress noise unless that information is represented as compact completion or usage accounting;
+- when a turn predates `canonical-events.jsonl`, turn readers fall back to the legacy raw-stdout compatibility parser rather than failing inspection.

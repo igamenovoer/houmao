@@ -16,6 +16,10 @@ from pydantic import ValidationError
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessProvider,
+    resolve_headless_provider,
+)
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessProcessMetadata,
     load_headless_process_metadata,
@@ -301,7 +305,14 @@ def resolve_managed_agent_mail_target(
             "Exactly one of `--agent-id` or `--agent-name` is required unless the command is "
             "run inside the target tmux session."
         )
-    return gateway_commands._resolve_gateway_current_session_target(session_name=session_name)
+    resolved_target = gateway_commands._resolve_gateway_current_session_target(
+        session_name=session_name
+    )
+    if resolved_target is None:
+        raise click.ClickException(
+            "Current tmux session is not registered as a managed agent in the gateway runtime."
+        )
+    return cast(ManagedAgentTarget, resolved_target)
 
 
 def _resolve_local_managed_agent_record(
@@ -1687,7 +1698,13 @@ def headless_turn_events(
 
     assert target.controller is not None
     snapshot = _turn_snapshot_from_id(controller=target.controller, turn_id=turn_id)
-    events = _load_turn_events(snapshot)
+    events = _load_turn_events(
+        snapshot,
+        provider=resolve_headless_provider(
+            tool=target.controller.launch_plan.tool,
+            backend=target.controller.launch_plan.backend,
+        ),
+    )
     return HoumaoHeadlessTurnEventsResponse(
         tracked_agent_id=target.identity.tracked_agent_id,
         turn_id=turn_id,
@@ -2320,11 +2337,15 @@ def _list_local_headless_turns(
     root = _turn_artifacts_root(controller)
     if not root.exists():
         return []
+    provider = resolve_headless_provider(
+        tool=controller.launch_plan.tool,
+        backend=controller.launch_plan.backend,
+    )
     snapshots: list[_LocalHeadlessTurnSnapshot] = []
     for candidate in sorted(root.iterdir(), reverse=True):
         if not candidate.is_dir():
             continue
-        snapshots.append(_snapshot_from_turn_dir(candidate))
+        snapshots.append(_snapshot_from_turn_dir(candidate, provider=provider))
     return snapshots
 
 
@@ -2350,10 +2371,20 @@ def _turn_snapshot_from_id(
     candidate = (_turn_artifacts_root(controller) / turn_id).resolve()
     if not candidate.is_dir():
         raise click.ClickException(f"Headless turn `{turn_id}` was not found.")
-    return _snapshot_from_turn_dir(candidate)
+    return _snapshot_from_turn_dir(
+        candidate,
+        provider=resolve_headless_provider(
+            tool=controller.launch_plan.tool,
+            backend=controller.launch_plan.backend,
+        ),
+    )
 
 
-def _snapshot_from_turn_dir(turn_dir: Path) -> _LocalHeadlessTurnSnapshot:
+def _snapshot_from_turn_dir(
+    turn_dir: Path,
+    *,
+    provider: HeadlessProvider,
+) -> _LocalHeadlessTurnSnapshot:
     """Read one local headless turn snapshot from a persisted artifact directory."""
 
     stdout_path = (turn_dir / "stdout.jsonl").resolve()
@@ -2383,7 +2414,11 @@ def _snapshot_from_turn_dir(turn_dir: Path) -> _LocalHeadlessTurnSnapshot:
                 raw_error = stderr_path.read_text(encoding="utf-8").strip()
                 error = raw_error or None
     turn_index = _turn_index_from_name(turn_dir.name)
-    completion_source = _completion_source_from_stdout(stdout_path, turn_index=turn_index)
+    completion_source = _completion_source_from_turn_dir(
+        turn_dir,
+        provider=provider,
+        turn_index=turn_index,
+    )
     history_summary = f"{turn_dir.name} {status}"
     return _LocalHeadlessTurnSnapshot(
         turn_id=turn_dir.name,
@@ -2401,14 +2436,19 @@ def _snapshot_from_turn_dir(turn_dir: Path) -> _LocalHeadlessTurnSnapshot:
     )
 
 
-def _load_turn_events(snapshot: _LocalHeadlessTurnSnapshot) -> list[HoumaoHeadlessTurnEvent]:
+def _load_turn_events(
+    snapshot: _LocalHeadlessTurnSnapshot,
+    *,
+    provider: HeadlessProvider,
+) -> list[HoumaoHeadlessTurnEvent]:
     """Load structured events for one persisted local headless turn."""
 
     if snapshot.stdout_path is None or not snapshot.stdout_path.exists():
         return []
     entries: list[HoumaoHeadlessTurnEvent] = []
     for event in load_headless_turn_events(
-        stdout_path=snapshot.stdout_path,
+        turn_dir=snapshot.stdout_path.parent,
+        provider=provider,
         output_format="stream-json",
         turn_index=snapshot.turn_index,
     ):
@@ -2445,14 +2485,20 @@ def _turn_index_from_name(turn_id: str) -> int:
         return 0
 
 
-def _completion_source_from_stdout(stdout_path: Path, *, turn_index: int) -> str | None:
-    """Extract the completion source from persisted stdout events when present."""
+def _completion_source_from_turn_dir(
+    turn_dir: Path,
+    *,
+    provider: HeadlessProvider,
+    turn_index: int,
+) -> str | None:
+    """Extract the completion source from preferred persisted turn events."""
 
-    if not stdout_path.exists():
+    if not turn_dir.exists():
         return None
     try:
         events = load_headless_turn_events(
-            stdout_path=stdout_path,
+            turn_dir=turn_dir,
+            provider=provider,
             output_format="stream-json",
             turn_index=turn_index,
         )

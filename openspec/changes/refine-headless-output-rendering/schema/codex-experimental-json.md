@@ -188,3 +188,14 @@ Thinking policy for concise:
 
 - Codex action lifecycles are item-based rather than one flat `tool_use` / `tool_result` pair, so the parser must use `item.type`, `item.id`, and wrapper lifecycle events together.
 - `agent_message.text` may hold structured-output JSON text; concise should still treat it as the answer body rather than trying to reinterpret it as provider control metadata.
+
+## Current Parser Notes
+
+The implementation in this change normalizes Codex records as follows:
+
+- `thread.started` becomes the canonical session event and seeds the shared session-identity field;
+- `item.started` for `command_execution`, `mcp_tool_call`, `web_search`, and `file_change` becomes a canonical action request;
+- `item.updated` with `status=in_progress` is suppressed for concise replay, while terminal updates map to canonical action results;
+- `item.completed.agent_message` becomes assistant output and `item.completed.reasoning` becomes reasoning detail;
+- `todo_list` maps to canonical progress detail and remains hidden in default concise human rendering;
+- `turn.completed` and `turn.failed` become canonical completion events.

@@ -133,6 +133,8 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata["codex_headless_cli_mode"] = "exec_json_resume"
     if request.backend in {"claude_headless", "gemini_headless", "codex_headless"}:
         metadata["headless_output_format"] = "stream-json"
+        metadata["headless_display_style"] = "plain"
+        metadata["headless_display_detail"] = "concise"
 
     requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
     policy_backend = _launch_surface_for_backend(request.backend)
