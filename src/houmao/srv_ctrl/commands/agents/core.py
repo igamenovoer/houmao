@@ -438,7 +438,7 @@ def launch_agents_command(
 @click.option(
     "--no-install-houmao-skills",
     is_flag=True,
-    help="Skip default Houmao-owned mailbox skill installation into the adopted tool home.",
+    help="Skip default Houmao-owned system-skill installation into the adopted tool home.",
 )
 def join_agents_command(
     agent_name: str,

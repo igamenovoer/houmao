@@ -11,6 +11,7 @@ from .mailbox import mailbox_group
 from .output import OutputContext, output_options, resolve_print_style
 from .project import project_group
 from .server import server_group
+from .system_skills import system_skills_group
 
 
 @click.group(name="houmao-mgr", invoke_without_command=True)
@@ -31,6 +32,7 @@ cli.add_command(brains_group)
 cli.add_command(mailbox_group)
 cli.add_command(project_group)
 cli.add_command(server_group)
+cli.add_command(system_skills_group)
 
 
 def main(argv: list[str] | None = None) -> int:

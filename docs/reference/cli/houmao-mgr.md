@@ -2,7 +2,7 @@
 
 Houmao pair CLI with native server and managed-agent command families.
 
-`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, mailbox administration, repo-local project overlays, and `houmao-server` control. It provides native command groups for agent orchestration, filesystem mailbox administration, brain construction, project bootstrap, server management, and administrative tasks.
+`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, mailbox administration, packaged Houmao-owned system-skill installation, repo-local project overlays, and `houmao-server` control. It provides native command groups for agent orchestration, filesystem mailbox administration, brain construction, explicit tool-home skill installation, project bootstrap, server management, and administrative tasks.
 
 ## Synopsis
 
@@ -180,6 +180,33 @@ houmao-mgr brains build [OPTIONS]
 `HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly for CI or controlled automation. `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` affects ambient discovery only when no explicit overlay root is set: `ancestor` is the default nearest-ancestor lookup bounded by the Git repository, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`. When env selection or discovery wins, `houmao-config.toml` inside that overlay is the discovery anchor and `agents/` under the same overlay is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
 
 When `--preset` resolves to a recipe that carries `launch.env_records`, `brains build` projects those records as durable non-credential launch env alongside the selected auth bundle. Those env records come from specialist launch config, not from one-off instance launch input.
+
+### `system-skills` — Packaged Houmao-owned skill installation for explicit tool homes
+
+```
+houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
+```
+
+Install or inspect the packaged current Houmao-owned `houmao-*` skill set for explicit Claude, Codex, or Gemini homes.
+
+#### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
+| `status` | Show whether one explicit tool home has Houmao-owned install state and which skills are recorded there. |
+| `install` | Install the CLI-default set list, explicit named sets, explicit skills, or any combination of those into one explicit tool home. |
+
+Operational notes:
+
+- `system-skills install` requires `--tool` and `--home`.
+- selection must come from `--default`, `--set`, `--skill`, or a combination of those inputs
+- repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
+- the installer preserves the current visible mailbox skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/mailbox/houmao-...`, and Gemini uses `.agents/skills/houmao-...`
+- each target home records Houmao-owned install state under `.houmao/system-skills/install-state.json`
+- managed brain build and `agents join` use the same packaged catalog and installer internally
+
+For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).
 
 ### `project` — Repo-local Houmao project overlays
 

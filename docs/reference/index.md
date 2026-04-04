@@ -3,6 +3,7 @@
 ## CLI Surfaces
 
 - [houmao-mgr](cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
+- [system-skills](cli/system-skills.md): Install and inspect the packaged Houmao-owned skill sets for explicit tool homes.
 - [houmao-server](cli/houmao-server.md): HTTP server for session management and TUI tracking.
 - [houmao-passive-server](cli/houmao-passive-server.md): Registry-driven stateless server.
 - [CLI Entrypoints](cli.md): Module-level entry points and common runtime flags.

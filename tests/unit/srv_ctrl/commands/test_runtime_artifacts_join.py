@@ -17,6 +17,7 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.realm_controller.registry_storage import JOINED_REGISTRY_SENTINEL_LEASE_TTL
 from houmao.agents.realm_controller.runtime import resume_runtime_session
 from houmao.agents.realm_controller import runtime as runtime_module
+from houmao.agents.system_skills import load_system_skill_install_state
 from houmao.srv_ctrl.commands import runtime_artifacts as runtime_artifacts_module
 
 
@@ -175,6 +176,13 @@ def test_joined_tui_relaunch_respects_unavailable_vs_launchable_posture(
     launch_env: tuple[JoinedLaunchEnvBinding, ...],
     expected_success: bool,
 ) -> None:
+    codex_home = (tmp_path / "codex-home").resolve()
+    resolved_launch_env = tuple(
+        JoinedLaunchEnvBinding(mode=binding.mode, name=binding.name, value=str(codex_home))
+        if binding.name == "CODEX_HOME" and binding.value is not None
+        else binding
+        for binding in launch_env
+    )
     monkeypatch.setattr(
         runtime_artifacts_module,
         "ensure_gateway_capability",
@@ -194,7 +202,7 @@ def test_joined_tui_relaunch_respects_unavailable_vs_launchable_posture(
         runtime_artifacts_module,
         "read_tmux_session_environment_value",
         lambda *, session_name, variable_name: (
-            "/tmp/codex-home" if variable_name == "CODEX_HOME" else None
+            str(codex_home) if variable_name == "CODEX_HOME" else None
         ),
     )
 
@@ -208,7 +216,7 @@ def test_joined_tui_relaunch_respects_unavailable_vs_launchable_posture(
         tmux_window_name="manual",
         working_directory=tmp_path,
         launch_args=launch_args,
-        launch_env=launch_env,
+        launch_env=resolved_launch_env,
         resume_selection=None,
     )
 
@@ -322,6 +330,14 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         in gateway_skill
     )
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
+    install_state = load_system_skill_install_state(tool="codex", home_path=codex_home)
+    assert install_state is not None
+    assert tuple(record.name for record in install_state.installed_skills) == (
+        "houmao-process-emails-via-gateway",
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
+    )
 
 
 def test_materialize_joined_launch_projects_claude_top_level_skills(

@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from importlib import resources
-from importlib.resources.abc import Traversable
 import json
 from pathlib import Path
 import os
@@ -46,6 +44,12 @@ from houmao.agents.realm_controller.gateway_storage import (
     gateway_paths_from_manifest_path,
     load_gateway_current_instance,
 )
+from houmao.agents.system_skills import (
+    install_system_skills_for_home,
+    project_system_skills_to_destination,
+    system_skill_reference_for_name,
+    system_skills_destination_for_tool,
+)
 
 from .mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
@@ -83,12 +87,6 @@ MAILBOX_PRIMARY_SKILL_REFERENCES = (
     MAILBOX_FILESYSTEM_SKILL_REFERENCE,
     MAILBOX_STALWART_SKILL_REFERENCE,
 )
-_MAILBOX_NATIVE_TOP_LEVEL_TOOLS = frozenset({"claude", "gemini"})
-_TOOL_SKILLS_DESTINATION = {
-    "claude": "skills",
-    "codex": "skills",
-    "gemini": ".agents/skills",
-}
 
 _MAILBOX_COMMON_ENV_VARS = (
     "HOUMAO_MAILBOX_TRANSPORT",
@@ -110,7 +108,7 @@ _MAILBOX_EMAIL_ENV_VARS = (
     "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF",
     "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE",
 )
-MailboxBindingSource = Literal["manifest_binding"]
+MailboxBindingSource = Literal["manifest_binding", "process_env", "tmux_session_env"]
 ResolveLiveSource = Literal["auto", "tmux_session_env", "process_env"]
 LiveGatewayBindingSource = Literal[
     "process_env",
@@ -791,9 +789,11 @@ def bootstrap_resolved_mailbox(
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
         resolved_root = config.filesystem_root.resolve()
+        mailbox_path = config.mailbox_path
+        assert mailbox_path is not None
         if config.mailbox_kind == "symlink":
             try:
-                config.mailbox_path.relative_to(resolved_root)
+                mailbox_path.relative_to(resolved_root)
             except ValueError:
                 pass
             else:
@@ -808,7 +808,7 @@ def bootstrap_resolved_mailbox(
                 address=config.address,
                 owner_principal_id=config.principal_id,
                 mailbox_kind=config.mailbox_kind,
-                mailbox_path=config.mailbox_path,
+                mailbox_path=mailbox_path,
                 manifest_path_hint=(
                     str(manifest_path_hint.resolve()) if manifest_path_hint is not None else None
                 ),
@@ -917,10 +917,7 @@ def mailbox_processing_skill_document_path(
 def mailbox_skills_destination_for_tool(tool: str) -> str:
     """Return the active runtime-owned skill destination for one supported tool."""
 
-    destination = _TOOL_SKILLS_DESTINATION.get(tool)
-    if destination is None:
-        raise ValueError(f"Unsupported tool `{tool}` for mailbox skill projection.")
-    return destination
+    return system_skills_destination_for_tool(tool)
 
 
 def mailbox_primary_skill_references(*, tool: str | None = None) -> tuple[str, ...]:
@@ -955,8 +952,20 @@ def install_runtime_mailbox_system_skills_for_tool(
 ) -> tuple[str, ...]:
     """Project runtime-owned mailbox skills into one concrete tool home."""
 
-    destination_root = (home_path.resolve() / mailbox_skills_destination_for_tool(tool)).resolve()
-    return project_runtime_mailbox_system_skills(destination_root, tool=tool)
+    result = install_system_skills_for_home(
+        tool=tool,
+        home_path=home_path,
+        skill_names=(
+            MAILBOX_PROCESSING_SKILL_NAME,
+            MAILBOX_GATEWAY_SKILL_NAME,
+            MAILBOX_FILESYSTEM_SKILL_NAME,
+            MAILBOX_STALWART_SKILL_NAME,
+        ),
+    )
+    return tuple(
+        system_skill_reference_for_name(skill_name, tool=tool)
+        for skill_name in result.resolved_skill_names
+    )
 
 
 def project_runtime_mailbox_system_skills(
@@ -969,55 +978,22 @@ def project_runtime_mailbox_system_skills(
     Project the packaged mailbox skill tree only into the visible mailbox path.
     """
 
-    source_root = (
-        resources.files("houmao.agents.realm_controller.assets") / "system_skills" / "mailbox"
+    return project_system_skills_to_destination(
+        destination_root,
+        tool=tool,
+        skill_names=(
+            MAILBOX_PROCESSING_SKILL_NAME,
+            MAILBOX_GATEWAY_SKILL_NAME,
+            MAILBOX_FILESYSTEM_SKILL_NAME,
+            MAILBOX_STALWART_SKILL_NAME,
+        ),
     )
-    primary_root = _mailbox_skill_projection_root(destination_root=destination_root, tool=tool)
-    _copy_resource_tree(source_root, primary_root)
-    return mailbox_primary_skill_references(tool=tool)
-
-
-def _mailbox_primary_namespace_for_tool(*, tool: str | None) -> str | None:
-    """Return the mailbox namespace segment for one tool-aware skill projection."""
-
-    if tool is None:
-        return MAILBOX_PRIMARY_NAMESPACE_DIR
-    mailbox_skills_destination_for_tool(tool)
-    if tool in _MAILBOX_NATIVE_TOP_LEVEL_TOOLS:
-        return None
-    return MAILBOX_PRIMARY_NAMESPACE_DIR
 
 
 def _mailbox_skill_reference_for_name(skill_name: str, *, tool: str | None = None) -> str:
     """Return the projected skill reference for one mailbox skill name."""
 
-    namespace = _mailbox_primary_namespace_for_tool(tool=tool)
-    if namespace is None:
-        return skill_name
-    return f"{namespace}/{skill_name}"
-
-
-def _mailbox_skill_projection_root(*, destination_root: Path, tool: str | None) -> Path:
-    """Return the concrete projection root for runtime-owned mailbox skills."""
-
-    namespace = _mailbox_primary_namespace_for_tool(tool=tool)
-    if namespace is None:
-        return destination_root
-    return destination_root / namespace
-
-
-def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:
-    """Copy packaged text resources into a destination tree."""
-
-    for child in source_root.iterdir():
-        destination_path = destination_root / child.name
-        if child.is_dir():
-            destination_path.mkdir(parents=True, exist_ok=True)
-            _copy_resource_tree(child, destination_path)
-            continue
-
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-        destination_path.write_text(child.read_text(encoding="utf-8"), encoding="utf-8")
+    return system_skill_reference_for_name(skill_name, tool=tool)
 
 
 def _resolve_declared_mailbox_root(*, declared_root: str | None, runtime_root: Path) -> Path | None:

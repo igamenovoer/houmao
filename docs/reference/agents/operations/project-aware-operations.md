@@ -83,6 +83,6 @@ In CI or controlled automation where no `.houmao/` directory exists on disk:
 
 ## See Also
 
-- [Agent Definition Directory](../../getting-started/agent-definitions.md) — overlay directory structure
+- [Agent Definition Directory](../../../getting-started/agent-definitions.md) — overlay directory structure
 - [System Files Reference](../../system-files/index.md) — filesystem paths reference
-- [Easy Specialists Guide](../../getting-started/easy-specialists.md) — the easy-specialist model
+- [Easy Specialists Guide](../../../getting-started/easy-specialists.md) — the easy-specialist model

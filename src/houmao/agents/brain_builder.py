@@ -31,10 +31,10 @@ from houmao.agents.launch_overrides import (
 from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
-    project_runtime_mailbox_system_skills,
     serialize_declarative_mailbox_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.system_skills import install_system_skills_for_home
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_managed_agent_id,
@@ -583,7 +583,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         source = skills_root / skill_name
         destination = skill_destination_dir / skill_name
         _project_path(source, destination, mode=adapter.skills_mode)
-    project_runtime_mailbox_system_skills(skill_destination_dir, tool=request.tool)
+    install_system_skills_for_home(
+        tool=request.tool,
+        home_path=home_path,
+        auto_install_kind="managed_launch",
+    )
 
     _validate_relative_path(adapter.auth_files_dir, field="auth_projection.files_dir")
     auth_files_dir = auth_dir / adapter.auth_files_dir

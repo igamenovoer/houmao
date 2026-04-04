@@ -10,8 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
-from houmao.agents.mailbox_runtime_support import install_runtime_mailbox_system_skills_for_tool
 from houmao.agents.native_launch_resolver import resolve_native_launch_target, tool_for_provider
+from houmao.agents.system_skills import install_system_skills_for_home
 from houmao.owned_paths import HOUMAO_JOB_DIR_ENV_VAR
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
@@ -183,9 +183,10 @@ def materialize_joined_launch(
             require_explicit=bool(headless or launch_args or launch_env),
         )
         if install_houmao_skills:
-            install_runtime_mailbox_system_skills_for_tool(
+            install_system_skills_for_home(
                 tool=tool,
                 home_path=resolved_home_path,
+                auto_install_kind="managed_join",
             )
         launch_plan = _build_join_launch_plan(
             backend=backend,

@@ -15,6 +15,7 @@ from houmao.agents.brain_builder import (
 )
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
+from houmao.agents.system_skills import load_system_skill_install_state
 
 
 def _write(path: Path, content: str) -> None:
@@ -233,6 +234,14 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert visible_mailbox_skill.is_file()
     assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
+    install_state = load_system_skill_install_state(tool="codex", home_path=home)
+    assert install_state is not None
+    assert tuple(record.name for record in install_state.installed_skills) == (
+        "houmao-process-emails-via-gateway",
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
+    )
 
     # Credential file projection and env contract setup.
     assert (home / "auth.json").is_symlink()

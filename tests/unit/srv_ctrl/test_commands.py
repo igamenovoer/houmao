@@ -114,7 +114,15 @@ def _make_native_launch_target(
 
 
 def test_top_level_command_inventory_exposes_new_native_surface() -> None:
-    assert set(cli.commands.keys()) == {"admin", "agents", "brains", "mailbox", "project", "server"}
+    assert set(cli.commands.keys()) == {
+        "admin",
+        "agents",
+        "brains",
+        "mailbox",
+        "project",
+        "server",
+        "system-skills",
+    }
 
 
 def test_bare_invocation_prints_help() -> None:
@@ -125,6 +133,7 @@ def test_bare_invocation_prints_help() -> None:
     assert "server" in result.output
     assert "agents" in result.output
     assert "mailbox" in result.output
+    assert "system-skills" in result.output
     assert "cao" not in result.output
     assert "\nTraceback" not in result.output
 

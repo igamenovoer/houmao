@@ -20,8 +20,11 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 1. `houmao-mgr mailbox ...` manages the filesystem mailbox root and address lifecycle.
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
+4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into explicit Claude, Codex, or Gemini homes when you need those skills outside a Houmao-managed launch or join flow.
 
-After registration, the runtime projects the transport-specific mailbox skill and durable mailbox binding into the managed session. The visible mailbox skill surface is tool-specific: Claude uses top-level `skills/houmao-.../` directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, Codex keeps the visible `skills/mailbox/...` subtree, and Gemini uses top-level `.agents/skills/houmao-.../` directories. `agents mail resolve-live` remains the supported current-mailbox discovery path for later work.
+Managed launch and managed join now resolve their default Houmao-owned mailbox skill installation from the packaged system-skill catalog before runtime prompts rely on those skills. The visible mailbox skill surface stays tool-specific: Claude uses top-level `skills/houmao-.../` directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, Codex keeps the visible `skills/mailbox/...` subtree, and Gemini uses top-level `.agents/skills/houmao-.../` directories. `agents mail resolve-live` remains the supported current-mailbox discovery path for later work.
+
+When you need the same Houmao-owned skill surface in an external tool home that Houmao did not launch, install it explicitly with `houmao-mgr system-skills install`, for example `pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --default`.
 
 When attached mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run houmao-mgr agents mail resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc. Inside the owning managed tmux session, selectors may be omitted; outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
 
@@ -236,9 +239,11 @@ sequenceDiagram
 - [`src/houmao/srv_ctrl/commands/mailbox.py`](../../../src/houmao/srv_ctrl/commands/mailbox.py)
 - [`src/houmao/srv_ctrl/commands/agents/mailbox.py`](../../../src/houmao/srv_ctrl/commands/agents/mailbox.py)
 - [`src/houmao/srv_ctrl/commands/agents/mail.py`](../../../src/houmao/srv_ctrl/commands/agents/mail.py)
+- [`src/houmao/srv_ctrl/commands/system_skills.py`](../../../src/houmao/srv_ctrl/commands/system_skills.py)
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../src/houmao/agents/realm_controller/runtime.py)
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
+- [`src/houmao/agents/system_skills.py`](../../../src/houmao/agents/system_skills.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md)
-- [`src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md`](../../../src/houmao/agents/realm_controller/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`](../../../src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-agent-gateway/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md`](../../../src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-filesystem/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md`](../../../src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-stalwart/SKILL.md)
