@@ -991,6 +991,64 @@ Those read-optimized gateway-backed state artifacts or equivalent gateway-owned 
 - **THEN** it reads that state through the live gateway HTTP surface for that agent
 - **AND THEN** it does not treat gateway-private session-root files as the authoritative live-state transport
 
+### Requirement: Gateway exposes explicit headless chat-session state and next-prompt override control
+For native headless gateway targets, the live gateway SHALL expose dedicated headless chat-session control routes:
+
+- `GET /v1/control/headless/state`
+- `POST /v1/control/headless/next-prompt-session`
+
+`GET /v1/control/headless/state` SHALL return the gateway's current headless control-state payload for the addressed managed session.
+
+That payload SHALL include a `chat_session` state object with at least:
+
+- `current`, describing the concrete provider session currently pinned by the managed agent or `null` when none is pinned
+- `startup_default`, describing the managed agent's first-chat fallback policy using one of `new`, `tool_last_or_new`, or `exact`
+- `next_prompt_override`, containing either `null` or a one-shot override object
+
+When `startup_default.mode = exact`, the state payload SHALL include the exact provider session id used by that startup default.
+
+In v1, `POST /v1/control/headless/next-prompt-session` SHALL be valid only for native headless gateway targets and SHALL accept only `mode = new`. It SHALL set `chat_session.next_prompt_override` so the next accepted prompt whose effective selector is `auto` uses a fresh provider chat.
+
+That one-shot override SHALL:
+
+- be gateway-local live state rather than durable persisted state,
+- be lost if the gateway stops or restarts,
+- be consumed only when the next accepted `auto` prompt is admitted,
+- remain pending when a later prompt explicitly requests `new`, `current`, `tool_last_or_new`, or `exact`,
+- not affect queued gateway requests, wakeup delivery, mail-notifier behavior, or other internal gateway-generated prompts.
+
+`POST /v1/control/headless/next-prompt-session` SHALL return the updated headless control-state payload after storing the pending override.
+
+For TUI-backed or otherwise non-headless targets, both routes SHALL reject the request with validation semantics rather than pretending that a headless control surface exists.
+
+#### Scenario: Headless state reports current session, startup default, and pending override
+- **WHEN** a caller requests `GET /v1/control/headless/state` for a native headless gateway target
+- **THEN** the response includes `chat_session.current`, `chat_session.startup_default`, and `chat_session.next_prompt_override`
+- **AND THEN** the caller can distinguish the managed agent's pinned current session from its startup policy and one-shot override posture
+
+#### Scenario: Next-prompt override is consumed by the next accepted auto prompt
+- **WHEN** a caller first submits `POST /v1/control/headless/next-prompt-session` with `mode = new`
+- **AND WHEN** the next accepted public `POST /v1/control/prompt` for that same headless target omits `chat_session` or explicitly sets `chat_session.mode = auto`
+- **THEN** that prompt uses a fresh provider chat
+- **AND THEN** a later `GET /v1/control/headless/state` no longer reports a pending next-prompt override
+
+#### Scenario: Explicit non-auto prompt does not consume the pending next-prompt override
+- **WHEN** a caller first submits `POST /v1/control/headless/next-prompt-session` with `mode = new`
+- **AND WHEN** a later accepted `POST /v1/control/prompt` for that same headless target explicitly requests `chat_session.mode = current`
+- **THEN** the gateway resolves that prompt using the explicit selector
+- **AND THEN** the pending next-prompt override remains visible until a later accepted auto prompt consumes it or the gateway stops
+
+#### Scenario: Restart clears the pending next-prompt override
+- **WHEN** a native headless gateway target has a pending next-prompt override
+- **AND WHEN** the gateway stops or restarts before an accepted auto prompt consumes it
+- **THEN** the restarted gateway no longer reports that pending override
+- **AND THEN** the override is not recovered from durable gateway state
+
+#### Scenario: TUI target rejects headless chat-session control routes
+- **WHEN** a caller requests `GET /v1/control/headless/state` or `POST /v1/control/headless/next-prompt-session` for a TUI-backed gateway target
+- **THEN** the gateway rejects that request with validation semantics
+- **AND THEN** it does not pretend that a headless control surface exists for that target
+
 ### Requirement: Gateway exposes semantic prompt submission separately from raw send-keys control
 
 For gateway-managed tmux-backed sessions, the gateway SHALL keep semantic prompt submission separate from raw key/control-input delivery.
@@ -1000,11 +1058,30 @@ The gateway SHALL expose two semantic prompt surfaces:
 - `POST /v1/requests` as the queued gateway request surface for `submit_prompt` and `interrupt`
 - `POST /v1/control/prompt` as the immediate prompt-control surface for "send now or refuse now" prompt dispatch
 
+For native headless targets, `POST /v1/control/prompt` SHALL additionally accept an optional structured `chat_session` selector object.
+
+That headless-only selector SHALL use:
+
+- `chat_session.mode = auto | new | current | tool_last_or_new | exact`
+- `chat_session.id` required only when `mode = exact`
+
+For headless prompt control:
+
+- omitting `chat_session` SHALL be equivalent to `chat_session.mode = auto`
+- `new` SHALL mean "use a fresh provider chat for this prompt"
+- `current` SHALL mean "use the managed agent's pinned current provider session"
+- `tool_last_or_new` SHALL mean "ask the underlying tool to resume its latest stored chat and start fresh if none exists"
+- `exact` SHALL mean "use this exact provider session identifier"
+
 The gateway SHALL additionally expose a dedicated raw control-input endpoint for send-keys style delivery. That endpoint SHALL accept exact `<[key-name]>` control-input sequences using the same contract as the runtime tmux-control-input capability, including optional full-string literal escaping.
 
 Both semantic gateway prompt surfaces SHALL treat the provided prompt body as literal text, SHALL NOT interpret `<[key-name]>` substrings as special keys, and SHALL automatically submit once at the end.
 
 The dedicated raw control-input endpoint SHALL NOT enqueue a durable `submit_prompt` request, SHALL NOT claim that a managed prompt turn was submitted, and SHALL NOT trigger gateway prompt-submission tracking hooks by itself.
+
+For TUI-backed targets, `POST /v1/control/prompt` SHALL accept `chat_session.mode = new` and SHALL reject `chat_session.mode = auto | current | tool_last_or_new | exact` with validation semantics rather than ignoring the field.
+
+Malformed `chat_session` payloads, including missing `id` for `exact` or unexpected `id` for other modes, SHALL be rejected with validation semantics.
 
 #### Scenario: Gateway direct prompt control returns immediate dispatch semantics
 
@@ -1030,6 +1107,21 @@ The dedicated raw control-input endpoint SHALL NOT enqueue a durable `submit_pro
 - **THEN** the gateway semantic prompt path treats `<[Enter]>` as literal text
 - **AND THEN** the gateway performs one automatic final submit instead of interpreting that substring as a raw keypress
 
+#### Scenario: Headless direct prompt control accepts explicit tool-native latest selection
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with `chat_session.mode = tool_last_or_new`
+- **THEN** the gateway resolves that request by asking the tool to resume its latest stored chat or start fresh if none exists
+- **AND THEN** the gateway does not reinterpret that selector as the managed agent's current pinned session
+
+#### Scenario: TUI direct prompt control accepts explicit new-session reset request
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
+- **THEN** the gateway accepts that request as a TUI conversation-reset workflow
+- **AND THEN** it does not reinterpret that selector as headless provider-session state
+
+#### Scenario: TUI direct prompt control rejects unsupported explicit session selector
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = current`
+- **THEN** the gateway rejects that request with validation semantics
+- **AND THEN** it does not ignore the selector and pretend that ordinary prompt control succeeded
+
 ### Requirement: Gateway direct prompt control only dispatches when the addressed agent is prompt-ready unless forced
 
 For gateway-managed prompt control through `POST /v1/control/prompt`, the gateway SHALL reject prompt dispatch by default unless the addressed target is ready to accept a new prompt immediately.
@@ -1046,7 +1138,30 @@ When a parsed surface is available for that TUI state, the gateway SHALL additio
 
 For native headless sessions, the direct prompt-control path SHALL require that authoritative runtime control is operable and that no active execution or active turn is already running for that managed session.
 
-When the request sets `force = true`, the gateway MAY bypass those prompt-readiness checks, but it SHALL still reject unavailable, reconciliation-blocked, invalid, or unsupported-target requests explicitly.
+For TUI-backed sessions with `chat_session.mode = new`, the direct prompt-control path SHALL:
+
+- require an initial prompt-ready TUI posture suitable for semantic prompt submission,
+- send a semantic reset prompt such as `/clear`,
+- wait until the tracked TUI state stabilizes back to prompt-ready posture,
+- send the caller's actual prompt only after that post-reset stabilization succeeds.
+
+If the TUI target lacks a supported reset workflow, if the reset prompt cannot be admitted, or if post-reset stabilization does not succeed, the gateway SHALL fail the request explicitly and SHALL NOT claim that the caller's actual prompt was delivered.
+
+For native headless sessions, the gateway SHALL resolve the effective chat-session selector as follows:
+
+- `chat_session.mode = auto` resolves in this order:
+  - `chat_session.next_prompt_override` when present,
+  - `chat_session.current` when present,
+  - `chat_session.startup_default`,
+  - `new`
+- `chat_session.mode = current` requires `chat_session.current` to exist and SHALL fail explicitly when no current session is pinned
+- `chat_session.mode = tool_last_or_new` asks the tool to resume its latest stored chat and falls back to fresh if none exists
+- `chat_session.mode = exact` uses the provided exact provider session id
+- `chat_session.mode = new` forces fresh provider-chat bootstrap
+
+After a successful headless prompt turn, the resolved concrete provider session id returned by the tool SHALL become the managed agent's `chat_session.current` when one is reported.
+
+When the request sets `force = true`, the gateway MAY bypass readiness checks, but it SHALL still reject unavailable, reconciliation-blocked, invalid-selector, incompatible-target, or unsupported-target requests explicitly.
 
 #### Scenario: Prompt-ready TUI accepts immediate prompt control
 
@@ -1063,6 +1178,18 @@ When the request sets `force = true`, the gateway MAY bypass those prompt-readin
 - **THEN** the gateway rejects that prompt explicitly
 - **AND THEN** it does not return a success payload claiming the prompt was sent
 
+#### Scenario: TUI new mode clears the conversation before sending the prompt
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
+- **AND WHEN** the gateway-owned TUI state reports a stable ready posture
+- **THEN** the gateway first sends the configured reset prompt such as `/clear`
+- **AND THEN** after the TUI stabilizes back to ready posture, the gateway sends the caller's actual prompt
+
+#### Scenario: TUI new mode fails when post-clear stabilization does not complete
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
+- **AND WHEN** the reset prompt is sent but the TUI does not stabilize back to ready posture within the allowed wait
+- **THEN** the gateway rejects that request explicitly
+- **AND THEN** it does not claim that the caller's actual prompt was delivered
+
 #### Scenario: Force bypasses prompt-readiness refusal but not gateway availability failures
 
 - **WHEN** a caller submits `POST /v1/control/prompt` with `force = true`
@@ -1076,6 +1203,18 @@ When the request sets `force = true`, the gateway MAY bypass those prompt-readin
 - **AND WHEN** that target already has active execution in flight
 - **THEN** the gateway rejects that prompt explicitly
 - **AND THEN** it does not start overlapping headless prompt work
+
+#### Scenario: Auto mode prefers the managed agent's current pinned session
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with omitted `chat_session`
+- **AND WHEN** that managed agent already has `chat_session.current`
+- **THEN** the gateway resolves that prompt against the pinned current provider session
+- **AND THEN** it does not re-query the tool's global latest-session storage for that prompt
+
+#### Scenario: Current mode fails when no pinned current session exists
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with `chat_session.mode = current`
+- **AND WHEN** the managed agent does not have `chat_session.current`
+- **THEN** the gateway rejects that request explicitly
+- **AND THEN** it does not silently fall back to `auto`, startup default, or fresh bootstrap
 
 #### Scenario: Unsupported backend rejects direct prompt control explicitly
 
