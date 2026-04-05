@@ -7,7 +7,7 @@ This is the same packaged skill system used internally by:
 - `houmao-mgr brains build` when it creates a managed home,
 - `houmao-mgr agents join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
 
-The current implementation is intentionally narrow. It covers the existing mailbox-oriented Houmao-owned skills only. It does not yet generalize to other asset kinds or future skill families.
+The current implementation is still intentionally narrow. It currently covers the mailbox-oriented Houmao-owned skills plus the project/easy authoring skill `houmao-create-specialist`. It does not yet generalize to non-skill asset kinds.
 
 ## Command Shape
 
@@ -37,12 +37,13 @@ Current sets:
 
 - `mailbox-core`
 - `mailbox-full`
+- `project-easy`
 
 Current fixed auto-install selections:
 
-- managed launch: `mailbox-full`
-- managed join: `mailbox-full`
-- CLI default: `mailbox-full`
+- managed launch: `mailbox-full`, `project-easy`
+- managed join: `mailbox-full`, `project-easy`
+- CLI default: `mailbox-full`, `project-easy`
 
 ## Current Skill Inventory
 
@@ -52,22 +53,23 @@ The current packaged Houmao-owned skills are:
 - `houmao-email-via-agent-gateway`
 - `houmao-email-via-filesystem`
 - `houmao-email-via-stalwart`
+- `houmao-create-specialist`
 
-These skill trees live under:
+These skill trees live directly under:
 
-- `src/houmao/agents/assets/system_skills/mailbox/`
+- `src/houmao/agents/assets/system_skills/<houmao-skill>/`
 
 ## Tool-Visible Projection Paths
 
-The installer preserves the current visible tool-native skill paths:
+The installer preserves the current visible tool-native skill roots with flat Houmao-owned skill directories:
 
 | Tool | Visible projection root | Example |
 | --- | --- | --- |
 | `claude` | `skills/` | `skills/houmao-email-via-agent-gateway/SKILL.md` |
-| `codex` | `skills/mailbox/` | `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` |
+| `codex` | `skills/` | `skills/houmao-create-specialist/SKILL.md` |
 | `gemini` | `.agents/skills/` | `.agents/skills/houmao-email-via-agent-gateway/SKILL.md` |
 
-That means mailbox prompts, runtime docs, and existing managed-session guidance keep the same visible skill names and paths even though installation is now catalog-driven.
+That means Houmao-owned mailbox and project/easy skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
 
 ## Install State And Ownership
 
@@ -135,6 +137,7 @@ Use `install` when you want the current Houmao-owned skill surface in an explici
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --default
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core --skill houmao-email-via-filesystem
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set project-easy
 ```
 
 Selection rules:
@@ -154,7 +157,7 @@ Managed homes and joined homes use the same installer and catalog:
 - `agents join` installs the skill list resolved from `auto_install.managed_join_sets`
 - `agents join --no-install-houmao-skills` skips that default installer step
 
-This removes the old mailbox-only special path while keeping the current visible mailbox skill contract unchanged.
+This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in named sets such as `mailbox-full` and `project-easy`.
 
 ## When To Use This Surface
 
@@ -162,7 +165,7 @@ Use `system-skills` when:
 
 - you want to prepare an external Claude, Codex, or Gemini home before using `houmao-mgr`
 - you want to inspect whether Houmao already installed its own skill set into a home
-- you want the same Houmao-owned mailbox skill surface outside a Houmao-managed launch or join flow
+- you want the same Houmao-owned mailbox or project/easy authoring skill surface outside a Houmao-managed launch or join flow
 
 Do not use it for:
 

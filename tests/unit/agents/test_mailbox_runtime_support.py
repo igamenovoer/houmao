@@ -380,12 +380,12 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
 
     references = install_runtime_mailbox_system_skills_for_tool(tool="codex", home_path=home_path)
 
-    mailbox_root = home_path / mailbox_skills_destination_for_tool("codex") / "mailbox"
+    mailbox_root = home_path / mailbox_skills_destination_for_tool("codex")
     assert set(references) == {
-        "mailbox/houmao-process-emails-via-gateway",
-        "mailbox/houmao-email-via-agent-gateway",
-        "mailbox/houmao-email-via-filesystem",
-        "mailbox/houmao-email-via-stalwart",
+        "houmao-process-emails-via-gateway",
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
     }
     assert (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (mailbox_root / "houmao-email-via-agent-gateway/SKILL.md").is_file()

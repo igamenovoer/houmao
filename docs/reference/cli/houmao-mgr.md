@@ -202,7 +202,7 @@ Operational notes:
 - `system-skills install` requires `--tool` and `--home`.
 - selection must come from `--default`, `--set`, `--skill`, or a combination of those inputs
 - repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves the current visible mailbox skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/mailbox/houmao-...`, and Gemini uses `.agents/skills/houmao-...`
+- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.agents/skills/houmao-...`
 - each target home records Houmao-owned install state under `.houmao/system-skills/install-state.json`
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 

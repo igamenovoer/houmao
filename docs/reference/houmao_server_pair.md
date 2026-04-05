@@ -50,7 +50,7 @@ houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state.
 houmao-mgr agents relaunch --agent-name gpu
 houmao-mgr agents gateway attach --agent-name gpu
 houmao-mgr agents gateway attach
-houmao-mgr brains build --tool codex --skill skills/mailbox --setup dev --auth openai
+houmao-mgr brains build --tool codex --skill skills --setup dev --auth openai
 houmao-mgr admin cleanup registry --grace-seconds 0
 houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 ```

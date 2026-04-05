@@ -102,4 +102,4 @@ If you need the exact message schema, pair this page with [Canonical Model](cano
 - [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
 - [`src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
 - [`src/houmao/mailbox/assets/rules/README.md`](../../../../src/houmao/mailbox/assets/rules/README.md)
-- [`src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-filesystem/references/filesystem-layout.md`](../../../../src/houmao/agents/assets/system_skills/mailbox/houmao-email-via-filesystem/references/filesystem-layout.md)
+- [`src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/references/filesystem-layout.md`](../../../../src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/references/filesystem-layout.md)

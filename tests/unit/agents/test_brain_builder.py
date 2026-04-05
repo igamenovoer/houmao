@@ -226,12 +226,13 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
-    visible_gateway_skill = home / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
-    visible_processing_skill = home / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
-    visible_mailbox_skill = home / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    visible_gateway_skill = home / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
+    visible_mailbox_skill = home / "skills/houmao-email-via-filesystem/SKILL.md"
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_skill.is_file()
+    assert (home / "skills/houmao-create-specialist/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
@@ -241,6 +242,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
+        "houmao-create-specialist",
     )
 
     # Credential file projection and env contract setup.
@@ -384,10 +386,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     )
 
     processing_skill = (
-        result.home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
+        result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
     gateway_skill = (
-        result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+        result.home_path / "skills/houmao-email-via-agent-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
 
     assert "houmao-process-emails-via-gateway" in processing_skill
