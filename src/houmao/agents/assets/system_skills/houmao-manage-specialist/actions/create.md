@@ -1,44 +1,31 @@
----
-name: houmao-create-specialist
-description: Use Houmao's supported project-easy specialist workflow to create one reusable specialist with the correct `houmao-mgr` launcher for the current environment.
-license: MIT
----
+# Create Specialist
 
-# Houmao Create Specialist
-
-Use this Houmao skill when you need to create one reusable easy specialist through Houmao's supported higher-level authoring command instead of hand-editing project files.
-
-The trigger word `houmao` is intentional. Use the `houmao-create-specialist` skill name directly when you intend to activate this Houmao-owned skill.
+Use this action only when the user wants to create or replace one reusable easy specialist through Houmao's supported higher-level authoring command.
 
 ## Workflow
 
-1. Collect the user's intended specialist inputs from the current prompt first.
+1. Collect the user's intended specialist-create inputs from the current prompt first.
 2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
 3. If the specialist name or tool lane is still missing, ask the user before proceeding.
 4. Resolve the intended credential name. If the user did not provide `--credential`, use the documented CLI default `<specialist-name>-creds`.
-5. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
-   - repo-local `.venv/bin/houmao-mgr`
-   - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
-   - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
-   - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-6. Resolve the credential source mode:
+5. Resolve the credential source mode:
    - Explicit Auth Mode when the user already provided supported auth values or auth files
    - Env Lookup Mode when the user explicitly tells you to inspect specific env names or explicit env-name patterns
    - Directory Scan Mode when the user explicitly points you at one directory and asks you to scan it for likely credentials
    - Auto Credentials Mode when the user explicitly asks for `auto credentials`
    - No Discovery Mode otherwise
-7. Treat those credential-source modes as distinct unless the user explicitly asks to combine them.
-8. If the active mode is Env Lookup Mode, Directory Scan Mode, or Auto Credentials Mode, load exactly one selected-tool reference page:
+6. Treat those credential-source modes as distinct unless the user explicitly asks to combine them.
+7. If the active mode is Env Lookup Mode, Directory Scan Mode, or Auto Credentials Mode, load exactly one selected-tool reference page:
    - Claude: `references/claude-credential-lookup.md`
    - Codex: `references/codex-credential-lookup.md`
    - Gemini: `references/gemini-credential-lookup.md`
-9. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same resolved `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
-10. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
+8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same resolved `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
+9. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
    - do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless one of the supported credential-source modes is explicitly active
    - ask the user for the missing auth inputs instead of guessing
    - mention that they can either provide auth explicitly, point you at env names or patterns, point you at a directory, or ask for `auto credentials`
-11. Run `project easy specialist create` through the resolved launcher.
-12. Report the created specialist, selected tool, resolved credential name, and the generated artifact paths returned by the command.
+10. Run `project easy specialist create` through the resolved launcher.
+11. Report the created specialist, selected tool, resolved credential name, and the generated artifact paths returned by the command.
 
 ## Credential Source Modes
 
@@ -115,6 +102,13 @@ Tool-specific auth inputs:
 - Codex: `--api-key`, optional `--base-url`, optional `--codex-org-id`, optional `--codex-auth-json`
 - Gemini: `--api-key`, optional `--base-url`, optional `--google-api-key`, optional `--use-vertex-ai`, optional `--gemini-oauth-creds`
 
+Claude vendor-login file usage:
+
+- When the user wants to reuse Claude vendor login files, normalize that request to the directory-based lane `--claude-config-dir <claude-config-root>`.
+- If the user points directly at `.credentials.json`, resolve its parent directory and use that directory as `--claude-config-dir`.
+- If the user points at both `.credentials.json` and companion `.claude.json`, still use only `--claude-config-dir <root>` rather than inventing separate file flags.
+- Treat companion `.claude.json` as part of the same maintained vendor login lane when present, not as a standalone credential input.
+
 ## Guardrails
 
 - Do not guess the specialist name, tool lane, or auth values.
@@ -125,10 +119,10 @@ Tool-specific auth inputs:
 - Do not treat `auto credentials` as a literal CLI flag or as the credential bundle name.
 - Do not execute `apiKeyHelper`, browser login flows, `codex login`, `claude auth login`, `gemini` interactive login, or other auth-generation flows just to synthesize credentials for specialist creation.
 - Do not treat a discovered current auth shape as importable unless it can be faithfully mapped into the selected tool's supported create-command flags.
+- Do not invent separate Claude create-command flags for `.credentials.json` or `.claude.json`; the maintained vendor-login lane is `--claude-config-dir`.
+- Do not treat a standalone `.claude.json` without the maintained `.credentials.json` config-root login state as a valid Claude credential lane.
+- Do not rewrite, minimize, or reinterpret vendor `.credentials.json` content when the task is specialist creation; treat it as opaque vendor login state and map only its containing config root.
 - Do not treat only `--claude-state-template-file` or a reusable `claude_state.template.json` as satisfying missing Claude credentials; that file is optional bootstrap state, not a credential lane.
 - Do not blindly reuse runtime `.claude.json` as `--claude-state-template-file`; only use an existing reusable `claude_state.template.json` or another explicitly reusable template path.
 - Do not mix `--system-prompt` and `--system-prompt-file`.
 - Do not treat missing auth as optional unless the intended credential bundle is confirmed to already exist.
-- Do not force `pixi run houmao-mgr` when the workspace is not a development project.
-- Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.
-- Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for specialist authoring.

@@ -27,7 +27,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
-        "houmao-create-specialist",
+        "houmao-manage-specialist",
     ]
     assert [record["name"] for record in payload["sets"]] == [
         "mailbox-core",
@@ -87,11 +87,11 @@ def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> No
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
-        "houmao-create-specialist",
+        "houmao-manage-specialist",
     ]
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-create-specialist/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
 
     status_result = CliRunner().invoke(
         cli,

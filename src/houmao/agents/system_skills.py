@@ -23,11 +23,15 @@ SYSTEM_SKILL_STATE_SCHEMA_VERSION = 1
 SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
 SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
 SYSTEM_SKILL_SET_PROJECT_EASY = "project-easy"
+SYSTEM_SKILL_MANAGE_SPECIALIST = "houmao-manage-specialist"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",
     "codex": "skills",
     "gemini": ".agents/skills",
+}
+_SYSTEM_SKILL_RENAMED_FROM: dict[str, tuple[str, ...]] = {
+    SYSTEM_SKILL_MANAGE_SPECIALIST: ("houmao-create-specialist",),
 }
 _SYSTEM_SKILL_STATE_RELATIVE_PATH = Path(".houmao/system-skills/install-state.json")
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
@@ -435,6 +439,10 @@ def install_system_skills_for_home(
         projected_relative_dirs.append(projected_relative_dir)
         target_dir = (resolved_home_path / projected_relative_dir).resolve()
         prior_record = existing_records.get(skill_name)
+        superseded_records = _superseded_installed_records_for_skill(
+            existing_records=existing_records,
+            skill_name=skill_name,
+        )
         _assert_target_path_is_installable(
             target_dir=target_dir,
             home_path=resolved_home_path,
@@ -456,6 +464,12 @@ def install_system_skills_for_home(
                 previous_relative_dir=prior_record.projected_relative_dir,
                 home_path=resolved_home_path,
             )
+        for superseded_record in superseded_records:
+            _remove_previous_owned_path(
+                previous_relative_dir=superseded_record.projected_relative_dir,
+                home_path=resolved_home_path,
+            )
+            updated_records.pop(superseded_record.name, None)
 
     merged_records = _merge_install_records(
         existing_state=existing_state,
@@ -783,6 +797,20 @@ def _merge_install_records(
         if skill_name not in ordered_names:
             ordered_names.append(skill_name)
     return tuple(updated_records[name] for name in ordered_names if name in updated_records)
+
+
+def _superseded_installed_records_for_skill(
+    *,
+    existing_records: dict[str, InstalledSystemSkillRecord],
+    skill_name: str,
+) -> tuple[InstalledSystemSkillRecord, ...]:
+    """Return legacy installed records superseded by the current skill name."""
+
+    return tuple(
+        existing_records[legacy_name]
+        for legacy_name in _SYSTEM_SKILL_RENAMED_FROM.get(skill_name, ())
+        if legacy_name in existing_records
+    )
 
 
 def _write_system_skill_install_state(*, path: Path, state: SystemSkillInstallState) -> None:

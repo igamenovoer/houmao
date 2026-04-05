@@ -16,9 +16,9 @@ description = "Filesystem mailbox transport guidance skill."
 asset_subpath = "houmao-email-via-stalwart"
 description = "Stalwart mailbox transport guidance skill."
 
-[skills.houmao-create-specialist]
-asset_subpath = "houmao-create-specialist"
-description = "Project-easy specialist authoring skill."
+[skills.houmao-manage-specialist]
+asset_subpath = "houmao-manage-specialist"
+description = "Project-easy specialist management skill."
 
 [sets.mailbox-core]
 description = "Core shared mailbox workflow skills."
@@ -37,9 +37,9 @@ skills = [
 ]
 
 [sets.project-easy]
-description = "Project-easy authoring system skills."
+description = "Project-easy specialist-management system skills."
 skills = [
-  "houmao-create-specialist",
+  "houmao-manage-specialist",
 ]
 
 [auto_install]

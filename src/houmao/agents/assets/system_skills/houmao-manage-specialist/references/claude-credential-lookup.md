@@ -60,6 +60,10 @@ Use these files to classify Claude's current auth shape without executing any re
 
 If the directory contains `.credentials.json`, that directory is importable as `--claude-config-dir`. A companion `.claude.json` should be carried with it when present.
 
+If the user points directly at `.credentials.json` instead of the containing root, normalize that input by using the parent directory as `--claude-config-dir`.
+
+If the user points at both `.credentials.json` and `.claude.json`, still map the result to one directory-based Claude lane: `--claude-config-dir <root>`.
+
 If discovery finds only a reusable `claude_state.template.json`, you may carry it as `--claude-state-template-file`, but only as optional bootstrap state. It is not itself a Claude credential-providing method.
 
 ## Auto Credentials Mode
@@ -96,6 +100,8 @@ Claude auth is directly importable for easy specialist creation only when you ca
 
 Claude may also carry an optional reusable `claude_state.template.json` as bootstrap state, but that file is not itself a credential-providing method.
 
+For vendor-login files, `.credentials.json` is the credential-bearing file and should be treated as opaque vendor state. `.claude.json` is companion runtime/global state that travels with the same config-root lane when present.
+
 Map them to:
 
 - `--api-key`
@@ -111,6 +117,7 @@ Map them to:
 Report failure and ask the user for supported explicit auth when discovery finds only:
 
 - a standalone `.claude.json` without the maintained `.credentials.json` config-root login state
+- separate Claude file paths that cannot be normalized to one coherent config root
 - `apiKeyHelper` configuration without a separately recoverable reusable key, OAuth token, or Claude config root
 - Bedrock, Vertex, or Foundry auth selected through Claude provider env vars
 - other runtime-only Claude auth state that cannot be mapped into the supported create-command flags

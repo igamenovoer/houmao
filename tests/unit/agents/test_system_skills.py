@@ -42,7 +42,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
-        "houmao-create-specialist",
+        "houmao-manage-specialist",
     )
     assert tuple(catalog.sets.keys()) == ("mailbox-core", "mailbox-full", "project-easy")
     assert catalog.auto_install.managed_launch_sets == (
@@ -65,7 +65,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
     resolved = resolve_system_skill_selection(
         catalog,
         set_names=("mailbox-core", "mailbox-full", "project-easy"),
-        skill_names=("houmao-email-via-filesystem", "houmao-create-specialist"),
+        skill_names=("houmao-email-via-filesystem", "houmao-manage-specialist"),
     )
 
     assert resolved == (
@@ -73,7 +73,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
-        "houmao-create-specialist",
+        "houmao-manage-specialist",
     )
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
@@ -124,13 +124,14 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     )
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    create_specialist_path = home_path / "skills/houmao-create-specialist/SKILL.md"
-    create_specialist_references = home_path / "skills/houmao-create-specialist/references"
+    manage_specialist_path = home_path / "skills/houmao-manage-specialist/SKILL.md"
+    manage_specialist_actions = home_path / "skills/houmao-manage-specialist/actions"
+    manage_specialist_references = home_path / "skills/houmao-manage-specialist/references"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
         "houmao-email-via-agent-gateway",
-        "houmao-create-specialist",
+        "houmao-manage-specialist",
         "houmao-email-via-filesystem",
     )
     assert state is not None
@@ -139,30 +140,43 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
-    assert create_specialist_path.is_file()
-    create_specialist_skill = create_specialist_path.read_text(encoding="utf-8")
-    assert ".venv/bin/houmao-mgr" in create_specialist_skill
-    assert "pixi run houmao-mgr" in create_specialist_skill
-    assert "uv run houmao-mgr" in create_specialist_skill
-    assert "globally installed `houmao-mgr` from uv tools" in create_specialist_skill
-    assert "Explicit Auth Mode" in create_specialist_skill
-    assert "Env Lookup Mode" in create_specialist_skill
-    assert "Directory Scan Mode" in create_specialist_skill
-    assert "auto credentials" in create_specialist_skill
-    assert "No Discovery Mode" in create_specialist_skill
-    assert "references/claude-credential-lookup.md" in create_specialist_skill
-    assert "references/codex-credential-lookup.md" in create_specialist_skill
-    assert "references/gemini-credential-lookup.md" in create_specialist_skill
-    assert "--claude-oauth-token" in create_specialist_skill
-    assert "--claude-config-dir" in create_specialist_skill
-    assert "optional bootstrap state" in create_specialist_skill
-    assert "not a credential-providing method" in create_specialist_skill
-    assert "do not scan env vars, directories, repo-local tool homes" in create_specialist_skill
-    assert "tests/fixtures/agents" not in create_specialist_skill
+    assert manage_specialist_path.is_file()
+    manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
+    create_action_path = manage_specialist_actions / "create.md"
+    list_action_path = manage_specialist_actions / "list.md"
+    get_action_path = manage_specialist_actions / "get.md"
+    remove_action_path = manage_specialist_actions / "remove.md"
+    create_action = create_action_path.read_text(encoding="utf-8")
+    assert ".venv/bin/houmao-mgr" in manage_specialist_skill
+    assert "pixi run houmao-mgr" in manage_specialist_skill
+    assert "uv run houmao-mgr" in manage_specialist_skill
+    assert "globally installed `houmao-mgr` from uv tools" in manage_specialist_skill
+    assert "actions/create.md" in manage_specialist_skill
+    assert "actions/list.md" in manage_specialist_skill
+    assert "actions/get.md" in manage_specialist_skill
+    assert "actions/remove.md" in manage_specialist_skill
+    assert "project easy instance launch" in manage_specialist_skill
+    assert "Explicit Auth Mode" in create_action
+    assert "Env Lookup Mode" in create_action
+    assert "Directory Scan Mode" in create_action
+    assert "auto credentials" in create_action
+    assert "No Discovery Mode" in create_action
+    assert "references/claude-credential-lookup.md" in create_action
+    assert "references/codex-credential-lookup.md" in create_action
+    assert "references/gemini-credential-lookup.md" in create_action
+    assert "--claude-oauth-token" in create_action
+    assert "--claude-config-dir" in create_action
+    assert "optional bootstrap state" in create_action
+    assert "not a credential-providing method" in create_action
+    assert "do not scan env vars, directories, repo-local tool homes" in create_action
+    assert "tests/fixtures/agents" not in create_action
+    assert list_action_path.is_file()
+    assert get_action_path.is_file()
+    assert remove_action_path.is_file()
 
-    claude_reference_path = create_specialist_references / "claude-credential-lookup.md"
-    codex_reference_path = create_specialist_references / "codex-credential-lookup.md"
-    gemini_reference_path = create_specialist_references / "gemini-credential-lookup.md"
+    claude_reference_path = manage_specialist_references / "claude-credential-lookup.md"
+    codex_reference_path = manage_specialist_references / "codex-credential-lookup.md"
+    gemini_reference_path = manage_specialist_references / "gemini-credential-lookup.md"
     assert claude_reference_path.is_file()
     assert codex_reference_path.is_file()
     assert gemini_reference_path.is_file()
@@ -253,15 +267,15 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(tmp
     result = install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        skill_names=("houmao-process-emails-via-gateway", "houmao-create-specialist"),
+        skill_names=("houmao-process-emails-via-gateway", "houmao-manage-specialist"),
     )
 
     assert result.projected_relative_dirs == (
         "skills/houmao-process-emails-via-gateway",
-        "skills/houmao-create-specialist",
+        "skills/houmao-manage-specialist",
     )
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-create-specialist/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert not (home_path / "skills/mailbox/houmao-process-emails-via-gateway").exists()
     assert not (home_path / "skills/project/houmao-create-specialist").exists()
     assert not (home_path / "skills/mailbox").exists()
@@ -271,5 +285,58 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(tmp
     assert state is not None
     assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
         "skills/houmao-process-emails-via-gateway",
-        "skills/houmao-create-specialist",
+        "skills/houmao-manage-specialist",
+    )
+    assert tuple(record.name for record in state.installed_skills) == (
+        "houmao-process-emails-via-gateway",
+        "houmao-manage-specialist",
+    )
+
+
+def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(tmp_path: Path) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    _write(
+        home_path / "skills/houmao-create-specialist/SKILL.md",
+        "old flat project-easy path\n",
+    )
+    state_path = system_skill_state_path_for_home(home_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "tool": "codex",
+                "installed_at": "2026-04-05T00:00:00Z",
+                "installed_skills": [
+                    {
+                        "name": "houmao-create-specialist",
+                        "asset_subpath": "houmao-create-specialist",
+                        "projected_relative_dir": "skills/houmao-create-specialist",
+                        "content_digest": "old-flat-project",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-manage-specialist",),
+    )
+
+    assert result.projected_relative_dirs == ("skills/houmao-manage-specialist",)
+    assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert not (home_path / "skills/houmao-create-specialist").exists()
+
+    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    assert state is not None
+    assert tuple(record.name for record in state.installed_skills) == (
+        "houmao-manage-specialist",
+    )
+    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+        "skills/houmao-manage-specialist",
     )
