@@ -70,6 +70,15 @@ from .project_aware_wording import (
 
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
+_CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME = "claude_state.template.json"
+_CLAUDE_VENDOR_CREDENTIALS_FILENAME = ".credentials.json"
+_CLAUDE_VENDOR_GLOBAL_STATE_FILENAME = ".claude.json"
+_CLAUDE_VENDOR_LOGIN_FILE_SOURCES: frozenset[str] = frozenset(
+    {
+        _CLAUDE_VENDOR_CREDENTIALS_FILENAME,
+        _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME,
+    }
+)
 
 
 @click.group(name="project")
@@ -333,6 +342,7 @@ def remove_claude_project_auth_command(name: str) -> None:
 @click.option("--name", required=True, help="Auth bundle name.")
 @click.option("--api-key", default=None, help="Value for `ANTHROPIC_API_KEY`.")
 @click.option("--auth-token", default=None, help="Value for `ANTHROPIC_AUTH_TOKEN`.")
+@click.option("--oauth-token", default=None, help="Value for `CLAUDE_CODE_OAUTH_TOKEN`.")
 @click.option("--base-url", default=None, help="Value for `ANTHROPIC_BASE_URL`.")
 @click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
 @click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
@@ -355,12 +365,23 @@ def remove_claude_project_auth_command(name: str) -> None:
     "state_template_file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
     default=None,
-    help="Optional Claude runtime state template JSON to store in the auth bundle.",
+    help="Optional Claude bootstrap state template JSON to store in the auth bundle (not a credential).",
+)
+@click.option(
+    "--config-dir",
+    "config_dir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help=(
+        "Optional Claude config dir to import vendor login state from "
+        "(`.credentials.json` plus companion `.claude.json` when present)."
+    ),
 )
 def add_claude_project_auth_command(
     name: str,
     api_key: str | None,
     auth_token: str | None,
+    oauth_token: str | None,
     base_url: str | None,
     model: str | None,
     small_fast_model: str | None,
@@ -369,6 +390,7 @@ def add_claude_project_auth_command(
     default_sonnet_model: str | None,
     default_haiku_model: str | None,
     state_template_file: Path | None,
+    config_dir: Path | None,
 ) -> None:
     """Create one new Claude auth bundle inside the active project overlay."""
 
@@ -377,6 +399,7 @@ def add_claude_project_auth_command(
         name=name,
         api_key=api_key,
         auth_token=auth_token,
+        oauth_token=oauth_token,
         base_url=base_url,
         model=model,
         small_fast_model=small_fast_model,
@@ -385,6 +408,7 @@ def add_claude_project_auth_command(
         default_sonnet_model=default_sonnet_model,
         default_haiku_model=default_haiku_model,
         state_template_file=state_template_file,
+        config_dir=config_dir,
         clear_env_names=set(),
         clear_file_sources=set(),
     )
@@ -394,6 +418,7 @@ def add_claude_project_auth_command(
 @click.option("--name", required=True, help="Auth bundle name.")
 @click.option("--api-key", default=None, help="Value for `ANTHROPIC_API_KEY`.")
 @click.option("--auth-token", default=None, help="Value for `ANTHROPIC_AUTH_TOKEN`.")
+@click.option("--oauth-token", default=None, help="Value for `CLAUDE_CODE_OAUTH_TOKEN`.")
 @click.option("--base-url", default=None, help="Value for `ANTHROPIC_BASE_URL`.")
 @click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
 @click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
@@ -416,13 +441,28 @@ def add_claude_project_auth_command(
     "state_template_file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
     default=None,
-    help="Optional Claude runtime state template JSON to store in the auth bundle.",
+    help="Optional Claude bootstrap state template JSON to store in the auth bundle (not a credential).",
+)
+@click.option(
+    "--config-dir",
+    "config_dir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help=(
+        "Optional Claude config dir to import vendor login state from "
+        "(`.credentials.json` plus companion `.claude.json` when present)."
+    ),
 )
 @click.option(
     "--clear-api-key", is_flag=True, help="Remove `ANTHROPIC_API_KEY` from the auth bundle."
 )
 @click.option(
     "--clear-auth-token", is_flag=True, help="Remove `ANTHROPIC_AUTH_TOKEN` from the auth bundle."
+)
+@click.option(
+    "--clear-oauth-token",
+    is_flag=True,
+    help="Remove `CLAUDE_CODE_OAUTH_TOKEN` from the auth bundle.",
 )
 @click.option(
     "--clear-base-url", is_flag=True, help="Remove `ANTHROPIC_BASE_URL` from the auth bundle."
@@ -456,12 +496,18 @@ def add_claude_project_auth_command(
 @click.option(
     "--clear-state-template-file",
     is_flag=True,
-    help="Remove `files/claude_state.template.json` from the auth bundle.",
+    help="Remove optional `files/claude_state.template.json` bootstrap state from the auth bundle.",
+)
+@click.option(
+    "--clear-config-dir",
+    is_flag=True,
+    help="Remove imported Claude vendor login-state files from the auth bundle.",
 )
 def set_claude_project_auth_command(
     name: str,
     api_key: str | None,
     auth_token: str | None,
+    oauth_token: str | None,
     base_url: str | None,
     model: str | None,
     small_fast_model: str | None,
@@ -470,8 +516,10 @@ def set_claude_project_auth_command(
     default_sonnet_model: str | None,
     default_haiku_model: str | None,
     state_template_file: Path | None,
+    config_dir: Path | None,
     clear_api_key: bool,
     clear_auth_token: bool,
+    clear_oauth_token: bool,
     clear_base_url: bool,
     clear_model: bool,
     clear_small_fast_model: bool,
@@ -480,6 +528,7 @@ def set_claude_project_auth_command(
     clear_default_sonnet_model: bool,
     clear_default_haiku_model: bool,
     clear_state_template_file: bool,
+    clear_config_dir: bool,
 ) -> None:
     """Update one existing Claude auth bundle inside the active project overlay."""
 
@@ -488,6 +537,7 @@ def set_claude_project_auth_command(
         name=name,
         api_key=api_key,
         auth_token=auth_token,
+        oauth_token=oauth_token,
         base_url=base_url,
         model=model,
         small_fast_model=small_fast_model,
@@ -496,10 +546,12 @@ def set_claude_project_auth_command(
         default_sonnet_model=default_sonnet_model,
         default_haiku_model=default_haiku_model,
         state_template_file=state_template_file,
+        config_dir=config_dir,
         clear_env_names=_flagged_items(
             {
                 "ANTHROPIC_API_KEY": clear_api_key,
                 "ANTHROPIC_AUTH_TOKEN": clear_auth_token,
+                "CLAUDE_CODE_OAUTH_TOKEN": clear_oauth_token,
                 "ANTHROPIC_BASE_URL": clear_base_url,
                 "ANTHROPIC_MODEL": clear_model,
                 "ANTHROPIC_SMALL_FAST_MODEL": clear_small_fast_model,
@@ -510,7 +562,11 @@ def set_claude_project_auth_command(
             }
         ),
         clear_file_sources=_flagged_items(
-            {"claude_state.template.json": clear_state_template_file}
+            {
+                _CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME: clear_state_template_file,
+                _CLAUDE_VENDOR_CREDENTIALS_FILENAME: clear_config_dir,
+                _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME: clear_config_dir,
+            }
         ),
     )
 
@@ -1236,12 +1292,22 @@ def easy_specialist_group() -> None:
     "--base-url", default=None, help="Common base URL input for the selected tool when supported."
 )
 @click.option("--claude-auth-token", default=None, help="Optional Claude auth token input.")
+@click.option("--claude-oauth-token", default=None, help="Optional Claude OAuth token input.")
 @click.option("--claude-model", default=None, help="Optional Claude model input.")
 @click.option(
     "--claude-state-template-file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
     default=None,
-    help="Optional Claude state template JSON file.",
+    help="Optional Claude bootstrap state template JSON file (not a credential).",
+)
+@click.option(
+    "--claude-config-dir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help=(
+        "Optional Claude config dir to import vendor login state from "
+        "(`.credentials.json` plus companion `.claude.json` when present)."
+    ),
 )
 @click.option("--codex-org-id", default=None, help="Optional Codex org id input.")
 @click.option(
@@ -1287,8 +1353,10 @@ def create_easy_specialist_command(
     api_key: str | None,
     base_url: str | None,
     claude_auth_token: str | None,
+    claude_oauth_token: str | None,
     claude_model: str | None,
     claude_state_template_file: Path | None,
+    claude_config_dir: Path | None,
     codex_org_id: str | None,
     codex_auth_json: Path | None,
     google_api_key: str | None,
@@ -1350,8 +1418,10 @@ def create_easy_specialist_command(
         api_key=api_key,
         base_url=base_url,
         claude_auth_token=claude_auth_token,
+        claude_oauth_token=claude_oauth_token,
         claude_model=claude_model,
         claude_state_template_file=claude_state_template_file,
+        claude_config_dir=claude_config_dir,
         codex_org_id=codex_org_id,
         codex_auth_json=codex_auth_json,
         google_api_key=google_api_key,
@@ -2314,6 +2384,7 @@ def _run_claude_auth_write(
     name: str,
     api_key: str | None,
     auth_token: str | None,
+    oauth_token: str | None,
     base_url: str | None,
     model: str | None,
     small_fast_model: str | None,
@@ -2322,6 +2393,7 @@ def _run_claude_auth_write(
     default_sonnet_model: str | None,
     default_haiku_model: str | None,
     state_template_file: Path | None,
+    config_dir: Path | None,
     clear_env_names: set[str],
     clear_file_sources: set[str],
 ) -> None:
@@ -2332,6 +2404,7 @@ def _run_claude_auth_write(
         {
             "ANTHROPIC_API_KEY": api_key,
             "ANTHROPIC_AUTH_TOKEN": auth_token,
+            "CLAUDE_CODE_OAUTH_TOKEN": oauth_token,
             "ANTHROPIC_BASE_URL": base_url,
             "ANTHROPIC_MODEL": model,
             "ANTHROPIC_SMALL_FAST_MODEL": small_fast_model,
@@ -2341,19 +2414,24 @@ def _run_claude_auth_write(
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": default_haiku_model,
         }
     )
+    file_sources = _claude_auth_file_sources(
+        state_template_file=state_template_file,
+        config_dir=config_dir,
+    )
+    effective_clear_file_sources = set(clear_file_sources)
+    if config_dir is not None:
+        effective_clear_file_sources.update(_CLAUDE_VENDOR_LOGIN_FILE_SOURCES)
     emit(
         _write_project_auth_bundle(
             overlay=overlay,
             tool="claude",
             name=name,
             env_values=env_values,
-            file_sources={"claude_state.template.json": state_template_file}
-            if state_template_file is not None
-            else {},
+            file_sources=file_sources,
             require_any_input=True,
             operation=operation,
             clear_env_names=clear_env_names,
-            clear_file_sources=clear_file_sources,
+            clear_file_sources=effective_clear_file_sources,
         )
     )
 
@@ -2590,8 +2668,10 @@ def _ensure_specialist_auth_bundle(
     api_key: str | None,
     base_url: str | None,
     claude_auth_token: str | None,
+    claude_oauth_token: str | None,
     claude_model: str | None,
     claude_state_template_file: Path | None,
+    claude_config_dir: Path | None,
     codex_org_id: str | None,
     codex_auth_json: Path | None,
     google_api_key: str | None,
@@ -2606,14 +2686,17 @@ def _ensure_specialist_auth_bundle(
             {
                 "ANTHROPIC_API_KEY": api_key,
                 "ANTHROPIC_AUTH_TOKEN": claude_auth_token,
+                "CLAUDE_CODE_OAUTH_TOKEN": claude_oauth_token,
                 "ANTHROPIC_BASE_URL": base_url,
                 "ANTHROPIC_MODEL": claude_model,
             }
         )
-        file_sources = (
-            {"claude_state.template.json": claude_state_template_file}
-            if claude_state_template_file is not None
-            else {}
+        file_sources = _claude_auth_file_sources(
+            state_template_file=claude_state_template_file,
+            config_dir=claude_config_dir,
+        )
+        clear_file_sources = (
+            set(_CLAUDE_VENDOR_LOGIN_FILE_SOURCES) if claude_config_dir is not None else set()
         )
     elif tool == "codex":
         env_values = _compact_env_values(
@@ -2636,8 +2719,11 @@ def _ensure_specialist_auth_bundle(
         file_sources = (
             {"oauth_creds.json": gemini_oauth_creds} if gemini_oauth_creds is not None else {}
         )
+        clear_file_sources = set()
     else:
         raise click.ClickException(f"Unsupported specialist tool `{tool}`.")
+    if tool != "claude":
+        clear_file_sources = set()
 
     if auth_root.is_dir():
         if not env_values and not file_sources:
@@ -2656,7 +2742,7 @@ def _ensure_specialist_auth_bundle(
             require_any_input=False,
             operation="set",
             clear_env_names=set(),
-            clear_file_sources=set(),
+            clear_file_sources=clear_file_sources,
         )
 
     if not env_values and not file_sources:
@@ -2672,8 +2758,62 @@ def _ensure_specialist_auth_bundle(
         require_any_input=False,
         operation="add",
         clear_env_names=set(),
-        clear_file_sources=set(),
+        clear_file_sources=clear_file_sources,
     )
+
+
+def _claude_auth_file_sources(
+    *,
+    state_template_file: Path | None,
+    config_dir: Path | None,
+) -> dict[str, Path]:
+    """Resolve Claude auth-bundle file sources from optional inputs."""
+
+    file_sources: dict[str, Path] = {}
+    if state_template_file is not None:
+        file_sources[_CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME] = state_template_file
+    file_sources.update(_resolve_claude_vendor_login_state_files(config_dir=config_dir))
+    return file_sources
+
+
+def _resolve_claude_vendor_login_state_files(*, config_dir: Path | None) -> dict[str, Path]:
+    """Resolve Claude vendor login-state files from one config-root input."""
+
+    if config_dir is None:
+        return {}
+
+    resolved_dir = config_dir.resolve()
+    credentials_path = (resolved_dir / _CLAUDE_VENDOR_CREDENTIALS_FILENAME).resolve()
+    if not credentials_path.is_file():
+        raise click.ClickException(
+            "Claude config dir does not contain the required vendor credential file "
+            f"`{credentials_path}`."
+        )
+
+    file_sources: dict[str, Path] = {
+        _CLAUDE_VENDOR_CREDENTIALS_FILENAME: credentials_path,
+    }
+    global_state_path = _find_claude_vendor_global_state_path(config_dir=resolved_dir)
+    if global_state_path is not None:
+        file_sources[_CLAUDE_VENDOR_GLOBAL_STATE_FILENAME] = global_state_path
+    return file_sources
+
+
+def _find_claude_vendor_global_state_path(*, config_dir: Path) -> Path | None:
+    """Return the maintained Claude global-state file for one config-root when present."""
+
+    candidates: list[Path] = [(config_dir / _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME).resolve()]
+    if config_dir.name == ".claude":
+        candidates.append((config_dir.parent / _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME).resolve())
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _validate_specialist_create_inputs(

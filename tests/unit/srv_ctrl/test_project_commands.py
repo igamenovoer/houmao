@@ -49,6 +49,23 @@ def _clone_setup_dir(repo_root: Path, *, tool: str, source: str, target: str) ->
     return target_root
 
 
+def _make_claude_config_dir(root: Path, name: str, *, token_suffix: str) -> Path:
+    """Create one Claude config-root fixture with vendor login state."""
+
+    config_parent = (root / name).resolve()
+    config_dir = (config_parent / ".claude").resolve()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / ".credentials.json").write_text(
+        json.dumps({"claudeAiOauth": {"accessToken": f"vendor-{token_suffix}"}}) + "\n",
+        encoding="utf-8",
+    )
+    (config_parent / ".claude.json").write_text(
+        json.dumps({"hasCompletedOnboarding": True, "numStartups": len(token_suffix)}) + "\n",
+        encoding="utf-8",
+    )
+    return config_dir
+
+
 def test_project_help_mentions_agents_easy_and_mailbox() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
@@ -1130,6 +1147,304 @@ def test_project_agents_gemini_auth_add_supports_oauth_only_bundle(
     )
     assert oauth_bundle_file.is_file()
     assert oauth_bundle_file.read_text(encoding="utf-8") == '{"refresh_token": "token"}\n'
+
+
+def test_project_agents_claude_auth_add_supports_oauth_only_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "add",
+            "--name",
+            "oauth-only",
+            "--oauth-token",
+            "oauth-token-123",
+            "--base-url",
+            "https://claude.example.test",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    env_file = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "claude"
+        / "auth"
+        / "oauth-only"
+        / "env"
+        / "vars.env"
+    )
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-123",
+        "ANTHROPIC_BASE_URL=https://claude.example.test",
+    ]
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "auth", "get", "--name", "oauth-only"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    payload = json.loads(get_result.output)
+    assert payload["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == {"present": True, "redacted": True}
+    assert payload["env"]["ANTHROPIC_BASE_URL"] == {
+        "present": True,
+        "value": "https://claude.example.test",
+    }
+
+
+def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clearing_other_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    template_path = tmp_path / "claude-state-template.json"
+    template_path.write_text('{"custom": {"keep": true}}\n', encoding="utf-8")
+    config_dir_a = _make_claude_config_dir(tmp_path, "vendor-a", token_suffix="alpha")
+    config_dir_b = _make_claude_config_dir(tmp_path, "vendor-b", token_suffix="beta")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "add",
+            "--name",
+            "vendor-login",
+            "--oauth-token",
+            "oauth-token-123",
+            "--base-url",
+            "https://claude.example.test",
+            "--state-template-file",
+            str(template_path),
+            "--config-dir",
+            str(config_dir_a),
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    auth_root = (
+        repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "vendor-login"
+    )
+    files_root = auth_root / "files"
+    assert json.loads((files_root / ".credentials.json").read_text(encoding="utf-8")) == {
+        "claudeAiOauth": {"accessToken": "vendor-alpha"}
+    }
+    assert json.loads((files_root / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True,
+        "numStartups": 5,
+    }
+    assert json.loads((files_root / "claude_state.template.json").read_text(encoding="utf-8")) == {
+        "custom": {"keep": True}
+    }
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "set",
+            "--name",
+            "vendor-login",
+            "--config-dir",
+            str(config_dir_b),
+            "--model",
+            "claude-sonnet-4-5",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+
+    assert json.loads((files_root / ".credentials.json").read_text(encoding="utf-8")) == {
+        "claudeAiOauth": {"accessToken": "vendor-beta"}
+    }
+    assert json.loads((files_root / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True,
+        "numStartups": 4,
+    }
+    assert json.loads((files_root / "claude_state.template.json").read_text(encoding="utf-8")) == {
+        "custom": {"keep": True}
+    }
+    env_file = auth_root / "env" / "vars.env"
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-123",
+        "ANTHROPIC_BASE_URL=https://claude.example.test",
+        "ANTHROPIC_MODEL=claude-sonnet-4-5",
+    ]
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "auth", "get", "--name", "vendor-login"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    payload = json.loads(get_result.output)
+    assert payload["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == {"present": True, "redacted": True}
+    assert payload["files"][".credentials.json"]["present"] is True
+    assert payload["files"][".claude.json"]["present"] is True
+    assert "vendor-alpha" not in get_result.output
+    assert "vendor-beta" not in get_result.output
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "set",
+            "--name",
+            "vendor-login",
+            "--clear-config-dir",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+    assert not (files_root / ".credentials.json").exists()
+    assert not (files_root / ".claude.json").exists()
+    assert (files_root / "claude_state.template.json").is_file()
+
+
+def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "claude-reviewer",
+            "--tool",
+            "claude",
+            "--system-prompt",
+            "You review code with Claude.",
+            "--claude-oauth-token",
+            "oauth-token-123",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    env_file = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "claude"
+        / "auth"
+        / "claude-reviewer-creds"
+        / "env"
+        / "vars.env"
+    )
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-123"
+    ]
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "claude-reviewer"],
+        ).output
+    )
+    assert specialist_payload["tool"] == "claude"
+    assert specialist_payload["launch"] == {"prompt_mode": "unattended"}
+
+
+def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_state_template(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_dir = _make_claude_config_dir(tmp_path, "vendor-specialist", token_suffix="gamma")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "claude-imported",
+            "--tool",
+            "claude",
+            "--system-prompt",
+            "You use imported Claude vendor auth.",
+            "--claude-config-dir",
+            str(config_dir),
+            "--claude-model",
+            "claude-sonnet-4-5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    auth_root = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "claude"
+        / "auth"
+        / "claude-imported-creds"
+    )
+    assert json.loads((auth_root / "files" / ".credentials.json").read_text(encoding="utf-8")) == {
+        "claudeAiOauth": {"accessToken": "vendor-gamma"}
+    }
+    assert json.loads((auth_root / "files" / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True,
+        "numStartups": 5,
+    }
+    assert not (auth_root / "files" / "claude_state.template.json").exists()
+    assert (auth_root / "env" / "vars.env").read_text(encoding="utf-8").splitlines() == [
+        "ANTHROPIC_MODEL=claude-sonnet-4-5"
+    ]
+
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "claude-imported"],
+        ).output
+    )
+    assert specialist_payload["tool"] == "claude"
+    assert specialist_payload["credential"] == "claude-imported-creds"
 
 
 def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(

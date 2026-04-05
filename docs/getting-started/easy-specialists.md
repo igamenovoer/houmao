@@ -64,7 +64,25 @@ Key options:
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 
-Tool-specific credential options are also available: `--claude-auth-token`, `--claude-model`, `--codex-org-id`, `--google-api-key`, etc.
+Claude-specific auth inputs now support four maintained credential lanes plus separate optional bootstrap state:
+
+- API-key lane: `--api-key`
+- Auth-token lane: `--claude-auth-token`
+- OAuth-token lane: `--claude-oauth-token`
+- Vendor login-state lane: `--claude-config-dir /path/to/claude-config-root`, which imports `.credentials.json` and companion `.claude.json` when present
+- Optional bootstrap-only state: `--claude-state-template-file /path/to/claude_state.template.json`
+
+`--claude-state-template-file` is not itself a credential-providing method. It only carries reusable Claude runtime bootstrap state. Optional `--base-url` and `--claude-model` can be layered onto any supported Claude credential lane.
+
+Example Claude specialist using maintained vendor login state:
+
+```bash
+houmao-mgr project easy specialist create \
+  --name claude-reviewer \
+  --tool claude \
+  --system-prompt "You are a Claude-based code reviewer." \
+  --claude-config-dir ~/.claude
+```
 
 Gemini-specific auth inputs now support two maintained lanes:
 

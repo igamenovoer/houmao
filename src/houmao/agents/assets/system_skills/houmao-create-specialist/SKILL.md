@@ -16,21 +16,78 @@ The trigger word `houmao` is intentional. Use the `houmao-create-specialist` ski
 2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
 3. If the specialist name or tool lane is still missing, ask the user before proceeding.
 4. Resolve the intended credential name. If the user did not provide `--credential`, use the documented CLI default `<specialist-name>-creds`.
-5. If auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same resolved `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
-6. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context, ask the user for the missing auth inputs instead of guessing.
-7. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
+5. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
    - repo-local `.venv/bin/houmao-mgr`
    - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
    - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
    - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-8. Run `project easy specialist create` through that resolved launcher.
-9. Report the created specialist, selected tool, resolved credential name, and the generated artifact paths returned by the command.
+6. Resolve the credential source mode:
+   - Explicit Auth Mode when the user already provided supported auth values or auth files
+   - Env Lookup Mode when the user explicitly tells you to inspect specific env names or explicit env-name patterns
+   - Directory Scan Mode when the user explicitly points you at one directory and asks you to scan it for likely credentials
+   - Auto Credentials Mode when the user explicitly asks for `auto credentials`
+   - No Discovery Mode otherwise
+7. Treat those credential-source modes as distinct unless the user explicitly asks to combine them.
+8. If the active mode is Env Lookup Mode, Directory Scan Mode, or Auto Credentials Mode, load exactly one selected-tool reference page:
+   - Claude: `references/claude-credential-lookup.md`
+   - Codex: `references/codex-credential-lookup.md`
+   - Gemini: `references/gemini-credential-lookup.md`
+9. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same resolved `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
+10. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
+   - do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless one of the supported credential-source modes is explicitly active
+   - ask the user for the missing auth inputs instead of guessing
+   - mention that they can either provide auth explicitly, point you at env names or patterns, point you at a directory, or ask for `auto credentials`
+11. Run `project easy specialist create` through the resolved launcher.
+12. Report the created specialist, selected tool, resolved credential name, and the generated artifact paths returned by the command.
+
+## Credential Source Modes
+
+### Explicit Auth Mode
+
+Use the user-provided auth values or files directly.
+
+- Do not scan env vars, directories, or tool homes unless the user explicitly asked for an additional discovery mode.
+- Use only documented create-command auth inputs for the selected tool.
+
+### Env Lookup Mode
+
+Use this only when the user explicitly tells you to inspect env names or explicit env-name patterns.
+
+- Inspect only the current environment entries that match the user's requested names or patterns.
+- Do not widen the search into unrelated env vars, files, directories, or automatic tool-home discovery.
+- Use the selected tool's reference page to decide which matched env vars are relevant and importable.
+
+### Directory Scan Mode
+
+Use this only when the user explicitly points you at one directory and asks you to scan it for likely credentials for the selected tool.
+
+- Scan only inside the user-provided directory.
+- Use the selected tool's reference page to decide which filenames, config files, or env files in that directory are relevant.
+- Treat the user's instruction as affirmative permission to scan that directory; do not add extra security warnings first.
+
+### Auto Credentials Mode
+
+Use this only when the user explicitly asks for `auto credentials`.
+
+- Treat `auto credentials` as an instruction, not as a literal CLI flag and not as a replacement for `--credential`.
+- Keep the credential bundle name behavior unchanged:
+  - `--credential <name>` when the user provided one
+  - otherwise the documented default `<specialist-name>-creds`
+- Use the selected tool's reference page to follow that tool's supported automatic search order across repo-local candidate homes, redirected homes, home-dir configs, and relevant env vars.
+
+### No Discovery Mode
+
+If the user did not request one of the supported discovery modes:
+
+- do not scan likely current credentials in the system
+- only reuse an already-existing credential bundle when you confirmed it exists for the selected tool
+- otherwise ask the user for missing auth instead of guessing
 
 ## Required Inputs
 
 - `--name`
 - `--tool`
-- enough auth input for the selected tool unless the intended credential bundle already exists
+- enough auth input for the selected tool unless the intended credential bundle already exists, or one of the active credential-source modes finds one importable credential source for that tool
 
 `--system-prompt` and `--system-prompt-file` are both optional. Use at most one of them.
 
@@ -45,6 +102,7 @@ Use the resolved launcher with:
 Use these documented defaults and options exactly:
 
 - `--credential` defaults to `<name>-creds` when omitted
+- `auto credentials` is a user instruction for auth discovery, not a literal `houmao-mgr` flag
 - `--setup` defaults to `default` when omitted
 - `--no-unattended` is the explicit opt-out from the easy unattended default
 - repeatable `--with-skill <dir>` imports selected skill directories
@@ -52,7 +110,8 @@ Use these documented defaults and options exactly:
 
 Tool-specific auth inputs:
 
-- Claude: `--api-key`, optional `--base-url`, optional `--claude-auth-token`, optional `--claude-model`, optional `--claude-state-template-file`
+- Claude credential lanes: `--api-key`, optional `--claude-auth-token`, optional `--claude-oauth-token`, optional `--claude-config-dir`, optional `--base-url`, optional `--claude-model`
+- Claude optional bootstrap state: `--claude-state-template-file` only for reusable Claude runtime bootstrap state and not a credential-providing method
 - Codex: `--api-key`, optional `--base-url`, optional `--codex-org-id`, optional `--codex-auth-json`
 - Gemini: `--api-key`, optional `--base-url`, optional `--google-api-key`, optional `--use-vertex-ai`, optional `--gemini-oauth-creds`
 
@@ -60,6 +119,14 @@ Tool-specific auth inputs:
 
 - Do not guess the specialist name, tool lane, or auth values.
 - Do not invent API keys, org ids, auth file paths, OAuth credential files, or base URLs.
+- Do not scan env vars, directories, repo-local tool homes, `~/.claude`, `~/.codex`, `~/.gemini`, redirected tool homes, or other likely credential locations unless one of the supported credential-source modes is explicitly active.
+- Do not widen Env Lookup Mode beyond the user-named env vars or explicit env-name patterns.
+- Do not widen Directory Scan Mode beyond the user-provided directory.
+- Do not treat `auto credentials` as a literal CLI flag or as the credential bundle name.
+- Do not execute `apiKeyHelper`, browser login flows, `codex login`, `claude auth login`, `gemini` interactive login, or other auth-generation flows just to synthesize credentials for specialist creation.
+- Do not treat a discovered current auth shape as importable unless it can be faithfully mapped into the selected tool's supported create-command flags.
+- Do not treat only `--claude-state-template-file` or a reusable `claude_state.template.json` as satisfying missing Claude credentials; that file is optional bootstrap state, not a credential lane.
+- Do not blindly reuse runtime `.claude.json` as `--claude-state-template-file`; only use an existing reusable `claude_state.template.json` or another explicitly reusable template path.
 - Do not mix `--system-prompt` and `--system-prompt-file`.
 - Do not treat missing auth as optional unless the intended credential bundle is confirmed to already exist.
 - Do not force `pixi run houmao-mgr` when the workspace is not a development project.

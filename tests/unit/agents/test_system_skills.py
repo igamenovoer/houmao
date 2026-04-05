@@ -125,6 +125,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
     create_specialist_path = home_path / "skills/houmao-create-specialist/SKILL.md"
+    create_specialist_references = home_path / "skills/houmao-create-specialist/references"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
@@ -144,6 +145,54 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "pixi run houmao-mgr" in create_specialist_skill
     assert "uv run houmao-mgr" in create_specialist_skill
     assert "globally installed `houmao-mgr` from uv tools" in create_specialist_skill
+    assert "Explicit Auth Mode" in create_specialist_skill
+    assert "Env Lookup Mode" in create_specialist_skill
+    assert "Directory Scan Mode" in create_specialist_skill
+    assert "auto credentials" in create_specialist_skill
+    assert "No Discovery Mode" in create_specialist_skill
+    assert "references/claude-credential-lookup.md" in create_specialist_skill
+    assert "references/codex-credential-lookup.md" in create_specialist_skill
+    assert "references/gemini-credential-lookup.md" in create_specialist_skill
+    assert "--claude-oauth-token" in create_specialist_skill
+    assert "--claude-config-dir" in create_specialist_skill
+    assert "optional bootstrap state" in create_specialist_skill
+    assert "not a credential-providing method" in create_specialist_skill
+    assert "do not scan env vars, directories, repo-local tool homes" in create_specialist_skill
+    assert "tests/fixtures/agents" not in create_specialist_skill
+
+    claude_reference_path = create_specialist_references / "claude-credential-lookup.md"
+    codex_reference_path = create_specialist_references / "codex-credential-lookup.md"
+    gemini_reference_path = create_specialist_references / "gemini-credential-lookup.md"
+    assert claude_reference_path.is_file()
+    assert codex_reference_path.is_file()
+    assert gemini_reference_path.is_file()
+
+    claude_reference = claude_reference_path.read_text(encoding="utf-8")
+    codex_reference = codex_reference_path.read_text(encoding="utf-8")
+    gemini_reference = gemini_reference_path.read_text(encoding="utf-8")
+
+    assert "CLAUDE_CONFIG_DIR" in claude_reference
+    assert "~/.claude" in claude_reference
+    assert "apiKeyHelper" in claude_reference
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in claude_reference
+    assert "--claude-oauth-token" in claude_reference
+    assert "--claude-config-dir" in claude_reference
+    assert ".credentials.json" in claude_reference
+    assert "optional bootstrap state" in claude_reference
+    assert "not itself a credential-providing method" in claude_reference
+    assert "do not treat `.credentials.json` or `~/.claude.json` as directly importable specialist inputs" not in claude_reference
+    assert "tests/fixtures/agents" not in claude_reference
+
+    assert "CODEX_HOME" in codex_reference
+    assert "auth.json" in codex_reference
+    assert 'requires_openai_auth = false' in codex_reference
+    assert 'wire_api = "responses"' in codex_reference
+    assert "tests/fixtures/agents" not in codex_reference
+
+    assert "GEMINI_CLI_HOME" in gemini_reference
+    assert "oauth_creds.json" in gemini_reference
+    assert "GOOGLE_APPLICATION_CREDENTIALS" in gemini_reference
+    assert "tests/fixtures/agents" not in gemini_reference
 
 
 def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Path) -> None:
