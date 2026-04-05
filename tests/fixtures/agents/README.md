@@ -56,6 +56,14 @@ Use this when:
 
 Never commit secret material. In this fixture tree, `tools/<tool>/auth/**` is local-only host state and should remain ignored entirely.
 
+For Claude vendor-login smoke validation, reserve `tools/claude/auth/official-login/` as the local-only bundle name for a normal vendor login. That bundle should use the current adapter filenames:
+
+- `files/.credentials.json`
+- `files/.claude.json`
+- `env/vars.env`
+
+For new Claude vendor-login provisioning, do not use legacy local filenames such as `files/credentials.json`. `official-login` should copy vendor `.credentials.json` unchanged, keep `env/vars.env` empty unless a local override is intentionally needed, and write a minimized but present `.claude.json` such as `{}`. Do not add `claude_state.template.json` for this lane.
+
 ### `roles/<role>/system-prompt.md`
 
 Role prompt and behavior package, independent of tool/runtime layout.
@@ -108,6 +116,19 @@ openssl enc -d -aes-256-cbc -pbkdf2 -salt \
 ```
 
 This restores `tests/fixtures/agents/tools/` in place. Keep the extracted `tools/<tool>/auth/**` contents local-only and do not commit them in plaintext.
+
+## Claude `official-login` Smoke Validation
+
+Use [tests/manual/manual_claude_official_login_smoke.py](/data1/huangzhe/code/houmao/tests/manual/manual_claude_official_login_smoke.py) for the maintained local smoke flow that provisions `official-login` from a Claude config root and launches a lightweight Claude agent from a fresh temp workdir under `tmp/`.
+
+Typical workflow:
+
+1. Provision or refresh the local-only `official-login` bundle from the vendor Claude config root:
+   - `pixi run python tests/manual/manual_claude_official_login_smoke.py --source-config-dir ~/.claude --prepare-only`
+2. Run the smoke launch:
+   - `pixi run python tests/manual/manual_claude_official_login_smoke.py --skip-provision`
+
+If you want the script to do both steps in one run, omit `--prepare-only` and `--skip-provision`. The script sets `HOUMAO_AGENT_DEF_DIR` to this fixture tree, isolates the temp workdir with its own overlay-local `.houmao`, launches `server-api-smoke` with `--auth official-login --headless --yolo`, then stops and cleans up the managed session while leaving the temp workdir available for inspection.
 
 ## Recommended Workflow
 

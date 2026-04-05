@@ -74,6 +74,8 @@ Claude-specific auth inputs now support four maintained credential lanes plus se
 
 `--claude-state-template-file` is not itself a credential-providing method. It only carries reusable Claude runtime bootstrap state. Optional `--base-url` and `--claude-model` can be layered onto any supported Claude credential lane.
 
+For the file-level handling rules, including what `.credentials.json` vs `.claude.json` means and how to validate the lane locally, see [Claude Vendor Login Files](../reference/claude-vendor-login-files.md).
+
 Example Claude specialist using maintained vendor login state:
 
 ```bash

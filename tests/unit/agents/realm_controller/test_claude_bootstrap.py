@@ -135,6 +135,24 @@ def test_bootstrap_skips_template_when_vendor_runtime_state_already_exists(tmp_p
     )
 
 
+def test_bootstrap_skips_template_when_minimal_vendor_runtime_state_exists(tmp_path: Path) -> None:
+    home = _prepare_home(tmp_path, template=None)
+    runtime_state_path = home / ".claude.json"
+    credentials_path = home / ".credentials.json"
+    runtime_state_path.write_text("{}\n", encoding="utf-8")
+    credentials_path.write_text(
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n',
+        encoding="utf-8",
+    )
+
+    ensure_claude_home_bootstrap(home_path=home, env={})
+
+    assert json.loads(runtime_state_path.read_text(encoding="utf-8")) == {}
+    assert credentials_path.read_text(encoding="utf-8") == (
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n'
+    )
+
+
 def test_bootstrap_fails_when_template_missing(tmp_path: Path) -> None:
     home = _prepare_home(tmp_path, template=None)
 

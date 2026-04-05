@@ -42,6 +42,7 @@
 
 ## Other Reference
 
+- [Claude Vendor Login Files](claude-vendor-login-files.md): How Houmao imports `.credentials.json` and `.claude.json`, and how to validate that lane locally.
 - [Release Publishing](release-publishing.md): PyPI trusted publishing setup and the GitHub release flow.
 - [Realm Controller](realm_controller.md): Runtime session orchestration.
 - [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.

@@ -294,6 +294,54 @@ def test_claude_unattended_strategy_deduplicates_owned_launch_arg(
     assert result.args == ("-p", "--dangerously-skip-permissions")
 
 
+def test_claude_unattended_strategy_accepts_minimal_projected_vendor_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="2.1.83 (Claude Code)")
+    home = tmp_path / "claude-home"
+    home.mkdir()
+    credentials_path = home / ".credentials.json"
+    state_path = home / ".claude.json"
+    credentials_path.write_text(
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n',
+        encoding="utf-8",
+    )
+    state_path.write_text("{}\n", encoding="utf-8")
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="claude",
+            backend="claude_headless",
+            executable="claude",
+            base_args=("-p",),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert result.args == ("-p", "--dangerously-skip-permissions")
+    assert state_payload["hasCompletedOnboarding"] is True
+    assert state_payload["numStartups"] == 1
+    assert (
+        state_payload["projects"][str((tmp_path / "workspace").resolve())][
+            "hasCompletedProjectOnboarding"
+        ]
+        is True
+    )
+    assert (
+        state_payload["projects"][str((tmp_path / "workspace").resolve())]["hasTrustDialogAccepted"]
+        is True
+    )
+    assert credentials_path.read_text(encoding="utf-8") == (
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n'
+    )
+
+
 def test_claude_resume_control_preserves_cli_args_without_touching_owned_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
