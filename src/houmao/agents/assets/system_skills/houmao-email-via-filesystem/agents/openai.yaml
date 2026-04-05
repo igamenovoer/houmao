@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Email via Filesystem"
+  short_description: "Inspect Houmao filesystem mailbox transport."
+  default_prompt: "Use $houmao-email-via-filesystem to inspect filesystem-mailbox bindings, layout, or no-gateway fallback behavior."

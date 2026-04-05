@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Email via Gateway"
+  short_description: "Use Houmao gateway mailbox operations."
+  default_prompt: "Use $houmao-email-via-agent-gateway to handle one Houmao shared-mailbox task through the live /v1/mail API."

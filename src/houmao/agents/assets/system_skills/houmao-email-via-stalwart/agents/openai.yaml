@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Email via Stalwart"
+  short_description: "Inspect Houmao Stalwart mailbox transport."
+  default_prompt: "Use $houmao-email-via-stalwart to inspect Stalwart-mailbox bindings or choose the correct fallback path."
