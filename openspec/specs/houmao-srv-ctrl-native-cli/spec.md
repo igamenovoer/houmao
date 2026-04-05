@@ -12,6 +12,7 @@ At minimum, that native tree SHALL include:
 - `admin`
 - `mailbox`
 - `project`
+- `system-skills`
 
 Those command families SHALL be documented as Houmao-owned pair commands or Houmao-owned local operator commands, as appropriate.
 
@@ -23,7 +24,7 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 
 #### Scenario: Native help surface shows the new top-level command families
 - **WHEN** an operator runs `houmao-mgr --help`
-- **THEN** the help output includes `server`, `agents`, `brains`, `admin`, `mailbox`, and `project`
+- **THEN** the help output includes `server`, `agents`, `brains`, `admin`, `mailbox`, `project`, and `system-skills`
 - **AND THEN** the help output does NOT include `cao` or top-level `launch`
 
 #### Scenario: Bare invocation prints help instead of raising an exception

@@ -1,4 +1,7 @@
-## ADDED Requirements
+## Purpose
+Define the packaged `houmao-create-specialist` system skill contract for specialist creation, launcher selection, and explicit input recovery.
+
+## Requirements
 
 ### Requirement: Houmao provides a packaged `houmao-create-specialist` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-create-specialist` under the maintained system-skill asset root.
@@ -71,6 +74,32 @@ When the user omits `--credential`, the skill MAY rely on the documented CLI def
 
 When required inputs remain unresolved after checking prompt and recent conversation context, the skill SHALL instruct the agent to ask the user for the missing inputs before proceeding.
 
+When the user explicitly requests `auto credentials`, the skill SHALL treat that as an opt-in auth-discovery mode rather than as a literal CLI flag or replacement credential-bundle name.
+
+In that `auto credentials` mode, the skill SHALL instruct the agent to scan likely currently active credentials for the selected tool in this order:
+
+1. the selected tool's repo-root tool home, including maintained tool-home env redirection when it resolves inside the current repo,
+2. tool-specific home-dir configs, including maintained tool-home env redirection when it resolves under the user home,
+3. current process environment variables for the selected tool.
+
+The skill SHALL describe the maintained tool-home env selectors used for that scan:
+
+- `CLAUDE_CONFIG_DIR` for Claude,
+- `CODEX_HOME` for Codex,
+- `GEMINI_CLI_HOME` for Gemini.
+
+The skill SHALL limit the scan to supported tool-specific auth surfaces:
+
+- Claude auth env such as `ANTHROPIC_API_KEY`, optional `ANTHROPIC_BASE_URL`, optional `ANTHROPIC_AUTH_TOKEN`, and an existing reusable `claude_state.template.json`,
+- Codex `auth.json` plus OpenAI env such as `OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, and optional `OPENAI_ORG_ID`,
+- Gemini `oauth_creds.json` plus Gemini env such as `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, optional `GOOGLE_API_KEY`, and optional `GOOGLE_GENAI_USE_VERTEXAI=true`.
+
+If that scan does not find enough selected-tool auth to create the bundle, the skill SHALL tell the agent to report failure and ask the user for explicit auth inputs instead of guessing.
+
+If the user did not explicitly request `auto credentials`, the skill SHALL NOT direct the agent to scan repo-local tool homes, home-dir configs, redirected homes, or environment variables for likely current credentials. In that case the skill MAY tell the agent to mention that `auto credentials` is available.
+
+The skill SHALL NOT instruct the agent to crawl arbitrary repository subdirectories for credentials during `auto credentials`; repo-local scanning is limited to the selected tool's repo-root candidate home plus its maintained redirected home when present.
+
 #### Scenario: Recent conversation supplies an omitted explicit tool selection
 - **WHEN** the current prompt asks the agent to create a specialist without restating the tool
 - **AND WHEN** the recent conversation explicitly established that tool selection
@@ -89,3 +118,36 @@ When required inputs remain unresolved after checking prompt and recent conversa
 - **AND WHEN** the intended credential bundle has not been confirmed to exist
 - **THEN** the skill tells the agent to ask the user for the missing auth inputs before proceeding
 - **AND THEN** it does not guess API keys, bundle names beyond the documented default, or provider-specific auth files
+
+#### Scenario: Explicit auto credentials request enables maintained tool scan
+- **WHEN** the user explicitly asks for `auto credentials`
+- **AND WHEN** the selected tool is already known
+- **THEN** the skill tells the agent to scan maintained repo-local and home-dir tool credential surfaces before falling back to selected-tool environment variables
+- **AND THEN** it uses the maintained tool-home env selector for that tool when one is already set
+
+#### Scenario: Missing auto credentials result is reported as failure
+- **WHEN** the user explicitly asks for `auto credentials`
+- **AND WHEN** the selected tool scan does not find enough auth to create the intended bundle
+- **THEN** the skill tells the agent to report that auto-discovery failed for the selected tool
+- **AND THEN** it asks the user for explicit auth inputs instead of guessing
+
+#### Scenario: Missing explicit auto credentials request prevents credential scan
+- **WHEN** the user does not explicitly ask for `auto credentials`
+- **AND WHEN** auth inputs are still missing and the intended credential bundle has not been confirmed to exist
+- **THEN** the skill tells the agent not to scan repo-local tool homes, home-dir configs, redirected tool homes, or environment variables
+- **AND THEN** it may mention that `auto credentials` is available if the user wants that behavior
+
+### Requirement: `houmao-create-specialist` describes Claude credential lanes separately from optional state templates
+The packaged `houmao-create-specialist` skill SHALL describe Claude credential-providing methods separately from optional Claude runtime-state template inputs.
+
+When the skill lists Claude-specific create inputs or discovery outcomes, it SHALL treat:
+
+- supported Claude credential or login-state lanes as Claude auth methods,
+- `claude_state.template.json` only as optional reusable bootstrap state for runtime preparation.
+
+The skill SHALL NOT present `claude_state.template.json` as one of the ways to provide Claude credentials.
+
+#### Scenario: Installed skill does not present the Claude state template as credentials
+- **WHEN** an agent reads the installed `houmao-create-specialist` skill
+- **THEN** the skill distinguishes Claude credential-providing methods from the optional Claude state-template input
+- **AND THEN** it does not describe `claude_state.template.json` as a Claude credential lane

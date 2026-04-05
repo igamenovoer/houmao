@@ -9,7 +9,7 @@ These mailbox system skills SHALL be projected into mailbox-enabled sessions in 
 
 For Claude sessions whose active skill destination root is `skills` under `CLAUDE_CONFIG_DIR`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `skills/mailbox/...`.
 
-For Codex and other non-Claude adapters whose active skill destination remains `skills`, the mailbox system skill surface MAY continue to use the reserved visible mailbox subtree.
+For Codex sessions whose active skill destination root remains `skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `skills/mailbox/...`.
 
 For Gemini sessions whose active skill destination root is `.agents/skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `.agents/skills/mailbox/...`.
 
@@ -27,10 +27,10 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 - **AND THEN** the Stalwart mailbox skill is available through top-level Houmao-owned skill directories discoverable by Claude native skill lookup
 - **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
 
-#### Scenario: Codex mailbox-enabled agent retains discoverable mailbox subtree
+#### Scenario: Codex mailbox-enabled agent receives top-level Houmao-owned skills
 - **WHEN** the runtime starts a Codex mailbox-enabled session
 - **THEN** the runtime projects the mailbox system skill set for that session from platform-owned templates into the active skill destination
-- **AND THEN** the mailbox skills remain available through the discoverable mailbox subtree rather than through hidden `.system` entries
+- **AND THEN** the mailbox skills are available through top-level Houmao-owned skill directories discoverable by Codex native skill lookup
 - **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
 
 #### Scenario: Gemini mailbox-enabled agent receives top-level Houmao-owned skills
@@ -47,7 +47,7 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 #### Scenario: Hidden mailbox compatibility mirror is not projected
 - **WHEN** the runtime projects mailbox system skills for a mailbox-enabled session
 - **THEN** the runtime does not create a parallel hidden `.system/mailbox/...` mailbox skill tree for that session
-- **AND THEN** Claude sessions do not rely on a parallel `skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
+- **AND THEN** Claude and Codex sessions do not rely on a parallel `skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
 - **AND THEN** Gemini sessions do not rely on a parallel `.agents/skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
 - **AND THEN** ordinary mailbox-skill discovery and prompting depend only on the visible tool-native mailbox skill surface
 
@@ -80,7 +80,9 @@ For Claude sessions whose active skill destination root is `skills`, the round-o
 
 For Claude sessions whose active skill destination root is `skills`, the lower-level common gateway mailbox skill SHALL be available at `skills/houmao-email-via-agent-gateway/`.
 
-For Codex sessions whose active skill destination root remains `skills`, the round-oriented workflow skill and lower-level common gateway mailbox skill MAY continue to be available under the visible mailbox subtree.
+For Codex sessions whose active skill destination root remains `skills`, the round-oriented workflow skill SHALL be available at `skills/houmao-process-emails-via-gateway/`.
+
+For Codex sessions whose active skill destination root remains `skills`, the lower-level common gateway mailbox skill SHALL be available at `skills/houmao-email-via-agent-gateway/`.
 
 For Gemini sessions whose active skill destination root is `.agents/skills`, the round-oriented workflow skill SHALL be available at `.agents/skills/houmao-process-emails-via-gateway/`.
 
@@ -110,8 +112,8 @@ Transport-specific mailbox skills such as `houmao-email-via-filesystem` and `hou
 
 #### Scenario: Codex mailbox-enabled session receives processing, gateway, and transport runtime-owned skills
 - **WHEN** the runtime starts a mailbox-enabled Codex session
-- **THEN** it projects the processing, gateway, and transport mailbox skills into the active skill destination under the visible mailbox subtree
-- **AND THEN** the agent can discover all of those skills from that visible mailbox subtree without relying on hidden `.system` entries
+- **THEN** it projects `skills/houmao-process-emails-via-gateway/`, `skills/houmao-email-via-agent-gateway/`, and the runtime-owned mailbox skill for the active transport into the active skill destination
+- **AND THEN** the agent can discover all of those skills through native skill discovery without relying on a mailbox namespace subtree or hidden `.system` entries
 
 #### Scenario: Gemini mailbox-enabled session receives native top-level runtime-owned skills
 - **WHEN** the runtime starts a mailbox-enabled Gemini session
@@ -249,36 +251,38 @@ Projected runtime-owned mailbox skills SHALL NOT present `python -m houmao.agent
 - **AND THEN** they do not instruct the agent to invoke `python -m houmao.agents.mailbox_runtime_support resolve-live` directly
 
 ### Requirement: Joined-session adoption installs Houmao-owned mailbox skills by default
-When `houmao-mgr agents join` adopts a mailbox-enabled session, the join workflow SHALL install the Houmao-owned mailbox skill set into the adopted tool home by default so later runtime-owned prompts can rely on those skills being installed.
+When `houmao-mgr agents join` adopts a mailbox-enabled session, the join workflow SHALL install the current Houmao-owned system-skill selection resolved from the packaged catalog’s managed-join auto-install set list for the adopted tool home by default so later runtime-owned prompts can rely on the current Houmao-owned mailbox skills being installed.
 
 That joined-session installation SHALL:
 - resolve the adopted tool home through the join workflow’s authoritative home-resolution path,
-- project Houmao-owned mailbox skills only under reserved `houmao-<skillname>` paths in the adapter’s skill destination,
+- invoke the shared Houmao system-skill installer rather than a mailbox-only installation code path,
+- include the current Houmao-owned mailbox skills in the resolved managed-join auto-install selection for the adopted tool,
+- project Houmao-owned mailbox skills only under reserved `houmao-<skillname>` paths in the visible skill destination for that tool,
 - preserve unrelated user-authored skill directories,
 - fail explicitly when default installation is required but the target skill destination cannot be resolved or updated safely.
 
-The join workflow MAY expose an explicit operator opt-out for Houmao-owned mailbox skill installation. When that opt-out is used, later runtime-owned mailbox prompts and docs SHALL NOT assume those skills are installed for that joined session.
+The join workflow MAY expose an explicit operator opt-out for default Houmao-owned skill installation. When that opt-out is used, later runtime-owned mailbox prompts and docs SHALL NOT assume the current Houmao-owned mailbox skills are installed for that joined session.
 
-#### Scenario: Joined mailbox-enabled session receives Houmao-owned mailbox skills by default
+#### Scenario: Joined mailbox-enabled session receives the managed-join mailbox skill set by default
 - **WHEN** an operator uses `houmao-mgr agents join` to adopt a mailbox-enabled session without opting out of Houmao skill installation
-- **THEN** the join workflow projects the Houmao-owned mailbox skills into the adopted tool home under the adapter’s skill destination
-- **AND THEN** later runtime-owned mailbox and gateway prompts may rely on those installed skill paths for that joined session
+- **THEN** the join workflow installs the current Houmao-owned system-skill selection resolved from the managed-join auto-install set list into the adopted tool home
+- **AND THEN** that resolved selection includes the current Houmao-owned mailbox skills needed for later runtime-owned mailbox prompts
 
 #### Scenario: Join preserves unrelated user-authored skills
-- **WHEN** `houmao-mgr agents join` installs Houmao-owned mailbox skills into an adopted tool home
-- **THEN** it writes only to reserved Houmao-owned mailbox skill paths
+- **WHEN** `houmao-mgr agents join` installs the current Houmao-owned system-skill selection resolved from the managed-join auto-install set list into an adopted tool home
+- **THEN** it writes only to reserved Houmao-owned skill paths for the current skill set
 - **AND THEN** it does not delete or overwrite unrelated user-authored non-Houmao skill directories in that same skill destination
 
-#### Scenario: Join fails closed when required Houmao-owned skill installation cannot complete
-- **WHEN** `houmao-mgr agents join` is using default Houmao mailbox skill installation
+#### Scenario: Join fails closed when required default Houmao-owned skill installation cannot complete
+- **WHEN** `houmao-mgr agents join` is using default Houmao-owned current-skill installation
 - **AND WHEN** the adopted tool home or skill destination cannot be resolved or updated safely
 - **THEN** the join command fails explicitly
 - **AND THEN** it does not publish a managed session whose later runtime prompts would assume missing Houmao-owned mailbox skills
 
-#### Scenario: Explicit join opt-out disables the installed-skill assumption
-- **WHEN** an operator uses the explicit opt-out for Houmao mailbox skill installation during `houmao-mgr agents join`
-- **THEN** the join workflow may continue without projecting those Houmao-owned mailbox skills
-- **AND THEN** later runtime-owned mailbox prompts for that joined session do not assume the Houmao-owned mailbox skills are installed
+#### Scenario: Explicit join opt-out disables the installed-mailbox-skill assumption
+- **WHEN** an operator uses the explicit opt-out for default Houmao-owned skill installation during `houmao-mgr agents join`
+- **THEN** the join workflow may continue without projecting the current Houmao-owned mailbox skills
+- **AND THEN** later runtime-owned mailbox prompts for that joined session do not assume the current Houmao-owned mailbox skills are installed
 
 ### Requirement: Tmux-backed mailbox system skills resolve current mailbox bindings through a runtime-owned live resolver
 For tmux-backed managed sessions, projected mailbox system skills SHALL resolve current mailbox bindings through the runtime-owned live resolver exposed by `houmao-mgr agents mail resolve-live` rather than relying on the provider process's inherited mailbox env snapshot, mailbox-specific tmux env, or a direct Python-module entrypoint.
