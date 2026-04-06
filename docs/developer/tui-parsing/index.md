@@ -25,6 +25,8 @@ The TUI parsing stack turns raw tmux pane snapshots (for `local_interactive` ses
 | [Codex Signals](codex-signals.md) | See the concrete on-screen Codex cues currently used for reliable tracking and fixture authoring |
 | [Maintenance](maintenance.md) | See the update checklist for parser drift, docs/spec alignment, and fixture/test refreshes |
 
+> **Gemini note:** Gemini is intentionally unsupported for TUI tracking. Gemini agents run on the `gemini_headless` backend only and do not have a shadow TUI parser. All TUI parsing documentation in this guide covers Claude and Codex exclusively.
+
 ## Source Of Truth Map
 
 This doc set summarizes the active runtime contract from these sources:

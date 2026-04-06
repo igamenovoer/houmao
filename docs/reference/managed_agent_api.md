@@ -249,7 +249,7 @@ Launch-time gateway flags are intentionally not part of this contract. Gateway l
 
 For managed headless agents, durable post-turn inspection stays on the `/turns/*` family:
 
-- `POST /houmao/agents/{agent_ref}/turns` accepts one managed headless prompt turn and returns a durable turn handle; it now also accepts optional `chat_session` with `mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"` and `id` required only for `mode = "exact"`
+- `POST /houmao/agents/{agent_ref}/turns` accepts one managed headless prompt turn and returns a durable turn handle; it now also accepts optional `chat_session` with `mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"` and `id` required only for `mode = "exact"`. Note: `auto` and `current` are gateway-level selectors (`GatewayChatSessionSelectorMode`) resolved by the gateway before dispatch; the internal headless turn API accepts only `new`, `tool_last_or_new`, and `exact`
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}` reports persisted turn status
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` returns canonical semantic headless event records with normalized assistant, action, completion, provider, and session semantics
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `/stderr` expose the durable raw provider artifacts directly
