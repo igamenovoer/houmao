@@ -14,6 +14,7 @@ from houmao.agents.mailbox_runtime_support import (
     install_runtime_mailbox_system_skills_for_tool,
     mailbox_env_bindings,
     mailbox_skills_destination_for_tool,
+    parse_declarative_mailbox_config,
     publish_tmux_live_mailbox_projection,
     resolve_live_mailbox_binding_from_agent_identity,
     resolve_live_mailbox_binding_from_manifest_path,
@@ -157,6 +158,19 @@ def _healthy_gateway_client_factory(endpoint_log: list[str]):
         return SimpleNamespace(health=lambda: SimpleNamespace(protocol_version="v1"))
 
     return _factory
+
+
+def test_parse_declarative_mailbox_config_allows_none_transport() -> None:
+    payload = parse_declarative_mailbox_config(
+        {
+            "transport": "none",
+            "principal_id": "HOUMAO-research",
+            "address": "HOUMAO-research@agents.localhost",
+        },
+        source="preset.yaml",
+    )
+
+    assert payload is None
 
 
 def test_resolve_live_mailbox_binding_uses_targeted_filesystem_projection(

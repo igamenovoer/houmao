@@ -72,7 +72,7 @@ pixi run python scripts/explore/claude-code-state-tracking/run.py stop \
 
 The interactive watch:
 
-- builds a fresh Claude brain home from `tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml`
+- builds a fresh Claude brain home from `tests/fixtures/agents/presets/interactive-watch-claude-default.yaml`
 - writes that generated runtime under the run-local `runtime/` subtree
 - launches the generated `launch.sh` directly in tmux
 - forces Claude to start with `--dangerously-skip-permissions`

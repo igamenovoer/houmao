@@ -1,6 +1,6 @@
 # Agent Definition Directory
 
-The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is role-scoped presets plus tool-scoped setup/auth bundles.
+The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named presets and tool-scoped setup/auth bundles.
 
 For repo-local workflows, the supported path is `houmao-mgr project init`, which creates:
 
@@ -53,11 +53,9 @@ Maintained project-aware local-state commands reuse that same active overlay for
     │   ├── skills/
     │   │   └── <skill>/SKILL.md
     │   ├── roles/
-    │   │   └── <role>/
-    │   │       ├── system-prompt.md
-    │   │       └── presets/
-    │   │           └── <tool>/
-    │   │               └── <setup>.yaml
+    │   │   └── <role>/system-prompt.md
+    │   ├── presets/
+    │   │   └── <preset>.yaml
     │   ├── tools/
     │   │   └── <tool>/
     │   │       ├── adapter.yaml
@@ -95,16 +93,13 @@ Reusable capability packages projected into runtime homes. Under `.houmao/agents
 
 The role prompt and behavior policy for one logical agent role. The file is canonical even for promptless roles and may be intentionally empty to mean "no system prompt."
 
-### `roles/<role>/presets/<tool>/<setup>.yaml`
+### `presets/<preset>.yaml`
 
-The canonical declarative launch preset. The file path derives:
+The canonical declarative launch preset. The filename supplies the preset name, and the YAML stores:
 
-- `role` from `<role>`
-- `tool` from `<tool>`
-- `setup` from `<setup>`
-
-The YAML stores only the data that is not path-derived:
-
+- required `role`
+- required `tool`
+- required `setup`
 - `skills`
 - optional `auth`
 - optional `launch`
@@ -138,7 +133,8 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 | `.houmao/catalog.sqlite` | ❌ No | Canonical project-local semantic catalog |
 | `.houmao/content/` | ❌ No | Managed prompt/auth/skill/setup payload store |
 | `.houmao/agents/skills/` | ❌ No | Repo-local reusable capability packages |
-| `.houmao/agents/roles/` | ❌ No | Repo-local role prompts and presets |
+| `.houmao/agents/roles/` | ❌ No | Repo-local role prompts |
+| `.houmao/agents/presets/` | ❌ No | Repo-local named presets |
 | `.houmao/agents/tools/<tool>/adapter.yaml` | ❌ No | Local copy of the tool projection and launch contract |
 | `.houmao/agents/tools/<tool>/setups/` | ❌ No | Local copy of secret-free setup bundles |
 | `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles |
@@ -151,7 +147,7 @@ Generated runtime homes, manifests, mailbox state, and jobs are also local-only 
 
 1. Houmao persists project-local semantic objects in `.houmao/catalog.sqlite` and stores prompt/auth/skill/setup payloads under `.houmao/content/`.
 2. When current builders or launchers need a file tree, Houmao materializes the `.houmao/agents/` compatibility projection from the catalog plus managed content refs.
-3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to `roles/<role>/presets/<tool>/default.yaml` inside the projection.
+3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to the unique named preset whose YAML declares the matching `role`, provider-derived `tool`, and `setup: default`.
 4. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings, including durable `launch.env_records` when present. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
 5. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, and any durable `launch.env_records` to materialize a runtime home.
 6. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.

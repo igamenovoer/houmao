@@ -46,7 +46,7 @@ flowchart TD
 | `launch_preview` | Human-readable launch command |
 | `manifest` | Full manifest payload |
 
-**`AgentPreset`** is the parsed declarative preset stored at `roles/<role>/presets/<tool>/<setup>.yaml`.
+**`AgentPreset`** is the parsed declarative preset stored at `presets/<name>.yaml`.
 
 **`ToolAdapter`** is the per-tool projection and launch contract stored at `tools/<tool>/adapter.yaml`.
 

@@ -840,7 +840,7 @@ def _resolve_lane_preflight(*, repo_root: Path, agent_def_dir: Path, slot: str) 
     provider = _PROVIDER_BY_SLOT[slot]
     resolved_launch = resolve_demo_preset_launch(
         agent_def_dir=agent_def_dir,
-        preset_path=agent_def_dir / "roles" / "projection-demo" / "presets" / tool / "default.yaml",
+        preset_path=agent_def_dir / "presets" / f"projection-demo-{tool}-default.yaml",
     )
     blueprint_path = resolved_launch.preset_path
     recipe = resolved_launch.preset

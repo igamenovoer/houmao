@@ -165,7 +165,7 @@ Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run
 The normal launch posture is intentionally permissive, and the default live-watch path is intentionally lightweight:
 
 - The checked-in Claude and Codex interactive-watch recipes request `launch_policy.operator_prompt_mode: unattended`
-- Those checked-in recipes live under `inputs/agents/roles/interactive-watch/presets/<tool>/default.yaml` and keep the tracked auth contract at `auth: default`
+- Those checked-in recipes live under `inputs/agents/presets/interactive-watch-<tool>-default.yaml` and keep the tracked auth contract at `auth: default`
 - Live watch defaults to `live_watch_recorder_enabled = false`, so an ordinary interactive test does not start terminal-recorder
 - Use `--with-recorder` or a config/profile override only when you want retained replay-debug artifacts from that run
 

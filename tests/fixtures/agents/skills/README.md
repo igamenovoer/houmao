@@ -8,7 +8,7 @@ To add a skill:
 
 1. Create `agents/skills/<skill-name>/SKILL.md`.
 2. Keep skill instructions self-contained (link only required references).
-3. Use the skill name in a role-scoped preset or direct builder inputs.
+3. Use the skill name in a named preset or direct builder inputs.
 
 Use the tracked `skill-invocation-probe` fixture when the question under test is whether an installed skill triggers cleanly from narrow prompt wording.
 

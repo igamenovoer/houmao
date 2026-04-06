@@ -29,7 +29,7 @@ The repository SHALL provide a dedicated lightweight role family for mailbox and
 
 Those lightweight roles SHALL explicitly bias the agent toward the requested mailbox or runtime-contract action over broad project discovery. They SHALL avoid unrelated benchmarking, CUDA, or large-repo exploration guidance unless a specific fixture explicitly needs that behavior.
 
-The repository SHALL also provide dedicated mailbox-demo role-scoped presets at `tests/fixtures/agents/roles/mailbox-demo/presets/claude/default.yaml` and `tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml` so supported flows can select the lightweight mailbox role through the canonical preset model instead of through legacy recipes or blueprints.
+The repository SHALL also provide dedicated mailbox-demo role-scoped presets at `tests/fixtures/agents/presets/mailbox-demo-claude-default.yaml` and `tests/fixtures/agents/presets/mailbox-demo-codex-default.yaml` so supported flows can select the lightweight mailbox role through the canonical preset model instead of through legacy recipes or blueprints.
 
 #### Scenario: Maintainer can select dedicated mailbox-demo presets
 - **WHEN** a maintainer inspects the tracked agent fixtures for the mailbox/runtime-contract flow

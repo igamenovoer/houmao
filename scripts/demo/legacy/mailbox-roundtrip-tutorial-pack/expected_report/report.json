@@ -95,14 +95,14 @@
     "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
     "receiver": {
       "agent_identity": "AGENTSYS-mailbox-receiver",
-      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
+      "blueprint": "tests/fixtures/agents/presets/mailbox-demo-codex-default.yaml",
       "mailbox_address": "AGENTSYS-mailbox-receiver@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-mailbox-receiver"
     },
     "schema_version": 1,
     "sender": {
       "agent_identity": "AGENTSYS-mailbox-sender",
-      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/claude/default.yaml",
+      "blueprint": "tests/fixtures/agents/presets/mailbox-demo-claude-default.yaml",
       "mailbox_address": "AGENTSYS-mailbox-sender@agents.localhost",
       "mailbox_principal_id": "AGENTSYS-mailbox-sender"
     },

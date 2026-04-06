@@ -22,7 +22,7 @@ from houmao.agents.realm_controller.gateway_models import BlueprintGatewayDefaul
 
 _PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
 _PRESET_TOP_LEVEL_FIELDS: frozenset[str] = frozenset(
-    {"skills", "auth", "launch", "mailbox", "extra"}
+    {"role", "tool", "setup", "skills", "auth", "launch", "mailbox", "extra"}
 )
 
 
@@ -97,9 +97,10 @@ class PresetLaunchSettings:
 
 @dataclass(frozen=True)
 class AgentPreset:
-    """Parsed role-scoped preset definition."""
+    """Parsed named preset definition."""
 
     path: Path
+    name: str
     role_name: str
     tool: str
     setup: str
@@ -147,12 +148,6 @@ class AgentPreset:
 
         return self.default_agent_name_value
 
-    @property
-    def name(self) -> str:
-        """Return a derived compatibility name for the preset."""
-
-        return f"{self.role_name}-{self.setup}"
-
 
 @dataclass(frozen=True)
 class ParsedAgentCatalog:
@@ -197,18 +192,13 @@ def load_agent_catalog(agent_def_dir: Path) -> ParsedAgentCatalog:
                 if auth_root.is_dir() and path.is_dir()
             }
 
-    roles_root = (resolved_root / "roles").resolve()
-    if roles_root.is_dir():
-        for role_dir in sorted(path for path in roles_root.iterdir() if path.is_dir()):
-            presets_root = (role_dir / "presets").resolve()
-            if not presets_root.is_dir():
+    presets_root = (resolved_root / "presets").resolve()
+    if presets_root.is_dir():
+        for preset_path in sorted(path for path in presets_root.iterdir() if path.is_file()):
+            if preset_path.suffix not in _PRESET_FILE_SUFFIXES:
                 continue
-            for tool_dir in sorted(path for path in presets_root.iterdir() if path.is_dir()):
-                for preset_path in sorted(path for path in tool_dir.iterdir() if path.is_file()):
-                    if preset_path.suffix not in _PRESET_FILE_SUFFIXES:
-                        continue
-                    parsed = parse_agent_preset(preset_path)
-                    presets[parsed.path] = parsed
+            parsed = parse_agent_preset(preset_path)
+            presets[parsed.path] = parsed
 
     return ParsedAgentCatalog(
         agent_def_dir=resolved_root,
@@ -326,7 +316,7 @@ def parse_tool_adapter(path: Path) -> ToolAdapter:
 
 
 def parse_agent_preset(path: Path) -> AgentPreset:
-    """Parse one path-derived preset definition."""
+    """Parse one named preset definition."""
 
     resolved_path = path.resolve()
     payload = _load_mapping_file(resolved_path)
@@ -335,10 +325,13 @@ def parse_agent_preset(path: Path) -> AgentPreset:
         joined = ", ".join(unknown_fields)
         raise ValueError(
             f"{resolved_path}: unsupported top-level field(s): {joined}. "
-            "Supported fields: skills, auth, launch, mailbox, extra."
+            "Supported fields: role, tool, setup, skills, auth, launch, mailbox, extra."
         )
 
-    role_name, tool, setup = _preset_identity_from_path(resolved_path)
+    preset_name = _preset_name_from_path(resolved_path)
+    role_name = _require_str(payload, "role", where=str(resolved_path)).strip()
+    tool = _require_str(payload, "tool", where=str(resolved_path)).strip()
+    setup = _require_str(payload, "setup", where=str(resolved_path)).strip()
     auth = _optional_non_empty_str(payload.get("auth"), field=f"{resolved_path}:auth")
     launch = _parse_preset_launch(payload.get("launch"), source=str(resolved_path))
     mailbox = _parse_mailbox(payload.get("mailbox"), source=str(resolved_path))
@@ -347,6 +340,7 @@ def parse_agent_preset(path: Path) -> AgentPreset:
 
     return AgentPreset(
         path=resolved_path,
+        name=preset_name,
         role_name=role_name,
         tool=tool,
         setup=setup,
@@ -378,7 +372,7 @@ def resolve_agent_preset(
         )
     else:
         preset_path = _resolve_default_preset_path(
-            agent_def_dir=catalog.agent_def_dir,
+            catalog=catalog,
             role_name=stripped_selector,
             tool=tool,
         )
@@ -386,6 +380,23 @@ def resolve_agent_preset(
     if preset is None:
         preset = parse_agent_preset(preset_path)
     return preset
+
+
+def resolve_explicit_or_named_preset_path(*, agent_def_dir: Path, selector: str) -> Path:
+    """Resolve one preset reference from an explicit path or bare preset name."""
+
+    stripped_selector = selector.strip()
+    if not stripped_selector:
+        raise ValueError("Preset selector must not be empty.")
+    if _is_path_like_selector(stripped_selector):
+        return _resolve_path_like_preset_path(
+            selector=stripped_selector,
+            agent_def_dir=agent_def_dir,
+        )
+    return _resolve_named_preset_path(
+        agent_def_dir=agent_def_dir,
+        preset_name=stripped_selector,
+    )
 
 
 def _load_mapping_file(path: Path) -> dict[str, Any]:
@@ -468,9 +479,7 @@ def _parse_operator_prompt_mode(raw_value: object, *, source: str) -> OperatorPr
         raise ValueError(f"{source}: prompt_mode must be a non-empty string when set")
     value = raw_value.strip()
     if value not in {"as_is", "unattended"}:
-        raise ValueError(
-            f"{source}: prompt_mode must be `as_is` or `unattended`, got {value!r}"
-        )
+        raise ValueError(f"{source}: prompt_mode must be `as_is` or `unattended`, got {value!r}")
     return cast(OperatorPromptMode, value)
 
 
@@ -569,24 +578,16 @@ def _parse_gateway_defaults(
         raise ValueError(f"{source}: invalid extra.gateway: {exc}") from exc
 
 
-def _preset_identity_from_path(path: Path) -> tuple[str, str, str]:
-    """Derive role, tool, and setup from one preset path."""
+def _preset_name_from_path(path: Path) -> str:
+    """Derive the preset name from one canonical named-preset path."""
 
-    parts = path.resolve().parts
-    for index in range(len(parts) - 4):
-        if parts[index] != "roles":
-            continue
-        if parts[index + 2] != "presets":
-            continue
-        role_name = parts[index + 1]
-        tool = parts[index + 3]
-        setup = Path(parts[index + 4]).stem
-        if not role_name or not tool or not setup:
-            break
-        return role_name, tool, setup
-    raise ValueError(
-        f"{path}: preset paths must follow roles/<role>/presets/<tool>/<setup>.yaml"
-    )
+    resolved_path = path.resolve()
+    if resolved_path.parent.name != "presets" or resolved_path.suffix not in _PRESET_FILE_SUFFIXES:
+        raise ValueError(f"{path}: preset paths must follow presets/<name>.yaml")
+    name = resolved_path.stem
+    if not name:
+        raise ValueError(f"{path}: preset filename stem must not be empty")
+    return name
 
 
 def _is_path_like_selector(selector: str) -> bool:
@@ -622,17 +623,39 @@ def _resolve_path_like_preset_path(*, selector: str, agent_def_dir: Path) -> Pat
     raise FileNotFoundError(f"Could not resolve preset path from selector `{selector}`.")
 
 
-def _resolve_default_preset_path(*, agent_def_dir: Path, role_name: str, tool: str) -> Path:
-    """Resolve the default setup preset for one role/tool pair."""
+def _resolve_named_preset_path(*, agent_def_dir: Path, preset_name: str) -> Path:
+    """Resolve one preset by bare name under the canonical preset root."""
 
-    preset_root = (agent_def_dir / "roles" / role_name / "presets" / tool).resolve()
-    candidates = (
-        preset_root / "default.yaml",
-        preset_root / "default.yml",
-    )
+    presets_root = (agent_def_dir / "presets").resolve()
+    base_path = (presets_root / preset_name).resolve()
+    candidates: tuple[Path, ...]
+    if base_path.suffix in _PRESET_FILE_SUFFIXES:
+        candidates = (base_path,)
+    else:
+        candidates = tuple(base_path.with_suffix(suffix) for suffix in _PRESET_FILE_SUFFIXES)
     for candidate in candidates:
         if candidate.is_file():
             return candidate.resolve()
+    raise FileNotFoundError(f"Could not resolve preset `{preset_name}` under `{presets_root}`.")
+
+
+def _resolve_default_preset_path(*, catalog: ParsedAgentCatalog, role_name: str, tool: str) -> Path:
+    """Resolve the unique default setup preset for one role/tool pair."""
+
+    matches = sorted(
+        preset.path
+        for preset in catalog.presets.values()
+        if preset.role_name == role_name and preset.tool == tool and preset.setup == "default"
+    )
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        joined = ", ".join(str(path) for path in matches)
+        raise ValueError(
+            f"Multiple named presets matched role `{role_name}` with tool `{tool}` and "
+            f"setup `default`: {joined}"
+        )
     raise FileNotFoundError(
-        f"Could not resolve a native preset for role `{role_name}` under `{preset_root}`."
+        f"Could not resolve a native preset for role `{role_name}` with tool `{tool}` "
+        f"under `{(catalog.agent_def_dir / 'presets').resolve()}`."
     )

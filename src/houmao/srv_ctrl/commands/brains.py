@@ -12,6 +12,7 @@ from houmao.agents.brain_builder import (
     load_brain_recipe,
     load_launch_overrides_input,
 )
+from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
     resolve_materialized_project_aware_agent_def_dir,
@@ -39,7 +40,11 @@ def brains_group() -> None:
 @click.option("--config-profile", "setup", default=None, hidden=True)
 @click.option("--auth", default=None, help="Auth bundle to project.")
 @click.option("--cred-profile", "auth", default=None, hidden=True)
-@click.option("--preset", default=None, help="Preset path resolved from the agent root.")
+@click.option(
+    "--preset",
+    default=None,
+    help="Preset path or bare preset name resolved from the agent root.",
+)
 @click.option("--recipe", "preset", default=None, hidden=True)
 @click.option(
     "--runtime-root",
@@ -94,7 +99,10 @@ def build_brain_command(
     preset_path: Path | None = None
     preset_payload = None
     if preset is not None:
-        preset_path = _resolve_path(preset, base=resolved_agent_def_dir)
+        preset_path = resolve_explicit_or_named_preset_path(
+            agent_def_dir=resolved_agent_def_dir,
+            selector=preset,
+        )
         preset_payload = load_brain_recipe(preset_path)
 
     direct_launch_overrides = (

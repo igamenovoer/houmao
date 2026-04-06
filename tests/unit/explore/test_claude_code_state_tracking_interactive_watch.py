@@ -37,6 +37,9 @@ def _write_preset(path: Path) -> None:
         path,
         "\n".join(
             [
+                "role: interactive-watch",
+                "tool: claude",
+                "setup: default",
                 "skills:",
                 "  - openspec-explore",
                 "auth: personal-a-default",
@@ -61,7 +64,7 @@ def _watch_manifest(paths: InteractiveWatchPaths) -> InteractiveWatchManifest:
         repo_root="/repo",
         run_root=str(paths.run_root),
         runtime_root=str(paths.runtime_root),
-        preset_path="/repo/tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml",
+        preset_path="/repo/tests/fixtures/agents/presets/interactive-watch-claude-default.yaml",
         brain_home_path=str(paths.runtime_root / "homes" / "claude-home"),
         brain_manifest_path=str(paths.runtime_root / "manifests" / "claude-home.yaml"),
         launch_helper_path=str(paths.runtime_root / "homes" / "claude-home" / "launch.sh"),
@@ -141,7 +144,7 @@ def _save_terminal_record_manifest(paths: InteractiveWatchPaths) -> None:
 def test_start_interactive_watch_builds_run_local_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    preset_path = tmp_path / "presets" / "interactive-watch-claude-default.yaml"
     _write_preset(preset_path)
     requested: dict[str, object] = {}
 
@@ -216,7 +219,7 @@ def test_start_interactive_watch_builds_run_local_runtime(
 def test_start_interactive_watch_cleans_up_after_dashboard_start_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    preset_path = tmp_path / "presets" / "interactive-watch-claude-default.yaml"
     _write_preset(preset_path)
     run_root = tmp_path / "interactive-run"
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
@@ -298,7 +301,7 @@ def test_start_interactive_watch_cleans_up_after_dashboard_start_failure(
 def test_start_interactive_watch_cleans_up_on_keyboard_interrupt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    preset_path = tmp_path / "presets" / "interactive-watch-claude-default.yaml"
     _write_preset(preset_path)
     run_root = tmp_path / "interactive-run"
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)
@@ -380,7 +383,7 @@ def test_start_interactive_watch_cleans_up_on_keyboard_interrupt(
 def test_start_interactive_watch_falls_back_to_direct_recorder_session_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    preset_path = tmp_path / "roles" / "interactive-watch" / "presets" / "claude" / "default.yaml"
+    preset_path = tmp_path / "presets" / "interactive-watch-claude-default.yaml"
     _write_preset(preset_path)
     run_root = tmp_path / "interactive-run"
     paths = InteractiveWatchPaths.from_run_root(run_root=run_root)

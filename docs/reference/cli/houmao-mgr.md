@@ -161,7 +161,7 @@ houmao-mgr brains build [OPTIONS]
 | `--skill TEXT` | Skill name to include. May be specified multiple times. |
 | `--setup TEXT` | Setup bundle to materialize. |
 | `--auth TEXT` | Auth bundle to project. |
-| `--preset TEXT` | Preset path resolved from the agent root. |
+| `--preset TEXT` | Preset path or bare preset name resolved from the agent root. |
 | `--runtime-root PATH` | Root directory for runtime homes. |
 | `--home-id TEXT` | Explicit home identifier for the runtime home directory. |
 | `--reuse-home` | Reuse an existing runtime home if one matches, instead of creating a new one. |
@@ -260,8 +260,8 @@ Project overlay notes:
 
 | Subcommand | Description |
 |---|---|
-| `roles list|get|init|scaffold|remove` | Inspect, create, scaffold, or delete role roots under `agents/roles/`. |
-| `roles presets list|get|add|remove` | Manage canonical preset files under `agents/roles/<role>/presets/<tool>/<setup>.yaml`. |
+| `roles list|get|init|set|remove` | Inspect, create, update, or delete prompt-only role roots under `agents/roles/`. |
+| `presets list|get|add|set|remove` | Manage canonical named preset files under `agents/presets/<name>.yaml`. |
 | `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
 | `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
 | `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `agents/tools/<tool>/auth/<name>/`. |

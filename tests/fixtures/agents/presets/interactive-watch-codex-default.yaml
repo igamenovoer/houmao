@@ -1,0 +1,9 @@
+role: interactive-watch
+tool: codex
+setup: default
+skills:
+- openspec-explore
+- openspec-apply-change
+auth: personal-a-default
+launch:
+  prompt_mode: unattended

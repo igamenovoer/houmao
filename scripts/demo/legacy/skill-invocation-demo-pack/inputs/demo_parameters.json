@@ -8,11 +8,11 @@
   "parsing_mode": "shadow_only",
   "tool_lanes": {
     "claude": {
-      "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/claude/default.yaml",
+      "blueprint": "tests/fixtures/agents/presets/skill-invocation-demo-claude-default.yaml",
       "agent_identity": "AGENTSYS-skill-invocation-demo-claude"
     },
     "codex": {
-      "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml",
+      "blueprint": "tests/fixtures/agents/presets/skill-invocation-demo-codex-default.yaml",
       "agent_identity": "AGENTSYS-skill-invocation-demo-codex"
     }
   },

@@ -197,6 +197,9 @@ def parse_declarative_mailbox_config(
         payload.get("address"),
         field=f"{source}.address",
     )
+    if transport == MAILBOX_TRANSPORT_NONE:
+        return None
+
     if transport == MAILBOX_TRANSPORT_FILESYSTEM:
         filesystem_root = _require_optional_non_blank_str(
             payload.get("filesystem_root"),

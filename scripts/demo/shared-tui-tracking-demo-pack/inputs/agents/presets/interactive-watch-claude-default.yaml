@@ -1,0 +1,7 @@
+role: interactive-watch
+tool: claude
+setup: default
+skills: []
+auth: default
+launch:
+  prompt_mode: unattended

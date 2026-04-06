@@ -947,164 +947,106 @@ def get_project_role_command(name: str) -> None:
 @project_roles_group.command(name="init")
 @click.option("--name", required=True, help="Role name.")
 @click.option(
-    "--tool",
-    "tool_name",
-    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    "--system-prompt",
     default=None,
-    help="Optional tool lane for an initial preset.",
-)
-@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
-@click.option("--auth", default=None, help="Optional preset auth bundle name.")
-@click.option(
-    "--skill", "skill_names", multiple=True, help="Repeatable skill name for the initial preset."
+    help="Inline system prompt content.",
 )
 @click.option(
-    "--prompt-mode",
-    type=click.Choice(("unattended", "as_is")),
+    "--system-prompt-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
     default=None,
-    help="Optional launch.prompt_mode for the initial preset; defaults to `unattended`.",
+    help="Path to a Markdown system prompt file.",
 )
 def init_project_role_command(
     name: str,
-    tool_name: str | None,
-    setup: str,
-    auth: str | None,
-    skill_names: tuple[str, ...],
-    prompt_mode: str | None,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
 ) -> None:
-    """Create one new project-local role root and optional initial preset."""
+    """Create one new project-local role root."""
 
     overlay = _ensure_project_overlay()
     role_name = _require_non_empty_name(name, field_name="--name")
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if role_root.exists():
         raise click.ClickException(f"Role already exists: {role_root}")
-
-    prompt_path = _write_role_prompt(
-        role_root=role_root, prompt_text=_default_role_prompt(role_name)
-    )
-    created_paths: list[str] = [str(role_root), str(prompt_path)]
-    preset_path: str | None = None
-    if tool_name is not None:
-        written_preset_path = _write_role_preset(
-            overlay=overlay,
-            role_name=role_name,
-            tool=tool_name,
-            setup=setup,
-            skills=[_require_non_empty_name(value, field_name="--skill") for value in skill_names],
-            auth=_optional_non_empty_value(auth),
-            prompt_mode=_optional_non_empty_value(prompt_mode),
+    if system_prompt is not None and system_prompt_file is not None:
+        raise click.ClickException(
+            "Provide at most one of `--system-prompt` or `--system-prompt-file`."
         )
-        created_paths.append(str(written_preset_path))
-        preset_path = str(written_preset_path)
+
+    prompt_text = _default_role_prompt(role_name)
+    if system_prompt is not None:
+        prompt_text = _resolve_required_prompt_text(
+            system_prompt=system_prompt,
+            system_prompt_file=None,
+        )
+    elif system_prompt_file is not None:
+        prompt_text = _resolve_required_prompt_text(
+            system_prompt=None,
+            system_prompt_file=system_prompt_file,
+        )
+
+    prompt_path = _write_role_prompt(role_root=role_root, prompt_text=prompt_text)
+    created_paths: list[str] = [str(role_root), str(prompt_path)]
     emit(
         {
             "project_root": str(overlay.project_root),
             "role": role_name,
             "role_path": str(role_root),
             "system_prompt_path": str(prompt_path),
-            "preset_path": preset_path,
             "created_paths": created_paths,
         }
     )
 
 
-@project_roles_group.command(name="scaffold")
+@project_roles_group.command(name="set")
 @click.option("--name", required=True, help="Role name.")
 @click.option(
-    "--tool",
-    "tool_names",
-    multiple=True,
-    required=True,
-    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
-    help="Repeatable tool lane to scaffold.",
-)
-@click.option(
-    "--auth",
-    default="default",
-    show_default=True,
-    help="Auth bundle name to reference in generated presets.",
-)
-@click.option(
-    "--setup",
-    default="default",
-    show_default=True,
-    help="Setup name to reference in generated presets.",
-)
-@click.option(
-    "--skill", "skill_names", multiple=True, help="Repeatable skill name to scaffold or reference."
-)
-@click.option(
-    "--prompt-mode",
-    type=click.Choice(("unattended", "as_is")),
+    "--system-prompt",
     default=None,
-    help="Optional launch.prompt_mode for generated presets; defaults to `unattended`.",
+    help="Inline system prompt content.",
 )
-def scaffold_project_role_command(
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a Markdown system prompt file.",
+)
+@click.option("--clear-system-prompt", is_flag=True, help="Clear the role system prompt.")
+def set_project_role_command(
     name: str,
-    tool_names: tuple[str, ...],
-    auth: str,
-    setup: str,
-    skill_names: tuple[str, ...],
-    prompt_mode: str | None,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+    clear_system_prompt: bool,
 ) -> None:
-    """Create one structurally complete starter slice for a project-local role."""
+    """Update one existing project-local role prompt."""
 
     overlay = _ensure_project_overlay()
     role_name = _require_non_empty_name(name, field_name="--name")
     role_root = _role_root(overlay=overlay, role_name=role_name)
-    if role_root.exists():
-        raise click.ClickException(f"Role already exists: {role_root}")
-
-    normalized_skills = [
-        _require_non_empty_name(value, field_name="--skill") for value in skill_names
-    ]
-    normalized_setup = _require_non_empty_name(setup, field_name="--setup")
-    normalized_auth = _require_non_empty_name(auth, field_name="--auth")
-
-    prompt_path = _write_role_prompt(
-        role_root=role_root, prompt_text=_default_role_prompt(role_name)
+    if not role_root.is_dir():
+        raise click.ClickException(f"Role not found: {role_root}")
+    if clear_system_prompt and (system_prompt is not None or system_prompt_file is not None):
+        raise click.ClickException(
+            "`--clear-system-prompt` cannot be combined with `--system-prompt` or "
+            "`--system-prompt-file`."
+        )
+    if not clear_system_prompt and system_prompt is None and system_prompt_file is None:
+        raise click.ClickException(
+            "Provide one of `--system-prompt`, `--system-prompt-file`, or `--clear-system-prompt`."
+        )
+    prompt_text = (
+        ""
+        if clear_system_prompt
+        else _resolve_required_prompt_text(
+            system_prompt=system_prompt,
+            system_prompt_file=system_prompt_file,
+        )
     )
-    created_paths: list[str] = [str(role_root), str(prompt_path)]
-    for skill_name in normalized_skills:
-        created_skill_path = _ensure_skill_placeholder(overlay=overlay, skill_name=skill_name)
-        if created_skill_path is not None:
-            created_paths.append(str(created_skill_path))
-
-    for tool_name in tool_names:
-        if normalized_setup != "default":
-            created_setup_path = _clone_tool_setup_if_missing(
-                overlay=overlay,
-                tool=tool_name,
-                target_name=normalized_setup,
-                source_name="default",
-            )
-            if created_setup_path is not None:
-                created_paths.append(str(created_setup_path))
-        created_auth_paths = _ensure_placeholder_auth_bundle(
-            overlay=overlay,
-            tool=tool_name,
-            name=normalized_auth,
-        )
-        created_paths.extend(str(path) for path in created_auth_paths)
-        preset_path = _write_role_preset(
-            overlay=overlay,
-            role_name=role_name,
-            tool=tool_name,
-            setup=normalized_setup,
-            skills=normalized_skills,
-            auth=normalized_auth,
-            prompt_mode=_optional_non_empty_value(prompt_mode),
-        )
-        created_paths.append(str(preset_path))
-
+    prompt_path = _write_role_prompt(role_root=role_root, prompt_text=prompt_text, overwrite=True)
     emit(
-        {
-            "project_root": str(overlay.project_root),
-            "role": role_name,
-            "role_path": str(role_root),
-            "created_paths": created_paths,
-        }
+        _role_summary(overlay=overlay, role_name=role_name)
+        | {"system_prompt_path": str(prompt_path)}
     )
 
 
@@ -1118,6 +1060,13 @@ def remove_project_role_command(name: str) -> None:
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if not role_root.is_dir():
         raise click.ClickException(f"Role not found: {role_root}")
+    referencing_presets = _list_named_preset_summaries(overlay=overlay, role_name=role_name)
+    if referencing_presets:
+        preset_names = ", ".join(str(item["name"]) for item in referencing_presets)
+        raise click.ClickException(
+            f"Cannot remove role `{role_name}` because named presets still reference it: "
+            f"{preset_names}"
+        )
     shutil.rmtree(role_root)
     emit(
         {
@@ -1129,52 +1078,51 @@ def remove_project_role_command(name: str) -> None:
     )
 
 
-@project_roles_group.group(name="presets")
-def project_role_presets_group() -> None:
-    """Manage role presets under `.houmao/agents/roles/<role>/presets/<tool>/<setup>.yaml`."""
+@agents_project_group.group(name="presets")
+def project_presets_group() -> None:
+    """Manage project-local named presets stored under `.houmao/agents/presets/`."""
 
 
-@project_role_presets_group.command(name="list")
-@click.option("--role", required=True, help="Role name.")
-def list_project_role_presets_command(role: str) -> None:
-    """List preset files for one project-local role."""
+@project_presets_group.command(name="list")
+@click.option("--role", default=None, help="Optional role filter.")
+@click.option(
+    "--tool",
+    "tool_name",
+    default=None,
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    help="Optional tool filter.",
+)
+def list_project_presets_command(role: str | None, tool_name: str | None) -> None:
+    """List project-local named presets."""
 
     overlay = _resolve_existing_project_overlay()
-    role_name = _require_non_empty_name(role, field_name="--role")
     emit(
         {
             "project_root": str(overlay.project_root),
-            "role": role_name,
-            "presets": _list_role_presets(overlay=overlay, role_name=role_name),
+            "presets": _list_named_preset_summaries(
+                overlay=overlay,
+                role_name=_optional_non_empty_value(role),
+                tool=tool_name,
+            ),
         }
     )
 
 
-@project_role_presets_group.command(name="get")
-@click.option("--role", required=True, help="Role name.")
-@click.option(
-    "--tool",
-    "tool_name",
-    required=True,
-    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
-    help="Tool lane.",
-)
-@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
-def get_project_role_preset_command(role: str, tool_name: str, setup: str) -> None:
-    """Inspect one project-local role preset."""
+@project_presets_group.command(name="get")
+@click.option("--name", required=True, help="Preset name.")
+def get_project_preset_command(name: str) -> None:
+    """Inspect one project-local named preset."""
 
     overlay = _resolve_existing_project_overlay()
     emit(
         _preset_summary(
-            overlay=overlay,
-            role_name=_require_non_empty_name(role, field_name="--role"),
-            tool=tool_name,
-            setup=_require_non_empty_name(setup, field_name="--setup"),
+            overlay=overlay, preset_name=_require_non_empty_name(name, field_name="--name")
         )
     )
 
 
-@project_role_presets_group.command(name="add")
+@project_presets_group.command(name="add")
+@click.option("--name", required=True, help="Preset name.")
 @click.option("--role", required=True, help="Role name.")
 @click.option(
     "--tool",
@@ -1192,7 +1140,8 @@ def get_project_role_preset_command(role: str, tool_name: str, setup: str) -> No
     default=None,
     help="Optional launch.prompt_mode value; defaults to `unattended`.",
 )
-def add_project_role_preset_command(
+def add_project_preset_command(
+    name: str,
     role: str,
     tool_name: str,
     setup: str,
@@ -1200,15 +1149,26 @@ def add_project_role_preset_command(
     auth: str | None,
     prompt_mode: str | None,
 ) -> None:
-    """Create one minimal project-local role preset."""
+    """Create one minimal project-local named preset."""
 
     overlay = _ensure_project_overlay()
+    preset_name = _require_non_empty_name(name, field_name="--name")
     role_name = _require_non_empty_name(role, field_name="--role")
-    preset_path = _write_role_preset(
+    resolved_setup = _require_non_empty_name(setup, field_name="--setup")
+    _ensure_role_exists(overlay=overlay, role_name=role_name)
+    _ensure_unique_preset_tuple(
         overlay=overlay,
+        preset_name=preset_name,
         role_name=role_name,
         tool=tool_name,
-        setup=_require_non_empty_name(setup, field_name="--setup"),
+        setup=resolved_setup,
+    )
+    preset_path = _write_named_preset(
+        overlay=overlay,
+        preset_name=preset_name,
+        role_name=role_name,
+        tool=tool_name,
+        setup=resolved_setup,
         skills=[_require_non_empty_name(value, field_name="--skill") for value in skill_names],
         auth=_optional_non_empty_value(auth),
         prompt_mode=_optional_non_empty_value(prompt_mode),
@@ -1216,43 +1176,167 @@ def add_project_role_preset_command(
     emit(
         {
             "project_root": str(overlay.project_root),
-            "role": role_name,
-            "tool": tool_name,
-            "setup": _require_non_empty_name(setup, field_name="--setup"),
+            "name": preset_name,
             "path": str(preset_path),
             "created": True,
         }
     )
 
 
-@project_role_presets_group.command(name="remove")
-@click.option("--role", required=True, help="Role name.")
+@project_presets_group.command(name="set")
+@click.option("--name", required=True, help="Preset name.")
+@click.option("--role", default=None, help="Optional role name override.")
 @click.option(
     "--tool",
     "tool_name",
-    required=True,
+    default=None,
     type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
-    help="Tool lane.",
+    help="Optional tool lane override.",
 )
-@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
-def remove_project_role_preset_command(role: str, tool_name: str, setup: str) -> None:
-    """Remove one project-local role preset."""
+@click.option("--setup", default=None, help="Optional setup override.")
+@click.option("--auth", default=None, help="Optional auth override.")
+@click.option("--clear-auth", is_flag=True, help="Clear the preset auth bundle reference.")
+@click.option("--add-skill", "add_skill_names", multiple=True, help="Repeatable skill to add.")
+@click.option(
+    "--remove-skill",
+    "remove_skill_names",
+    multiple=True,
+    help="Repeatable skill to remove.",
+)
+@click.option("--clear-skills", is_flag=True, help="Clear all preset skill bindings.")
+@click.option(
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Optional launch.prompt_mode override.",
+)
+@click.option("--clear-prompt-mode", is_flag=True, help="Clear launch.prompt_mode.")
+def set_project_preset_command(
+    name: str,
+    role: str | None,
+    tool_name: str | None,
+    setup: str | None,
+    auth: str | None,
+    clear_auth: bool,
+    add_skill_names: tuple[str, ...],
+    remove_skill_names: tuple[str, ...],
+    clear_skills: bool,
+    prompt_mode: str | None,
+    clear_prompt_mode: bool,
+) -> None:
+    """Update one existing project-local named preset."""
+
+    overlay = _ensure_project_overlay()
+    preset_name = _require_non_empty_name(name, field_name="--name")
+    preset_path = _preset_path(overlay=overlay, preset_name=preset_name)
+    if not preset_path.is_file():
+        raise click.ClickException(f"Preset not found: {preset_path}")
+    if clear_auth and auth is not None:
+        raise click.ClickException("`--auth` cannot be combined with `--clear-auth`.")
+    if clear_prompt_mode and prompt_mode is not None:
+        raise click.ClickException("`--prompt-mode` cannot be combined with `--clear-prompt-mode`.")
+    if (
+        role is None
+        and tool_name is None
+        and setup is None
+        and auth is None
+        and not clear_auth
+        and not add_skill_names
+        and not remove_skill_names
+        and not clear_skills
+        and prompt_mode is None
+        and not clear_prompt_mode
+    ):
+        raise click.ClickException("No preset updates were requested.")
+
+    raw_payload = _load_yaml_mapping(preset_path)
+    parsed_preset = parse_agent_preset(preset_path)
+    role_name = (
+        _require_non_empty_name(role, field_name="--role")
+        if role is not None
+        else parsed_preset.role_name
+    )
+    resolved_tool = tool_name or parsed_preset.tool
+    resolved_setup = (
+        _require_non_empty_name(setup, field_name="--setup")
+        if setup is not None
+        else parsed_preset.setup
+    )
+    _ensure_role_exists(overlay=overlay, role_name=role_name)
+    skills = [] if clear_skills else list(parsed_preset.skills)
+    skills.extend(
+        _require_non_empty_name(value, field_name="--add-skill") for value in add_skill_names
+    )
+    remove_skill_set = {
+        _require_non_empty_name(value, field_name="--remove-skill") for value in remove_skill_names
+    }
+    skills = [skill for skill in skills if skill not in remove_skill_set]
+    normalized_skills: list[str] = []
+    for skill in skills:
+        if skill not in normalized_skills:
+            normalized_skills.append(skill)
+    resolved_auth = (
+        None
+        if clear_auth
+        else (
+            _require_non_empty_name(auth, field_name="--auth")
+            if auth is not None
+            else parsed_preset.auth
+        )
+    )
+    _ensure_unique_preset_tuple(
+        overlay=overlay,
+        preset_name=preset_name,
+        role_name=role_name,
+        tool=resolved_tool,
+        setup=resolved_setup,
+    )
+
+    raw_payload["role"] = role_name
+    raw_payload["tool"] = resolved_tool
+    raw_payload["setup"] = resolved_setup
+    raw_payload["skills"] = normalized_skills
+    if resolved_auth is None:
+        raw_payload.pop("auth", None)
+    else:
+        raw_payload["auth"] = resolved_auth
+    launch_payload = raw_payload.get("launch")
+    if launch_payload is None:
+        launch_mapping: dict[str, object] = {}
+    elif isinstance(launch_payload, dict):
+        launch_mapping = dict(launch_payload)
+    else:
+        raise click.ClickException(
+            f"{preset_path}: expected `launch` to be a mapping when present."
+        )
+    if prompt_mode is not None:
+        launch_mapping["prompt_mode"] = prompt_mode
+    elif clear_prompt_mode:
+        launch_mapping.pop("prompt_mode", None)
+    if launch_mapping:
+        raw_payload["launch"] = launch_mapping
+    else:
+        raw_payload.pop("launch", None)
+
+    _write_yaml_mapping(preset_path, raw_payload)
+    emit(_preset_summary(overlay=overlay, preset_name=preset_name))
+
+
+@project_presets_group.command(name="remove")
+@click.option("--name", required=True, help="Preset name.")
+def remove_project_preset_command(name: str) -> None:
+    """Remove one project-local named preset."""
 
     overlay = _resolve_existing_project_overlay()
-    role_name = _require_non_empty_name(role, field_name="--role")
-    resolved_setup = _require_non_empty_name(setup, field_name="--setup")
-    preset_path = _preset_path(
-        overlay=overlay, role_name=role_name, tool=tool_name, setup=resolved_setup
-    )
+    preset_name = _require_non_empty_name(name, field_name="--name")
+    preset_path = _preset_path(overlay=overlay, preset_name=preset_name)
     if not preset_path.is_file():
         raise click.ClickException(f"Preset not found: {preset_path}")
     preset_path.unlink()
     emit(
         {
             "project_root": str(overlay.project_root),
-            "role": role_name,
-            "tool": tool_name,
-            "setup": resolved_setup,
+            "name": preset_name,
             "removed": True,
             "path": str(preset_path),
         }
@@ -1382,6 +1466,11 @@ def create_easy_specialist_command(
         system_prompt=system_prompt,
         system_prompt_file=system_prompt_file,
     )
+    existing_specialist = (
+        load_specialist(overlay=overlay, name=specialist_name)
+        if ProjectCatalog.from_overlay(overlay).specialist_exists(specialist_name)
+        else None
+    )
     if replace_conflict is not None:
         confirm_destructive_action(
             prompt=(
@@ -1436,15 +1525,28 @@ def create_easy_specialist_command(
         launch_mapping["env_records"] = dict(persistent_env_records)
 
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
+    preset_name = _canonical_preset_name(
+        role_name=specialist_name,
+        tool=tool_name,
+        setup=setup_name,
+    )
     if replace_conflict is not None:
-        _prepare_specialist_role_projection_for_replace(role_root=role_root)
+        _prepare_specialist_projection_for_replace(
+            role_root=role_root,
+            preset_path=(
+                existing_specialist.resolved_preset_path(overlay)
+                if existing_specialist is not None
+                else _preset_path(overlay=overlay, preset_name=preset_name)
+            ),
+        )
     system_prompt_path = _write_role_prompt(
         role_root=role_root,
         prompt_text=prompt_text,
         overwrite=replace_conflict is not None,
     )
-    preset_path = _write_role_preset(
+    preset_path = _write_named_preset(
         overlay=overlay,
+        preset_name=preset_name,
         role_name=specialist_name,
         tool=tool_name,
         setup=setup_name,
@@ -1456,6 +1558,7 @@ def create_easy_specialist_command(
     )
     metadata = ProjectCatalog.from_overlay(overlay).store_specialist_from_sources(
         name=specialist_name,
+        preset_name=preset_name,
         tool=tool_name,
         provider=TOOL_PROVIDER_MAP[tool_name],
         credential_name=credential_name,
@@ -2158,12 +2261,17 @@ def _role_root(*, overlay: HoumaoProjectOverlay, role_name: str) -> Path:
     return (overlay.agents_root / "roles" / role_name).resolve()
 
 
-def _preset_path(*, overlay: HoumaoProjectOverlay, role_name: str, tool: str, setup: str) -> Path:
-    """Return one canonical project-local preset path."""
+def _presets_root(*, overlay: HoumaoProjectOverlay) -> Path:
+    """Return the project-local named preset root."""
 
-    return (
-        _role_root(overlay=overlay, role_name=role_name) / "presets" / tool / f"{setup}.yaml"
-    ).resolve()
+    ensure_project_agent_compatibility_tree(overlay)
+    return (overlay.agents_root / "presets").resolve()
+
+
+def _preset_path(*, overlay: HoumaoProjectOverlay, preset_name: str) -> Path:
+    """Return one canonical project-local named preset path."""
+
+    return (_presets_root(overlay=overlay) / f"{preset_name}.yaml").resolve()
 
 
 def _list_role_names(*, overlay: HoumaoProjectOverlay) -> list[str]:
@@ -2186,54 +2294,52 @@ def _role_summary(*, overlay: HoumaoProjectOverlay, role_name: str) -> dict[str,
         "role_path": str(role_root),
         "system_prompt_path": str(prompt_path),
         "system_prompt_exists": prompt_path.is_file(),
-        "presets": _list_role_presets(overlay=overlay, role_name=role_name),
+        "presets": _list_named_preset_summaries(overlay=overlay, role_name=role_name),
     }
 
 
-def _list_role_presets(*, overlay: HoumaoProjectOverlay, role_name: str) -> list[dict[str, object]]:
-    """Return preset summaries for one role without requiring raw YAML inspection."""
+def _list_named_preset_summaries(
+    *,
+    overlay: HoumaoProjectOverlay,
+    role_name: str | None = None,
+    tool: str | None = None,
+) -> list[dict[str, object]]:
+    """Return named preset summaries, optionally filtered by role and tool."""
 
-    role_root = _role_root(overlay=overlay, role_name=role_name)
-    if not role_root.is_dir():
+    presets_root = _presets_root(overlay=overlay)
+    if not presets_root.is_dir():
         return []
     results: list[dict[str, object]] = []
-    presets_root = (role_root / "presets").resolve()
-    if not presets_root.is_dir():
-        return results
-    for tool_dir in sorted(path for path in presets_root.iterdir() if path.is_dir()):
-        for preset_file in sorted(path for path in tool_dir.iterdir() if path.is_file()):
-            if preset_file.suffix not in {".yaml", ".yml"}:
-                continue
-            results.append(
-                _preset_summary(
-                    overlay=overlay,
-                    role_name=role_name,
-                    tool=tool_dir.name,
-                    setup=preset_file.stem,
-                )
-            )
+    for preset_file in sorted(path for path in presets_root.iterdir() if path.is_file()):
+        if preset_file.suffix not in {".yaml", ".yml"}:
+            continue
+        parsed_preset = parse_agent_preset(preset_file)
+        if role_name is not None and parsed_preset.role_name != role_name:
+            continue
+        if tool is not None and parsed_preset.tool != tool:
+            continue
+        results.append(_preset_summary(overlay=overlay, preset_name=parsed_preset.name))
     return results
 
 
 def _preset_summary(
     *,
     overlay: HoumaoProjectOverlay,
-    role_name: str,
-    tool: str,
-    setup: str,
+    preset_name: str,
 ) -> dict[str, object]:
     """Return one structured project-local preset summary."""
 
-    preset_file = _preset_path(overlay=overlay, role_name=role_name, tool=tool, setup=setup)
+    preset_file = _preset_path(overlay=overlay, preset_name=preset_name)
     if not preset_file.is_file():
         raise click.ClickException(f"Preset not found: {preset_file}")
     parsed_preset = parse_agent_preset(preset_file)
     raw_payload = _load_yaml_mapping(preset_file)
     launch_payload = raw_payload.get("launch")
     return {
-        "role": role_name,
-        "tool": tool,
-        "setup": setup,
+        "name": parsed_preset.name,
+        "role": parsed_preset.role_name,
+        "tool": parsed_preset.tool,
+        "setup": parsed_preset.setup,
         "path": str(preset_file),
         "skills": list(parsed_preset.skills),
         "auth": parsed_preset.auth,
@@ -2257,9 +2363,49 @@ def _write_role_prompt(*, role_root: Path, prompt_text: str, overwrite: bool = F
     return prompt_path
 
 
-def _write_role_preset(
+def _canonical_preset_name(*, role_name: str, tool: str, setup: str) -> str:
+    """Return the default deterministic preset name for one role/tool/setup tuple."""
+
+    return f"{role_name}-{tool}-{setup}"
+
+
+def _ensure_role_exists(*, overlay: HoumaoProjectOverlay, role_name: str) -> None:
+    """Fail clearly when one project-local role root is missing."""
+
+    role_root = _role_root(overlay=overlay, role_name=role_name)
+    if not role_root.is_dir():
+        raise click.ClickException(f"Role not found: {role_root}")
+
+
+def _ensure_unique_preset_tuple(
     *,
     overlay: HoumaoProjectOverlay,
+    preset_name: str,
+    role_name: str,
+    tool: str,
+    setup: str,
+) -> None:
+    """Reject duplicate `(role, tool, setup)` tuples across named presets."""
+
+    for summary in _list_named_preset_summaries(overlay=overlay):
+        if str(summary["name"]) == preset_name:
+            continue
+        if (
+            str(summary["role"]) == role_name
+            and str(summary["tool"]) == tool
+            and str(summary["setup"]) == setup
+        ):
+            raise click.ClickException(
+                "Preset `(role, tool, setup)` tuples must remain unique across "
+                f"`.houmao/agents/presets/`: `{role_name}`, `{tool}`, `{setup}` is already "
+                f"owned by `{summary['name']}`."
+            )
+
+
+def _write_named_preset(
+    *,
+    overlay: HoumaoProjectOverlay,
+    preset_name: str,
     role_name: str,
     tool: str,
     setup: str,
@@ -2269,40 +2415,46 @@ def _write_role_preset(
     env_records: dict[str, str] | None = None,
     overwrite: bool = False,
 ) -> Path:
-    """Write one canonical project-local role preset."""
+    """Write one canonical project-local named preset."""
 
-    role_root = _role_root(overlay=overlay, role_name=role_name)
-    if not role_root.is_dir():
-        raise click.ClickException(f"Role not found: {role_root}")
-    preset_file = _preset_path(overlay=overlay, role_name=role_name, tool=tool, setup=setup)
+    _ensure_role_exists(overlay=overlay, role_name=role_name)
+    preset_file = _preset_path(overlay=overlay, preset_name=preset_name)
     if preset_file.exists() and not overwrite:
         raise click.ClickException(f"Preset already exists: {preset_file}")
+    _ensure_unique_preset_tuple(
+        overlay=overlay,
+        preset_name=preset_name,
+        role_name=role_name,
+        tool=tool,
+        setup=setup,
+    )
     resolved_prompt_mode = prompt_mode or "unattended"
-    payload: dict[str, Any] = {"skills": list(skills)}
+    payload: dict[str, Any] = {
+        "role": role_name,
+        "tool": tool,
+        "setup": setup,
+        "skills": list(skills),
+    }
     if auth is not None:
         payload["auth"] = auth
     payload["launch"] = {"prompt_mode": resolved_prompt_mode}
     if env_records:
         payload["launch"]["env_records"] = dict(env_records)
-    preset_file.parent.mkdir(parents=True, exist_ok=True)
-    preset_file.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    _write_yaml_mapping(preset_file, payload)
     return preset_file
 
 
-def _prepare_specialist_role_projection_for_replace(*, role_root: Path) -> None:
+def _prepare_specialist_projection_for_replace(*, role_root: Path, preset_path: Path) -> None:
     """Clear specialist-owned generated projection paths before one replacement write."""
 
     if not role_root.exists():
+        preset_path.unlink(missing_ok=True)
         return
     prompt_path = (role_root / "system-prompt.md").resolve()
     if prompt_path.is_dir():
         raise click.ClickException(f"Prompt path already exists as a directory: {prompt_path}")
     prompt_path.unlink(missing_ok=True)
-    presets_root = (role_root / "presets").resolve()
-    if presets_root.is_file():
-        raise click.ClickException(f"Preset root already exists as a file: {presets_root}")
-    if presets_root.is_dir():
-        shutil.rmtree(presets_root)
+    preset_path.unlink(missing_ok=True)
 
 
 def _ensure_skill_placeholder(*, overlay: HoumaoProjectOverlay, skill_name: str) -> Path | None:
@@ -2913,6 +3065,7 @@ def _specialist_payload(
 
     return {
         "name": metadata.name,
+        "preset_name": metadata.preset_name,
         "tool": metadata.tool,
         "provider": metadata.provider,
         "credential": metadata.credential_name,
@@ -3216,7 +3369,7 @@ def _relative_file_listing(root: Path) -> list[str]:
 
 
 def _default_role_prompt(role_name: str) -> str:
-    """Return the default scaffolded role prompt content."""
+    """Return the default project-local role prompt content."""
 
     return f"# {role_name}\n\nDescribe the specialist system prompt here.\n"
 
@@ -3230,6 +3383,34 @@ def _load_yaml_mapping(path: Path) -> dict[str, object]:
     if not isinstance(loaded, dict):
         raise click.ClickException(f"{path}: expected a top-level YAML mapping.")
     return loaded
+
+
+def _write_yaml_mapping(path: Path, payload: dict[str, object]) -> None:
+    """Write one YAML mapping payload to disk."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+
+def _resolve_required_prompt_text(
+    *,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+) -> str:
+    """Resolve one required prompt payload from inline or file input."""
+
+    if system_prompt is not None and system_prompt_file is not None:
+        raise click.ClickException(
+            "Provide at most one of `--system-prompt` or `--system-prompt-file`."
+        )
+    if system_prompt is not None:
+        value = system_prompt.strip()
+        if not value:
+            raise click.ClickException("`--system-prompt` must not be empty.")
+        return value
+    if system_prompt_file is not None:
+        return system_prompt_file.read_text(encoding="utf-8").rstrip()
+    raise click.ClickException("Provide one of `--system-prompt` or `--system-prompt-file`.")
 
 
 def _optional_non_empty_value(value: str | None) -> str | None:

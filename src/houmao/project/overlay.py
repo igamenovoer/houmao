@@ -254,7 +254,9 @@ def resolve_project_overlay(
     if discovery_mode == "ancestor":
         project_overlay = _discover_nearest_project_overlay(resolved_cwd)
     else:
-        project_overlay = _load_project_overlay_from_root((resolved_cwd / PROJECT_DIRNAME).resolve())
+        project_overlay = _load_project_overlay_from_root(
+            (resolved_cwd / PROJECT_DIRNAME).resolve()
+        )
     if project_overlay is not None:
         return ProjectOverlayResolution(
             overlay_root=project_overlay.overlay_root,
@@ -671,6 +673,7 @@ def ensure_project_agent_compatibility_tree(
     projection_root = overlay.agents_root
     for directory in (
         projection_root,
+        projection_root / "presets",
         projection_root / "skills",
         projection_root / "roles",
         projection_root / "tools",

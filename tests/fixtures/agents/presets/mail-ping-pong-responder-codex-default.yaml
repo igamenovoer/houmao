@@ -1,0 +1,9 @@
+role: mail-ping-pong-responder
+tool: codex
+setup: default
+skills:
+- openspec-apply-change
+- openspec-verify-change
+auth: personal-a-default
+launch:
+  prompt_mode: unattended

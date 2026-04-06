@@ -20,6 +20,7 @@ from houmao.agents.definition_parser import (
     ToolAdapter,
     parse_agent_preset,
     parse_tool_adapter,
+    resolve_explicit_or_named_preset_path,
 )
 from houmao.agents.launch_env import validate_persistent_env_records
 from houmao.agents.launch_policy.models import OperatorPromptMode
@@ -291,6 +292,7 @@ def _load_legacy_brain_recipe(path: Path, payload: dict[str, Any]) -> BrainRecip
 
     return AgentPreset(
         path=path.resolve(),
+        name=stem,
         role_name=role_name,
         tool=_require_str(payload, "tool", where=str(path)),
         setup=setup,
@@ -814,7 +816,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build a fresh runtime CLI home from reusable brain components."
     )
-    parser.add_argument("--preset", help="Path to preset YAML/JSON")
+    parser.add_argument("--preset", help="Preset path or bare preset name")
     parser.add_argument("--recipe", dest="preset_legacy", help=argparse.SUPPRESS)
     parser.add_argument(
         "--agent-def-dir",
@@ -909,7 +911,10 @@ def main(argv: list[str] | None = None) -> int:
     preset_path: Path | None = None
     requested_preset = namespace.preset or namespace.preset_legacy
     if requested_preset:
-        preset_path = _normalize_path(requested_preset, base=agent_def_dir)
+        preset_path = resolve_explicit_or_named_preset_path(
+            agent_def_dir=agent_def_dir,
+            selector=requested_preset,
+        )
         recipe = load_brain_recipe(preset_path)
     direct_launch_overrides = (
         load_launch_overrides_input(

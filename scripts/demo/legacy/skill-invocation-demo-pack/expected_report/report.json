@@ -75,11 +75,11 @@
     "tool_lanes": {
       "claude": {
         "agent_identity": "<AGENT_IDENTITY>",
-        "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/claude/default.yaml"
+        "blueprint": "tests/fixtures/agents/presets/skill-invocation-demo-claude-default.yaml"
       },
       "codex": {
         "agent_identity": "<AGENT_IDENTITY>",
-        "blueprint": "tests/fixtures/agents/roles/skill-invocation-demo/presets/codex/default.yaml"
+        "blueprint": "tests/fixtures/agents/presets/skill-invocation-demo-codex-default.yaml"
       }
     }
   },

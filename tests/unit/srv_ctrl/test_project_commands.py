@@ -95,9 +95,21 @@ def test_project_agents_roles_help_mentions_verbs() -> None:
     assert "list" in result.output
     assert "get" in result.output
     assert "init" in result.output
-    assert "scaffold" in result.output
+    assert "set" in result.output
     assert "remove" in result.output
-    assert "presets" in result.output
+    assert "scaffold" not in result.output
+    assert "presets" not in result.output
+
+
+def test_project_agents_presets_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["project", "agents", "presets", "--help"])
+
+    assert result.exit_code == 0
+    assert "list" in result.output
+    assert "get" in result.output
+    assert "add" in result.output
+    assert "set" in result.output
+    assert "remove" in result.output
 
 
 def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
@@ -665,9 +677,10 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
         [
             "project",
             "agents",
-            "roles",
             "presets",
             "add",
+            "--name",
+            "researcher-claude-default",
             "--role",
             "researcher",
             "--tool",
@@ -687,17 +700,15 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
         [
             "project",
             "agents",
-            "roles",
             "presets",
             "get",
-            "--role",
-            "researcher",
-            "--tool",
-            "claude",
+            "--name",
+            "researcher-claude-default",
         ],
     )
     assert preset_get_result.exit_code == 0
     preset_payload = json.loads(preset_get_result.output)
+    assert preset_payload["name"] == "researcher-claude-default"
     assert preset_payload["skills"] == ["notes"]
     assert preset_payload["auth"] == "default"
     assert preset_payload["launch"] == {"prompt_mode": "unattended"}
@@ -710,19 +721,16 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     assert role_payload["system_prompt_exists"] is True
     assert len(role_payload["presets"]) == 1
 
+    role_remove_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "remove", "--name", "researcher"],
+    )
+    assert role_remove_result.exit_code != 0
+    assert "still reference" in role_remove_result.output
+
     preset_remove_result = runner.invoke(
         cli,
-        [
-            "project",
-            "agents",
-            "roles",
-            "presets",
-            "remove",
-            "--role",
-            "researcher",
-            "--tool",
-            "claude",
-        ],
+        ["project", "agents", "presets", "remove", "--name", "researcher-claude-default"],
     )
     assert preset_remove_result.exit_code == 0
 
@@ -733,7 +741,7 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
 
 
-def test_project_agents_roles_scaffold_creates_complete_starter_slice(
+def test_project_agents_presets_set_preserves_advanced_blocks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -750,67 +758,66 @@ def test_project_agents_roles_scaffold_creates_complete_starter_slice(
             "project",
             "agents",
             "roles",
-            "scaffold",
+            "init",
             "--name",
             "researcher",
-            "--tool",
-            "claude",
-            "--tool",
-            "codex",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills:",
+                "  - notes",
+                "auth: default",
+                "launch:",
+                "  prompt_mode: unattended",
+                "  env_records:",
+                '    FEATURE_FLAG_X: "1"',
+                "mailbox:",
+                "  transport: none",
+                "extra:",
+                "  gateway:",
+                "    host: 127.0.0.1",
+                "    port: 43123",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "presets",
+            "set",
+            "--name",
+            "researcher-codex-default",
             "--auth",
-            "default",
-            "--skill",
-            "notes",
+            "reviewer-creds",
+            "--add-skill",
+            "extra-notes",
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert (
-        repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
-    ).is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "claude"
-        / "default.yaml"
-    ).is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
-    ).is_file()
-    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "default"
-        / "env"
-        / "vars.env"
-    ).is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "default"
-        / "env"
-        / "vars.env"
-    ).is_file()
+    payload = json.loads(result.output)
+    assert payload["auth"] == "reviewer-creds"
+    assert payload["skills"] == ["notes", "extra-notes"]
+    assert payload["launch"] == {
+        "prompt_mode": "unattended",
+        "env_records": {"FEATURE_FLAG_X": "1"},
+    }
+    assert payload["mailbox"] == {"transport": "none"}
+    assert payload["extra"] == {"gateway": {"host": "127.0.0.1", "port": 43123}}
 
 
 def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_artifacts(
@@ -854,14 +861,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     metadata_path = Path(create_payload["metadata_path"])
     assert metadata_path.is_file()
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     ).is_file()
     assert (
         repo_root
@@ -887,6 +887,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     )
     assert get_result.exit_code == 0
     get_payload = json.loads(get_result.output)
+    assert get_payload["preset_name"] == "researcher-codex-default"
     assert get_payload["tool"] == "codex"
     assert get_payload["credential"] == "researcher-creds"
     assert get_payload["skills"] == ["notes"]
@@ -1246,9 +1247,7 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
     )
     assert add_result.exit_code == 0, add_result.output
 
-    auth_root = (
-        repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "vendor-login"
-    )
+    auth_root = repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "vendor-login"
     files_root = auth_root / "files"
     assert json.loads((files_root / ".credentials.json").read_text(encoding="utf-8")) == {
         "claudeAiOauth": {"accessToken": "vendor-alpha"}
@@ -1417,13 +1416,7 @@ def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_
 
     assert result.exit_code == 0, result.output
     auth_root = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "claude-imported-creds"
+        repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "claude-imported-creds"
     )
     assert json.loads((auth_root / "files" / ".credentials.json").read_text(encoding="utf-8")) == {
         "claudeAiOauth": {"accessToken": "vendor-gamma"}
@@ -1621,16 +1614,7 @@ def test_project_easy_specialist_create_prompts_before_replacing_existing_specia
 
     assert result.exit_code == 0, result.output
     prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
-    preset_path = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
-    )
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     assert prompt_path.read_text(encoding="utf-8") == "Replacement prompt\n"
     assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
         "prompt_mode": "unattended"
@@ -1772,16 +1756,7 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
 
     assert result.exit_code == 0, result.output
     prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
-    preset_path = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
-    )
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     assert prompt_path.read_text(encoding="utf-8") == "Replacement prompt\n"
     assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
         "prompt_mode": "unattended"
@@ -1896,9 +1871,9 @@ def test_project_easy_specialist_create_persists_non_default_setup(
     )
 
     assert payload["setup"] == "yunwu-openai"
-    assert payload["generated"]["preset"].endswith("/codex/yunwu-openai.yaml")
+    assert payload["generated"]["preset"].endswith("/researcher-codex-yunwu-openai.yaml")
     assert specialist_payload["setup"] == "yunwu-openai"
-    assert specialist_payload["generated"]["preset"].endswith("/codex/yunwu-openai.yaml")
+    assert specialist_payload["generated"]["preset"].endswith("/researcher-codex-yunwu-openai.yaml")
 
 
 @pytest.mark.parametrize("tool_name", ["claude", "codex", "gemini"])
@@ -1934,7 +1909,7 @@ def test_project_easy_specialist_create_persists_default_setup_for_supported_too
     payload = json.loads(result.output)
 
     assert payload["setup"] == "default"
-    assert payload["generated"]["preset"].endswith(f"/{tool_name}/default.yaml")
+    assert payload["generated"]["preset"].endswith(f"/researcher-{tool_name}-default.yaml")
 
 
 def test_project_easy_instance_launch_rejects_gemini_without_headless(
@@ -2044,11 +2019,13 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
     captured: dict[str, object] = {}
 
     def _fake_launch(**kwargs: object) -> SimpleNamespace:
-        preset_root = (
-            repo_root / ".houmao" / "agents" / "roles" / "researcher" / "presets" / "codex"
+        preset_path = (
+            repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-yunwu-openai.yaml"
         )
-        assert (preset_root / "yunwu-openai.yaml").is_file()
-        assert not (preset_root / "default.yaml").exists()
+        assert preset_path.is_file()
+        assert not (
+            repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+        ).exists()
         captured.update(kwargs)
         manifest_path = (tmp_path / "manifest.json").resolve()
         manifest_path.write_text("{}\n", encoding="utf-8")
@@ -2085,14 +2062,7 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
 
     assert result.exit_code == 0, result.output
     assert captured["agents"] == str(
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "yunwu-openai.yaml"
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-yunwu-openai.yaml"
     )
 
 
@@ -2255,14 +2225,7 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
 
     assert result.exit_code == 0, result.output
     assert captured["agents"] == str(
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     )
     assert captured["agent_name"] == "repo-research-1"
     assert captured["provider"] == "codex"

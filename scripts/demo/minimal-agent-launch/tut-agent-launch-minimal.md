@@ -104,8 +104,8 @@ scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider codex --headles
 The tracked demo inputs are:
 
 - `inputs/agents/roles/minimal-launch/system-prompt.md`: one shared role prompt
-- `inputs/agents/roles/minimal-launch/presets/claude/default.yaml`: minimal Claude preset
-- `inputs/agents/roles/minimal-launch/presets/codex/default.yaml`: minimal Codex preset
+- `inputs/agents/presets/minimal-launch-claude-default.yaml`: minimal Claude preset
+- `inputs/agents/presets/minimal-launch-codex-default.yaml`: minimal Codex preset
 - `inputs/agents/tools/claude/...`: secret-free Claude adapter and setup
 - `inputs/agents/tools/codex/...`: secret-free Codex adapter and setup
 - `inputs/prompt.txt`: the prompt submitted after a headless launch

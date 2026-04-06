@@ -76,18 +76,14 @@ def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role
     tmp_path: Path,
 ) -> None:
     agent_def_dir = (tmp_path / "agents").resolve()
-    preset_path = (
-        agent_def_dir
-        / "roles"
-        / "gpu-kernel-coder"
-        / "presets"
-        / "claude"
-        / "default.yaml"
-    )
+    preset_path = agent_def_dir / "presets" / "gpu-kernel-coder-claude-default.yaml"
     preset_path.parent.mkdir(parents=True, exist_ok=True)
     preset_path.write_text(
         "\n".join(
             [
+                "role: gpu-kernel-coder",
+                "tool: claude",
+                "setup: default",
                 "skills: []",
                 "auth: demo-default",
                 "",
@@ -118,18 +114,14 @@ def test_resolve_native_launch_target_requires_role_prompt_for_preset(
     tmp_path: Path,
 ) -> None:
     agent_def_dir = (tmp_path / "agents").resolve()
-    preset_path = (
-        agent_def_dir
-        / "roles"
-        / "gpu-kernel-coder"
-        / "presets"
-        / "codex"
-        / "default.yaml"
-    )
+    preset_path = agent_def_dir / "presets" / "gpu-kernel-coder-codex-default.yaml"
     preset_path.parent.mkdir(parents=True, exist_ok=True)
     preset_path.write_text(
         "\n".join(
             [
+                "role: gpu-kernel-coder",
+                "tool: codex",
+                "setup: default",
                 "skills: []",
                 "auth: demo-default",
                 "",
