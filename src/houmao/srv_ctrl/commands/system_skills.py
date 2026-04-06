@@ -8,7 +8,6 @@ from typing import Any
 import click
 
 from houmao.agents.system_skills import (
-    SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     install_system_skills_for_home,
     load_system_skill_catalog,
     load_system_skill_install_state,
@@ -75,12 +74,24 @@ def status_system_skills_command(tool: str, home: Path) -> None:
         "home_path": str(home.resolve()),
         "state_path": str(state_path),
         "state_exists": state is not None,
-        "state_schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION if state is not None else None,
+        "state_schema_version": state.schema_version if state is not None else None,
         "installed_skills": [record.name for record in state.installed_skills]
         if state is not None
         else [],
         "projected_relative_dirs": (
             [record.projected_relative_dir for record in state.installed_skills]
+            if state is not None
+            else []
+        ),
+        "installed_skill_records": (
+            [
+                {
+                    "name": record.name,
+                    "projected_relative_dir": record.projected_relative_dir,
+                    "projection_mode": record.projection_mode,
+                }
+                for record in state.installed_skills
+            ]
             if state is not None
             else []
         ),
@@ -110,12 +121,19 @@ def status_system_skills_command(tool: str, home: Path) -> None:
     is_flag=True,
     help="Install the packaged CLI-default system-skill set list.",
 )
+@click.option(
+    "--symlink",
+    "use_symlink",
+    is_flag=True,
+    help="Install selected skills as directory symlinks to the packaged asset roots.",
+)
 def install_system_skills_command(
     tool: str,
     home: Path,
     set_names: tuple[str, ...],
     skill_names: tuple[str, ...],
     use_default: bool,
+    use_symlink: bool,
 ) -> None:
     """Install selected Houmao-owned system skills into one explicit tool home."""
 
@@ -131,6 +149,7 @@ def install_system_skills_command(
             set_names=set_names,
             skill_names=skill_names,
             use_cli_default=use_default,
+            projection_mode="symlink" if use_symlink else "copy",
         )
         payload = {
             "tool": result.tool,
@@ -140,6 +159,7 @@ def install_system_skills_command(
             "explicit_skills": list(result.explicit_skill_names),
             "resolved_skills": list(result.resolved_skill_names),
             "projected_relative_dirs": list(result.projected_relative_dirs),
+            "projection_mode": result.projection_mode,
         }
     except OSError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -193,13 +213,16 @@ def _render_system_skills_status_plain(payload: object) -> None:
     click.echo(f"Tool: {payload.get('tool')}")
     click.echo(f"Home: {payload.get('home_path')}")
     click.echo(f"State: {'present' if payload.get('state_exists') else 'missing'}")
-    installed_skills = _coerce_string_list(payload.get("installed_skills"))
-    if not installed_skills:
+    installed_skill_records = _coerce_mapping_list(payload.get("installed_skill_records"))
+    if not installed_skill_records:
         click.echo("Installed skills: (none)")
         return
     click.echo("Installed skills:")
-    for skill_name in installed_skills:
-        click.echo(f"  - {skill_name}")
+    for record in installed_skill_records:
+        skill_name = str(record.get("name", ""))
+        projection_mode = str(record.get("projection_mode", "")).strip()
+        projection_suffix = f" ({projection_mode})" if projection_mode else ""
+        click.echo(f"  - {skill_name}{projection_suffix}")
 
 
 def _render_system_skills_install_plain(payload: object) -> None:
@@ -212,6 +235,9 @@ def _render_system_skills_install_plain(payload: object) -> None:
         f"Installed Houmao system skills into {payload.get('home_path')} ({payload.get('tool')})"
     )
     click.echo(f"State path: {payload.get('state_path')}")
+    projection_mode = payload.get("projection_mode")
+    if projection_mode is not None:
+        click.echo(f"Projection mode: {projection_mode}")
     resolved_skills = _coerce_string_list(payload.get("resolved_skills"))
     if resolved_skills:
         click.echo("Resolved skills:")

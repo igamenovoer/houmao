@@ -22,7 +22,7 @@ It does not yet generalize to non-skill asset kinds.
 houmao-mgr system-skills
 ├── list
 ├── status --tool <tool> --home <path>
-└── install --tool <tool> --home <path> [--default] [--set <name> ...] [--skill <name> ...]
+└── install --tool <tool> --home <path> [--default] [--set <name> ...] [--skill <name> ...] [--symlink]
 ```
 
 ## Packaged Catalog
@@ -96,6 +96,7 @@ That file records:
 - installed skill names
 - packaged asset subpaths
 - projected relative directories
+- projection modes
 - content digests
 
 Houmao uses that state to make reinstall idempotent and to distinguish Houmao-owned paths from unrelated user-authored content already present in the same tool home.
@@ -137,6 +138,7 @@ pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 - resolved target home
 - whether Houmao-owned install state exists
 - installed Houmao-owned skill names recorded for that home
+- the recorded projection mode for each installed skill
 
 If the home has never been touched by the shared installer, `status` reports that install state is missing and does not claim any Houmao-owned skills are installed there.
 
@@ -150,6 +152,7 @@ pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mai
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core --skill houmao-email-via-filesystem
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-instance
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-manage-specialist --symlink
 ```
 
 Selection rules:
@@ -157,9 +160,18 @@ Selection rules:
 - `--default` expands the catalog's CLI-default set list
 - repeatable `--set` expands named sets in the order given
 - repeatable `--skill` appends explicit skill names after the expanded sets
+- `--symlink` switches the install from copied projection to directory symlink projection
 - the final skill list is deduplicated by first occurrence
 - omitting `--default`, `--set`, and `--skill` is an error
 - unknown set names or skill names are errors
+
+Projection rules:
+
+- without `--symlink`, Houmao copies the packaged skill tree into the target home
+- with `--symlink`, Houmao creates one directory symlink per selected skill in the tool-native skill root
+- symlink installs use the absolute filesystem path of the packaged skill asset as the symlink target
+- if the packaged skill asset is not backed by a stable real filesystem directory, `--symlink` fails explicitly instead of falling back to copied projection
+- `--symlink` is a local-machine convenience mode; if the Python environment or installed package path moves, reinstall the skills to refresh the symlink targets
 
 ## Internal Auto-Install Behavior
 
@@ -168,6 +180,8 @@ Managed homes and joined homes use the same installer and catalog:
 - `brains build` installs the skill list resolved from `auto_install.managed_launch_sets`
 - `agents join` installs the skill list resolved from `auto_install.managed_join_sets`
 - `agents join --no-install-houmao-skills` skips that default installer step
+
+Those managed flows continue to use copied projection in this change even though explicit `system-skills install` now supports `--symlink`.
 
 This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in named sets such as `mailbox-full`, `user-control`, and `agent-instance`.
 
