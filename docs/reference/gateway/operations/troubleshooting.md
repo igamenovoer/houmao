@@ -15,7 +15,7 @@ Check:
 If you need to attach before current-session metadata is available, use explicit pair attach instead:
 
 ```bash
-houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>
+houmao-mgr agents gateway attach --agent-name <friendly-name> --pair-port <pair-port>
 ```
 
 ## Current-Session Attach Reports Stale Metadata
@@ -31,7 +31,7 @@ Typical causes:
 Operator guidance:
 
 - treat the session as stale rather than trying to patch the env by hand
-- relaunch the pair-managed session or use explicit `--agent-name` or exact `--agent-id` attach against the server if the managed-agent registration is still valid
+- relaunch the pair-managed session, use `--target-tmux-session <tmux-session-name>` if the live local tmux handle is known, or use explicit `--agent-name` or exact `--agent-id` attach against the server if the managed-agent registration is still valid
 
 ## Current-Session Attach Returns Unknown Managed Agent
 
@@ -43,7 +43,7 @@ If the server returns unknown managed agent:
 
 - wait for the delegated launch registration step to finish
 - verify that the persisted `api_base_url` still addresses the intended `houmao-server`
-- do not try to override the server target with `--port`; current-session mode does not support retargeting
+- do not try to override the server target with `--pair-port`; current-session and `--target-tmux-session` modes do not support retargeting
 
 ## Detach Or Cleanup Refuses To Stop Window `0`
 

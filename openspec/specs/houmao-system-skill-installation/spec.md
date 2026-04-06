@@ -24,7 +24,7 @@ For the current maintained skill set, each packaged skill `asset_subpath` SHALL 
 
 Logical grouping of current skills SHALL be expressed through named skill sets and descriptions rather than through nested packaged skill directories.
 
-For the project-easy skill set, the current packaged specialist-management skill SHALL be `houmao-manage-specialist`, and the packaged catalog SHALL NOT continue to list `houmao-create-specialist` as a current installable skill.
+For the user-control skill set, the current packaged specialist-management skill SHALL be `houmao-manage-specialist`, the current packaged credential-management skill SHALL be `houmao-manage-credentials`, and the packaged catalog SHALL NOT continue to expose `project-easy` as the active named set for those packaged skills.
 
 #### Scenario: Maintainer inspects the packaged current-skill catalog
 - **WHEN** a maintainer inspects the Houmao-owned packaged system-skill assets
@@ -33,10 +33,10 @@ For the project-easy skill set, the current packaged specialist-management skill
 - **AND THEN** one authoritative packaged catalog file identifies the current installable skill inventory, named skill sets, fixed auto-install set lists, and explicit `schema_version`
 - **AND THEN** each current packaged skill directory lives directly under that asset root using its skill name as the relative `asset_subpath`
 
-#### Scenario: Project-easy set references the renamed specialist-management skill
+#### Scenario: User-control set references the current packaged user-control skills
 - **WHEN** a maintainer inspects the packaged current-skill catalog
-- **THEN** the `project-easy` set resolves `houmao-manage-specialist`
-- **AND THEN** the current installable skill inventory does not still list `houmao-create-specialist` as an active packaged skill
+- **THEN** the `user-control` set resolves `houmao-manage-specialist` and `houmao-manage-credentials`
+- **AND THEN** the current installable skill inventory does not still expose `project-easy` as the active named set for that packaged skill family
 
 #### Scenario: Loader rejects a schema-invalid packaged catalog
 - **WHEN** Houmao loads the packaged current-skill catalog
@@ -141,12 +141,22 @@ The packaged current-system-skill catalog SHALL include `houmao-manage-agent-ins
 
 That packaged skill SHALL use `houmao-manage-agent-instance` as both its catalog key and its packaged `asset_subpath`.
 
-The packaged catalog SHALL define a dedicated named set for the new lifecycle skill instead of folding that skill into `project-easy`.
+The packaged catalog SHALL define a dedicated named set for the lifecycle skill instead of folding that skill into `user-control`.
+
+The packaged catalog's fixed `managed_launch_sets` selection SHALL include:
+
+- `mailbox-full`
+- `user-control`
+
+The packaged catalog's fixed `managed_join_sets` selection SHALL include:
+
+- `mailbox-full`
+- `user-control`
 
 The packaged catalog's fixed `cli_default_sets` selection SHALL include both:
 
-- the existing specialist-management default path through `project-easy`
-- the new agent-instance lifecycle set containing `houmao-manage-agent-instance`
+- the `user-control` set containing `houmao-manage-specialist` and `houmao-manage-credentials`
+- the dedicated agent-instance lifecycle set containing `houmao-manage-agent-instance`
 
 This change SHALL NOT require adding the new agent-instance lifecycle set to `managed_launch_sets` or `managed_join_sets`.
 
@@ -155,12 +165,12 @@ This change SHALL NOT require adding the new agent-instance lifecycle set to `ma
 - **THEN** the current installable skill inventory includes `houmao-manage-agent-instance`
 - **AND THEN** that skill uses its own flat asset subpath under the maintained runtime asset root
 
-#### Scenario: CLI-default selection includes both specialist and instance lifecycle guidance
+#### Scenario: CLI-default selection includes user-control and instance lifecycle guidance
 - **WHEN** a maintainer inspects the packaged auto-install selection lists
-- **THEN** the fixed `cli_default_sets` selection includes both `project-easy` and the new agent-instance lifecycle set
-- **AND THEN** the CLI-default install path resolves both `houmao-manage-specialist` and `houmao-manage-agent-instance`
+- **THEN** the fixed `cli_default_sets` selection includes both `user-control` and the agent-instance lifecycle set
+- **AND THEN** the CLI-default install path resolves `houmao-manage-specialist`, `houmao-manage-credentials`, and `houmao-manage-agent-instance`
 
-#### Scenario: Managed auto-install lists remain unchanged in this change
+#### Scenario: Managed auto-install lists use user-control and still exclude the agent-instance set
 - **WHEN** a maintainer inspects the packaged `managed_launch_sets` and `managed_join_sets`
-- **THEN** those fixed auto-install selections do not gain the new agent-instance lifecycle set as part of this change
-- **AND THEN** the change limits default-selection broadening to the CLI-default install path
+- **THEN** those fixed auto-install selections use `user-control` instead of `project-easy`
+- **AND THEN** they resolve the packaged user-control skills without adding the separate agent-instance lifecycle set

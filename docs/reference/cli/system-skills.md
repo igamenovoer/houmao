@@ -7,9 +7,10 @@ This is the same packaged skill system used internally by:
 - `houmao-mgr brains build` when it creates a managed home,
 - `houmao-mgr agents join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
 
-The current implementation is still intentionally narrow. It currently covers the mailbox-oriented Houmao-owned skills plus two packaged non-mailbox Houmao skills:
+The current implementation is still intentionally narrow. It currently covers the mailbox-oriented Houmao-owned skills plus three packaged non-mailbox Houmao skills:
 
 - `houmao-manage-specialist` for reusable specialist authoring
+- `houmao-manage-credentials` for project-local credential management
 - `houmao-manage-agent-instance` for live managed-agent instance lifecycle
 
 It does not yet generalize to non-skill asset kinds.
@@ -42,14 +43,14 @@ Current sets:
 
 - `mailbox-core`
 - `mailbox-full`
-- `project-easy`
+- `user-control`
 - `agent-instance`
 
 Current fixed auto-install selections:
 
-- managed launch: `mailbox-full`, `project-easy`
-- managed join: `mailbox-full`, `project-easy`
-- CLI default: `mailbox-full`, `project-easy`, `agent-instance`
+- managed launch: `mailbox-full`, `user-control`
+- managed join: `mailbox-full`, `user-control`
+- CLI default: `mailbox-full`, `user-control`, `agent-instance`
 
 ## Current Skill Inventory
 
@@ -60,6 +61,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-email-via-filesystem`
 - `houmao-email-via-stalwart`
 - `houmao-manage-specialist`
+- `houmao-manage-credentials`
 - `houmao-manage-agent-instance`
 
 These skill trees live directly under:
@@ -76,7 +78,7 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 | `codex` | `skills/` | `skills/houmao-manage-agent-instance/SKILL.md` |
 | `gemini` | `.agents/skills/` | `.agents/skills/houmao-email-via-agent-gateway/SKILL.md` |
 
-That means Houmao-owned mailbox and project/easy skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
+That means Houmao-owned mailbox and user-control skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
 
 ## Install State And Ownership
 
@@ -144,7 +146,7 @@ Use `install` when you want the current Houmao-owned skill surface in an explici
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --default
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core --skill houmao-email-via-filesystem
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set project-easy
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-instance
 ```
 
@@ -165,13 +167,13 @@ Managed homes and joined homes use the same installer and catalog:
 - `agents join` installs the skill list resolved from `auto_install.managed_join_sets`
 - `agents join --no-install-houmao-skills` skips that default installer step
 
-This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in named sets such as `mailbox-full`, `project-easy`, and `agent-instance`.
+This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in named sets such as `mailbox-full`, `user-control`, and `agent-instance`.
 
-For the `project-easy` set, the packaged skill is `houmao-manage-specialist`. Its top-level `SKILL.md` is an index/router for `project easy specialist create|list|get|remove`, and it keeps `project easy instance launch` outside that packaged skill scope.
+For the `user-control` set, the packaged skills are `houmao-manage-specialist` and `houmao-manage-credentials`. `houmao-manage-specialist` is the packaged router for `project easy specialist create|list|get|remove`, and it keeps `project easy instance launch` outside that packaged skill scope. `houmao-manage-credentials` is the packaged router for `project agents tools <tool> auth list|get|add|set|remove`, and it keeps specialist CRUD, instance lifecycle, mailbox cleanup, and direct auth-file editing outside that packaged skill scope.
 
 For the `agent-instance` set, the packaged skill is `houmao-manage-agent-instance`. Its top-level `SKILL.md` is an index/router for managed-agent instance lifecycle work across `agents launch`, `project easy instance launch`, `agents join`, `agents list`, `agents stop`, and `agents cleanup session|logs`. It complements rather than replaces `houmao-manage-specialist`, and it keeps mailbox surfaces, specialist CRUD, prompt/gateway control, and mailbox cleanup outside that packaged skill scope.
 
-CLI-default installation now includes both packaged non-mailbox Houmao skills. Managed launch and managed join auto-install remain narrower in this change and do not automatically add the `agent-instance` set.
+CLI-default installation now includes all three packaged non-mailbox Houmao skills. Managed launch and managed join auto-install now include the full `user-control` set, but they still do not automatically add the separate `agent-instance` set.
 
 ## When To Use This Surface
 

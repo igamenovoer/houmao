@@ -20,7 +20,8 @@ houmao-mgr agents gateway attach [OPTIONS]
 |---|---|
 | `--foreground` | Run the gateway in an auxiliary tmux window inside the managed session. Window `0` remains the agent surface; inspect status for the authoritative non-zero gateway window index. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. Implied when no selector is provided inside tmux. |
-| `--port INTEGER` | Houmao server port override for explicit attach. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit attach. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
@@ -35,7 +36,8 @@ houmao-mgr agents gateway detach [OPTIONS]
 | Option | Description |
 |---|---|
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao pair authority port to use. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port to use for explicit managed-agent targeting. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -50,7 +52,8 @@ houmao-mgr agents gateway status [OPTIONS]
 | Option | Description |
 |---|---|
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao pair authority port to use. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port to use for explicit managed-agent targeting. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -67,7 +70,8 @@ houmao-mgr agents gateway prompt [OPTIONS]
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
 | `--force` | Send the prompt even when the gateway does not judge the target prompt-ready. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit gateway prompt. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway prompt. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -82,7 +86,8 @@ houmao-mgr agents gateway interrupt [OPTIONS]
 | Option | Description |
 |---|---|
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao pair authority port to use. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port to use for explicit managed-agent targeting. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -99,7 +104,8 @@ houmao-mgr agents gateway send-keys [OPTIONS]
 | `--sequence TEXT` | Raw control-input sequence to deliver through the live gateway. **Required.** |
 | `--escape-special-keys` | Treat the entire sequence literally instead of parsing `<[key-name]>` tokens. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit gateway raw control input. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway raw control input. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -129,7 +135,8 @@ houmao-mgr agents gateway tui state [OPTIONS]
 | Option | Description |
 |---|---|
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit gateway TUI state. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI state. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -144,7 +151,8 @@ houmao-mgr agents gateway tui history [OPTIONS]
 | Option | Description |
 |---|---|
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit gateway TUI history. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI history. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -160,7 +168,8 @@ houmao-mgr agents gateway tui watch [OPTIONS]
 |---|---|
 | `--interval-seconds FLOAT` | Polling interval for repeated TUI state inspection. Must be > 0. Default: `1.0`. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit gateway TUI watch. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI watch. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -176,7 +185,8 @@ houmao-mgr agents gateway tui note-prompt [OPTIONS]
 |---|---|
 | `--prompt TEXT` | Prompt text to record in the gateway-owned tracker. If omitted, piped stdin is used. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit gateway TUI prompt note. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI prompt note. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -205,7 +215,8 @@ houmao-mgr agents gateway mail-notifier status [OPTIONS]
 | Option | Description |
 |---|---|
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit notifier status. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier status. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -221,7 +232,8 @@ houmao-mgr agents gateway mail-notifier enable [OPTIONS]
 |---|---|
 | `--interval-seconds INTEGER` | Unread-mail polling interval in seconds. Must be >= 1. **Required.** |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit notifier enable. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier enable. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
@@ -236,16 +248,20 @@ houmao-mgr agents gateway mail-notifier disable [OPTIONS]
 | Option | Description |
 |---|---|
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--port INTEGER` | Houmao server port override for explicit notifier disable. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier disable. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ## Targeting Rules
 
-- Outside tmux, gateway commands require an explicit `--agent-id` or `--agent-name`.
+- Outside tmux, gateway commands require `--agent-id`, `--agent-name`, or `--target-tmux-session`.
+- Use `--target-tmux-session` when you know the local tmux session name but do not want to resolve the managed-agent identity first.
 - Inside a managed tmux session, omitting the selector resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus shared registry when needed.
-- `--current-session` forces same-session resolution and cannot be combined with `--agent-id`, `--agent-name`, or `--port`.
-- `--port` is only supported with an explicit selector, because current-session mode uses the manifest-declared pair authority instead of retargeting another server.
+- `--current-session` is the explicit same-session selector. It cannot be combined with `--agent-id`, `--agent-name`, `--target-tmux-session`, or `--pair-port`.
+- `--target-tmux-session` cannot be combined with `--agent-id`, `--agent-name`, `--current-session`, or `--pair-port`.
+- `--target-tmux-session` resolves locally from the addressed tmux session's `HOUMAO_MANIFEST_PATH` first and falls back to an exact fresh shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
+- `--pair-port` is only supported with explicit `--agent-id` or `--agent-name` targeting. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
 
 ## See Also
 

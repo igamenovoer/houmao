@@ -9,7 +9,7 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_AGENT_INSTANCE,
     SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
-    SYSTEM_SKILL_SET_PROJECT_EASY,
+    SYSTEM_SKILL_SET_USER_CONTROL,
     SystemSkillCatalogError,
     SystemSkillInstallError,
     install_system_skills_for_home,
@@ -44,25 +44,26 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
+        "houmao-manage-credentials",
         "houmao-manage-agent-instance",
     )
     assert tuple(catalog.sets.keys()) == (
         "mailbox-core",
         "mailbox-full",
-        "project-easy",
+        "user-control",
         "agent-instance",
     )
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_PROJECT_EASY,
+        SYSTEM_SKILL_SET_USER_CONTROL,
     )
     assert catalog.auto_install.managed_join_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_PROJECT_EASY,
+        SYSTEM_SKILL_SET_USER_CONTROL,
     )
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_PROJECT_EASY,
+        SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_INSTANCE,
     )
 
@@ -72,7 +73,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
 
     resolved = resolve_system_skill_selection(
         catalog,
-        set_names=("mailbox-core", "mailbox-full", "project-easy"),
+        set_names=("mailbox-core", "mailbox-full", "user-control"),
         skill_names=("houmao-email-via-filesystem", "houmao-manage-specialist"),
     )
 
@@ -82,6 +83,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
+        "houmao-manage-credentials",
     )
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
@@ -97,6 +99,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_skil
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
+        "houmao-manage-credentials",
         "houmao-manage-agent-instance",
     )
 
@@ -142,7 +145,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     result = install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        set_names=("mailbox-core", "project-easy"),
+        set_names=("mailbox-core", "user-control"),
         skill_names=("houmao-email-via-filesystem",),
     )
 
@@ -150,11 +153,14 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     manage_specialist_path = home_path / "skills/houmao-manage-specialist/SKILL.md"
     manage_specialist_actions = home_path / "skills/houmao-manage-specialist/actions"
     manage_specialist_references = home_path / "skills/houmao-manage-specialist/references"
+    manage_credentials_path = home_path / "skills/houmao-manage-credentials/SKILL.md"
+    manage_credentials_actions = home_path / "skills/houmao-manage-credentials/actions"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
         "houmao-email-via-agent-gateway",
         "houmao-manage-specialist",
+        "houmao-manage-credentials",
         "houmao-email-via-filesystem",
     )
     assert state is not None
@@ -164,12 +170,21 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
     assert manage_specialist_path.is_file()
+    assert manage_credentials_path.is_file()
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
+    manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     create_action_path = manage_specialist_actions / "create.md"
     list_action_path = manage_specialist_actions / "list.md"
     get_action_path = manage_specialist_actions / "get.md"
     remove_action_path = manage_specialist_actions / "remove.md"
     create_action = create_action_path.read_text(encoding="utf-8")
+    credentials_list_action_path = manage_credentials_actions / "list.md"
+    credentials_get_action_path = manage_credentials_actions / "get.md"
+    credentials_add_action_path = manage_credentials_actions / "add.md"
+    credentials_set_action_path = manage_credentials_actions / "set.md"
+    credentials_remove_action_path = manage_credentials_actions / "remove.md"
+    credentials_get_action = credentials_get_action_path.read_text(encoding="utf-8")
+    credentials_set_action = credentials_set_action_path.read_text(encoding="utf-8")
     assert ".venv/bin/houmao-mgr" in manage_specialist_skill
     assert "pixi run houmao-mgr" in manage_specialist_skill
     assert "uv run houmao-mgr" in manage_specialist_skill
@@ -193,6 +208,25 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "not a credential-providing method" in create_action
     assert "do not scan env vars, directories, repo-local tool homes" in create_action
     assert "tests/fixtures/agents" not in create_action
+    assert ".venv/bin/houmao-mgr" in manage_credentials_skill
+    assert "pixi run houmao-mgr" in manage_credentials_skill
+    assert "uv run houmao-mgr" in manage_credentials_skill
+    assert "actions/list.md" in manage_credentials_skill
+    assert "actions/get.md" in manage_credentials_skill
+    assert "actions/add.md" in manage_credentials_skill
+    assert "actions/set.md" in manage_credentials_skill
+    assert "actions/remove.md" in manage_credentials_skill
+    assert "project agents tools <tool> auth ..." in manage_credentials_skill
+    assert "Do not print raw secret values" in manage_credentials_skill
+    assert credentials_list_action_path.is_file()
+    assert credentials_get_action_path.is_file()
+    assert credentials_add_action_path.is_file()
+    assert credentials_set_action_path.is_file()
+    assert credentials_remove_action_path.is_file()
+    assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
+    assert "Do not bypass `auth get`" in credentials_get_action
+    assert "Do not invent unsupported clear flags" in credentials_set_action
+    assert "Do not continue with set when the user has not provided any explicit supported change" in credentials_set_action
     assert list_action_path.is_file()
     assert get_action_path.is_file()
     assert remove_action_path.is_file()
@@ -248,7 +282,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_skil
 
     assert result.selected_set_names == (
         "mailbox-full",
-        "project-easy",
+        "user-control",
         "agent-instance",
     )
     assert result.resolved_skill_names == (
@@ -257,8 +291,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_skil
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
+        "houmao-manage-credentials",
         "houmao-manage-agent-instance",
     )
+    assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"

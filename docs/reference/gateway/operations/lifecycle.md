@@ -57,9 +57,9 @@ For pair-managed terminal sessions, the supported public CLI family is `houmao-m
 Explicit target mode:
 
 ```bash
-houmao-mgr agents gateway attach --agent-name cao-gpu --port 9889
-houmao-mgr agents gateway send-keys --agent-name cao-gpu --port 9889 --sequence "<[Escape]>"
-houmao-mgr agents gateway mail-notifier enable --agent-name cao-gpu --port 9889 --interval-seconds 60
+houmao-mgr agents gateway attach --agent-name cao-gpu --pair-port 9889
+houmao-mgr agents gateway send-keys --agent-name cao-gpu --pair-port 9889 --sequence "<[Escape]>"
+houmao-mgr agents gateway mail-notifier enable --agent-name cao-gpu --pair-port 9889 --interval-seconds 60
 ```
 
 Current-session mode:
@@ -71,6 +71,14 @@ houmao-mgr agents gateway send-keys --sequence "<[Escape]>"
 houmao-mgr agents gateway mail-notifier status
 ```
 
+Outside-tmux tmux-session mode:
+
+```bash
+houmao-mgr agents gateway attach --target-tmux-session HOUMAO-cao-gpu-1775467167530
+houmao-mgr agents gateway status --target-tmux-session HOUMAO-cao-gpu-1775467167530
+houmao-mgr agents gateway send-keys --target-tmux-session HOUMAO-cao-gpu-1775467167530 --sequence "<[Escape]>"
+```
+
 Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent route:
 
 - `HOUMAO_MANIFEST_PATH` points to a readable runtime-owned `manifest.json`, or `HOUMAO_AGENT_ID` resolves a fresh shared-registry `runtime.manifest_path`
@@ -79,9 +87,13 @@ Current-session mode must run inside the target tmux session and validates all o
 - manifest-declared attach authority becomes the authoritative managed-agent attach target
 - any existing `gateway_manifest.json` is treated as derived publication rather than current-session attach authority
 
+`--target-tmux-session` is the outside-tmux version of that workflow. It first checks that the addressed tmux session exists locally, then resolves `HOUMAO_MANIFEST_PATH` from that session, and finally falls back to an exact fresh shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
+
 Important boundary:
 
-- `--port` is only valid with explicit `--agent-name` or `--agent-id` attach
+- `--pair-port` is only valid with explicit `--agent-name` or `--agent-id` attach
+- `--pair-port` selects the Houmao pair authority, not the live gateway listener port; lower-level listener binding uses runtime-facing flags such as `--gateway-port`
+- `--target-tmux-session` and `--current-session` do not accept `--pair-port`; both follow the addressed session's manifest-declared pair authority after local resolution
 - current-session attach does not guess or re-resolve a different server target
 - stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
 

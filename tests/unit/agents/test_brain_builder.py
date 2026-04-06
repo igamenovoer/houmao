@@ -251,6 +251,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_skill.is_file()
     assert (home / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
@@ -261,6 +262,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
+        "houmao-manage-credentials",
     )
 
     # Credential file projection and env contract setup.

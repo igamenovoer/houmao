@@ -24,6 +24,7 @@ from houmao.agents.realm_controller.registry_storage import (
     publish_live_agent_record,
     resolve_global_registry_root,
     resolve_live_agent_record,
+    resolve_live_agent_records_by_terminal_session_name,
 )
 from houmao.agents.realm_controller.schema_validation import load_schema
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
@@ -100,6 +101,41 @@ def test_registry_publish_and_resolve_accepts_friendly_name(
     assert resolved is not None
     assert resolved.agent_name == "gpu"
     assert resolved.generation_id == "generation-1"
+
+
+def test_registry_resolves_exact_terminal_session_matches(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    publish_live_agent_record(_sample_record(agent_name="gpu-a"))
+    publish_live_agent_record(_sample_record(agent_name="gpu-b"))
+
+    resolved = resolve_live_agent_records_by_terminal_session_name("gpu-a")
+
+    assert len(resolved) == 1
+    assert resolved[0].agent_name == "gpu-a"
+    assert resolved[0].terminal.session_name == "gpu-a"
+
+
+def test_registry_terminal_session_lookup_skips_expired_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    now = datetime(2026, 3, 13, 12, 0, tzinfo=UTC)
+    published_at = now - timedelta(days=2)
+    publish_live_agent_record(
+        _sample_record(
+            agent_name="gpu",
+            now=published_at,
+        ),
+        now=published_at,
+    )
+
+    resolved = resolve_live_agent_records_by_terminal_session_name("gpu", now=now)
+
+    assert resolved == ()
 
 
 def test_registry_rejects_fresh_duplicate_generation(
