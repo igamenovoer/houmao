@@ -17,7 +17,7 @@ flowchart TD
     NDI["native_developer_instructions<br/>-c developer_instructions flag"]
     NAS["native_append_system_prompt<br/>+ bootstrap_message"]
     BM["bootstrap_message<br/>(first-turn prompt)"]
-    PB["profile_based<br/>(legacy server-side)"]
+    PB["cao_profile<br/>(legacy server-side)"]
 
     BE -->|codex| CX --> NDI
     BE -->|claude| CL --> NAS
@@ -57,7 +57,7 @@ The `RoleInjectionMethod` type enumerates the available injection strategies:
 - **`native_developer_instructions`** — the role prompt is passed as a CLI flag that the tool natively supports for developer/system instructions when prompt content exists.
 - **`native_append_system_prompt`** — the role prompt is appended to the tool's system prompt via a native CLI flag, optionally combined with a bootstrap message, when prompt content exists.
 - **`bootstrap_message`** — the role prompt is delivered as the first user-turn message in the session when prompt content exists.
-- **`profile_based`** — the role prompt is injected via a server-side profile mechanism (legacy backends only).
+- **`cao_profile`** — the role prompt is injected via a server-side profile mechanism (legacy backends only).
 
 ## Per-backend strategies
 
@@ -68,8 +68,8 @@ The `RoleInjectionMethod` type enumerates the available injection strategies:
 | `claude_headless` | `native_append_system_prompt` | When the role prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty prompts skip both. |
 | `gemini_headless` | `bootstrap_message` | When the role prompt is non-empty, Houmao sends it as a first-turn bootstrap message. Empty prompts skip bootstrap entirely. |
 | `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Gemini uses bootstrap messaging. Empty prompts suppress those startup inputs regardless of tool. |
-| `cao_rest` | `profile_based` | Legacy: role prompt is injected via the external server's profile-based mechanism. |
-| `houmao_server_rest` | `profile_based` | Legacy: role prompt is injected via the server's profile-based mechanism. |
+| `cao_rest` | `cao_profile` | Legacy: role prompt is injected via the external server's profile-based mechanism. |
+| `houmao_server_rest` | `cao_profile` | Legacy: role prompt is injected via the server's profile-based mechanism. |
 
 ## Bootstrap message lifecycle
 

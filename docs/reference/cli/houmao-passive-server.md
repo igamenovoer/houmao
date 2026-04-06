@@ -20,7 +20,7 @@ houmao-passive-server [OPTIONS] COMMAND [ARGS]...
 | Child processes | None — does not spawn or supervise agent processes for TUI agents | Spawns and monitors child CAO processes |
 | Gateway interaction | Proxies requests to agent-owned gateways | Owns gateways directly |
 | CAO compatibility | None | Full CAO compatibility layer |
-| Default port | 9891 | 9890 |
+| Default port | 9891 | 9889 |
 | Ideal for | Distributed coordination of independently launched agents | Centralized agent lifecycle management |
 
 Use `houmao-passive-server` when agents are launched independently (via `houmao-mgr agents launch` or `houmao-mgr agents join`) and you need a coordination layer for discovery, observation, and gateway proxying without centralized process ownership.

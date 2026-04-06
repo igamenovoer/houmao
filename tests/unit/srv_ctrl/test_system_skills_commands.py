@@ -76,6 +76,7 @@ def test_system_skills_status_reports_missing_state_for_untouched_home(tmp_path:
     assert payload["tool"] == "codex"
     assert payload["state_exists"] is False
     assert payload["installed_skills"] == []
+    assert payload["installed_skill_records"] == []
 
 
 def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> None:
@@ -98,6 +99,7 @@ def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> No
     assert install_result.exit_code == 0, install_result.output
     install_payload = json.loads(install_result.output)
     assert install_payload["selected_sets"] == ["mailbox-full", "user-control", "agent-instance"]
+    assert install_payload["projection_mode"] == "copy"
     assert install_payload["resolved_skills"] == [
         "houmao-process-emails-via-gateway",
         "houmao-email-via-agent-gateway",
@@ -132,6 +134,68 @@ def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> No
     status_payload = json.loads(status_result.output)
     assert status_payload["state_exists"] is True
     assert status_payload["installed_skills"] == install_payload["resolved_skills"]
+    assert status_payload["installed_skill_records"] == [
+        {
+            "name": skill_name,
+            "projected_relative_dir": relative_dir,
+            "projection_mode": "copy",
+        }
+        for skill_name, relative_dir in zip(
+            install_payload["resolved_skills"],
+            install_payload["projected_relative_dirs"],
+            strict=True,
+        )
+    ]
+
+
+def test_system_skills_install_supports_symlink_mode_and_status_reports_it(tmp_path: Path) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+            "--skill",
+            "houmao-manage-specialist",
+            "--symlink",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["projection_mode"] == "symlink"
+    assert install_payload["resolved_skills"] == ["houmao-manage-specialist"]
+    assert (home_path / "skills/houmao-manage-specialist").is_symlink()
+
+    status_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["installed_skills"] == ["houmao-manage-specialist"]
+    assert status_payload["installed_skill_records"] == [
+        {
+            "name": "houmao-manage-specialist",
+            "projected_relative_dir": "skills/houmao-manage-specialist",
+            "projection_mode": "symlink",
+        }
+    ]
 
 
 def test_system_skills_install_fails_when_selection_is_omitted(tmp_path: Path) -> None:

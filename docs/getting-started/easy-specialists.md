@@ -125,6 +125,7 @@ Key options:
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
 | `--mail-transport` | None | Mailbox transport: `filesystem`. |
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
+| `--mail-account-dir` | None | Optional private filesystem mailbox directory to symlink into the shared root. |
 
 Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project easy instance launch`.
 

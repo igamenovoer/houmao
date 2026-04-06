@@ -211,6 +211,25 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 | Mailbox | Unified async message transport — filesystem and Stalwart JMAP backends | [Mailbox Reference](docs/reference/mailbox/index.md) |
 | TUI Tracking | State machine, detectors, and replay engine for tracking agent TUI state | [TUI Tracking Reference](docs/reference/tui-tracking/state-model.md) |
 
+### System Skills: Agent Self-Management
+
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface — without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, and control other agent instances autonomously.
+
+| Skill | What it enables |
+|---|---|
+| `houmao-manage-specialist` | Create, list, inspect, and remove project-local specialist definitions |
+| `houmao-manage-credentials` | Add, update, inspect, and remove project-local tool auth bundles |
+| `houmao-manage-agent-definition` | List, inspect, initialize, update, and remove roles and presets |
+| `houmao-manage-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
+
+`agents join` and `agents launch` auto-install these skills by default. To install them into an external tool home manually:
+
+```bash
+houmao-mgr system-skills install --tool claude --home ~/.claude --default
+```
+
+See the [System Skills reference](docs/reference/cli/system-skills.md) for the full catalog, named sets, and install options.
+
 ## Full Documentation
 
 Complete reference, guides, and developer docs are published at **[igamenovoer.github.io/houmao](https://igamenovoer.github.io/houmao/)**.

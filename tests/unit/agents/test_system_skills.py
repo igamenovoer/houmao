@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_AGENT_INSTANCE,
     SYSTEM_SKILL_STATE_SCHEMA_VERSION,
@@ -32,6 +33,12 @@ def _packaged_catalog_schema_path() -> Path:
         Path(__file__).resolve().parents[3]
         / "src/houmao/agents/assets/system_skills/catalog.schema.json"
     )
+
+
+def _packaged_skill_asset_root(skill_name: str) -> Path:
+    return (
+        Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills" / skill_name
+    ).resolve()
 
 
 def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults() -> None:
@@ -171,7 +178,16 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "houmao-email-via-filesystem",
     )
     assert state is not None
+    assert state.schema_version == SYSTEM_SKILL_STATE_SCHEMA_VERSION
     assert tuple(record.name for record in state.installed_skills) == result.resolved_skill_names
+    assert tuple(record.projection_mode for record in state.installed_skills) == (
+        "copy",
+        "copy",
+        "copy",
+        "copy",
+        "copy",
+        "copy",
+    )
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
@@ -349,6 +365,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_skil
         "user-control",
         "agent-instance",
     )
+    assert result.projection_mode == "copy"
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
         "houmao-email-via-agent-gateway",
@@ -391,6 +408,97 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_skil
     assert "admin cleanup runtime" in cleanup_action
 
 
+def test_install_system_skills_for_home_supports_explicit_symlink_projection(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    result = install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-manage-specialist",),
+        projection_mode="symlink",
+    )
+
+    installed_skill_dir = home_path / "skills/houmao-manage-specialist"
+    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+
+    assert result.projection_mode == "symlink"
+    assert installed_skill_dir.is_symlink()
+    assert installed_skill_dir.readlink().is_absolute()
+    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-manage-specialist")
+    assert (installed_skill_dir / "SKILL.md").is_file()
+    assert state is not None
+    assert tuple(record.name for record in state.installed_skills) == ("houmao-manage-specialist",)
+    assert tuple(record.projection_mode for record in state.installed_skills) == ("symlink",)
+
+
+def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    def _raise_no_filesystem_root(asset_subpath: str) -> Path:
+        raise SystemSkillInstallError(
+            f"Packaged system-skill assets for `{asset_subpath}` are not filesystem-backed."
+        )
+
+    monkeypatch.setattr(
+        system_skills_module,
+        "_packaged_skill_filesystem_root",
+        _raise_no_filesystem_root,
+    )
+
+    with pytest.raises(SystemSkillInstallError, match="not filesystem-backed"):
+        install_system_skills_for_home(
+            tool="codex",
+            home_path=home_path,
+            skill_names=("houmao-manage-specialist",),
+            projection_mode="symlink",
+        )
+
+
+def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_modes(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    installed_skill_dir = home_path / "skills/houmao-manage-specialist"
+
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-manage-specialist",),
+    )
+    assert installed_skill_dir.is_dir()
+    assert not installed_skill_dir.is_symlink()
+
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-manage-specialist",),
+        projection_mode="symlink",
+    )
+    assert installed_skill_dir.is_symlink()
+    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-manage-specialist")
+    assert (installed_skill_dir / "SKILL.md").is_file()
+
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-manage-specialist",),
+        projection_mode="copy",
+    )
+    assert installed_skill_dir.is_dir()
+    assert not installed_skill_dir.is_symlink()
+    assert (installed_skill_dir / "SKILL.md").is_file()
+
+    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    assert state is not None
+    assert tuple(record.name for record in state.installed_skills) == ("houmao-manage-specialist",)
+    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+
+
 def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Path) -> None:
     home_path = (tmp_path / "codex-home").resolve()
     conflicting_skill_path = home_path / "skills/houmao-email-via-agent-gateway/SKILL.md"
@@ -424,7 +532,7 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
     state_path.write_text(
         json.dumps(
             {
-                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "schema_version": 1,
                 "tool": "codex",
                 "installed_at": "2026-04-05T00:00:00Z",
                 "installed_skills": [
@@ -475,6 +583,7 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
         "houmao-process-emails-via-gateway",
         "houmao-manage-specialist",
     )
+    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
 
 
 def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
@@ -490,7 +599,7 @@ def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
     state_path.write_text(
         json.dumps(
             {
-                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "schema_version": 1,
                 "tool": "codex",
                 "installed_at": "2026-04-05T00:00:00Z",
                 "installed_skills": [
@@ -524,3 +633,4 @@ def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
     assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
         "skills/houmao-manage-specialist",
     )
+    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
