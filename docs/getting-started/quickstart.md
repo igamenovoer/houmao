@@ -110,12 +110,12 @@ This higher-level flow persists semantic state in the catalog and snapshots payl
 .houmao/content/auth/claude/researcher-creds/
 .houmao/content/skills/notes/
 .houmao/agents/roles/researcher/system-prompt.md
-.houmao/agents/roles/researcher/presets/claude/default.yaml
+.houmao/agents/presets/researcher-claude-default.yaml
 .houmao/agents/tools/claude/auth/researcher-creds/
 .houmao/agents/skills/notes/
 ```
 
-Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. For example, add or inspect auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, or scaffold roles and presets with `houmao-mgr project agents roles ...`.
+Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. For example, add or inspect auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, manage prompt-only roles with `houmao-mgr project agents roles ...`, or manage named presets with `houmao-mgr project agents presets ...`.
 
 Gemini note:
 
@@ -131,8 +131,11 @@ If you want to inspect the compiled project-local source directly:
 ```bash
 pixi run houmao-mgr project easy specialist get --name researcher
 pixi run houmao-mgr project agents roles get --name researcher
+pixi run houmao-mgr project agents presets get --name researcher-claude-default
 pixi run houmao-mgr project agents tools claude get
 ```
+
+Add `--include-prompt` to `project agents roles get` when you want the full role prompt text through the supported CLI surface rather than reading `system-prompt.md` directly.
 
 The specialist payload reports durable launch config, including any persisted `launch.env_records`.
 
@@ -142,14 +145,14 @@ Using a preset:
 
 ```bash
 pixi run houmao-mgr brains build \
-  --preset roles/researcher/presets/claude/default.yaml
+  --preset presets/researcher-claude-default.yaml
 ```
 
 Key options:
 
 | Option | Description |
 |---|---|
-| `--preset` | Path to a preset YAML file, resolved from the effective agent-definition root |
+| `--preset` | Preset path or bare preset name, resolved from the effective agent-definition root |
 | `--tool` | CLI tool name |
 | `--setup` | Checked-in setup bundle |
 | `--auth` | Local auth bundle |
@@ -180,7 +183,7 @@ pixi run houmao-mgr agents launch \
 The bare selector plus provider resolves:
 
 - `researcher` + `claude_code`
-- to `.houmao/agents/roles/researcher/presets/claude/default.yaml`
+- to `.houmao/agents/presets/researcher-claude-default.yaml`
 
 You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`.
 
@@ -191,13 +194,14 @@ pixi run houmao-mgr project easy instance launch \
   --specialist researcher \
   --name research \
   --env-set FEATURE_FLAG_X=1 \
-  --env-set OPENAI_BASE_URL \
-  --yolo
+  --env-set OPENAI_BASE_URL
 ```
 
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
+
+There is no separate `--yolo` override on this surface. If you want raw provider startup behavior, store `launch.prompt_mode: as_is`; if you want maintained no-prompt startup posture, use `unattended`.
 
 Gemini specialists remain headless-only on this surface. Use `--headless` when launching a Gemini easy specialist.
 
@@ -233,7 +237,6 @@ If you want easy launch to bind a filesystem mailbox account at startup instead 
 pixi run houmao-mgr project easy instance launch \
   --specialist researcher \
   --name research \
-  --yolo \
   --mail-transport filesystem \
   --mail-account-dir /tmp/houmao-mailboxes/research
 ```

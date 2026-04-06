@@ -1,6 +1,0 @@
-skills:
-- openspec-apply-change
-- openspec-verify-change
-auth: yunwu-openai
-launch:
-  prompt_mode: unattended

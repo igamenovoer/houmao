@@ -19,15 +19,15 @@ Four mailbox skills are projected:
 
 ## Tool-Specific Behavior
 
-The skill destination directory and namespace handling differ by tool:
+The skill destination directory differs by tool, but Houmao-owned mailbox skills stay flat within that destination:
 
 | Tool | Destination | Namespace |
 |---|---|---|
 | Claude | `skills/` (top-level) | No namespace — skills appear at top level as native SKILL.md projections. |
-| Codex | `skills/` | Namespaced under `mailbox/` (e.g., `mailbox/houmao-email-via-agent-gateway`). |
+| Codex | `skills/` | No namespace — Houmao-owned Codex skills live at top level. |
 | Gemini | `.agents/skills/` | No namespace — Houmao-owned Gemini skills live at top level. |
 
-Claude and Gemini receive mailbox skills as first-class top-level skills because their maintained contracts rely on native skill discovery from the active skill destination. Codex keeps the `mailbox/` namespace prefix to avoid collisions with user-defined skills in `skills/`. Gemini's upstream `.gemini/skills/` path remains a compatibility alias, but Houmao-owned projection now targets `.agents/skills/`.
+Claude, Codex, and Gemini all receive mailbox skills as first-class top-level Houmao-owned skills because their maintained contracts rely on native skill discovery from the active skill destination. Gemini's upstream `.gemini/skills/` path remains a compatibility alias, but Houmao-owned projection now targets `.agents/skills/`.
 
 ## Maintained Contract
 

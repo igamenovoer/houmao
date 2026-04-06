@@ -1,20 +1,36 @@
 schema_version = 1
 
 [skills.houmao-process-emails-via-gateway]
-asset_subpath = "mailbox/houmao-process-emails-via-gateway"
+asset_subpath = "houmao-process-emails-via-gateway"
 description = "Round-oriented gateway mailbox workflow skill."
 
 [skills.houmao-email-via-agent-gateway]
-asset_subpath = "mailbox/houmao-email-via-agent-gateway"
+asset_subpath = "houmao-email-via-agent-gateway"
 description = "Lower-level shared gateway mailbox operations skill."
 
 [skills.houmao-email-via-filesystem]
-asset_subpath = "mailbox/houmao-email-via-filesystem"
+asset_subpath = "houmao-email-via-filesystem"
 description = "Filesystem mailbox transport guidance skill."
 
 [skills.houmao-email-via-stalwart]
-asset_subpath = "mailbox/houmao-email-via-stalwart"
+asset_subpath = "houmao-email-via-stalwart"
 description = "Stalwart mailbox transport guidance skill."
+
+[skills.houmao-manage-specialist]
+asset_subpath = "houmao-manage-specialist"
+description = "Project-easy specialist management skill."
+
+[skills.houmao-manage-credentials]
+asset_subpath = "houmao-manage-credentials"
+description = "Project-local credential management skill."
+
+[skills.houmao-manage-agent-definition]
+asset_subpath = "houmao-manage-agent-definition"
+description = "Low-level project-local role and preset definition management skill."
+
+[skills.houmao-manage-agent-instance]
+asset_subpath = "houmao-manage-agent-instance"
+description = "Managed agent instance lifecycle skill."
 
 [sets.mailbox-core]
 description = "Core shared mailbox workflow skills."
@@ -32,7 +48,21 @@ skills = [
   "houmao-email-via-stalwart",
 ]
 
+[sets.user-control]
+description = "User-controlled agent-management system skills."
+skills = [
+  "houmao-manage-specialist",
+  "houmao-manage-credentials",
+  "houmao-manage-agent-definition",
+]
+
+[sets.agent-instance]
+description = "Managed agent instance lifecycle system skills."
+skills = [
+  "houmao-manage-agent-instance",
+]
+
 [auto_install]
-managed_launch_sets = ["mailbox-full"]
-managed_join_sets = ["mailbox-full"]
-cli_default_sets = ["mailbox-full"]
+managed_launch_sets = ["mailbox-full", "user-control"]
+managed_join_sets = ["mailbox-full", "user-control"]
+cli_default_sets = ["mailbox-full", "user-control", "agent-instance"]

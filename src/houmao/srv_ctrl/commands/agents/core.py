@@ -89,13 +89,6 @@ _PROVIDERS = frozenset(
         "gemini_cli",
     }
 )
-_PROVIDERS_REQUIRING_WORKSPACE_ACCESS = frozenset(
-    {
-        "claude_code",
-        "codex",
-        "gemini_cli",
-    }
-)
 _JOIN_SUPPORTED_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
@@ -149,23 +142,13 @@ def _caller_has_interactive_terminal() -> bool:
     return all(stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr))
 
 
-def _confirm_workspace_access(*, provider: str, working_directory: Path, yolo: bool) -> None:
-    """Prompt before granting provider workspace access when required."""
+def _validate_provider(provider: str) -> None:
+    """Validate one managed launch provider id."""
 
     if provider not in _PROVIDERS:
         raise click.ClickException(
             f"Invalid provider `{provider}`. Available providers: {', '.join(sorted(_PROVIDERS))}."
         )
-
-    if provider in _PROVIDERS_REQUIRING_WORKSPACE_ACCESS and not yolo:
-        click.echo(
-            f"The underlying provider ({provider}) will be trusted to perform all actions "
-            f"(read, write, and execute) in:\n"
-            f"  {working_directory}\n\n"
-            f"To skip this confirmation, use: houmao-mgr agents launch --yolo\n"
-        )
-        if not click.confirm("Do you trust all the actions in this folder?", default=True):
-            raise click.ClickException("Launch cancelled by user.")
 
 
 def launch_managed_agent_locally(
@@ -177,7 +160,6 @@ def launch_managed_agent_locally(
     session_name: str | None,
     headless: bool,
     provider: str,
-    yolo: bool,
     working_directory: Path,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
@@ -197,11 +179,7 @@ def launch_managed_agent_locally(
         else resolve_project_aware_mailbox_root(cwd=working_directory)
     )
 
-    _confirm_workspace_access(
-        provider=provider,
-        working_directory=working_directory,
-        yolo=yolo,
-    )
+    _validate_provider(provider)
 
     resolved_backend_name = "unknown"
     try:
@@ -367,7 +345,6 @@ def agents_group() -> None:
     show_default=True,
     help="Provider identifier to use for the launch.",
 )
-@click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
 def launch_agents_command(
     agents: str,
     agent_name: str | None,
@@ -378,7 +355,6 @@ def launch_agents_command(
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     provider: str,
-    yolo: bool,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
 
@@ -391,7 +367,6 @@ def launch_agents_command(
         session_name=session_name,
         headless=headless,
         provider=provider,
-        yolo=yolo,
         working_directory=working_directory,
         headless_display_style=headless_display_style,
         headless_display_detail=headless_display_detail,

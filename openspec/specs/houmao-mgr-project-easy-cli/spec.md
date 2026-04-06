@@ -104,6 +104,14 @@ When no stronger explicit or env-var override is supplied, easy instance launch 
 
 The launch provider SHALL still be derived from the specialist's selected tool, and the command SHALL still honor stored specialist launch posture and mailbox validation rules.
 
+The command SHALL NOT expose or require a separate launch-time workspace-trust bypass flag on this surface.
+
+The delegated native launch SHALL proceed without a Houmao-managed workspace trust confirmation prompt.
+
+When the stored specialist launch posture is `unattended`, any maintained no-prompt or full-autonomy provider startup posture SHALL remain owned by the resolved prompt mode and downstream launch policy.
+
+When the stored specialist launch posture is `as_is`, easy instance launch SHALL NOT inject a separate yolo-style startup override and SHALL leave provider startup behavior untouched beyond the existing delegated launch contract.
+
 #### Scenario: Easy instance launch uses overlay-local runtime and jobs defaults
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
@@ -116,6 +124,12 @@ The launch provider SHALL still be derived from the specialist's selected tool, 
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
 - **THEN** the command ensures `<cwd>/.houmao` exists before resolving the specialist-backed launch
 - **AND THEN** the launch uses that resulting overlay as the default local root family
+
+#### Scenario: Stored as-is posture launches without a separate yolo-style override
+- **WHEN** specialist `researcher` stores `launch.prompt_mode: as_is`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
+- **THEN** the command delegates to native launch without a Houmao-managed workspace trust confirmation prompt
+- **AND THEN** it does not inject a separate yolo-style startup override on top of the stored `as_is` posture
 
 ### Requirement: `project easy instance list/get/stop` presents runtime state by specialist and wraps existing runtime stop control
 
@@ -229,3 +243,37 @@ Ownership-mismatch failures for project-easy runtime instances SHALL describe th
 - **AND WHEN** the resolved managed-agent manifest belongs to a different overlay
 - **THEN** the failure states that the managed agent does not belong to the selected project overlay
 - **AND THEN** it does not describe that mismatch as a problem with a generically discovered overlay
+
+### Requirement: Claude easy specialists support vendor OAuth token and imported login state
+`houmao-mgr project easy specialist create --tool claude` SHALL accept Claude vendor-auth inputs for:
+
+- `CLAUDE_CODE_OAUTH_TOKEN`
+- imported Claude login state from a Claude config root
+
+When provided, the command SHALL persist those inputs into the selected or derived Claude credential bundle using the same Claude auth-bundle contract as `houmao-mgr project agents tools claude auth`.
+
+These Claude vendor-auth lanes SHALL remain valid even when `--api-key`, `--claude-auth-token`, and `--claude-state-template-file` are omitted.
+
+`--claude-state-template-file` MAY remain as an optional Claude runtime-state template input, but it SHALL NOT be described as one of the Claude credential-providing methods on this surface.
+
+#### Scenario: Easy specialist create persists the Claude OAuth-token lane
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool claude --claude-oauth-token token123`
+- **THEN** the derived Claude credential bundle `reviewer-creds` stores `CLAUDE_CODE_OAUTH_TOKEN`
+- **AND THEN** the specialist persists successfully without requiring `--api-key`
+
+#### Scenario: Easy specialist create imports Claude login state from a config root
+- **WHEN** `/tmp/claude-home` contains vendor Claude login-state files
+- **AND WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool claude --claude-config-dir /tmp/claude-home`
+- **THEN** the derived Claude credential bundle copies the supported vendor Claude login-state files
+- **AND THEN** the specialist persists successfully without requiring `--claude-state-template-file`
+
+#### Scenario: Easy specialist create preserves other explicit Claude settings with imported login state
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool claude --claude-config-dir /tmp/claude-home --claude-model claude-opus`
+- **THEN** the derived Claude credential bundle copies the vendor Claude login-state files
+- **AND THEN** it also preserves `ANTHROPIC_MODEL=claude-opus` in that credential bundle
+
+#### Scenario: Claude state template remains optional on the easy-specialist surface
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool claude --claude-oauth-token token123`
+- **AND WHEN** `--claude-state-template-file` is omitted
+- **THEN** the specialist persists successfully
+- **AND THEN** the operator-facing contract does not describe the omitted template as missing Claude credentials

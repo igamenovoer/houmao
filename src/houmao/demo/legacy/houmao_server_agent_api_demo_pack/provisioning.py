@@ -525,11 +525,8 @@ def _lane_fixture_report(
         agent_def_dir=fixtures.agent_def_dir,
         preset_path=(
             fixtures.agent_def_dir
-            / "roles"
-            / _FIXTURE_ROLE_NAME
             / "presets"
-            / lane.tool
-            / f"{lane.config_profile}.yaml"
+            / f"{_FIXTURE_ROLE_NAME}-{lane.tool}-{lane.config_profile}.yaml"
         ),
     )
     recipe_path = resolved_launch.preset_path

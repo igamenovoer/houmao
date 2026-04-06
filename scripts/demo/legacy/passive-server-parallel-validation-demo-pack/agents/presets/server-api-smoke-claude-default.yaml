@@ -1,0 +1,7 @@
+role: server-api-smoke
+tool: claude
+setup: default
+skills: []
+auth: personal-a-default
+launch:
+  prompt_mode: unattended

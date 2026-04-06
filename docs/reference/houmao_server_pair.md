@@ -50,7 +50,7 @@ houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state.
 houmao-mgr agents relaunch --agent-name gpu
 houmao-mgr agents gateway attach --agent-name gpu
 houmao-mgr agents gateway attach
-houmao-mgr brains build --tool codex --skill skills/mailbox --setup dev --auth openai
+houmao-mgr brains build --tool codex --skill skills --setup dev --auth openai
 houmao-mgr admin cleanup registry --grace-seconds 0
 houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 ```
@@ -220,8 +220,9 @@ For pair-managed terminal sessions, the supported public attach command is `houm
 
 Supported modes:
 
-- explicit target mode: `houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>`
-- exact-target mode: `houmao-mgr agents gateway attach --agent-id <authoritative-id> --port <public-port>`
+- explicit target mode: `houmao-mgr agents gateway attach --agent-name <friendly-name> --pair-port <pair-port>`
+- exact-target mode: `houmao-mgr agents gateway attach --agent-id <authoritative-id> --pair-port <pair-port>`
+- outside-tmux tmux-session mode: `houmao-mgr agents gateway attach --target-tmux-session <tmux-session-name>`
 - current-session mode: run `houmao-mgr agents gateway attach` from inside the tmux session that owns the managed agent
 
 Current-session mode is intentionally strict:
@@ -231,6 +232,8 @@ Current-session mode is intentionally strict:
 - the resolved manifest must use `backend = "houmao_server_rest"`
 - manifest-declared attach authority is authoritative
 - current-session attach becomes valid only after launch has completed managed-agent registration on that persisted `api_base_url`
+
+Outside-tmux tmux-session mode reuses the same manifest-backed authority, but begins from the addressed local tmux session name. It resolves `HOUMAO_MANIFEST_PATH` from that session first and falls back to a fresh exact shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
 
 The matching relaunch surface is `houmao-mgr agents relaunch`.
 

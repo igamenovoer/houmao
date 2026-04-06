@@ -517,11 +517,11 @@ def _build_kickoff_prompt(
             ),
             (
                 "Open and follow the exact shared gateway skill file "
-                "`skills/mailbox/houmao-email-via-agent-gateway/SKILL.md` from the project worktree."
+                "`skills/houmao-email-via-agent-gateway/SKILL.md` from the project worktree."
             ),
             (
                 "Open and follow the exact transport skill file "
-                "`skills/mailbox/houmao-email-via-filesystem/SKILL.md` from the project worktree "
+                "`skills/houmao-email-via-filesystem/SKILL.md` from the project worktree "
                 "only when transport-local guidance is needed."
             ),
             ("Do not search for those files with `rg`, `find`, or slash-skill lookup first."),

@@ -127,10 +127,11 @@ def has_flag(args: Sequence[str], flag_name: str) -> bool:
 def pair_port_option(
     *,
     help_text: str = "Houmao pair authority port to use",
+    option_name: str = "--port",
 ) -> Callable[[_FC], _FC]:
-    """Return the shared `--port` click option decorator."""
+    """Return one shared pair-authority port click option decorator."""
 
-    return click.option("--port", default=None, type=int, help=help_text)
+    return click.option(option_name, default=None, type=int, help=help_text)
 
 
 def compatibility_launch_timeout_options(function: _FC) -> _FC:
@@ -189,8 +190,7 @@ def managed_agent_selector_options(function: _FC) -> _FC:
         "--agent-name",
         default=None,
         help=(
-            "Raw creation-time friendly managed-agent name. Do not include the "
-            "`HOUMAO-` prefix."
+            "Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix."
         ),
     )(function)
     function = click.option(

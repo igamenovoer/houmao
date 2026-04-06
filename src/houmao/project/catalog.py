@@ -20,7 +20,7 @@ from houmao.agents.definition_parser import parse_agent_preset
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 1
+CATALOG_SCHEMA_VERSION = 2
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -65,6 +65,7 @@ class SpecialistCatalogEntry:
     """Resolved project-local specialist semantics loaded from the catalog."""
 
     name: str
+    preset_name: str
     tool: str
     provider: str
     credential_name: str
@@ -87,21 +88,12 @@ class SpecialistCatalogEntry:
     def resolved_preset_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection preset path."""
 
-        return (
-            overlay.agents_root
-            / "roles"
-            / self.role_name
-            / "presets"
-            / self.tool
-            / f"{self.setup_name}.yaml"
-        ).resolve()
+        return (overlay.agents_root / "presets" / f"{self.preset_name}.yaml").resolve()
 
     def resolved_auth_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection auth bundle path."""
 
-        return (
-            overlay.agents_root / "tools" / self.tool / "auth" / self.credential_name
-        ).resolve()
+        return (overlay.agents_root / "tools" / self.tool / "auth" / self.credential_name).resolve()
 
     def resolved_skill_paths(self, overlay: HoumaoProjectOverlay) -> tuple[Path, ...]:
         """Return the compatibility projection skill paths."""
@@ -165,9 +157,11 @@ class ProjectCatalog:
 
         self._ensure_content_roots()
         with self._connect() as connection:
-            connection.executescript(_schema_sql())
+            connection.executescript(_table_schema_sql())
+            self._migrate_schema(connection)
             self._ensure_catalog_metadata(connection)
             self._seed_setup_profiles(connection)
+            connection.executescript(_view_sql())
 
     def ensure_legacy_import(self) -> None:
         """Import legacy easy specialists into the catalog when needed."""
@@ -197,7 +191,9 @@ class ProjectCatalog:
                     f"{metadata_path}: referenced system prompt does not exist: {prompt_path}"
                 )
             if not preset_path.is_file():
-                raise ValueError(f"{metadata_path}: referenced preset does not exist: {preset_path}")
+                raise ValueError(
+                    f"{metadata_path}: referenced preset does not exist: {preset_path}"
+                )
             if not auth_path.is_dir():
                 raise ValueError(
                     f"{metadata_path}: referenced auth bundle does not exist: {auth_path}"
@@ -211,6 +207,7 @@ class ProjectCatalog:
             preset = parse_agent_preset(preset_path)
             self.store_specialist_from_sources(
                 name=payload["name"],
+                preset_name=preset.name,
                 tool=payload["tool"],
                 provider=payload["provider"],
                 credential_name=payload["credential_name"],
@@ -219,7 +216,9 @@ class ProjectCatalog:
                 prompt_path=prompt_path,
                 auth_path=auth_path,
                 skill_paths=skill_paths,
-                setup_path=(self.m_projection_root / "tools" / preset.tool / "setups" / preset.setup),
+                setup_path=(
+                    self.m_projection_root / "tools" / preset.tool / "setups" / preset.setup
+                ),
                 launch_mapping=_load_preset_top_level_mapping(preset_path, "launch"),
                 mailbox_mapping=_load_preset_top_level_mapping(preset_path, "mailbox"),
                 extra_mapping=_load_preset_top_level_mapping(preset_path, "extra"),
@@ -245,6 +244,7 @@ class ProjectCatalog:
                 """
                 SELECT
                     specialists.name,
+                    presets.name AS preset_name,
                     specialists.tool,
                     specialists.provider,
                     specialists.credential_name,
@@ -282,6 +282,7 @@ class ProjectCatalog:
                 """
                 SELECT
                     specialists.name,
+                    presets.name AS preset_name,
                     specialists.tool,
                     specialists.provider,
                     specialists.credential_name,
@@ -318,6 +319,7 @@ class ProjectCatalog:
         self,
         *,
         name: str,
+        preset_name: str,
         tool: str,
         provider: str,
         credential_name: str,
@@ -359,6 +361,10 @@ class ProjectCatalog:
         )
 
         with self._connect() as connection:
+            existing_specialist_row = connection.execute(
+                "SELECT role_id, preset_id FROM specialists WHERE name = ? LIMIT 1",
+                (name,),
+            ).fetchone()
             prompt_ref_id = self._upsert_content_ref(connection, prompt_ref)
             auth_ref_id = self._upsert_content_ref(connection, auth_ref)
             role_id = self._upsert_role(
@@ -374,6 +380,7 @@ class ProjectCatalog:
             )
             preset_id = self._upsert_preset(
                 connection=connection,
+                preset_name=preset_name,
                 role_id=role_id,
                 tool=tool,
                 setup_profile_id=setup_profile_id,
@@ -419,12 +426,38 @@ class ProjectCatalog:
                     timestamp,
                 ),
             )
+            if existing_specialist_row is not None:
+                previous_preset_id = int(existing_specialist_row["preset_id"])
+                previous_role_id = int(existing_specialist_row["role_id"])
+                if previous_preset_id != preset_id:
+                    remaining_preset_refs = connection.execute(
+                        "SELECT COUNT(*) FROM specialists WHERE preset_id = ?",
+                        (previous_preset_id,),
+                    ).fetchone()
+                    if remaining_preset_refs is not None and int(remaining_preset_refs[0]) == 0:
+                        connection.execute(
+                            "DELETE FROM preset_skill_packages WHERE preset_id = ?",
+                            (previous_preset_id,),
+                        )
+                        connection.execute(
+                            "DELETE FROM presets WHERE id = ?",
+                            (previous_preset_id,),
+                        )
+                if previous_role_id != role_id:
+                    remaining_role_refs = connection.execute(
+                        "SELECT COUNT(*) FROM specialists WHERE role_id = ?",
+                        (previous_role_id,),
+                    ).fetchone()
+                    if remaining_role_refs is not None and int(remaining_role_refs[0]) == 0:
+                        connection.execute("DELETE FROM roles WHERE id = ?", (previous_role_id,))
         return self.load_specialist(name)
 
     def remove_specialist(self, name: str) -> Path:
         """Delete one specialist definition from the catalog."""
 
         specialist = self.load_specialist(name)
+        delete_preset_projection = False
+        delete_role_projection = False
         with self._connect() as connection:
             specialist_row = connection.execute(
                 "SELECT role_id, preset_id FROM specialists WHERE name = ?",
@@ -439,17 +472,29 @@ class ProjectCatalog:
                 "SELECT COUNT(*) FROM specialists WHERE preset_id = ?",
                 (preset_id,),
             ).fetchone()
-            if remaining_preset_refs is not None and int(remaining_preset_refs[0]) == 0:
-                connection.execute("DELETE FROM preset_skill_packages WHERE preset_id = ?", (preset_id,))
+            delete_preset_projection = (
+                remaining_preset_refs is not None and int(remaining_preset_refs[0]) == 0
+            )
+            if delete_preset_projection:
+                connection.execute(
+                    "DELETE FROM preset_skill_packages WHERE preset_id = ?", (preset_id,)
+                )
                 connection.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
             remaining_role_refs = connection.execute(
                 "SELECT COUNT(*) FROM specialists WHERE role_id = ?",
                 (role_id,),
             ).fetchone()
-            if remaining_role_refs is not None and int(remaining_role_refs[0]) == 0:
+            delete_role_projection = (
+                remaining_role_refs is not None and int(remaining_role_refs[0]) == 0
+            )
+            if delete_role_projection:
                 connection.execute("DELETE FROM roles WHERE id = ?", (role_id,))
+        if delete_preset_projection:
+            (self.m_projection_root / "presets" / f"{specialist.preset_name}.yaml").unlink(
+                missing_ok=True
+            )
         role_root = self.m_projection_root / "roles" / specialist.role_name
-        if role_root.is_dir():
+        if delete_role_projection and role_root.is_dir():
             shutil.rmtree(role_root)
         metadata_path = (self.m_legacy_specialists_root / f"{name}.toml").resolve()
         if metadata_path.exists():
@@ -471,12 +516,7 @@ class ProjectCatalog:
             prompt_target.write_text(prompt_source.read_text(encoding="utf-8"), encoding="utf-8")
 
             preset_target = (
-                self.m_projection_root
-                / "roles"
-                / entry.role_name
-                / "presets"
-                / entry.tool
-                / f"{entry.setup_name}.yaml"
+                self.m_projection_root / "presets" / f"{entry.preset_name}.yaml"
             ).resolve()
             preset_target.parent.mkdir(parents=True, exist_ok=True)
             preset_target.write_text(
@@ -594,11 +634,16 @@ class ProjectCatalog:
         tools_root = starter_root / "tools"
         if not tools_root.is_dir():
             raise ValueError("Packaged Houmao project starter assets are missing.")
-        for tool_dir in sorted((item for item in tools_root.iterdir() if item.is_dir()), key=lambda item: item.name):
+        for tool_dir in sorted(
+            (item for item in tools_root.iterdir() if item.is_dir()), key=lambda item: item.name
+        ):
             setups_root = tool_dir / "setups"
             if not setups_root.is_dir():
                 continue
-            for setup_dir in sorted((item for item in setups_root.iterdir() if item.is_dir()), key=lambda item: item.name):
+            for setup_dir in sorted(
+                (item for item in setups_root.iterdir() if item.is_dir()),
+                key=lambda item: item.name,
+            ):
                 relative_path = f"setups/{tool_dir.name}/{setup_dir.name}"
                 destination = (self.m_content_root / relative_path).resolve()
                 _copy_traversable_tree(source=setup_dir, destination=destination)
@@ -616,6 +661,33 @@ class ProjectCatalog:
                     """,
                     (tool_dir.name, setup_dir.name, content_ref_id),
                 )
+
+    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
+        """Apply in-place catalog migrations required by the current schema."""
+
+        current_version = _catalog_schema_version(connection)
+        if current_version >= CATALOG_SCHEMA_VERSION:
+            return
+        if current_version == 1 and not _table_has_column(
+            connection, table_name="presets", column_name="name"
+        ):
+            connection.execute("ALTER TABLE presets ADD COLUMN name TEXT")
+        if current_version <= 1:
+            connection.execute(
+                """
+                UPDATE presets
+                SET name = (
+                    SELECT roles.name || '-' || presets.tool || '-' || setup_profiles.name
+                    FROM roles
+                    INNER JOIN setup_profiles ON setup_profiles.id = presets.setup_profile_id
+                    WHERE roles.id = presets.role_id
+                )
+                WHERE name IS NULL OR TRIM(name) = ''
+                """
+            )
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_presets_name ON presets(name)"
+            )
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -778,6 +850,7 @@ class ProjectCatalog:
         self,
         *,
         connection: sqlite3.Connection,
+        preset_name: str,
         role_id: int,
         tool: str,
         setup_profile_id: int,
@@ -791,6 +864,7 @@ class ProjectCatalog:
         connection.execute(
             """
             INSERT INTO presets(
+                name,
                 role_id,
                 tool,
                 setup_profile_id,
@@ -798,14 +872,16 @@ class ProjectCatalog:
                 launch_payload,
                 mailbox_payload,
                 extra_payload
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(role_id, tool, setup_profile_id) DO UPDATE SET
+                name = excluded.name,
                 auth_profile_id = excluded.auth_profile_id,
                 launch_payload = excluded.launch_payload,
                 mailbox_payload = excluded.mailbox_payload,
                 extra_payload = excluded.extra_payload
             """,
             (
+                preset_name,
                 role_id,
                 tool,
                 setup_profile_id,
@@ -902,6 +978,7 @@ class ProjectCatalog:
         extra_payload = _load_json_mapping(str(row["extra_payload"]))
         return SpecialistCatalogEntry(
             name=specialist_name,
+            preset_name=str(row["preset_name"]),
             tool=str(row["tool"]),
             provider=str(row["provider"]),
             credential_name=str(row["credential_name"]),
@@ -938,8 +1015,8 @@ class ProjectCatalog:
             (tool_dir / "auth").mkdir(parents=True, exist_ok=True)
 
 
-def _schema_sql() -> str:
-    """Return the initial SQLite schema."""
+def _table_schema_sql() -> str:
+    """Return the SQLite table schema."""
 
     content_kind_check = ", ".join(f"'{value}'" for value in _CONTENT_KIND_VALUES)
     storage_kind_check = ", ".join(f"'{value}'" for value in _STORAGE_KIND_VALUES)
@@ -995,6 +1072,7 @@ def _schema_sql() -> str:
 
     CREATE TABLE IF NOT EXISTS presets (
         id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
         role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
         tool TEXT NOT NULL,
         setup_profile_id INTEGER NOT NULL REFERENCES setup_profiles(id) ON DELETE RESTRICT,
@@ -1024,8 +1102,19 @@ def _schema_sql() -> str:
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
+    """
 
-    CREATE VIEW IF NOT EXISTS v_content_refs AS
+
+def _view_sql() -> str:
+    """Return the SQLite view schema."""
+
+    return """
+    DROP VIEW IF EXISTS v_content_refs;
+    DROP VIEW IF EXISTS v_roles;
+    DROP VIEW IF EXISTS v_presets;
+    DROP VIEW IF EXISTS v_specialists;
+
+    CREATE VIEW v_content_refs AS
     SELECT
         id,
         content_kind,
@@ -1035,15 +1124,16 @@ def _schema_sql() -> str:
         created_at
     FROM content_refs;
 
-    CREATE VIEW IF NOT EXISTS v_roles AS
+    CREATE VIEW v_roles AS
     SELECT
         roles.name AS role_name,
         content_refs.relative_path AS prompt_relative_path
     FROM roles
     INNER JOIN content_refs ON content_refs.id = roles.prompt_content_ref_id;
 
-    CREATE VIEW IF NOT EXISTS v_presets AS
+    CREATE VIEW v_presets AS
     SELECT
+        presets.name AS preset_name,
         roles.name AS role_name,
         presets.tool AS tool,
         setup_profiles.name AS setup_name,
@@ -1056,9 +1146,10 @@ def _schema_sql() -> str:
     INNER JOIN setup_profiles ON setup_profiles.id = presets.setup_profile_id
     INNER JOIN auth_profiles ON auth_profiles.id = presets.auth_profile_id;
 
-    CREATE VIEW IF NOT EXISTS v_specialists AS
+    CREATE VIEW v_specialists AS
     SELECT
         specialists.name AS specialist_name,
+        presets.name AS preset_name,
         specialists.tool AS tool,
         specialists.provider AS provider,
         specialists.credential_name AS credential_name,
@@ -1074,6 +1165,37 @@ def _schema_sql() -> str:
     INNER JOIN auth_profiles ON auth_profiles.id = presets.auth_profile_id
     INNER JOIN content_refs AS auth_refs ON auth_refs.id = auth_profiles.content_ref_id;
     """
+
+
+def _catalog_schema_version(connection: sqlite3.Connection) -> int:
+    """Return the stored catalog schema version when present."""
+
+    row = connection.execute(
+        """
+        SELECT value
+        FROM catalog_meta
+        WHERE key = 'schema_version'
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return 0
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return 0
+
+
+def _table_has_column(
+    connection: sqlite3.Connection,
+    *,
+    table_name: str,
+    column_name: str,
+) -> bool:
+    """Return whether one SQLite table currently exposes the requested column."""
+
+    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(str(row[1]) == column_name for row in rows)
 
 
 def _load_legacy_specialist_payload(path: Path) -> dict[str, Any]:
@@ -1117,7 +1239,12 @@ def _load_legacy_specialist_payload(path: Path) -> dict[str, Any]:
 def _render_preset_yaml(entry: SpecialistCatalogEntry) -> str:
     """Render one compatibility projection preset file."""
 
-    payload: dict[str, Any] = {"skills": list(entry.skills)}
+    payload: dict[str, Any] = {
+        "role": entry.role_name,
+        "tool": entry.tool,
+        "setup": entry.setup_name,
+        "skills": list(entry.skills),
+    }
     payload["auth"] = entry.credential_name
     if entry.launch_payload:
         payload["launch"] = entry.launch_payload

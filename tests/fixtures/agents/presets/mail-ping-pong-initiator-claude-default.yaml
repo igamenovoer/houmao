@@ -1,0 +1,9 @@
+role: mail-ping-pong-initiator
+tool: claude
+setup: default
+skills:
+- openspec-apply-change
+- openspec-verify-change
+auth: personal-a-default
+launch:
+  prompt_mode: unattended

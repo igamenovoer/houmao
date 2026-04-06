@@ -996,11 +996,8 @@ def _provider_fixture_report(
         agent_def_dir=fixtures.agent_def_dir,
         preset_path=(
             fixtures.agent_def_dir
-            / "roles"
-            / DEFAULT_ROLE_NAME
             / "presets"
-            / fixture.tool
-            / f"{fixture.config_profile}.yaml"
+            / f"{DEFAULT_ROLE_NAME}-{fixture.tool}-{fixture.config_profile}.yaml"
         ),
     )
     blueprint_path = resolved_launch.preset_path
@@ -1139,9 +1136,7 @@ def _shared_environment_from_state(state: Mapping[str, Any]) -> dict[str, str]:
 
     config = _mapping(dict(state.get("config", {})).get("roots", {}), context="state.config.roots")
     return {
-        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR: str(
-            Path(str(config["shared_runtime_root"])).resolve()
-        ),
+        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR: str(Path(str(config["shared_runtime_root"])).resolve()),
         HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(Path(str(config["registry_root"])).resolve()),
         HOUMAO_LOCAL_JOBS_DIR_ENV_VAR: str(Path(str(config["jobs_root"])).resolve()),
         AGENT_DEF_DIR_ENV_VAR: str(Path(str(state["agent_def_dir"])).resolve()),

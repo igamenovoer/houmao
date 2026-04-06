@@ -315,11 +315,14 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         resume_selection=None,
     )
 
-    processing_skill_path = codex_home / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
-    gateway_skill_path = codex_home / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+    processing_skill_path = codex_home / "skills/houmao-process-emails-via-gateway/SKILL.md"
+    gateway_skill_path = codex_home / "skills/houmao-email-via-agent-gateway/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
-    assert (codex_home / "skills/mailbox/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-manage-credentials/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert user_skill.is_file()
     processing_skill = processing_skill_path.read_text(encoding="utf-8")
     gateway_skill = gateway_skill_path.read_text(encoding="utf-8")
@@ -337,6 +340,9 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
+        "houmao-manage-specialist",
+        "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
     )
 
 

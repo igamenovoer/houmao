@@ -44,6 +44,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 
 ### Other Reference
 
+- [Claude Vendor Login Files](reference/claude-vendor-login-files.md): How to import Claude vendor login state, what each file means, and how to validate that lane locally.
 - [Release Publishing](reference/release-publishing.md): PyPI trusted publishing setup and the public release flow.
 - [Houmao Server Pair](reference/houmao_server_pair.md): Server + manager pair workflows.
 - [Runtime-Managed Agents](reference/agents/index.md): Session model, targeting, and recovery.

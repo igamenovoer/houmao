@@ -194,3 +194,109 @@ The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be re
 - **WHEN** a reader needs to integrate with the passive-server
 - **THEN** the page documents the available REST routes and their response contracts
 - **AND THEN** the page notes which `houmao-mgr` commands are compatible with the passive-server
+
+### Requirement: CLI reference distinguishes Claude credential inputs from the optional state template
+The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both:
+
+- `project agents tools claude auth ...`
+- `project easy specialist create --tool claude`
+
+When the reference documents Claude-specific flags, it SHALL make clear that `claude_state.template.json` or `--claude-state-template-file` is optional runtime bootstrap state and not itself a credential-providing method.
+
+#### Scenario: Reader sees the Claude state template documented separately in the CLI reference
+- **WHEN** a reader looks up the Claude project-auth or easy-specialist options in `docs/reference/cli/houmao-mgr.md`
+- **THEN** the page distinguishes credential-providing Claude inputs from the optional state-template input
+- **AND THEN** it does not present the state-template input as one of the ways to authenticate Claude
+
+### Requirement: System-skills reference documents the renamed specialist-management skill
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe the current project-easy packaged skill as `houmao-manage-specialist`.
+
+That page SHALL describe the packaged skill as the Houmao-owned specialist-management entry point for `project easy specialist create|list|get|remove`.
+
+The page SHALL describe the top-level packaged skill page as an index/router and SHALL state that `project easy instance launch` remains outside that packaged skill scope.
+
+The page SHALL NOT continue to describe `houmao-create-specialist` as the active packaged project-easy skill.
+
+#### Scenario: Reader sees the renamed packaged skill in system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page identifies `houmao-manage-specialist` as the packaged project-easy skill
+- **AND THEN** it describes that skill as covering `create`, `list`, `get`, and `remove`
+
+#### Scenario: Reader does not see the stale create-only packaged skill name
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page does not present `houmao-create-specialist` as the current packaged specialist-management skill
+- **AND THEN** it explains that easy-instance launch remains outside the packaged skill scope
+
+### Requirement: System-skills reference documents the packaged agent-instance lifecycle skill and its boundary
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-manage-agent-instance` as a packaged Houmao-owned system skill.
+
+That page SHALL describe the packaged skill as the Houmao-owned entry point for managed-agent instance lifecycle guidance across:
+
+- `agents launch`
+- `project easy instance launch`
+- `agents join`
+- `agents list`
+- `agents stop`
+- `agents cleanup session|logs`
+
+That page SHALL explain that `houmao-manage-agent-instance` complements rather than replaces `houmao-manage-specialist`.
+
+That page SHALL explain that mailbox surfaces, mailbox cleanup, prompt/gateway control, and specialist CRUD remain outside the packaged `houmao-manage-agent-instance` skill scope.
+
+That page SHALL describe the CLI-default system-skill install selection as including both the packaged specialist-management skill and the packaged agent-instance lifecycle skill.
+
+#### Scenario: Reader sees the new packaged lifecycle skill in system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page identifies `houmao-manage-agent-instance` as a packaged Houmao-owned skill
+- **AND THEN** it describes that skill as covering managed-agent instance lifecycle rather than specialist authoring
+
+#### Scenario: Reader sees the boundary between the two packaged non-mailbox Houmao skills
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page distinguishes `houmao-manage-specialist` from `houmao-manage-agent-instance`
+- **AND THEN** it does not imply that mailbox work or specialist CRUD belongs to the new lifecycle skill
+
+#### Scenario: Reader sees the expanded CLI-default install outcome
+- **WHEN** a reader checks the CLI-default selection behavior in `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that CLI-default installation includes both packaged non-mailbox Houmao skills
+- **AND THEN** it does not imply that managed launch or managed join auto-install changed in the same way
+
+### Requirement: CLI reference documents tmux-session targeting for `agents gateway`
+The CLI reference pages `docs/reference/cli/agents-gateway.md` and `docs/reference/cli.md` SHALL document `--target-tmux-session <tmux-session-name>` as an explicit selector for single-target `houmao-mgr agents gateway ...` commands.
+
+That documentation SHALL describe the selector as mutually exclusive with `--agent-id`, `--agent-name`, and `--current-session`. It SHALL also document `--pair-port` as the pair-authority override name for explicit `--agent-id` and `--agent-name` targeting.
+
+The docs SHALL state that `--pair-port` is unsupported with tmux-session targeting because the command follows the addressed session's manifest-declared authority after local resolution. They SHALL also explain that `--pair-port` is not the same thing as a gateway listener port override such as lower-level `--gateway-port`.
+
+The `agents-gateway` reference SHALL distinguish outside-tmux `--target-tmux-session` targeting from inside-tmux current-session targeting and SHALL explain when each mode is appropriate.
+
+#### Scenario: CLI reference page lists the tmux-session selector and targeting boundary
+- **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
+- **THEN** the option tables include `--target-tmux-session`
+- **AND THEN** the page explains that `--target-tmux-session` is for explicit outside-tmux targeting while `--current-session` is for the owning tmux session
+
+#### Scenario: Top-level CLI guidance explains the port rule for tmux-session targeting
+- **WHEN** a reader checks `docs/reference/cli.md` for gateway targeting rules
+- **THEN** the page explains that `--pair-port` remains supported with `--agent-id` or `--agent-name`
+- **AND THEN** the page explains that `--pair-port` is rejected with `--target-tmux-session` because tmux-session targeting follows manifest-declared authority
+
+#### Scenario: Gateway CLI reference distinguishes pair-authority port from gateway listener port
+- **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
+- **THEN** the page explains that `--pair-port` selects the Houmao pair authority
+- **AND THEN** the page does not imply that `--pair-port` controls the live gateway listener port
+
+### Requirement: CLI reference documents the top-level project agents presets surface
+
+The `houmao-mgr` CLI reference SHALL document `project agents presets` as the supported low-level preset management surface.
+
+At minimum, that coverage SHALL:
+
+- list `project agents presets list|get|add|set|remove`,
+- describe preset files as living under `agents/presets/<name>.yaml`,
+- explain that `project agents roles` is prompt-only role management,
+- state that `project agents roles scaffold` is not part of the supported low-level CLI.
+
+#### Scenario: Reader sees named presets in the project agents reference
+- **WHEN** a reader looks up `houmao-mgr project agents` in the CLI reference
+- **THEN** the page documents `project agents presets list|get|add|set|remove`
+- **AND THEN** it describes those commands as operations on `agents/presets/<name>.yaml`
+- **AND THEN** it does not present `roles presets ...` or `roles scaffold` as the supported surface

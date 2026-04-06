@@ -27,11 +27,8 @@ def default_recipe_path(*, repo_root: Path, tool: ToolName) -> Path:
 
     return (
         tracked_agent_inputs_dir(repo_root=repo_root)
-        / "roles"
-        / "interactive-watch"
         / "presets"
-        / tool
-        / "default.yaml"
+        / f"interactive-watch-{tool}-default.yaml"
     ).resolve()
 
 

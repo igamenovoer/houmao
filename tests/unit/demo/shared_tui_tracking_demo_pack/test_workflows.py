@@ -63,16 +63,16 @@ def _build_demo_config(repo_root: Path) -> ResolvedDemoConfig:
         tools={
             "claude": DemoToolConfig(
                 recipe_path=(
-                    "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/roles/"
-                    "interactive-watch/presets/claude/default.yaml"
+                    "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/"
+                    "interactive-watch-claude-default.yaml"
                 ),
                 launch_overrides=None,
                 operator_prompt_mode="unattended",
             ),
             "codex": DemoToolConfig(
                 recipe_path=(
-                    "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/roles/"
-                    "interactive-watch/presets/codex/default.yaml"
+                    "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/"
+                    "interactive-watch-codex-default.yaml"
                 ),
                 launch_overrides=None,
                 operator_prompt_mode="unattended",
@@ -158,7 +158,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
         build_request.recipe_path
         == (
             repo_root
-            / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/roles/interactive-watch/presets/claude/default.yaml"
+            / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-claude-default.yaml"
         ).resolve()
     )
     assert (generated_agent_def_dir / "tools/claude/auth/default").is_symlink()
@@ -242,7 +242,7 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
         build_request.recipe_path
         == (
             repo_root
-            / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/roles/interactive-watch/presets/codex/default.yaml"
+            / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-codex-default.yaml"
         ).resolve()
     )
     assert (generated_agent_def_dir / "tools/codex/auth/default").is_symlink()

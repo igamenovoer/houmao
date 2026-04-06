@@ -22,13 +22,20 @@ SYSTEM_SKILL_STATE_SCHEMA_VERSION = 1
 
 SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
 SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
+SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
+SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
+SYSTEM_SKILL_MANAGE_SPECIALIST = "houmao-manage-specialist"
+SYSTEM_SKILL_MANAGE_CREDENTIALS = "houmao-manage-credentials"
+SYSTEM_SKILL_MANAGE_AGENT_DEFINITION = "houmao-manage-agent-definition"
+SYSTEM_SKILL_MANAGE_AGENT_INSTANCE = "houmao-manage-agent-instance"
 
-_SYSTEM_SKILL_NAMESPACE = "mailbox"
-_SYSTEM_SKILL_NATIVE_TOP_LEVEL_TOOLS = frozenset({"claude", "gemini"})
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",
     "codex": "skills",
     "gemini": ".agents/skills",
+}
+_SYSTEM_SKILL_RENAMED_FROM: dict[str, tuple[str, ...]] = {
+    SYSTEM_SKILL_MANAGE_SPECIALIST: ("houmao-create-specialist",),
 }
 _SYSTEM_SKILL_STATE_RELATIVE_PATH = Path(".houmao/system-skills/install-state.json")
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
@@ -173,10 +180,10 @@ def system_skills_destination_for_tool(tool: str) -> str:
 def system_skill_reference_for_name(skill_name: str, *, tool: str | None = None) -> str:
     """Return the visible projected skill reference for one supported tool."""
 
-    namespace = _system_skill_namespace_for_tool(tool=tool)
-    if namespace is None:
-        return skill_name
-    return f"{namespace}/{skill_name}"
+    _system_skill_record_for_name(skill_name)
+    if tool is not None:
+        system_skills_destination_for_tool(tool)
+    return skill_name
 
 
 def projected_system_skill_relative_dir(*, tool: str, skill_name: str) -> str:
@@ -290,13 +297,11 @@ def project_system_skills_to_destination(
     if not resolved_skill_names:
         raise SystemSkillInstallError("At least one system skill must be selected for projection.")
 
-    projection_root = _projected_namespace_root(
-        destination_root=destination_root.resolve(), tool=tool
-    )
-    projection_root.mkdir(parents=True, exist_ok=True)
+    resolved_destination_root = destination_root.resolve()
+    resolved_destination_root.mkdir(parents=True, exist_ok=True)
     for skill_name in resolved_skill_names:
         skill_record = catalog.skills[skill_name]
-        target_dir = projection_root / skill_name
+        target_dir = resolved_destination_root / skill_name
         _remove_existing_path_if_present(target_dir)
         _copy_resource_tree(_packaged_skill_root(skill_record.asset_subpath), target_dir)
 
@@ -430,18 +435,23 @@ def install_system_skills_for_home(
     updated_records: dict[str, InstalledSystemSkillRecord] = dict(existing_records)
     projected_relative_dirs: list[str] = []
     for skill_name in resolved_skill_names:
+        skill_record = catalog.skills[skill_name]
         projected_relative_dir = projected_system_skill_relative_dir(
-            tool=tool, skill_name=skill_name
+            tool=tool,
+            skill_name=skill_name,
         )
         projected_relative_dirs.append(projected_relative_dir)
         target_dir = (resolved_home_path / projected_relative_dir).resolve()
+        prior_record = existing_records.get(skill_name)
+        superseded_records = _superseded_installed_records_for_skill(
+            existing_records=existing_records,
+            skill_name=skill_name,
+        )
         _assert_target_path_is_installable(
             target_dir=target_dir,
             home_path=resolved_home_path,
             owned_relative_dirs=owned_relative_dirs,
         )
-
-        skill_record = catalog.skills[skill_name]
         _remove_existing_path_if_present(target_dir)
         _copy_resource_tree(_packaged_skill_root(skill_record.asset_subpath), target_dir)
         updated_records[skill_name] = InstalledSystemSkillRecord(
@@ -450,6 +460,20 @@ def install_system_skills_for_home(
             projected_relative_dir=projected_relative_dir,
             content_digest=_packaged_skill_digest(skill_record.asset_subpath),
         )
+        if (
+            prior_record is not None
+            and prior_record.projected_relative_dir != projected_relative_dir
+        ):
+            _remove_previous_owned_path(
+                previous_relative_dir=prior_record.projected_relative_dir,
+                home_path=resolved_home_path,
+            )
+        for superseded_record in superseded_records:
+            _remove_previous_owned_path(
+                previous_relative_dir=superseded_record.projected_relative_dir,
+                home_path=resolved_home_path,
+            )
+            updated_records.pop(superseded_record.name, None)
 
     merged_records = _merge_install_records(
         existing_state=existing_state,
@@ -716,24 +740,14 @@ def _matches_schema_type(value: Any, expected_type: str | list[str]) -> bool:
     return False
 
 
-def _system_skill_namespace_for_tool(*, tool: str | None) -> str | None:
-    """Return the current namespace segment for one tool-aware projection."""
+def _system_skill_record_for_name(skill_name: str) -> SystemSkillRecord:
+    """Return one packaged system-skill record by name."""
 
-    if tool is None:
-        return _SYSTEM_SKILL_NAMESPACE
-    system_skills_destination_for_tool(tool)
-    if tool in _SYSTEM_SKILL_NATIVE_TOP_LEVEL_TOOLS:
-        return None
-    return _SYSTEM_SKILL_NAMESPACE
-
-
-def _projected_namespace_root(*, destination_root: Path, tool: str | None) -> Path:
-    """Return the concrete root for one tool-aware projection namespace."""
-
-    namespace = _system_skill_namespace_for_tool(tool=tool)
-    if namespace is None:
-        return destination_root
-    return destination_root / namespace
+    catalog = load_system_skill_catalog()
+    record = catalog.skills.get(skill_name)
+    if record is None:
+        raise SystemSkillCatalogError(f"Unknown system skill `{skill_name}`.")
+    return record
 
 
 def _resolve_requested_set_names(
@@ -789,11 +803,46 @@ def _merge_install_records(
     return tuple(updated_records[name] for name in ordered_names if name in updated_records)
 
 
+def _superseded_installed_records_for_skill(
+    *,
+    existing_records: dict[str, InstalledSystemSkillRecord],
+    skill_name: str,
+) -> tuple[InstalledSystemSkillRecord, ...]:
+    """Return legacy installed records superseded by the current skill name."""
+
+    return tuple(
+        existing_records[legacy_name]
+        for legacy_name in _SYSTEM_SKILL_RENAMED_FROM.get(skill_name, ())
+        if legacy_name in existing_records
+    )
+
+
 def _write_system_skill_install_state(*, path: Path, state: SystemSkillInstallState) -> None:
     """Persist one Houmao-owned install-state record."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state.to_payload(), indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _remove_previous_owned_path(*, previous_relative_dir: str, home_path: Path) -> None:
+    """Remove one previously recorded Houmao-owned path and empty namespace parents."""
+
+    previous_dir = (home_path.resolve() / previous_relative_dir).resolve()
+    try:
+        previous_dir.relative_to(home_path.resolve())
+    except ValueError as exc:
+        raise SystemSkillInstallError(
+            f"Recorded owned system-skill path `{previous_dir}` escapes tool home `{home_path}`."
+        ) from exc
+
+    _remove_existing_path_if_present(previous_dir)
+    parent = previous_dir.parent
+    resolved_home_path = home_path.resolve()
+    while parent != resolved_home_path and parent.exists() and parent.is_dir():
+        if any(parent.iterdir()):
+            break
+        parent.rmdir()
+        parent = parent.parent
 
 
 def _packaged_skill_root(asset_subpath: str) -> Traversable:

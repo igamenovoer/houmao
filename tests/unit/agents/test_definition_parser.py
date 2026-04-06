@@ -55,8 +55,11 @@ auth_projection:
     _write(agent_def_dir / "tools/claude/auth/default/env/vars.env", "ANTHROPIC_API_KEY=demo\n")
     _write(agent_def_dir / "tools/claude/auth/kimi-coding/env/vars.env", "ANTHROPIC_API_KEY=demo\n")
     _write(
-        agent_def_dir / "roles/gpu-kernel-coder/presets/claude/default.yaml",
+        agent_def_dir / "presets/gpu-kernel-coder-claude-default.yaml",
         """
+role: gpu-kernel-coder
+tool: claude
+setup: default
 skills:
   - skill-a
 auth: default
@@ -66,8 +69,11 @@ launch:
         + "\n",
     )
     _write(
-        agent_def_dir / "roles/gpu-kernel-coder/presets/claude/research.yaml",
+        agent_def_dir / "presets/gpu-kernel-coder-claude-research.yaml",
         """
+role: gpu-kernel-coder
+tool: claude
+setup: research
 skills:
   - skill-a
   - skill-b
@@ -88,18 +94,22 @@ def test_load_agent_catalog_tracks_setup_and_auth_namespaces(tmp_path: Path) -> 
     assert catalog.tool_adapters["claude"].setup_destination == "."
 
     default_preset = catalog.presets[
-        (agent_def_dir / "roles/gpu-kernel-coder/presets/claude/default.yaml").resolve()
+        (agent_def_dir / "presets/gpu-kernel-coder-claude-default.yaml").resolve()
     ]
+    assert default_preset.name == "gpu-kernel-coder-claude-default"
     assert default_preset.role_name == "gpu-kernel-coder"
     assert default_preset.tool == "claude"
     assert default_preset.setup == "default"
 
 
 def test_parse_agent_preset_rejects_unknown_top_level_fields(tmp_path: Path) -> None:
-    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
     _write(
         preset_path,
         """
+role: gpu-kernel-coder
+tool: claude
+setup: default
 skills: []
 config_profile: default
 """.strip()
@@ -111,10 +121,13 @@ config_profile: default
 
 
 def test_parse_agent_preset_accepts_gateway_defaults_under_extra(tmp_path: Path) -> None:
-    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
     _write(
         preset_path,
         """
+role: gpu-kernel-coder
+tool: claude
+setup: default
 skills:
   - skill-a
 extra:
@@ -134,10 +147,13 @@ extra:
 
 
 def test_parse_agent_preset_accepts_as_is_prompt_mode(tmp_path: Path) -> None:
-    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
     _write(
         preset_path,
         """
+role: gpu-kernel-coder
+tool: claude
+setup: default
 skills:
   - skill-a
 launch:
@@ -152,10 +168,13 @@ launch:
 
 
 def test_parse_agent_preset_accepts_launch_env_records(tmp_path: Path) -> None:
-    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
     _write(
         preset_path,
         """
+role: gpu-kernel-coder
+tool: claude
+setup: default
 skills:
   - skill-a
 launch:
@@ -177,10 +196,13 @@ launch:
 
 
 def test_parse_agent_preset_rejects_invalid_gateway_defaults_under_extra(tmp_path: Path) -> None:
-    preset_path = tmp_path / "roles/gpu-kernel-coder/presets/claude/default.yaml"
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
     _write(
         preset_path,
         """
+role: gpu-kernel-coder
+tool: claude
+setup: default
 skills:
   - skill-a
 extra:
@@ -202,7 +224,7 @@ def test_resolve_agent_preset_uses_default_setup_for_bare_role(tmp_path: Path) -
 
     preset = resolve_agent_preset(catalog=catalog, selector="gpu-kernel-coder", tool="claude")
 
-    assert preset.path == (agent_def_dir / "roles/gpu-kernel-coder/presets/claude/default.yaml").resolve()
+    assert preset.path == (agent_def_dir / "presets/gpu-kernel-coder-claude-default.yaml").resolve()
     assert preset.auth == "default"
 
 
@@ -213,7 +235,7 @@ def test_resolve_agent_preset_accepts_explicit_preset_path_selector(tmp_path: Pa
 
     preset = resolve_agent_preset(
         catalog=catalog,
-        selector="roles/gpu-kernel-coder/presets/claude/research.yaml",
+        selector="presets/gpu-kernel-coder-claude-research.yaml",
         tool="claude",
     )
 

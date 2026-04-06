@@ -14,6 +14,7 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     load_launch_overrides_input,
 )
+from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.mailbox.protocol import mailbox_address_path_segment
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
@@ -125,7 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=_AMBIENT_AGENT_DEF_DIR_HELP,
     )
     build.add_argument("--runtime-root", default=None, help="Runtime root")
-    build.add_argument("--preset", help="Path to role-scoped preset")
+    build.add_argument("--preset", help="Preset path or bare preset name")
     build.add_argument("--recipe", help=argparse.SUPPRESS)
     build.add_argument("--blueprint", help=argparse.SUPPRESS)
     build.add_argument("--tool", help="Tool name")
@@ -443,7 +444,10 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
     preset_path: Path | None = None
     requested_preset = args.preset or args.recipe
     if requested_preset:
-        preset_path = _resolve_path(requested_preset, base=agent_def_dir)
+        preset_path = resolve_explicit_or_named_preset_path(
+            agent_def_dir=agent_def_dir,
+            selector=requested_preset,
+        )
         recipe = load_brain_recipe_from_path(preset_path)
     elif args.blueprint:
         blueprint = load_blueprint(_resolve_path(args.blueprint, base=agent_def_dir))

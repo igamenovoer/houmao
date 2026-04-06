@@ -1,0 +1,7 @@
+role: minimal-launch
+tool: codex
+setup: default
+skills: []
+auth: default
+launch:
+  prompt_mode: unattended

@@ -235,7 +235,10 @@ def test_agents_gateway_attach_help_mentions_foreground_mode() -> None:
 
     assert result.exit_code == 0
     assert "--foreground" in result.output
-    assert "Window `0` remains the agent surface" in result.output
+    assert "--target-tmux-session" in result.output
+    assert "--pair-port" in result.output
+    assert "Window `0` remains" in result.output
+    assert "surface; inspect status" in result.output
     assert "window index" in result.output
 
 
@@ -591,6 +594,123 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     assert json.loads(result.output) == {"status": "local-attached"}
 
 
+def test_agents_gateway_attach_target_tmux_session_falls_back_to_registry_terminal_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    agent_def_dir = (tmp_path / "agent-def").resolve()
+    agent_def_dir.mkdir(parents=True)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.tmux_session_exists",
+        lambda *, session_name: session_name == "external-session",
+    )
+
+    def _read_tmux_env(*, session_name: str, variable_name: str) -> str | None:
+        assert session_name == "external-session"
+        mapping = {
+            AGENT_MANIFEST_PATH_ENV_VAR: None,
+            AGENT_DEF_DIR_ENV_VAR: None,
+        }
+        return mapping[variable_name]
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
+        _read_tmux_env,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_live_agent_records_by_terminal_session_name",
+        lambda session_name: (
+            SimpleNamespace(
+                runtime=SimpleNamespace(
+                    manifest_path=str(manifest_path),
+                    agent_def_dir=str(agent_def_dir),
+                )
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.load_session_manifest",
+        lambda path: SimpleNamespace(path=Path(path), payload={"manifest": "payload"}),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.parse_session_manifest_payload",
+        lambda payload, source: SimpleNamespace(
+            backend="claude_headless",
+            tool="claude",
+            tmux_session_name="external-session",
+            agent_name="HOUMAO-headless",
+            agent_id="published-alpha",
+        ),
+    )
+
+    controller = SimpleNamespace(
+        agent_id="published-alpha",
+        agent_identity="HOUMAO-headless",
+        manifest_path=manifest_path,
+        attach_gateway=lambda *, execution_mode_override=None: (
+            captured.setdefault("execution_mode_override", execution_mode_override),
+            SimpleNamespace(status="ok", detail=""),
+        )[1],
+        gateway_status=lambda: {"status": "local-attached"},
+    )
+
+    def _resume_runtime_session(*, agent_def_dir: Path, session_manifest_path: Path) -> object:
+        captured["agent_def_dir"] = agent_def_dir
+        captured["session_manifest_path"] = session_manifest_path
+        return controller
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resume_runtime_session",
+        _resume_runtime_session,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._identity_from_controller",
+        lambda resolved_controller: HoumaoManagedAgentIdentity(
+            tracked_agent_id="tracked-local",
+            transport="headless",
+            tool="claude",
+            session_name=None,
+            terminal_id=None,
+            runtime_session_id="tracked-local",
+            tmux_session_name="external-session",
+            tmux_window_name="agent",
+            manifest_path=str(manifest_path),
+            session_root=str(tmp_path.resolve()),
+            agent_name="HOUMAO-headless",
+            agent_id="published-alpha",
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
+        lambda target, *, foreground=False: (
+            captured.update({"target": target, "foreground": foreground})
+            or {"status": "local-attached"}
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "attach",
+            "--target-tmux-session",
+            "external-session",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["agent_def_dir"] == agent_def_dir
+    assert captured["session_manifest_path"] == manifest_path
+    assert captured["target"].agent_ref == "published-alpha"
+    assert captured["foreground"] is False
+    assert json.loads(result.output) == {"status": "local-attached"}
+
+
 def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -623,7 +743,7 @@ def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
             "send-keys",
             "--agent-name",
             "gpu",
-            "--port",
+            "--pair-port",
             "9889",
             "--sequence",
             "<[Escape]>",
@@ -669,7 +789,7 @@ def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
             "prompt",
             "--agent-name",
             "gpu",
-            "--port",
+            "--pair-port",
             "9889",
             "--prompt",
             "hello",
@@ -805,7 +925,31 @@ def test_agents_gateway_send_keys_without_selector_outside_tmux_fails(
     )
 
     assert result.exit_code != 0
-    assert "Exactly one of `--agent-id` or `--agent-name` is required" in result.output
+    assert (
+        "Exactly one of `--agent-id`, `--agent-name`, or `--target-tmux-session` is required"
+        in result.output
+    )
+
+
+def test_agents_gateway_rejects_pair_port_with_target_tmux_session() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "status",
+            "--target-tmux-session",
+            "gpu-session",
+            "--pair-port",
+            "9891",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert (
+        "`--pair-port` is only supported with an explicit `--agent-id` or `--agent-name` "
+        "`status` target."
+    ) in result.output
 
 
 def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
@@ -1312,7 +1456,6 @@ def test_agents_launch_reports_project_aware_root_details_in_json(
             "--provider",
             "codex",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -1418,7 +1561,6 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             "codex",
             "--session-name",
             "gpu-session",
-            "--yolo",
         ],
     )
 
@@ -1450,6 +1592,65 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     assert captured["start_kwargs"]["agent_name"] == "gpu"
     assert captured["start_kwargs"]["agent_id"] is None
     assert attach_calls == ["gpu-session"]
+
+
+def test_agents_launch_preserves_explicit_as_is_prompt_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = _make_native_launch_target(
+        working_directory=working_directory,
+        tool="codex",
+        role_name="gpu-kernel-coder",
+        operator_prompt_mode="as_is",
+    )
+    controller = SimpleNamespace(
+        manifest_path=working_directory / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="gpu",
+        tmux_session_name="gpu-session",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: (captured.setdefault("build_request", request), build_result)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
+        lambda: False,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "codex",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["build_request"].operator_prompt_mode == "as_is"
+    assert captured["start_kwargs"]["backend"] == "local_interactive"
 
 
 def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_follow_up(
@@ -1508,7 +1709,6 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
             "claude_code",
             "--session-name",
             "gpu-session",
-            "--yolo",
         ],
     )
 
@@ -1591,7 +1791,6 @@ def test_agents_launch_auth_override_wins_over_preset_default(
             "claude_code",
             "--auth",
             "kimi-coding",
-            "--yolo",
         ],
     )
 
@@ -1648,7 +1847,6 @@ def test_agents_launch_allows_missing_agent_name(
             "gpu-kernel-coder",
             "--provider",
             "claude_code",
-            "--yolo",
         ],
     )
 
@@ -1711,7 +1909,6 @@ def test_agents_launch_headless_keeps_native_headless_backend(
             "--provider",
             "claude_code",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -1771,7 +1968,6 @@ def test_agents_launch_interactive_reports_launch_policy_compatibility_failure(
             "claude",
             "--provider",
             "claude_code",
-            "--yolo",
         ],
     )
 
@@ -1836,7 +2032,6 @@ def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
             "--provider",
             "claude_code",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -1859,12 +2054,29 @@ def test_agents_launch_rejects_unsupported_provider() -> None:
             "gpu",
             "--provider",
             "kiro_cli",
-            "--yolo",
         ],
     )
 
     assert result.exit_code != 0
     assert "Invalid provider `kiro_cli`." in result.output
+
+
+def test_agents_launch_rejects_removed_yolo_flag() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "codex",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "No such option: --yolo" in result.output
 
 
 def test_server_status_reports_health_and_current_instance(monkeypatch: pytest.MonkeyPatch) -> None:

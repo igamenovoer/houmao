@@ -13,10 +13,13 @@ strategies:
       credential_forms:
         - ANTHROPIC_API_KEY
         - ANTHROPIC_AUTH_TOKEN
+        - CLAUDE_CODE_OAUTH_TOKEN
+        - projected Claude vendor login state via .credentials.json with companion .claude.json when present
         - endpoint/auth environment variables without pre-made settings.json or .claude.json
       requires_user_prepared_state: false
       notes:
         - Runtime-owned settings.json and .claude.json state may be created or patched in a fresh isolated CLAUDE_CONFIG_DIR.
+        - Projected Claude vendor login files are preserved; provider state mutation owns only unattended bootstrap and trust keys.
         - Template-derived .claude.json content is optional and preserved when present.
     evidence:
       - kind: source_reference

@@ -106,6 +106,14 @@ skills_projection:
 auth_projection:
   files_dir: files
   file_mappings:
+    - source: .credentials.json
+      destination: .credentials.json
+      mode: copy
+      required: false
+    - source: .claude.json
+      destination: .claude.json
+      mode: copy
+      required: false
     - source: claude_state.template.json
       destination: claude_state.template.json
       mode: copy
@@ -114,6 +122,7 @@ auth_projection:
     source: env/vars.env
     allowlist:
       - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
       - ANTHROPIC_BASE_URL
 """.strip()
         + "\n",
@@ -128,10 +137,19 @@ auth_projection:
         "{}\n",
     )
     _write(
+        agent_def_dir / "tools/claude/auth/personal-a/files/.credentials.json",
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n',
+    )
+    _write(
+        agent_def_dir / "tools/claude/auth/personal-a/files/.claude.json",
+        '{"hasCompletedOnboarding": true, "numStartups": 7}\n',
+    )
+    _write(
         agent_def_dir / "tools/claude/auth/personal-a/env/vars.env",
         "\n".join(
             [
                 "ANTHROPIC_API_KEY='sk-test'",
+                "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-test",
                 'ANTHROPIC_BASE_URL="https://api.example.test"',
             ]
         )
@@ -226,12 +244,15 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
-    visible_gateway_skill = home / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
-    visible_processing_skill = home / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
-    visible_mailbox_skill = home / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    visible_gateway_skill = home / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
+    visible_mailbox_skill = home / "skills/houmao-email-via-filesystem/SKILL.md"
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_skill.is_file()
+    assert (home / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
+    assert (home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
@@ -241,6 +262,9 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
+        "houmao-manage-specialist",
+        "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
     )
 
     # Credential file projection and env contract setup.
@@ -384,11 +408,11 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     )
 
     processing_skill = (
-        result.home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
+        result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
-    gateway_skill = (
-        result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
-    ).read_text(encoding="utf-8")
+    gateway_skill = (result.home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "houmao-process-emails-via-gateway" in processing_skill
     assert "metadata-first triage" in processing_skill
@@ -756,9 +780,12 @@ def test_build_brain_home_projects_claude_settings_and_template(tmp_path: Path) 
     payload = json.loads(settings_path.read_text(encoding="utf-8"))
     assert payload["skipDangerousModePermissionPrompt"] is True
     assert (result.home_path / "claude_state.template.json").is_file()
+    assert (result.home_path / ".credentials.json").is_file()
+    assert (result.home_path / ".claude.json").is_file()
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
     assert 'exec claude "$@"' in launch_script
     assert "export ANTHROPIC_API_KEY=sk-test" in launch_script
+    assert "export CLAUDE_CODE_OAUTH_TOKEN=oauth-token-test" in launch_script
     assert "export ANTHROPIC_BASE_URL=https://api.example.test" in launch_script
     assert "ENV_FILE=" not in launch_script
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
@@ -936,12 +963,13 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
     assert "--launch-arg --direct" in launch_script
 
 
-def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> None:
+def test_claude_tool_adapter_allowlist_and_file_mappings_include_vendor_auth_surfaces() -> None:
     agent_def_dir = Path(__file__).resolve().parents[2] / "fixtures" / "agents"
     adapter = _load_tool_adapter(agent_def_dir / "tools" / "claude" / "adapter.yaml")
 
     allowlist = set(adapter.credential_env_allowlist)
     assert {
+        "CLAUDE_CODE_OAUTH_TOKEN",
         "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_SUBAGENT_MODEL",
@@ -949,6 +977,10 @@ def test_claude_tool_adapter_allowlist_includes_model_selection_env_vars() -> No
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     }.issubset(allowlist)
+    file_mappings = {mapping.source: mapping.destination for mapping in adapter.auth_file_mappings}
+    assert file_mappings[".credentials.json"] == ".credentials.json"
+    assert file_mappings[".claude.json"] == ".claude.json"
+    assert file_mappings["claude_state.template.json"] == "claude_state.template.json"
 
 
 def test_tool_adapter_file_mappings_default_required_to_true(tmp_path: Path) -> None:

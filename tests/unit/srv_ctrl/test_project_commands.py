@@ -49,6 +49,23 @@ def _clone_setup_dir(repo_root: Path, *, tool: str, source: str, target: str) ->
     return target_root
 
 
+def _make_claude_config_dir(root: Path, name: str, *, token_suffix: str) -> Path:
+    """Create one Claude config-root fixture with vendor login state."""
+
+    config_parent = (root / name).resolve()
+    config_dir = (config_parent / ".claude").resolve()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / ".credentials.json").write_text(
+        json.dumps({"claudeAiOauth": {"accessToken": f"vendor-{token_suffix}"}}) + "\n",
+        encoding="utf-8",
+    )
+    (config_parent / ".claude.json").write_text(
+        json.dumps({"hasCompletedOnboarding": True, "numStartups": len(token_suffix)}) + "\n",
+        encoding="utf-8",
+    )
+    return config_dir
+
+
 def test_project_help_mentions_agents_easy_and_mailbox() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
@@ -78,9 +95,21 @@ def test_project_agents_roles_help_mentions_verbs() -> None:
     assert "list" in result.output
     assert "get" in result.output
     assert "init" in result.output
-    assert "scaffold" in result.output
+    assert "set" in result.output
     assert "remove" in result.output
-    assert "presets" in result.output
+    assert "scaffold" not in result.output
+    assert "presets" not in result.output
+
+
+def test_project_agents_presets_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["project", "agents", "presets", "--help"])
+
+    assert result.exit_code == 0
+    assert "list" in result.output
+    assert "get" in result.output
+    assert "add" in result.output
+    assert "set" in result.output
+    assert "remove" in result.output
 
 
 def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
@@ -648,9 +677,10 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
         [
             "project",
             "agents",
-            "roles",
             "presets",
             "add",
+            "--name",
+            "researcher-claude-default",
             "--role",
             "researcher",
             "--tool",
@@ -670,17 +700,15 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
         [
             "project",
             "agents",
-            "roles",
             "presets",
             "get",
-            "--role",
-            "researcher",
-            "--tool",
-            "claude",
+            "--name",
+            "researcher-claude-default",
         ],
     )
     assert preset_get_result.exit_code == 0
     preset_payload = json.loads(preset_get_result.output)
+    assert preset_payload["name"] == "researcher-claude-default"
     assert preset_payload["skills"] == ["notes"]
     assert preset_payload["auth"] == "default"
     assert preset_payload["launch"] == {"prompt_mode": "unattended"}
@@ -691,21 +719,19 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     assert role_get_result.exit_code == 0
     role_payload = json.loads(role_get_result.output)
     assert role_payload["system_prompt_exists"] is True
+    assert "system_prompt_text" not in role_payload
     assert len(role_payload["presets"]) == 1
+
+    role_remove_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "remove", "--name", "researcher"],
+    )
+    assert role_remove_result.exit_code != 0
+    assert "still reference" in role_remove_result.output
 
     preset_remove_result = runner.invoke(
         cli,
-        [
-            "project",
-            "agents",
-            "roles",
-            "presets",
-            "remove",
-            "--role",
-            "researcher",
-            "--tool",
-            "claude",
-        ],
+        ["project", "agents", "presets", "remove", "--name", "researcher-claude-default"],
     )
     assert preset_remove_result.exit_code == 0
 
@@ -716,7 +742,73 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
 
 
-def test_project_agents_roles_scaffold_creates_complete_starter_slice(
+def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    init_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "roles",
+            "init",
+            "--name",
+            "researcher",
+            "--system-prompt",
+            "Investigate failures carefully.",
+        ],
+    )
+    assert init_result.exit_code == 0, init_result.output
+
+    default_get_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "get", "--name", "researcher"],
+    )
+    assert default_get_result.exit_code == 0, default_get_result.output
+    default_payload = json.loads(default_get_result.output)
+    assert "system_prompt_text" not in default_payload
+
+    include_prompt_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "get", "--name", "researcher", "--include-prompt"],
+    )
+    assert include_prompt_result.exit_code == 0, include_prompt_result.output
+    include_prompt_payload = json.loads(include_prompt_result.output)
+    assert include_prompt_payload["system_prompt_exists"] is True
+    assert include_prompt_payload["system_prompt_text"] == "Investigate failures carefully."
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "roles",
+            "set",
+            "--name",
+            "researcher",
+            "--clear-system-prompt",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+
+    promptless_get_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "get", "--name", "researcher", "--include-prompt"],
+    )
+    assert promptless_get_result.exit_code == 0, promptless_get_result.output
+    promptless_payload = json.loads(promptless_get_result.output)
+    assert promptless_payload["system_prompt_exists"] is True
+    assert promptless_payload["system_prompt_text"] == ""
+
+
+def test_project_agents_presets_set_preserves_advanced_blocks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -733,67 +825,66 @@ def test_project_agents_roles_scaffold_creates_complete_starter_slice(
             "project",
             "agents",
             "roles",
-            "scaffold",
+            "init",
             "--name",
             "researcher",
-            "--tool",
-            "claude",
-            "--tool",
-            "codex",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills:",
+                "  - notes",
+                "auth: default",
+                "launch:",
+                "  prompt_mode: unattended",
+                "  env_records:",
+                '    FEATURE_FLAG_X: "1"',
+                "mailbox:",
+                "  transport: none",
+                "extra:",
+                "  gateway:",
+                "    host: 127.0.0.1",
+                "    port: 43123",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "presets",
+            "set",
+            "--name",
+            "researcher-codex-default",
             "--auth",
-            "default",
-            "--skill",
-            "notes",
+            "reviewer-creds",
+            "--add-skill",
+            "extra-notes",
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert (
-        repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
-    ).is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "claude"
-        / "default.yaml"
-    ).is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
-    ).is_file()
-    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "default"
-        / "env"
-        / "vars.env"
-    ).is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "default"
-        / "env"
-        / "vars.env"
-    ).is_file()
+    payload = json.loads(result.output)
+    assert payload["auth"] == "reviewer-creds"
+    assert payload["skills"] == ["notes", "extra-notes"]
+    assert payload["launch"] == {
+        "prompt_mode": "unattended",
+        "env_records": {"FEATURE_FLAG_X": "1"},
+    }
+    assert payload["mailbox"] == {"transport": "none"}
+    assert payload["extra"] == {"gateway": {"host": "127.0.0.1", "port": 43123}}
 
 
 def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_artifacts(
@@ -837,14 +928,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     metadata_path = Path(create_payload["metadata_path"])
     assert metadata_path.is_file()
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     ).is_file()
     assert (
         repo_root
@@ -870,6 +954,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     )
     assert get_result.exit_code == 0
     get_payload = json.loads(get_result.output)
+    assert get_payload["preset_name"] == "researcher-codex-default"
     assert get_payload["tool"] == "codex"
     assert get_payload["credential"] == "researcher-creds"
     assert get_payload["skills"] == ["notes"]
@@ -1132,6 +1217,296 @@ def test_project_agents_gemini_auth_add_supports_oauth_only_bundle(
     assert oauth_bundle_file.read_text(encoding="utf-8") == '{"refresh_token": "token"}\n'
 
 
+def test_project_agents_claude_auth_add_supports_oauth_only_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "add",
+            "--name",
+            "oauth-only",
+            "--oauth-token",
+            "oauth-token-123",
+            "--base-url",
+            "https://claude.example.test",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    env_file = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "claude"
+        / "auth"
+        / "oauth-only"
+        / "env"
+        / "vars.env"
+    )
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-123",
+        "ANTHROPIC_BASE_URL=https://claude.example.test",
+    ]
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "auth", "get", "--name", "oauth-only"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    payload = json.loads(get_result.output)
+    assert payload["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == {"present": True, "redacted": True}
+    assert payload["env"]["ANTHROPIC_BASE_URL"] == {
+        "present": True,
+        "value": "https://claude.example.test",
+    }
+
+
+def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clearing_other_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    template_path = tmp_path / "claude-state-template.json"
+    template_path.write_text('{"custom": {"keep": true}}\n', encoding="utf-8")
+    config_dir_a = _make_claude_config_dir(tmp_path, "vendor-a", token_suffix="alpha")
+    config_dir_b = _make_claude_config_dir(tmp_path, "vendor-b", token_suffix="beta")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "add",
+            "--name",
+            "vendor-login",
+            "--oauth-token",
+            "oauth-token-123",
+            "--base-url",
+            "https://claude.example.test",
+            "--state-template-file",
+            str(template_path),
+            "--config-dir",
+            str(config_dir_a),
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    auth_root = repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "vendor-login"
+    files_root = auth_root / "files"
+    assert json.loads((files_root / ".credentials.json").read_text(encoding="utf-8")) == {
+        "claudeAiOauth": {"accessToken": "vendor-alpha"}
+    }
+    assert json.loads((files_root / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True,
+        "numStartups": 5,
+    }
+    assert json.loads((files_root / "claude_state.template.json").read_text(encoding="utf-8")) == {
+        "custom": {"keep": True}
+    }
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "set",
+            "--name",
+            "vendor-login",
+            "--config-dir",
+            str(config_dir_b),
+            "--model",
+            "claude-sonnet-4-5",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+
+    assert json.loads((files_root / ".credentials.json").read_text(encoding="utf-8")) == {
+        "claudeAiOauth": {"accessToken": "vendor-beta"}
+    }
+    assert json.loads((files_root / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True,
+        "numStartups": 4,
+    }
+    assert json.loads((files_root / "claude_state.template.json").read_text(encoding="utf-8")) == {
+        "custom": {"keep": True}
+    }
+    env_file = auth_root / "env" / "vars.env"
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-123",
+        "ANTHROPIC_BASE_URL=https://claude.example.test",
+        "ANTHROPIC_MODEL=claude-sonnet-4-5",
+    ]
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "claude", "auth", "get", "--name", "vendor-login"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    payload = json.loads(get_result.output)
+    assert payload["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == {"present": True, "redacted": True}
+    assert payload["files"][".credentials.json"]["present"] is True
+    assert payload["files"][".claude.json"]["present"] is True
+    assert "vendor-alpha" not in get_result.output
+    assert "vendor-beta" not in get_result.output
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "claude",
+            "auth",
+            "set",
+            "--name",
+            "vendor-login",
+            "--clear-config-dir",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+    assert not (files_root / ".credentials.json").exists()
+    assert not (files_root / ".claude.json").exists()
+    assert (files_root / "claude_state.template.json").is_file()
+
+
+def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "claude-reviewer",
+            "--tool",
+            "claude",
+            "--system-prompt",
+            "You review code with Claude.",
+            "--claude-oauth-token",
+            "oauth-token-123",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    env_file = (
+        repo_root
+        / ".houmao"
+        / "agents"
+        / "tools"
+        / "claude"
+        / "auth"
+        / "claude-reviewer-creds"
+        / "env"
+        / "vars.env"
+    )
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-123"
+    ]
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "claude-reviewer"],
+        ).output
+    )
+    assert specialist_payload["tool"] == "claude"
+    assert specialist_payload["launch"] == {"prompt_mode": "unattended"}
+
+
+def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_state_template(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_dir = _make_claude_config_dir(tmp_path, "vendor-specialist", token_suffix="gamma")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "claude-imported",
+            "--tool",
+            "claude",
+            "--system-prompt",
+            "You use imported Claude vendor auth.",
+            "--claude-config-dir",
+            str(config_dir),
+            "--claude-model",
+            "claude-sonnet-4-5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    auth_root = (
+        repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "claude-imported-creds"
+    )
+    assert json.loads((auth_root / "files" / ".credentials.json").read_text(encoding="utf-8")) == {
+        "claudeAiOauth": {"accessToken": "vendor-gamma"}
+    }
+    assert json.loads((auth_root / "files" / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True,
+        "numStartups": 5,
+    }
+    assert not (auth_root / "files" / "claude_state.template.json").exists()
+    assert (auth_root / "env" / "vars.env").read_text(encoding="utf-8").splitlines() == [
+        "ANTHROPIC_MODEL=claude-sonnet-4-5"
+    ]
+
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "claude-imported"],
+        ).output
+    )
+    assert specialist_payload["tool"] == "claude"
+    assert specialist_payload["credential"] == "claude-imported-creds"
+
+
 def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1306,16 +1681,7 @@ def test_project_easy_specialist_create_prompts_before_replacing_existing_specia
 
     assert result.exit_code == 0, result.output
     prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
-    preset_path = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
-    )
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     assert prompt_path.read_text(encoding="utf-8") == "Replacement prompt\n"
     assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
         "prompt_mode": "unattended"
@@ -1457,16 +1823,7 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
 
     assert result.exit_code == 0, result.output
     prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
-    preset_path = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
-    )
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     assert prompt_path.read_text(encoding="utf-8") == "Replacement prompt\n"
     assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
         "prompt_mode": "unattended"
@@ -1581,9 +1938,9 @@ def test_project_easy_specialist_create_persists_non_default_setup(
     )
 
     assert payload["setup"] == "yunwu-openai"
-    assert payload["generated"]["preset"].endswith("/codex/yunwu-openai.yaml")
+    assert payload["generated"]["preset"].endswith("/researcher-codex-yunwu-openai.yaml")
     assert specialist_payload["setup"] == "yunwu-openai"
-    assert specialist_payload["generated"]["preset"].endswith("/codex/yunwu-openai.yaml")
+    assert specialist_payload["generated"]["preset"].endswith("/researcher-codex-yunwu-openai.yaml")
 
 
 @pytest.mark.parametrize("tool_name", ["claude", "codex", "gemini"])
@@ -1619,7 +1976,7 @@ def test_project_easy_specialist_create_persists_default_setup_for_supported_too
     payload = json.loads(result.output)
 
     assert payload["setup"] == "default"
-    assert payload["generated"]["preset"].endswith(f"/{tool_name}/default.yaml")
+    assert payload["generated"]["preset"].endswith(f"/researcher-{tool_name}-default.yaml")
 
 
 def test_project_easy_instance_launch_rejects_gemini_without_headless(
@@ -1664,12 +2021,33 @@ def test_project_easy_instance_launch_rejects_gemini_without_headless(
             "gemini-reviewer",
             "--name",
             "gemini-reviewer-1",
-            "--yolo",
         ],
     )
 
     assert result.exit_code != 0
     assert "Gemini specialists are currently headless-only" in result.output
+
+
+def test_project_easy_instance_launch_rejects_removed_yolo_flag(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "No such option: --yolo" in result.output
 
 
 def test_project_easy_instance_launch_uses_stored_specialist_setup(
@@ -1708,11 +2086,13 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
     captured: dict[str, object] = {}
 
     def _fake_launch(**kwargs: object) -> SimpleNamespace:
-        preset_root = (
-            repo_root / ".houmao" / "agents" / "roles" / "researcher" / "presets" / "codex"
+        preset_path = (
+            repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-yunwu-openai.yaml"
         )
-        assert (preset_root / "yunwu-openai.yaml").is_file()
-        assert not (preset_root / "default.yaml").exists()
+        assert preset_path.is_file()
+        assert not (
+            repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+        ).exists()
         captured.update(kwargs)
         manifest_path = (tmp_path / "manifest.json").resolve()
         manifest_path.write_text("{}\n", encoding="utf-8")
@@ -1744,20 +2124,12 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert captured["agents"] == str(
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "yunwu-openai.yaml"
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-yunwu-openai.yaml"
     )
 
 
@@ -1909,7 +2281,6 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
             "--mail-transport",
             "filesystem",
             "--mail-root",
@@ -1921,14 +2292,7 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
 
     assert result.exit_code == 0, result.output
     assert captured["agents"] == str(
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "roles"
-        / "researcher"
-        / "presets"
-        / "codex"
-        / "default.yaml"
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     )
     assert captured["agent_name"] == "repo-research-1"
     assert captured["provider"] == "codex"
@@ -2008,7 +2372,6 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
             "--env-set",
             "FEATURE_FLAG_X=1",
             "--env-set",
@@ -2184,7 +2547,6 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
             "--mail-transport",
             "filesystem",
             "--mail-root",

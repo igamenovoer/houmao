@@ -8,11 +8,11 @@ live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"
 sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"
 
 [tools.claude]
-recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/roles/interactive-watch/presets/claude/default.yaml"
+recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-claude-default.yaml"
 operator_prompt_mode = "unattended"
 
 [tools.codex]
-recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/roles/interactive-watch/presets/codex/default.yaml"
+recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-codex-default.yaml"
 
 [evidence]
 sample_interval_seconds = 0.2

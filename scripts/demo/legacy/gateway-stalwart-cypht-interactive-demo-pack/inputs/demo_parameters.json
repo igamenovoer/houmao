@@ -15,7 +15,7 @@
   },
   "participants": {
     "alice": {
-      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
+      "blueprint": "tests/fixtures/agents/presets/mailbox-demo-codex-default.yaml",
       "agent_identity": "AGENTSYS-alice",
       "mailbox_principal_id": "alice",
       "mailbox_address": "alice@example.test",
@@ -24,7 +24,7 @@
       "cypht_password": "admin"
     },
     "bob": {
-      "blueprint": "tests/fixtures/agents/roles/mailbox-demo/presets/codex/default.yaml",
+      "blueprint": "tests/fixtures/agents/presets/mailbox-demo-codex-default.yaml",
       "agent_identity": "AGENTSYS-bob",
       "mailbox_principal_id": "bob",
       "mailbox_address": "bob@example.test",

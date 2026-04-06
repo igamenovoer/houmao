@@ -27,11 +27,32 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
+        "houmao-manage-specialist",
+        "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
+        "houmao-manage-agent-instance",
     ]
-    assert [record["name"] for record in payload["sets"]] == ["mailbox-core", "mailbox-full"]
-    assert payload["auto_install"]["cli_default_sets"] == ["mailbox-full"]
-    assert payload["auto_install"]["managed_launch_sets"] == ["mailbox-full"]
-    assert payload["auto_install"]["managed_join_sets"] == ["mailbox-full"]
+    assert [record["name"] for record in payload["sets"]] == [
+        "mailbox-core",
+        "mailbox-full",
+        "user-control",
+        "agent-instance",
+    ]
+    assert payload["auto_install"]["cli_default_sets"] == [
+        "mailbox-full",
+        "user-control",
+        "agent-instance",
+    ]
+    assert payload["auto_install"]["managed_launch_sets"] == ["mailbox-full", "user-control"]
+    assert payload["auto_install"]["managed_join_sets"] == ["mailbox-full", "user-control"]
+    user_control_record = next(
+        record for record in payload["sets"] if record["name"] == "user-control"
+    )
+    assert user_control_record["skills"] == [
+        "houmao-manage-specialist",
+        "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
+    ]
 
 
 def test_system_skills_status_reports_missing_state_for_untouched_home(tmp_path: Path) -> None:
@@ -76,15 +97,23 @@ def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> No
 
     assert install_result.exit_code == 0, install_result.output
     install_payload = json.loads(install_result.output)
-    assert install_payload["selected_sets"] == ["mailbox-full"]
+    assert install_payload["selected_sets"] == ["mailbox-full", "user-control", "agent-instance"]
     assert install_payload["resolved_skills"] == [
         "houmao-process-emails-via-gateway",
         "houmao-email-via-agent-gateway",
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
+        "houmao-manage-specialist",
+        "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
+        "houmao-manage-agent-instance",
     ]
-    assert (home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-manage-agent-instance/SKILL.md").is_file()
 
     status_result = CliRunner().invoke(
         cli,

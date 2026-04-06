@@ -79,9 +79,15 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
             "auth/codex/researcher-creds",
         )
         preset_row = connection.execute(
-            "SELECT role_name, tool, setup_name, auth_name FROM v_presets"
+            "SELECT preset_name, role_name, tool, setup_name, auth_name FROM v_presets"
         ).fetchone()
-        assert preset_row == ("researcher", "codex", "default", "researcher-creds")
+        assert preset_row == (
+            "researcher-codex-default",
+            "researcher",
+            "codex",
+            "default",
+            "researcher-creds",
+        )
     finally:
         connection.close()
 
@@ -105,9 +111,21 @@ def test_project_catalog_imports_legacy_specialist_metadata(
     role_root = overlay.agents_root / "roles" / "researcher"
     role_root.mkdir(parents=True, exist_ok=True)
     (role_root / "system-prompt.md").write_text("Legacy prompt\n", encoding="utf-8")
-    preset_root = role_root / "presets" / "codex"
+    preset_root = overlay.agents_root / "presets"
     preset_root.mkdir(parents=True, exist_ok=True)
-    (preset_root / "default.yaml").write_text("skills: [notes]\nauth: legacy-creds\n", encoding="utf-8")
+    (preset_root / "researcher-codex-default.yaml").write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: [notes]",
+                "auth: legacy-creds",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
     auth_root = overlay.agents_root / "tools" / "codex" / "auth" / "legacy-creds"
     (auth_root / "env").mkdir(parents=True, exist_ok=True)
@@ -130,7 +148,7 @@ def test_project_catalog_imports_legacy_specialist_metadata(
                 'credential_name = "legacy-creds"',
                 'role_name = "researcher"',
                 'system_prompt_path = "agents/roles/researcher/system-prompt.md"',
-                'preset_path = "agents/roles/researcher/presets/codex/default.yaml"',
+                'preset_path = "agents/presets/researcher-codex-default.yaml"',
                 'auth_path = "agents/tools/codex/auth/legacy-creds"',
                 'skills = ["notes"]',
                 "",
@@ -144,6 +162,7 @@ def test_project_catalog_imports_legacy_specialist_metadata(
 
     assert specialist.name == "researcher"
     assert specialist.tool == "codex"
+    assert specialist.preset_name == "researcher-codex-default"
     assert specialist.credential_name == "legacy-creds"
     assert specialist.skills == ("notes",)
     assert specialist.prompt_ref.resolve(overlay).is_file()

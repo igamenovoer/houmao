@@ -243,8 +243,9 @@ At minimum, this requirement SHALL apply to:
 - `houmao-mgr project agents tools <tool> auth add`
 - `houmao-mgr project agents tools <tool> auth set`
 - `houmao-mgr project agents roles init`
-- `houmao-mgr project agents roles scaffold`
-- `houmao-mgr project agents roles presets add`
+- `houmao-mgr project agents roles set`
+- `houmao-mgr project agents presets add`
+- `houmao-mgr project agents presets set`
 
 #### Scenario: Tool auth add bootstraps the missing overlay on demand
 - **WHEN** no active project overlay exists
@@ -276,9 +277,9 @@ At minimum, this requirement SHALL apply to:
 - `houmao-mgr project agents roles list`
 - `houmao-mgr project agents roles get`
 - `houmao-mgr project agents roles remove`
-- `houmao-mgr project agents roles presets list`
-- `houmao-mgr project agents roles presets get`
-- `houmao-mgr project agents roles presets remove`
+- `houmao-mgr project agents presets list`
+- `houmao-mgr project agents presets get`
+- `houmao-mgr project agents presets remove`
 
 #### Scenario: Tool get fails clearly without bootstrapping a missing overlay
 - **WHEN** no active project overlay exists
@@ -286,9 +287,9 @@ At minimum, this requirement SHALL apply to:
 - **THEN** the command fails clearly because no project overlay was discovered for the current invocation
 - **AND THEN** it does not create `<cwd>/.houmao` as a side effect of that inspection command
 
-#### Scenario: Role preset remove does not create an empty overlay
+#### Scenario: Preset remove does not create an empty overlay
 - **WHEN** no active project overlay exists
-- **AND WHEN** an operator runs `houmao-mgr project agents roles presets remove --role reviewer --tool codex`
+- **AND WHEN** an operator runs `houmao-mgr project agents presets remove --name reviewer-codex-default`
 - **THEN** the command fails clearly before attempting removal
 - **AND THEN** it does not bootstrap a new project overlay only to report missing existing state
 

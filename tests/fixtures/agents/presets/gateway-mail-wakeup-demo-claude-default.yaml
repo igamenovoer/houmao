@@ -1,0 +1,9 @@
+role: gateway-mail-wakeup-demo
+tool: claude
+setup: default
+skills:
+- openspec-apply-change
+- openspec-verify-change
+auth: kimi-coding
+launch:
+  prompt_mode: unattended

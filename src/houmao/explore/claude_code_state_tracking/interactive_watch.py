@@ -57,7 +57,7 @@ DEFAULT_INTERACTIVE_RUN_ROOT_PARENT = Path(
     "tmp/explore/claude-code-state-tracking/interactive-watch"
 )
 DEFAULT_INTERACTIVE_PRESET = Path(
-    "tests/fixtures/agents/roles/interactive-watch/presets/claude/default.yaml"
+    "tests/fixtures/agents/presets/interactive-watch-claude-default.yaml"
 )
 DEFAULT_SAMPLE_INTERVAL_SECONDS = 0.25
 DEFAULT_SETTLE_SECONDS = 1.0

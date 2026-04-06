@@ -566,7 +566,6 @@ def launch_instance(
                 instance_name,
                 "--session-name",
                 session_name,
-                "--yolo",
                 "--mail-transport",
                 "filesystem",
                 "--mail-root",

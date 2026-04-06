@@ -47,7 +47,12 @@ When the command is operating in project context and no stronger runtime-root or
 - `--auth`: Optional auth override for the resolved preset
 - `--session-name`: Optional tmux session name (auto-generated if omitted)
 - `--headless`: Launch in detached mode
-- `--yolo`: Skip workspace trust confirmation
+
+The command SHALL NOT expose a separate CLI workspace-trust bypass flag on this surface.
+
+The command SHALL proceed without a Houmao-managed workspace trust confirmation prompt before local launch begins.
+
+The effective provider startup posture SHALL remain determined by the resolved preset `launch.prompt_mode` together with the downstream runtime/provider launch-policy contract.
 
 #### Scenario: Operator specifies a custom session name
 
@@ -67,34 +72,30 @@ When the command is operating in project context and no stronger runtime-root or
 - **THEN** the launch uses `worker-a` as the managed-agent logical name
 - **AND THEN** the preset does not need to define any default managed-agent name
 
-#### Scenario: Workspace trust confirmation is shown for providers that access the workspace
+#### Scenario: Local launch does not require a separate workspace-trust bypass flag
 
-- **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code` without `--yolo`
-- **THEN** the CLI displays a workspace trust confirmation prompt before launching
-- **AND THEN** the operator can decline to cancel the launch
-
-#### Scenario: Workspace trust confirmation is skipped with --yolo
-
-- **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code --yolo`
-- **THEN** the CLI skips the workspace trust confirmation and launches immediately
+- **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code`
+- **THEN** the command proceeds without a Houmao-managed workspace trust confirmation prompt
+- **AND THEN** any no-prompt or full-autonomy startup posture comes from the resolved `launch.prompt_mode` rather than from a separate `--yolo` flag
 
 ### Requirement: `houmao-mgr agents launch` resolves preset selectors with explicit default-setup behavior
 
 `houmao-mgr agents launch` SHALL support exactly two preset selector forms on `--agents`:
 
-- bare role selector `<role>`, resolved together with the provider-derived tool to `agents/roles/<role>/presets/<tool>/default.yaml`
+- bare role selector `<role>`, resolved together with the provider-derived tool to the unique named preset whose `role=<role>`, `tool=<tool>`, and `setup=default`
 - explicit preset file path
 
 The command SHALL NOT interpret `<role>/<setup>` as selector shorthand in this change.
 
-#### Scenario: Bare role selector resolves the default setup
+#### Scenario: Bare role selector resolves the default setup through a named preset
 
 - **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code`
-- **THEN** the command SHALL resolve `agents/roles/gpu-kernel-coder/presets/claude/default.yaml`
+- **THEN** the command SHALL resolve the unique preset whose content declares `role: gpu-kernel-coder`, `tool: claude`, and `setup: default`
+- **AND THEN** the resolved preset file SHALL live under `agents/presets/`
 
 #### Scenario: Explicit preset path selects a non-default setup
 
-- **WHEN** an operator runs `houmao-mgr agents launch --agents agents/roles/gpu-kernel-coder/presets/codex/yunwu-openai.yaml --provider codex`
+- **WHEN** an operator runs `houmao-mgr agents launch --agents agents/presets/gpu-kernel-coder-codex-yunwu-openai.yaml --provider codex`
 - **THEN** the command SHALL resolve that explicit preset file path directly
 
 #### Scenario: Hybrid role-setup shorthand is rejected
@@ -306,4 +307,3 @@ When the operator did not supply `agent_id`, the launch path SHALL surface the e
 - **WHEN** an operator launches a managed agent without supplying `agent_id`
 - **THEN** the launch output includes the effective `agent_id = md5(agent_name).hexdigest()`
 - **AND THEN** the operator can use that derived `agent_id` for later exact disambiguation if needed
-

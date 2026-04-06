@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Process Emails via Gateway"
+  short_description: "Process one Houmao gateway email round."
+  default_prompt: "Use $houmao-process-emails-via-gateway to process one notifier-driven unread-email round with the provided gateway base URL."

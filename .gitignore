@@ -26,6 +26,8 @@ MANIFEST
 *.env
 *credentials*
 *api_key*
+!src/houmao/agents/assets/system_skills/houmao-manage-credentials/
+!src/houmao/agents/assets/system_skills/houmao-manage-credentials/**
 !openspec/
 !openspec/**
 

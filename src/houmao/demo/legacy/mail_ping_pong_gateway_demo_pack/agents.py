@@ -103,8 +103,8 @@ def expose_runtime_skills_in_project(
 ) -> None:
     """Stage mailbox skill docs in the demo project workdir.
 
-    The demo keeps a project-local visible mailbox skill tree under
-    `skills/mailbox/...` instead of relying on a live symlink into the
+    The demo keeps a project-local visible Houmao mailbox skill tree under
+    `skills/houmao-...` instead of relying on a live symlink into the
     runtime home.
     """
 

@@ -110,8 +110,9 @@ Joined-session notes:
 
 For managed agents, the public gateway control surface lives on `houmao-mgr agents gateway ...`:
 
-- `houmao-mgr agents gateway attach --agent-name <friendly-name> --port <public-port>` for explicit managed-agent targeting
-- `houmao-mgr agents gateway attach --agent-id <authoritative-id> --port <public-port>` when exact disambiguation matters
+- `houmao-mgr agents gateway attach --agent-name <friendly-name> --pair-port <pair-port>` for explicit managed-agent targeting
+- `houmao-mgr agents gateway attach --agent-id <authoritative-id> --pair-port <pair-port>` when exact disambiguation matters
+- `houmao-mgr agents gateway attach --target-tmux-session <tmux-session-name>` for explicit outside-tmux targeting by local tmux session name
 - `houmao-mgr agents gateway attach --foreground --agent-name <friendly-name>` when you explicitly want a runtime-owned tmux-backed session to host the gateway in a same-session auxiliary tmux window
 - `houmao-mgr agents gateway attach` from inside the target tmux session for current-session attach
 - `houmao-mgr agents gateway status|prompt|interrupt|send-keys ...` follow the same target-resolution rules as `attach`
@@ -120,10 +121,13 @@ For managed agents, the public gateway control surface lives on `houmao-mgr agen
 
 Targeting rules for `houmao-mgr agents gateway ...`:
 
-- inside tmux, omitting `--agent-id` and `--agent-name` implies current-session resolution
+- inside tmux, omitting `--agent-id`, `--agent-name`, and `--target-tmux-session` implies current-session resolution
 - `--current-session` makes that same-session intent explicit
+- `--target-tmux-session` is the explicit outside-tmux selector when the operator knows the local tmux session name rather than the managed-agent identity
 - current-session resolution prefers `HOUMAO_MANIFEST_PATH` and falls back to `HOUMAO_AGENT_ID` plus a fresh shared-registry record
-- `--port` is only valid with an explicit `--agent-id` or `--agent-name`; current-session mode always follows manifest-declared pair authority
+- `--target-tmux-session` resolves locally from the addressed tmux session's `HOUMAO_MANIFEST_PATH` first and falls back to a fresh exact `terminal.session_name` shared-registry match
+- `--pair-port` is only valid with an explicit `--agent-id` or `--agent-name`; `--current-session` and `--target-tmux-session` always follow manifest-declared pair authority after local resolution
+- `--pair-port` selects the Houmao pair-authority server, not the live gateway listener port; lower-level listener overrides use runtime-facing flags such as `--gateway-port`
 
 Current-session attach requires the target tmux session to publish `HOUMAO_MANIFEST_PATH` or, failing that, `HOUMAO_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. `HOUMAO_GATEWAY_ATTACH_PATH` and `HOUMAO_GATEWAY_ROOT` are retired from the supported discovery contract. Current-session attach becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
 
@@ -148,7 +152,7 @@ houmao-mgr agents state --agent-id <agent-id> --port 9891
 houmao-mgr agents turn submit --agent-id <agent-id> --port 9891 --prompt "Summarize the latest turn."
 ```
 
-Passive-server gateway attach and detach remain same-host operations. `houmao-mgr agents gateway attach|detach --port 9891` succeeds only when the target can be resolved to a local registry-backed runtime authority on the current host; remote passive-server HTTP attach and detach are intentionally unsupported.
+Passive-server gateway attach and detach remain same-host operations. `houmao-mgr agents gateway attach|detach --pair-port 9891` succeeds only when the target can be resolved to a local registry-backed runtime authority on the current host; remote passive-server HTTP attach and detach are intentionally unsupported.
 
 The runtime `mail` command operates on resumed mailbox-enabled sessions and supports `check`, `send`, and `reply`.
 

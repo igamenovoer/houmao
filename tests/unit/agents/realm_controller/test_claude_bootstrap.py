@@ -69,6 +69,11 @@ def test_bootstrap_materializes_state_with_api_key_and_is_create_only(
 
 def test_bootstrap_materializes_state_without_api_key(tmp_path: Path) -> None:
     home = _prepare_home(tmp_path)
+    credentials_path = home / ".credentials.json"
+    credentials_path.write_text(
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n',
+        encoding="utf-8",
+    )
 
     ensure_claude_home_bootstrap(home_path=home, env={})
 
@@ -76,6 +81,9 @@ def test_bootstrap_materializes_state_without_api_key(tmp_path: Path) -> None:
     assert payload["hasCompletedOnboarding"] is True
     assert payload["numStartups"] == 1
     assert "customApiKeyResponses" not in payload
+    assert credentials_path.read_text(encoding="utf-8") == (
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n'
+    )
 
 
 def test_bootstrap_preserves_template_mcp_servers(tmp_path: Path) -> None:
@@ -101,6 +109,48 @@ def test_bootstrap_preserves_template_mcp_servers(tmp_path: Path) -> None:
         "-y",
         "@modelcontextprotocol/server-filesystem",
     ]
+
+
+def test_bootstrap_skips_template_when_vendor_runtime_state_already_exists(tmp_path: Path) -> None:
+    home = _prepare_home(tmp_path, template=None)
+    runtime_state_path = home / ".claude.json"
+    credentials_path = home / ".credentials.json"
+    runtime_state_path.write_text('{"hasCompletedOnboarding": true, "numStartups": 9}\n', encoding="utf-8")
+    credentials_path.write_text(
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n',
+        encoding="utf-8",
+    )
+
+    ensure_claude_home_bootstrap(
+        home_path=home,
+        env={"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token-test"},
+    )
+
+    assert json.loads(runtime_state_path.read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True,
+        "numStartups": 9,
+    }
+    assert credentials_path.read_text(encoding="utf-8") == (
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n'
+    )
+
+
+def test_bootstrap_skips_template_when_minimal_vendor_runtime_state_exists(tmp_path: Path) -> None:
+    home = _prepare_home(tmp_path, template=None)
+    runtime_state_path = home / ".claude.json"
+    credentials_path = home / ".credentials.json"
+    runtime_state_path.write_text("{}\n", encoding="utf-8")
+    credentials_path.write_text(
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n',
+        encoding="utf-8",
+    )
+
+    ensure_claude_home_bootstrap(home_path=home, env={})
+
+    assert json.loads(runtime_state_path.read_text(encoding="utf-8")) == {}
+    assert credentials_path.read_text(encoding="utf-8") == (
+        '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n'
+    )
 
 
 def test_bootstrap_fails_when_template_missing(tmp_path: Path) -> None:

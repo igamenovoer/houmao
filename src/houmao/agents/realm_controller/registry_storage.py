@@ -158,6 +158,42 @@ def resolve_live_agent_records_by_name(
     return tuple(matches)
 
 
+def resolve_live_agent_records_by_terminal_session_name(
+    session_name: str,
+    *,
+    env: Mapping[str, str] | None = None,
+    now: datetime | None = None,
+) -> tuple[LiveAgentRegistryRecordV2, ...]:
+    """Resolve every fresh registry record that matches one exact tmux session name."""
+
+    candidate_session_name = session_name.strip()
+    if not candidate_session_name:
+        return ()
+
+    current_time = _coerce_now(now)
+    paths = global_registry_paths(env=env)
+    if not paths.live_agents_dir.exists():
+        return ()
+
+    matches: list[LiveAgentRegistryRecordV2] = []
+    for candidate in sorted(paths.live_agents_dir.iterdir()):
+        if not candidate.is_dir():
+            continue
+        record_path = candidate / "record.json"
+        if not record_path.is_file():
+            continue
+        try:
+            record = _read_live_agent_record(record_path)
+        except SessionManifestError:
+            continue
+        if record.terminal.session_name != candidate_session_name:
+            continue
+        if not is_live_agent_record_fresh(record, now=current_time):
+            continue
+        matches.append(record)
+    return tuple(matches)
+
+
 def resolve_live_agent_record(
     agent_identity: str,
     *,

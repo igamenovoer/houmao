@@ -64,7 +64,27 @@ Key options:
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 
-Tool-specific credential options are also available: `--claude-auth-token`, `--claude-model`, `--codex-org-id`, `--google-api-key`, etc.
+Claude-specific auth inputs now support four maintained credential lanes plus separate optional bootstrap state:
+
+- API-key lane: `--api-key`
+- Auth-token lane: `--claude-auth-token`
+- OAuth-token lane: `--claude-oauth-token`
+- Vendor login-state lane: `--claude-config-dir /path/to/claude-config-root`, which imports `.credentials.json` and companion `.claude.json` when present
+- Optional bootstrap-only state: `--claude-state-template-file /path/to/claude_state.template.json`
+
+`--claude-state-template-file` is not itself a credential-providing method. It only carries reusable Claude runtime bootstrap state. Optional `--base-url` and `--claude-model` can be layered onto any supported Claude credential lane.
+
+For the file-level handling rules, including what `.credentials.json` vs `.claude.json` means and how to validate the lane locally, see [Claude Vendor Login Files](../reference/claude-vendor-login-files.md).
+
+Example Claude specialist using maintained vendor login state:
+
+```bash
+houmao-mgr project easy specialist create \
+  --name claude-reviewer \
+  --tool claude \
+  --system-prompt "You are a Claude-based code reviewer." \
+  --claude-config-dir ~/.claude
+```
 
 Gemini-specific auth inputs now support two maintained lanes:
 
@@ -100,7 +120,6 @@ Key options:
 | `--specialist` | Required | Specialist name to launch from. |
 | `--name` | Required | Managed-agent instance name. |
 | `--headless` | False | Launch in detached/background mode. |
-| `--yolo` | False | Skip workspace trust confirmation. |
 | `--session-name` | None | Optional tmux session name override. |
 | `--auth` | Specialist's credential | Optional auth bundle override. |
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
@@ -108,6 +127,8 @@ Key options:
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
 
 Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project easy instance launch`.
+
+There is no separate easy-launch `--yolo` override. Startup autonomy is owned by the stored specialist `launch.prompt_mode`: `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 
 ## Managing Specialists and Instances
 

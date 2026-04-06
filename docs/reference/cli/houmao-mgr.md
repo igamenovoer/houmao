@@ -161,7 +161,7 @@ houmao-mgr brains build [OPTIONS]
 | `--skill TEXT` | Skill name to include. May be specified multiple times. |
 | `--setup TEXT` | Setup bundle to materialize. |
 | `--auth TEXT` | Auth bundle to project. |
-| `--preset TEXT` | Preset path resolved from the agent root. |
+| `--preset TEXT` | Preset path or bare preset name resolved from the agent root. |
 | `--runtime-root PATH` | Root directory for runtime homes. |
 | `--home-id TEXT` | Explicit home identifier for the runtime home directory. |
 | `--reuse-home` | Reuse an existing runtime home if one matches, instead of creating a new one. |
@@ -202,7 +202,7 @@ Operational notes:
 - `system-skills install` requires `--tool` and `--home`.
 - selection must come from `--default`, `--set`, `--skill`, or a combination of those inputs
 - repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves the current visible mailbox skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/mailbox/houmao-...`, and Gemini uses `.agents/skills/houmao-...`
+- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.agents/skills/houmao-...`
 - each target home records Houmao-owned install state under `.houmao/system-skills/install-state.json`
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 
@@ -223,6 +223,7 @@ houmao-mgr project
 ├── init | status
 ├── agents
 │   ├── roles ...
+│   ├── presets ...
 │   └── tools <tool> ...
 ├── easy
 │   ├── specialist ...
@@ -260,11 +261,24 @@ Project overlay notes:
 
 | Subcommand | Description |
 |---|---|
-| `roles list|get|init|scaffold|remove` | Inspect, create, scaffold, or delete role roots under `agents/roles/`. |
-| `roles presets list|get|add|remove` | Manage canonical preset files under `agents/roles/<role>/presets/<tool>/<setup>.yaml`. |
+| `roles list|get|init|set|remove` | Inspect, create, update, or delete prompt-only role roots under `agents/roles/`. Use `roles get --include-prompt` when you explicitly need prompt text in CLI output. |
+| `presets list|get|add|set|remove` | Manage canonical named preset files under `agents/presets/<name>.yaml`, including which auth bundle one preset references. |
 | `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
 | `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
-| `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `agents/tools/<tool>/auth/<name>/`. |
+| `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `agents/tools/<tool>/auth/<name>/`, including env vars and auth files stored inside those bundles. |
+
+Low-level boundary notes:
+
+- `roles ...` owns the canonical low-level role prompt.
+- `presets ...` owns named preset structure, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference.
+- `tools <tool> auth ...` owns auth-bundle contents. Use that surface when the task is changing env vars or auth files inside the bundle rather than which bundle a preset selects.
+
+`project agents tools claude auth add|set` notes:
+
+- Claude supports maintained auth inputs `--api-key`, `--auth-token`, `--oauth-token`, optional `--config-dir`, optional `--base-url`, and optional model-selection env values.
+- `--config-dir` imports Claude vendor login state from a maintained Claude config root by copying `.credentials.json` and companion `.claude.json` when present.
+- `--state-template-file` remains optional Claude bootstrap state only and is not a credential-providing method.
+- See [Claude Vendor Login Files](../claude-vendor-login-files.md) for the file-handling rules and the local smoke-validation workflow.
 
 #### `project easy`
 
@@ -289,6 +303,10 @@ Project overlay notes:
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
 - maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset, including Gemini's headless-only easy lane.
 - specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
+- Claude credential lanes use the same project-tool contract in both `project agents tools claude auth add|set` and `project easy specialist create --tool claude`: `--api-key`, optional `--claude-auth-token`, optional `--claude-oauth-token`, optional `--claude-config-dir`, optional `--base-url`, and optional `--claude-model`.
+- Claude auth bundle updates are patch-preserving: setting `--claude-oauth-token`, `--claude-config-dir`, `--base-url`, or `--claude-model` does not implicitly delete other stored Claude auth inputs, and refreshing `--claude-config-dir` replaces the imported vendor login files as one maintained set.
+- `--claude-state-template-file` remains optional Claude bootstrap state and is not itself a credential-providing method on the easy-specialist surface.
+- The maintained vendor-login lane is still directory-based. Pass `--config-dir` or `--claude-config-dir`, not separate `.credentials.json` or `.claude.json` file flags.
 - Gemini credential lanes use the same project-tool contract in both `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini`: `--api-key`, optional `--base-url`, and optional `--oauth-creds` or `--gemini-oauth-creds`.
 - Gemini auth bundle updates are patch-preserving: setting `--base-url` or `--oauth-creds` does not implicitly delete other Gemini auth inputs that were already stored.
 - The project-local catalog is the source of truth; `agents/` under the active overlay root is a compatibility projection that is materialized as needed.
