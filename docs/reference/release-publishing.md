@@ -56,19 +56,19 @@ Recommended release flow:
 ```bash
 git checkout main
 git pull --ff-only origin main
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
-6. Create and publish the GitHub release for tag `v0.3.0`:
+6. Create and publish the GitHub release for tag `v0.3.1`:
 
 ```bash
-gh release create v0.3.0 --verify-tag --generate-notes
+gh release create v0.3.1 --verify-tag --generate-notes
 ```
 
 7. Confirm that the `pypi-release` workflow run completes successfully and that PyPI shows the new version.
 
-For clarity and conventional GitHub release handling, use `v0.3.0` as the public tag name.
+For clarity and conventional GitHub release handling, use `v0.3.1` as the public tag name.
 
 ## Release Artifact Scope
 
