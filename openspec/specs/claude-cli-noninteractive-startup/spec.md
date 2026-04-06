@@ -208,6 +208,8 @@ When those files are present in the selected Claude auth bundle, auth projection
 
 Launch preparation SHALL treat a projected `.claude.json` as existing Claude runtime state, SHALL NOT require `claude_state.template.json` solely because that projected runtime state came from imported vendor login state, and SHALL preserve projected `.credentials.json` without rewriting it.
 
+For this lane, the projected `.claude.json` MAY be a minimized valid JSON object, including `{}`, rather than a full copy of vendor-global state. Unrelated absent vendor-global fields SHALL NOT by themselves make unattended startup invalid when strategy-owned startup, trust, or approval state can be merged at launch time.
+
 `claude_state.template.json` remains optional Claude bootstrap seed state on this surface and SHALL NOT be treated as a credential-providing method.
 
 #### Scenario: Projected Claude login-state files appear in the isolated runtime home
@@ -220,6 +222,13 @@ Launch preparation SHALL treat a projected `.claude.json` as existing Claude run
 - **AND WHEN** that auth bundle does not provide `claude_state.template.json`
 - **THEN** launch preparation continues without treating the missing template as a configuration error
 - **AND THEN** unattended startup uses the projected `.claude.json` as the seed Claude runtime state
+
+#### Scenario: Minimal projected `.claude.json` still supports unattended startup
+- **WHEN** an orchestrated Claude launch uses an auth bundle with projected `.credentials.json`
+- **AND WHEN** that auth bundle provides `.claude.json` only as a minimized valid JSON object such as `{}`
+- **AND WHEN** unattended launch preparation needs to seed strategy-owned trust, onboarding, or approval state
+- **THEN** launch preparation treats the minimized `.claude.json` as valid existing runtime state
+- **AND THEN** it merges the strategy-owned state it needs without failing only because unrelated vendor-global fields are absent
 
 #### Scenario: Bootstrap preserves projected `.credentials.json`
 - **WHEN** an orchestrated Claude launch uses an auth bundle with projected `.credentials.json`
