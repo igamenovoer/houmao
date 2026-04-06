@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.system_skills import (
+    SYSTEM_SKILL_SET_AGENT_INSTANCE,
     SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
     SYSTEM_SKILL_SET_PROJECT_EASY,
@@ -43,8 +44,14 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-email-via-filesystem",
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
+        "houmao-manage-agent-instance",
     )
-    assert tuple(catalog.sets.keys()) == ("mailbox-core", "mailbox-full", "project-easy")
+    assert tuple(catalog.sets.keys()) == (
+        "mailbox-core",
+        "mailbox-full",
+        "project-easy",
+        "agent-instance",
+    )
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_PROJECT_EASY,
@@ -56,6 +63,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_PROJECT_EASY,
+        SYSTEM_SKILL_SET_AGENT_INSTANCE,
     )
 
 
@@ -76,6 +84,21 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-manage-specialist",
     )
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
+
+
+def test_resolve_system_skill_selection_cli_default_includes_agent_instance_skill() -> None:
+    catalog = load_system_skill_catalog()
+
+    resolved = resolve_auto_install_skill_selection(catalog, kind="cli_default")
+
+    assert resolved == (
+        "houmao-process-emails-via-gateway",
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
+        "houmao-manage-specialist",
+        "houmao-manage-agent-instance",
+    )
 
 
 def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) -> None:
@@ -207,6 +230,63 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "oauth_creds.json" in gemini_reference
     assert "GOOGLE_APPLICATION_CREDENTIALS" in gemini_reference
     assert "tests/fixtures/agents" not in gemini_reference
+
+
+def test_install_system_skills_for_home_cli_default_includes_agent_instance_skill(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    result = install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        use_cli_default=True,
+    )
+
+    manage_agent_instance_path = home_path / "skills/houmao-manage-agent-instance/SKILL.md"
+    manage_agent_instance_actions = home_path / "skills/houmao-manage-agent-instance/actions"
+
+    assert result.selected_set_names == (
+        "mailbox-full",
+        "project-easy",
+        "agent-instance",
+    )
+    assert result.resolved_skill_names == (
+        "houmao-process-emails-via-gateway",
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
+        "houmao-manage-specialist",
+        "houmao-manage-agent-instance",
+    )
+    assert manage_agent_instance_path.is_file()
+    manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
+    launch_action_path = manage_agent_instance_actions / "launch.md"
+    join_action_path = manage_agent_instance_actions / "join.md"
+    list_action_path = manage_agent_instance_actions / "list.md"
+    stop_action_path = manage_agent_instance_actions / "stop.md"
+    cleanup_action_path = manage_agent_instance_actions / "cleanup.md"
+    launch_action = launch_action_path.read_text(encoding="utf-8")
+    cleanup_action = cleanup_action_path.read_text(encoding="utf-8")
+
+    assert "actions/launch.md" in manage_agent_instance_skill
+    assert "actions/join.md" in manage_agent_instance_skill
+    assert "actions/list.md" in manage_agent_instance_skill
+    assert "actions/stop.md" in manage_agent_instance_skill
+    assert "actions/cleanup.md" in manage_agent_instance_skill
+    assert "project easy specialist create" in manage_agent_instance_skill
+    assert "agents cleanup mailbox" in manage_agent_instance_skill
+    assert launch_action_path.is_file()
+    assert join_action_path.is_file()
+    assert list_action_path.is_file()
+    assert stop_action_path.is_file()
+    assert cleanup_action_path.is_file()
+    assert "agents launch" in launch_action
+    assert "project easy instance launch" in launch_action
+    assert "--mail-transport" in launch_action
+    assert "agents cleanup session" in cleanup_action
+    assert "agents cleanup logs" in cleanup_action
+    assert "admin cleanup runtime" in cleanup_action
 
 
 def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Path) -> None:

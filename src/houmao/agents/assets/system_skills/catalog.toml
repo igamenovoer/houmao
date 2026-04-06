@@ -20,6 +20,10 @@ description = "Stalwart mailbox transport guidance skill."
 asset_subpath = "houmao-manage-specialist"
 description = "Project-easy specialist management skill."
 
+[skills.houmao-manage-agent-instance]
+asset_subpath = "houmao-manage-agent-instance"
+description = "Managed agent instance lifecycle skill."
+
 [sets.mailbox-core]
 description = "Core shared mailbox workflow skills."
 skills = [
@@ -42,7 +46,13 @@ skills = [
   "houmao-manage-specialist",
 ]
 
+[sets.agent-instance]
+description = "Managed agent instance lifecycle system skills."
+skills = [
+  "houmao-manage-agent-instance",
+]
+
 [auto_install]
 managed_launch_sets = ["mailbox-full", "project-easy"]
 managed_join_sets = ["mailbox-full", "project-easy"]
-cli_default_sets = ["mailbox-full", "project-easy"]
+cli_default_sets = ["mailbox-full", "project-easy", "agent-instance"]

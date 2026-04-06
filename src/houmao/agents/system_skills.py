@@ -23,7 +23,9 @@ SYSTEM_SKILL_STATE_SCHEMA_VERSION = 1
 SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
 SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
 SYSTEM_SKILL_SET_PROJECT_EASY = "project-easy"
+SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
 SYSTEM_SKILL_MANAGE_SPECIALIST = "houmao-manage-specialist"
+SYSTEM_SKILL_MANAGE_AGENT_INSTANCE = "houmao-manage-agent-instance"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",
