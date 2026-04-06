@@ -43,6 +43,15 @@ This packaged skill does not cover:
    - `actions/remove.md`
 6. Follow the selected action page and report the result from the command that ran.
 
+## Missing Input Questions
+
+- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
+- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
+- When asking for missing input, use readable Markdown:
+  - a short bullet list when only one or two fields are missing
+  - a compact table when several required fields or credential-lane choices need clarification
+- Name the command you intend to run and keep the question scoped to the selected specialist action.
+
 ## Routing Guidance
 
 - Use `actions/create.md` only when the user wants to create or replace a reusable specialist.
@@ -53,6 +62,7 @@ This packaged skill does not cover:
 ## Guardrails
 
 - Do not guess the intended action when the prompt could mean either specialist authoring or easy-instance runtime work.
+- Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
 - Do not route `project easy instance ...` tasks through this skill.
 - Do not force `pixi run houmao-mgr` when the workspace is not a development project.
 - Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.

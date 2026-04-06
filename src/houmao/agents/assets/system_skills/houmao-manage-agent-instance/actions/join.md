@@ -6,8 +6,8 @@ Use this action only when the user wants Houmao to adopt one already-running sup
 
 1. Use the launcher resolved from the top-level skill.
 2. Recover the join inputs from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the managed-agent name is still missing, ask the user before proceeding.
-4. If the request is for headless join, require the provider and at least one recorded `--launch-args` value before proceeding.
+3. If the managed-agent name is still missing, ask the user in Markdown before proceeding.
+4. If the request is for headless join and the provider or `--launch-args` values are still missing, ask the user in Markdown for those missing fields before proceeding.
 5. Run `agents join`.
 6. Report the adopted managed-agent identity and resulting lifecycle state returned by the command.
 
@@ -36,6 +36,7 @@ Other optional inputs:
 ## Guardrails
 
 - Do not guess the managed-agent name, provider, or launch args for headless join.
+- Do not continue with headless join from partial assumptions about provider or launch args.
 - Do not treat join as mailbox registration, gateway attach, or prompt submission.
 - Do not claim that join restarts the live provider process; it adopts the existing session into Houmao control.
 - Do not route join work through launch commands.

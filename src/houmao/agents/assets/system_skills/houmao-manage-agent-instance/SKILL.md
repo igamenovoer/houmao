@@ -61,6 +61,15 @@ This packaged skill does not cover:
    - `actions/cleanup.md`
 7. Follow the selected action page and report the result from the command that ran.
 
+## Missing Input Questions
+
+- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
+- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
+- When asking for missing input, use readable Markdown:
+  - a short bullet list when only one or two fields are missing
+  - a compact table when the lane or several required fields need clarification
+- Name the command you intend to run and show only the missing fields needed for that command.
+
 ## Routing Guidance
 
 - Use `actions/launch.md` only when the user wants to create one new managed-agent instance from a predefined role, preset, or specialist.
@@ -72,6 +81,7 @@ This packaged skill does not cover:
 ## Guardrails
 
 - Do not guess the intended action when the prompt could mean either specialist authoring or live instance lifecycle.
+- Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
 - Do not route `project easy specialist ...` tasks through this skill.
 - Do not route mailbox-enabled launch, mailbox cleanup, or mailbox registration tasks through this skill.
 - Do not route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.

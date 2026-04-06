@@ -13,7 +13,7 @@ Use this action only when the user wants to clean stopped-session managed-agent 
    - `--agent-name`
    - `--manifest-path`
    - `--session-root`
-4. If the cleanup kind or selector is still missing, ask the user before proceeding.
+4. If the cleanup kind or selector is still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the cleanup kind choices and the selectors still needed.
 5. Include `--dry-run` only when the user explicitly asks to preview cleanup.
 6. For `cleanup session`, include `--include-job-dir` only when the user explicitly wants the persisted job dir removed together with the stopped session envelope.
 7. Run the selected cleanup command.
@@ -44,4 +44,5 @@ or:
 - Do not route cleanup work to `agents cleanup mailbox`; mailbox secret cleanup is out of scope.
 - Do not route instance cleanup to `admin cleanup runtime ...`; that broader maintenance surface is out of scope.
 - Do not guess the cleanup kind or cleanup selector.
+- Do not widen a vague cleanup request into session or logs cleanup without user confirmation.
 - Do not assume cleanup is safe for a live session; this skill is for stopped-session cleanup only.

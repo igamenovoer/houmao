@@ -6,7 +6,7 @@ Use this action only when the user wants to create or replace one reusable easy 
 
 1. Collect the user's intended specialist-create inputs from the current prompt first.
 2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
-3. If the specialist name or tool lane is still missing, ask the user before proceeding.
+3. If the specialist name or tool lane is still missing, ask the user in Markdown before proceeding. Prefer a compact table when the tool lane or several required create inputs need clarification.
 4. Resolve the intended credential name. If the user did not provide `--credential`, use the documented CLI default `<specialist-name>-creds`.
 5. Resolve the credential source mode:
    - Explicit Auth Mode when the user already provided supported auth values or auth files
@@ -22,7 +22,7 @@ Use this action only when the user wants to create or replace one reusable easy 
 8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same resolved `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
 9. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
    - do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless one of the supported credential-source modes is explicitly active
-   - ask the user for the missing auth inputs instead of guessing
+   - ask the user in Markdown for the missing auth inputs instead of guessing
    - mention that they can either provide auth explicitly, point you at env names or patterns, point you at a directory, or ask for `auto credentials`
 10. Run `project easy specialist create` through the resolved launcher.
 11. Report the created specialist, selected tool, resolved credential name, and the generated artifact paths returned by the command.
@@ -112,6 +112,7 @@ Claude vendor-login file usage:
 ## Guardrails
 
 - Do not guess the specialist name, tool lane, or auth values.
+- Do not continue specialist creation from partially inferred required inputs when the prompt and recent chat context do not state them explicitly.
 - Do not invent API keys, org ids, auth file paths, OAuth credential files, or base URLs.
 - Do not scan env vars, directories, repo-local tool homes, `~/.claude`, `~/.codex`, `~/.gemini`, redirected tool homes, or other likely credential locations unless one of the supported credential-source modes is explicitly active.
 - Do not widen Env Lookup Mode beyond the user-named env vars or explicit env-name patterns.
