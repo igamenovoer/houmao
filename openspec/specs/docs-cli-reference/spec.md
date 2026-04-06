@@ -259,3 +259,44 @@ That page SHALL describe the CLI-default system-skill install selection as inclu
 - **WHEN** a reader checks the CLI-default selection behavior in `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that CLI-default installation includes both packaged non-mailbox Houmao skills
 - **AND THEN** it does not imply that managed launch or managed join auto-install changed in the same way
+
+### Requirement: CLI reference documents tmux-session targeting for `agents gateway`
+The CLI reference pages `docs/reference/cli/agents-gateway.md` and `docs/reference/cli.md` SHALL document `--target-tmux-session <tmux-session-name>` as an explicit selector for single-target `houmao-mgr agents gateway ...` commands.
+
+That documentation SHALL describe the selector as mutually exclusive with `--agent-id`, `--agent-name`, and `--current-session`. It SHALL also document `--pair-port` as the pair-authority override name for explicit `--agent-id` and `--agent-name` targeting.
+
+The docs SHALL state that `--pair-port` is unsupported with tmux-session targeting because the command follows the addressed session's manifest-declared authority after local resolution. They SHALL also explain that `--pair-port` is not the same thing as a gateway listener port override such as lower-level `--gateway-port`.
+
+The `agents-gateway` reference SHALL distinguish outside-tmux `--target-tmux-session` targeting from inside-tmux current-session targeting and SHALL explain when each mode is appropriate.
+
+#### Scenario: CLI reference page lists the tmux-session selector and targeting boundary
+- **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
+- **THEN** the option tables include `--target-tmux-session`
+- **AND THEN** the page explains that `--target-tmux-session` is for explicit outside-tmux targeting while `--current-session` is for the owning tmux session
+
+#### Scenario: Top-level CLI guidance explains the port rule for tmux-session targeting
+- **WHEN** a reader checks `docs/reference/cli.md` for gateway targeting rules
+- **THEN** the page explains that `--pair-port` remains supported with `--agent-id` or `--agent-name`
+- **AND THEN** the page explains that `--pair-port` is rejected with `--target-tmux-session` because tmux-session targeting follows manifest-declared authority
+
+#### Scenario: Gateway CLI reference distinguishes pair-authority port from gateway listener port
+- **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
+- **THEN** the page explains that `--pair-port` selects the Houmao pair authority
+- **AND THEN** the page does not imply that `--pair-port` controls the live gateway listener port
+
+### Requirement: CLI reference documents the top-level project agents presets surface
+
+The `houmao-mgr` CLI reference SHALL document `project agents presets` as the supported low-level preset management surface.
+
+At minimum, that coverage SHALL:
+
+- list `project agents presets list|get|add|set|remove`,
+- describe preset files as living under `agents/presets/<name>.yaml`,
+- explain that `project agents roles` is prompt-only role management,
+- state that `project agents roles scaffold` is not part of the supported low-level CLI.
+
+#### Scenario: Reader sees named presets in the project agents reference
+- **WHEN** a reader looks up `houmao-mgr project agents` in the CLI reference
+- **THEN** the page documents `project agents presets list|get|add|set|remove`
+- **AND THEN** it describes those commands as operations on `agents/presets/<name>.yaml`
+- **AND THEN** it does not present `roles presets ...` or `roles scaffold` as the supported surface

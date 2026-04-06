@@ -11,21 +11,21 @@ At minimum, that filesystem-backed source layout SHALL include:
 
 - `agents/skills/<skill>/SKILL.md`
 - `agents/roles/<role>/system-prompt.md`
-- `agents/roles/<role>/presets/<tool>/<setup>.yaml`
+- `agents/presets/<preset>.yaml`
 - `agents/tools/<tool>/adapter.yaml`
 - `agents/tools/<tool>/setups/<setup>/...`
 - `agents/tools/<tool>/auth/<auth>/...`
 
 Project-local catalog-backed overlays MAY persist canonical semantic relationships outside that directory layout, provided they still resolve to the same canonical parsed or domain semantics before construction.
 
-User-facing reusable launch metadata for filesystem-backed trees SHALL continue to live in role-scoped presets plus tool-scoped setup and auth directories rather than in a separate recipe plus blueprint layer.
+User-facing reusable launch metadata for filesystem-backed trees SHALL continue to live in presets plus tool-scoped setup and auth directories rather than in a separate recipe plus blueprint layer.
 
 #### Scenario: Developer locates source files in a filesystem-backed source tree
 
 - **WHEN** a developer needs to add or modify reusable agent-definition sources in a filesystem-backed tree
 - **THEN** skill packages SHALL live under `agents/skills/`
 - **AND THEN** role prompts SHALL live under `agents/roles/`
-- **AND THEN** launchable preset files SHALL live under `agents/roles/<role>/presets/`
+- **AND THEN** launchable preset files SHALL live under `agents/presets/`
 - **AND THEN** tool-specific setup and auth material SHALL live under `agents/tools/<tool>/`
 
 #### Scenario: Project-local catalog-backed overlay does not need filesystem nesting as its canonical graph
@@ -226,21 +226,9 @@ Auth-bundle env SHALL remain a credential-owned channel distinct from specialist
 - **THEN** those records are treated as specialist launch config
 - **AND THEN** the system does not require them to live inside the selected auth bundle env file as though they were credentials
 
-### Requirement: Path-derived agent presets
-
-The system SHALL support declarative source presets stored under `agents/roles/<role>/presets/<tool>/<setup>.yaml`.
-
-Preset identity SHALL be derived from path rather than from duplicated inline identity fields. The source preset path SHALL determine role, tool, and setup before the parser emits the canonical parsed preset definition.
-
-#### Scenario: Preset identity comes from path
-
-- **WHEN** a developer creates `agents/roles/gpu-kernel-coder/presets/claude/default.yaml`
-- **THEN** the system SHALL treat role=`gpu-kernel-coder`, tool=`claude`, and setup=`default` as that preset's identity
-- **AND THEN** the preset file SHALL NOT require top-level `name`, `role`, or `tool` fields
-
 ### Requirement: Agent preset schema is minimal and extensible
 
-Agent presets SHALL include only fields required by current behavior: selected skills, optional default auth, optional launch settings, optional mailbox settings, and optional `extra`.
+Agent presets SHALL include only fields required by current behavior: selected role, selected tool, selected setup, selected skills, optional default auth, optional launch settings, optional mailbox settings, and optional `extra`.
 
 The system SHALL NOT require build-time `default_agent_name` or other duplicated identity fields in preset files.
 
@@ -258,12 +246,14 @@ Allowed `launch.prompt_mode` values SHALL be `unattended` and `as_is`.
 - Houmao-owned reserved env names SHALL be rejected
 
 Unknown top-level preset fields SHALL be rejected. Non-core extension data SHALL live under `extra` rather than through pre-allocated unused top-level schema fields.
+The preset name SHALL be derived from the preset filename stem. The preset file SHALL require top-level `role`, `tool`, and `setup`, and it SHALL NOT require a duplicated top-level `name`.
 
-#### Scenario: Minimal preset omits build-time identity fields
+#### Scenario: Minimal preset omits duplicated preset-name fields
 
-- **WHEN** a developer authors a preset for one role, tool, and setup
-- **THEN** the preset MAY omit `name`, `role`, `tool`, and `default_agent_name`
-- **AND THEN** the system SHALL still resolve the preset successfully from its path and required core fields
+- **WHEN** a developer authors `agents/presets/researcher-codex-default.yaml`
+- **THEN** the preset SHALL provide `role`, `tool`, and `setup` as top-level fields
+- **AND THEN** the preset MAY omit `name` and `default_agent_name`
+- **AND THEN** the system SHALL resolve the preset name from the filename stem
 
 #### Scenario: Launch settings use one explicit schema
 
@@ -296,20 +286,20 @@ Unknown top-level preset fields SHALL be rejected. Non-core extension data SHALL
 
 ### Requirement: Tracked canonical presets for live role variants
 
-The repository SHALL provide tracked, declarative, secret-free presets under `agents/roles/<role>/presets/` for the live role variants that the repo documents and verifies.
+The repository SHALL provide tracked, declarative, secret-free presets under `agents/presets/` for the live role variants that the repo documents and verifies.
 
 At minimum, the tracked preset set SHALL include:
 
-- `agents/roles/gpu-kernel-coder/presets/claude/default.yaml`
-- `agents/roles/gpu-kernel-coder/presets/codex/default.yaml`
-- `agents/roles/gpu-kernel-coder/presets/codex/yunwu-openai.yaml`
+- `agents/presets/gpu-kernel-coder-claude-default.yaml`
+- `agents/presets/gpu-kernel-coder-codex-default.yaml`
+- `agents/presets/gpu-kernel-coder-codex-yunwu-openai.yaml`
 
-Each tracked preset SHALL select skills and optional default auth by identifier only and SHALL NOT embed secret material.
+Each tracked preset SHALL select one role, one tool, selected skills, one setup, and optional default auth by identifier only and SHALL NOT embed secret material.
 
 #### Scenario: Developer can locate tracked preset variants for the GPU demo role
 
 - **WHEN** a developer needs to inspect or update the supported launch variants for `gpu-kernel-coder`
-- **THEN** the repo SHALL contain tracked presets under that role's `presets/` subtree for the documented tool and setup variants
+- **THEN** the repo SHALL contain tracked named presets under `agents/presets/` for the documented tool and setup variants
 - **AND THEN** those presets SHALL remain declarative and secret-free
 
 ### Requirement: Resolved runtime manifest
