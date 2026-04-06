@@ -191,13 +191,14 @@ pixi run houmao-mgr project easy instance launch \
   --specialist researcher \
   --name research \
   --env-set FEATURE_FLAG_X=1 \
-  --env-set OPENAI_BASE_URL \
-  --yolo
+  --env-set OPENAI_BASE_URL
 ```
 
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
+
+There is no separate `--yolo` override on this surface. If you want raw provider startup behavior, store `launch.prompt_mode: as_is`; if you want maintained no-prompt startup posture, use `unattended`.
 
 Gemini specialists remain headless-only on this surface. Use `--headless` when launching a Gemini easy specialist.
 
@@ -233,7 +234,6 @@ If you want easy launch to bind a filesystem mailbox account at startup instead 
 pixi run houmao-mgr project easy instance launch \
   --specialist researcher \
   --name research \
-  --yolo \
   --mail-transport filesystem \
   --mail-account-dir /tmp/houmao-mailboxes/research
 ```

@@ -586,7 +586,6 @@ def launch_instance(
                 "--session-name",
                 session_name,
                 "--headless",
-                "--yolo",
                 "--mail-transport",
                 "filesystem",
                 "--mail-root",

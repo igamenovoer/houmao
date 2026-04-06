@@ -93,7 +93,7 @@ That script:
 - launches `server-api-smoke` from a fresh workdir under `tmp/`
 - sets `HOUMAO_AGENT_DEF_DIR` to `tests/fixtures/agents`
 - forces an overlay-local `.houmao` inside the temp workdir
-- runs the Claude launch headlessly with `--auth official-login --headless --yolo`
+- runs the Claude launch headlessly with `--auth official-login --headless`
 - stops and cleans up the managed session after validation
 
 If you only want to refresh the local fixture without launching, run:

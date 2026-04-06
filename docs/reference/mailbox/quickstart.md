@@ -47,8 +47,7 @@ pixi run houmao-mgr agents launch \
   --agents gpu-kernel-coder \
   --agent-name research \
   --provider claude_code \
-  --headless \
-  --yolo
+  --headless
 ```
 
 3. Register mailbox support after the session already exists.

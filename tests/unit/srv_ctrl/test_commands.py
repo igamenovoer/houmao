@@ -1312,7 +1312,6 @@ def test_agents_launch_reports_project_aware_root_details_in_json(
             "--provider",
             "codex",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -1418,7 +1417,6 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             "codex",
             "--session-name",
             "gpu-session",
-            "--yolo",
         ],
     )
 
@@ -1450,6 +1448,65 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     assert captured["start_kwargs"]["agent_name"] == "gpu"
     assert captured["start_kwargs"]["agent_id"] is None
     assert attach_calls == ["gpu-session"]
+
+
+def test_agents_launch_preserves_explicit_as_is_prompt_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    working_directory = tmp_path.resolve()
+    manifest_path = working_directory / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    target = _make_native_launch_target(
+        working_directory=working_directory,
+        tool="codex",
+        role_name="gpu-kernel-coder",
+        operator_prompt_mode="as_is",
+    )
+    controller = SimpleNamespace(
+        manifest_path=working_directory / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="gpu",
+        tmux_session_name="gpu-session",
+    )
+
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: (captured.setdefault("build_request", request), build_result)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
+        lambda: False,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "codex",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["build_request"].operator_prompt_mode == "as_is"
+    assert captured["start_kwargs"]["backend"] == "local_interactive"
 
 
 def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_follow_up(
@@ -1508,7 +1565,6 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
             "claude_code",
             "--session-name",
             "gpu-session",
-            "--yolo",
         ],
     )
 
@@ -1591,7 +1647,6 @@ def test_agents_launch_auth_override_wins_over_preset_default(
             "claude_code",
             "--auth",
             "kimi-coding",
-            "--yolo",
         ],
     )
 
@@ -1648,7 +1703,6 @@ def test_agents_launch_allows_missing_agent_name(
             "gpu-kernel-coder",
             "--provider",
             "claude_code",
-            "--yolo",
         ],
     )
 
@@ -1711,7 +1765,6 @@ def test_agents_launch_headless_keeps_native_headless_backend(
             "--provider",
             "claude_code",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -1771,7 +1824,6 @@ def test_agents_launch_interactive_reports_launch_policy_compatibility_failure(
             "claude",
             "--provider",
             "claude_code",
-            "--yolo",
         ],
     )
 
@@ -1836,7 +1888,6 @@ def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
             "--provider",
             "claude_code",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -1859,12 +1910,29 @@ def test_agents_launch_rejects_unsupported_provider() -> None:
             "gpu",
             "--provider",
             "kiro_cli",
-            "--yolo",
         ],
     )
 
     assert result.exit_code != 0
     assert "Invalid provider `kiro_cli`." in result.output
+
+
+def test_agents_launch_rejects_removed_yolo_flag() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--provider",
+            "codex",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "No such option: --yolo" in result.output
 
 
 def test_server_status_reports_health_and_current_instance(monkeypatch: pytest.MonkeyPatch) -> None:

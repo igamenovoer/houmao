@@ -160,7 +160,6 @@ def _run_smoke_launch(*, repo_root: Path, agent_def_dir: Path, auth_name: str) -
             "--auth",
             auth_name,
             "--headless",
-            "--yolo",
         ],
         cwd=workdir,
         env=env,

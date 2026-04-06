@@ -480,7 +480,6 @@ def test_launch_instance_uses_headless_project_easy_command(
         "--session-name",
         "hm-single-headless-mail-codex-demo",
         "--headless",
-        "--yolo",
         "--mail-transport",
         "filesystem",
         "--mail-root",

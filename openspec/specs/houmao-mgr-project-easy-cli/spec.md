@@ -104,6 +104,14 @@ When no stronger explicit or env-var override is supplied, easy instance launch 
 
 The launch provider SHALL still be derived from the specialist's selected tool, and the command SHALL still honor stored specialist launch posture and mailbox validation rules.
 
+The command SHALL NOT expose or require a separate launch-time workspace-trust bypass flag on this surface.
+
+The delegated native launch SHALL proceed without a Houmao-managed workspace trust confirmation prompt.
+
+When the stored specialist launch posture is `unattended`, any maintained no-prompt or full-autonomy provider startup posture SHALL remain owned by the resolved prompt mode and downstream launch policy.
+
+When the stored specialist launch posture is `as_is`, easy instance launch SHALL NOT inject a separate yolo-style startup override and SHALL leave provider startup behavior untouched beyond the existing delegated launch contract.
+
 #### Scenario: Easy instance launch uses overlay-local runtime and jobs defaults
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
@@ -116,6 +124,12 @@ The launch provider SHALL still be derived from the specialist's selected tool, 
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
 - **THEN** the command ensures `<cwd>/.houmao` exists before resolving the specialist-backed launch
 - **AND THEN** the launch uses that resulting overlay as the default local root family
+
+#### Scenario: Stored as-is posture launches without a separate yolo-style override
+- **WHEN** specialist `researcher` stores `launch.prompt_mode: as_is`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
+- **THEN** the command delegates to native launch without a Houmao-managed workspace trust confirmation prompt
+- **AND THEN** it does not inject a separate yolo-style startup override on top of the stored `as_is` posture
 
 ### Requirement: `project easy instance list/get/stop` presents runtime state by specialist and wraps existing runtime stop control
 

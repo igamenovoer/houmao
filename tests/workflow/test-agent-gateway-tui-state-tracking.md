@@ -71,8 +71,7 @@ pixi run houmao-mgr agents launch \
   --agents projection-demo \
   --provider codex \
   --agent-name projection-demo-codex \
-  --session-name hm-gw-track-codex \
-  --yolo
+  --session-name hm-gw-track-codex
 ```
 
 Expected result:

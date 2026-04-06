@@ -128,7 +128,7 @@ Typical workflow:
 2. Run the smoke launch:
    - `pixi run python tests/manual/manual_claude_official_login_smoke.py --skip-provision`
 
-If you want the script to do both steps in one run, omit `--prepare-only` and `--skip-provision`. The script sets `HOUMAO_AGENT_DEF_DIR` to this fixture tree, isolates the temp workdir with its own overlay-local `.houmao`, launches `server-api-smoke` with `--auth official-login --headless --yolo`, then stops and cleans up the managed session while leaving the temp workdir available for inspection.
+If you want the script to do both steps in one run, omit `--prepare-only` and `--skip-provision`. The script sets `HOUMAO_AGENT_DEF_DIR` to this fixture tree, isolates the temp workdir with its own overlay-local `.houmao`, launches `server-api-smoke` with `--auth official-login --headless`, then stops and cleans up the managed session while leaving the temp workdir available for inspection.
 
 ## Recommended Workflow
 

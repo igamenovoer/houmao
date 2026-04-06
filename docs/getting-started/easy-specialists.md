@@ -120,7 +120,6 @@ Key options:
 | `--specialist` | Required | Specialist name to launch from. |
 | `--name` | Required | Managed-agent instance name. |
 | `--headless` | False | Launch in detached/background mode. |
-| `--yolo` | False | Skip workspace trust confirmation. |
 | `--session-name` | None | Optional tmux session name override. |
 | `--auth` | Specialist's credential | Optional auth bundle override. |
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
@@ -128,6 +127,8 @@ Key options:
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
 
 Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project easy instance launch`.
+
+There is no separate easy-launch `--yolo` override. Startup autonomy is owned by the stored specialist `launch.prompt_mode`: `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 
 ## Managing Specialists and Instances
 

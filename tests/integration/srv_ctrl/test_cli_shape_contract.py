@@ -499,7 +499,6 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
             "--provider",
             "claude_code",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -562,7 +561,6 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
             "gpu",
             "--provider",
             "claude_code",
-            "--yolo",
         ],
     )
 
@@ -629,7 +627,6 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
             "--provider",
             "claude_code",
             "--headless",
-            "--yolo",
         ],
     )
     assert launch_result.exit_code == 0, launch_result.output
@@ -681,7 +678,6 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
             "--provider",
             "claude_code",
             "--headless",
-            "--yolo",
         ],
     )
     assert launch_result.exit_code == 0, launch_result.output
@@ -776,7 +772,6 @@ def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_pro
             "gpu",
             "--provider",
             "claude_code",
-            "--yolo",
         ],
     )
     assert launch_result.exit_code == 0, launch_result.output

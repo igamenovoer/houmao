@@ -1979,12 +1979,33 @@ def test_project_easy_instance_launch_rejects_gemini_without_headless(
             "gemini-reviewer",
             "--name",
             "gemini-reviewer-1",
-            "--yolo",
         ],
     )
 
     assert result.exit_code != 0
     assert "Gemini specialists are currently headless-only" in result.output
+
+
+def test_project_easy_instance_launch_rejects_removed_yolo_flag(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--yolo",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "No such option: --yolo" in result.output
 
 
 def test_project_easy_instance_launch_uses_stored_specialist_setup(
@@ -2059,7 +2080,6 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
         ],
     )
 
@@ -2224,7 +2244,6 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
             "--mail-transport",
             "filesystem",
             "--mail-root",
@@ -2323,7 +2342,6 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
             "--env-set",
             "FEATURE_FLAG_X=1",
             "--env-set",
@@ -2499,7 +2517,6 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
             "--name",
             "repo-research-1",
             "--headless",
-            "--yolo",
             "--mail-transport",
             "filesystem",
             "--mail-root",

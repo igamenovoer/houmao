@@ -38,7 +38,6 @@ Common optional inputs:
 - `--auth`
 - `--session-name`
 - `--headless`
-- `--yolo`
 
 ### Specialist-Backed Managed Launch
 
@@ -60,7 +59,6 @@ Common optional inputs:
 - `--auth`
 - `--session-name`
 - `--headless`
-- `--yolo`
 - `--env-set NAME=value|NAME`
 
 If the selected specialist is known to use Gemini, the launch must be headless.

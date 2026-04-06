@@ -1552,7 +1552,6 @@ def easy_instance_group() -> None:
 @click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
-@click.option("--yolo", is_flag=True, help="Skip workspace trust confirmation.")
 @click.option(
     "--env-set",
     "env_set",
@@ -1583,7 +1582,6 @@ def launch_easy_instance_command(
     auth: str | None,
     session_name: str | None,
     headless: bool,
-    yolo: bool,
     env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
@@ -1624,7 +1622,6 @@ def launch_easy_instance_command(
         session_name=_optional_non_empty_value(session_name),
         headless=headless,
         provider=specialist_metadata.provider,
-        yolo=yolo,
         working_directory=Path.cwd().resolve(),
         headless_display_style="plain",
         headless_display_detail="concise",

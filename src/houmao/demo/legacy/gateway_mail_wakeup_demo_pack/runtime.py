@@ -221,7 +221,6 @@ def run_launch_command(
                 agent_name,
                 "--session-name",
                 session_name,
-                "--yolo",
             ]
         ),
         cwd=cwd,

@@ -1084,7 +1084,6 @@ def _launch_lane(
             "houmao.srv_ctrl",
             "launch",
             "--headless",
-            "--yolo",
             "--session-name",
             lane.session_name,
             "--provider",
