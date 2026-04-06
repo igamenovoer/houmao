@@ -7,10 +7,11 @@ This is the same packaged skill system used internally by:
 - `houmao-mgr brains build` when it creates a managed home,
 - `houmao-mgr agents join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
 
-The current implementation is still intentionally narrow. It currently covers the mailbox-oriented Houmao-owned skills plus three packaged non-mailbox Houmao skills:
+The current implementation is still intentionally narrow. It currently covers the mailbox-oriented Houmao-owned skills plus four packaged non-mailbox Houmao skills:
 
 - `houmao-manage-specialist` for reusable specialist authoring
 - `houmao-manage-credentials` for project-local credential management
+- `houmao-manage-agent-definition` for low-level role and preset definition management
 - `houmao-manage-agent-instance` for live managed-agent instance lifecycle
 
 It does not yet generalize to non-skill asset kinds.
@@ -62,6 +63,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-email-via-stalwart`
 - `houmao-manage-specialist`
 - `houmao-manage-credentials`
+- `houmao-manage-agent-definition`
 - `houmao-manage-agent-instance`
 
 These skill trees live directly under:
@@ -169,11 +171,11 @@ Managed homes and joined homes use the same installer and catalog:
 
 This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in named sets such as `mailbox-full`, `user-control`, and `agent-instance`.
 
-For the `user-control` set, the packaged skills are `houmao-manage-specialist` and `houmao-manage-credentials`. `houmao-manage-specialist` is the packaged router for `project easy specialist create|list|get|remove`, and it keeps `project easy instance launch` outside that packaged skill scope. `houmao-manage-credentials` is the packaged router for `project agents tools <tool> auth list|get|add|set|remove`, and it keeps specialist CRUD, instance lifecycle, mailbox cleanup, and direct auth-file editing outside that packaged skill scope.
+For the `user-control` set, the packaged skills are `houmao-manage-specialist`, `houmao-manage-credentials`, and `houmao-manage-agent-definition`. `houmao-manage-specialist` is the packaged router for `project easy specialist create|list|get|remove`, and it keeps `project easy instance launch` outside that packaged skill scope. `houmao-manage-credentials` is the packaged router for `project agents tools <tool> auth list|get|add|set|remove`, and it keeps specialist CRUD, instance lifecycle, mailbox cleanup, and direct auth-file editing outside that packaged skill scope. `houmao-manage-agent-definition` is the packaged router for `project agents roles list|get|init|set|remove` plus `project agents presets list|get|add|set|remove`, and it keeps auth-bundle content mutation on `houmao-manage-credentials` while using `roles get --include-prompt` for explicit prompt inspection.
 
 For the `agent-instance` set, the packaged skill is `houmao-manage-agent-instance`. Its top-level `SKILL.md` is an index/router for managed-agent instance lifecycle work across `agents launch`, `project easy instance launch`, `agents join`, `agents list`, `agents stop`, and `agents cleanup session|logs`. It complements rather than replaces `houmao-manage-specialist`, and it keeps mailbox surfaces, specialist CRUD, prompt/gateway control, and mailbox cleanup outside that packaged skill scope.
 
-CLI-default installation now includes all three packaged non-mailbox Houmao skills. Managed launch and managed join auto-install now include the full `user-control` set, but they still do not automatically add the separate `agent-instance` set.
+CLI-default installation now includes all four packaged non-mailbox Houmao skills. Managed launch and managed join auto-install now include the full `user-control` set, but they still do not automatically add the separate `agent-instance` set.
 
 ## When To Use This Surface
 
@@ -181,7 +183,7 @@ Use `system-skills` when:
 
 - you want to prepare an external Claude, Codex, or Gemini home before using `houmao-mgr`
 - you want to inspect whether Houmao already installed its own skill set into a home
-- you want the same Houmao-owned mailbox, specialist-management, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
+- you want the same Houmao-owned mailbox, low-level definition-management, specialist-management, credential-management, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
 
 Do not use it for:
 

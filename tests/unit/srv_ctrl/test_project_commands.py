@@ -719,6 +719,7 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     assert role_get_result.exit_code == 0
     role_payload = json.loads(role_get_result.output)
     assert role_payload["system_prompt_exists"] is True
+    assert "system_prompt_text" not in role_payload
     assert len(role_payload["presets"]) == 1
 
     role_remove_result = runner.invoke(
@@ -739,6 +740,72 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     )
     assert role_remove_result.exit_code == 0
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
+
+
+def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    init_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "roles",
+            "init",
+            "--name",
+            "researcher",
+            "--system-prompt",
+            "Investigate failures carefully.",
+        ],
+    )
+    assert init_result.exit_code == 0, init_result.output
+
+    default_get_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "get", "--name", "researcher"],
+    )
+    assert default_get_result.exit_code == 0, default_get_result.output
+    default_payload = json.loads(default_get_result.output)
+    assert "system_prompt_text" not in default_payload
+
+    include_prompt_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "get", "--name", "researcher", "--include-prompt"],
+    )
+    assert include_prompt_result.exit_code == 0, include_prompt_result.output
+    include_prompt_payload = json.loads(include_prompt_result.output)
+    assert include_prompt_payload["system_prompt_exists"] is True
+    assert include_prompt_payload["system_prompt_text"] == "Investigate failures carefully."
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "roles",
+            "set",
+            "--name",
+            "researcher",
+            "--clear-system-prompt",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+
+    promptless_get_result = runner.invoke(
+        cli,
+        ["project", "agents", "roles", "get", "--name", "researcher", "--include-prompt"],
+    )
+    assert promptless_get_result.exit_code == 0, promptless_get_result.output
+    promptless_payload = json.loads(promptless_get_result.output)
+    assert promptless_payload["system_prompt_exists"] is True
+    assert promptless_payload["system_prompt_text"] == ""
 
 
 def test_project_agents_presets_set_preserves_advanced_blocks(

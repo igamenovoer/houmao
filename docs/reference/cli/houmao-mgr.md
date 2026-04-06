@@ -223,6 +223,7 @@ houmao-mgr project
 ├── init | status
 ├── agents
 │   ├── roles ...
+│   ├── presets ...
 │   └── tools <tool> ...
 ├── easy
 │   ├── specialist ...
@@ -260,11 +261,17 @@ Project overlay notes:
 
 | Subcommand | Description |
 |---|---|
-| `roles list|get|init|set|remove` | Inspect, create, update, or delete prompt-only role roots under `agents/roles/`. |
-| `presets list|get|add|set|remove` | Manage canonical named preset files under `agents/presets/<name>.yaml`. |
+| `roles list|get|init|set|remove` | Inspect, create, update, or delete prompt-only role roots under `agents/roles/`. Use `roles get --include-prompt` when you explicitly need prompt text in CLI output. |
+| `presets list|get|add|set|remove` | Manage canonical named preset files under `agents/presets/<name>.yaml`, including which auth bundle one preset references. |
 | `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
 | `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
-| `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `agents/tools/<tool>/auth/<name>/`. |
+| `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `agents/tools/<tool>/auth/<name>/`, including env vars and auth files stored inside those bundles. |
+
+Low-level boundary notes:
+
+- `roles ...` owns the canonical low-level role prompt.
+- `presets ...` owns named preset structure, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference.
+- `tools <tool> auth ...` owns auth-bundle contents. Use that surface when the task is changing env vars or auth files inside the bundle rather than which bundle a preset selects.
 
 `project agents tools claude auth add|set` notes:
 

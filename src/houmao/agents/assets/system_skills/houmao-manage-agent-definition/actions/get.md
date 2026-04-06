@@ -1,0 +1,33 @@
+# Get Definition
+
+Use this action only when the user wants to inspect one low-level role or one named preset.
+
+## Workflow
+
+1. Use the launcher resolved from the top-level skill.
+2. Determine whether the target is a role or a preset.
+3. Recover the target name from the current prompt first and recent chat context second when it was stated explicitly.
+4. If the target kind or target name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
+5. For one role:
+   - run `project agents roles get --name <role>` for summary-oriented inspection
+   - add `--include-prompt` only when the user explicitly asked for prompt text or the full low-level role definition
+6. For one preset, run `project agents presets get --name <preset>`.
+7. If the user asks to inspect env vars or auth files inside one auth bundle, stop and route that request to `houmao-manage-credentials`.
+8. Report the returned role or preset details.
+
+## Command Shapes
+
+Use one of these maintained command shapes:
+
+```text
+<resolved houmao-mgr launcher> project agents roles get --name <role>
+<resolved houmao-mgr launcher> project agents roles get --name <role> --include-prompt
+<resolved houmao-mgr launcher> project agents presets get --name <preset>
+```
+
+## Guardrails
+
+- Do not guess whether the user wanted a role or a preset.
+- Do not add `--include-prompt` unless the user explicitly asked for prompt text or the full low-level role definition.
+- Do not bypass `roles get --include-prompt` by reading `.houmao/agents/roles/<role>/system-prompt.md` directly.
+- Do not treat auth-bundle content inspection as part of this skill.

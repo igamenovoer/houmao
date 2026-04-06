@@ -26,6 +26,7 @@ SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
 SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
 SYSTEM_SKILL_MANAGE_SPECIALIST = "houmao-manage-specialist"
 SYSTEM_SKILL_MANAGE_CREDENTIALS = "houmao-manage-credentials"
+SYSTEM_SKILL_MANAGE_AGENT_DEFINITION = "houmao-manage-agent-definition"
 SYSTEM_SKILL_MANAGE_AGENT_INSTANCE = "houmao-manage-agent-instance"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {

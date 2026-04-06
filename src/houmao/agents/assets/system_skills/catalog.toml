@@ -24,6 +24,10 @@ description = "Project-easy specialist management skill."
 asset_subpath = "houmao-manage-credentials"
 description = "Project-local credential management skill."
 
+[skills.houmao-manage-agent-definition]
+asset_subpath = "houmao-manage-agent-definition"
+description = "Low-level project-local role and preset definition management skill."
+
 [skills.houmao-manage-agent-instance]
 asset_subpath = "houmao-manage-agent-instance"
 description = "Managed agent instance lifecycle skill."
@@ -49,6 +53,7 @@ description = "User-controlled agent-management system skills."
 skills = [
   "houmao-manage-specialist",
   "houmao-manage-credentials",
+  "houmao-manage-agent-definition",
 ]
 
 [sets.agent-instance]

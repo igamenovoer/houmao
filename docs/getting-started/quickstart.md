@@ -135,6 +135,8 @@ pixi run houmao-mgr project agents presets get --name researcher-claude-default
 pixi run houmao-mgr project agents tools claude get
 ```
 
+Add `--include-prompt` to `project agents roles get` when you want the full role prompt text through the supported CLI surface rather than reading `system-prompt.md` directly.
+
 The specialist payload reports durable launch config, including any persisted `launch.env_records`.
 
 ### Step 4: Build A Brain Home

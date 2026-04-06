@@ -933,7 +933,12 @@ def list_project_roles_command() -> None:
 
 @project_roles_group.command(name="get")
 @click.option("--name", required=True, help="Role name.")
-def get_project_role_command(name: str) -> None:
+@click.option(
+    "--include-prompt",
+    is_flag=True,
+    help="Include the current role prompt text in the structured output.",
+)
+def get_project_role_command(name: str, include_prompt: bool) -> None:
     """Inspect one project-local role."""
 
     overlay = _resolve_existing_project_overlay()
@@ -941,7 +946,7 @@ def get_project_role_command(name: str) -> None:
     role_root = _role_root(overlay=overlay, role_name=role_name)
     if not role_root.is_dir():
         raise click.ClickException(f"Role not found: {role_root}")
-    emit(_role_summary(overlay=overlay, role_name=role_name))
+    emit(_role_summary(overlay=overlay, role_name=role_name, include_prompt=include_prompt))
 
 
 @project_roles_group.command(name="init")
@@ -2284,18 +2289,28 @@ def _list_role_names(*, overlay: HoumaoProjectOverlay) -> list[str]:
     return sorted(path.name for path in roles_root.iterdir() if path.is_dir())
 
 
-def _role_summary(*, overlay: HoumaoProjectOverlay, role_name: str) -> dict[str, object]:
+def _role_summary(
+    *,
+    overlay: HoumaoProjectOverlay,
+    role_name: str,
+    include_prompt: bool = False,
+) -> dict[str, object]:
     """Return one structured project-local role summary."""
 
     role_root = _role_root(overlay=overlay, role_name=role_name)
     prompt_path = (role_root / "system-prompt.md").resolve()
-    return {
+    payload: dict[str, object] = {
         "name": role_name,
         "role_path": str(role_root),
         "system_prompt_path": str(prompt_path),
         "system_prompt_exists": prompt_path.is_file(),
         "presets": _list_named_preset_summaries(overlay=overlay, role_name=role_name),
     }
+    if include_prompt:
+        payload["system_prompt_text"] = (
+            prompt_path.read_text(encoding="utf-8").rstrip() if prompt_path.is_file() else ""
+        )
+    return payload
 
 
 def _list_named_preset_summaries(

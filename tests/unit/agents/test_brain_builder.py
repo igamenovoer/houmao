@@ -252,6 +252,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert visible_mailbox_skill.is_file()
     assert (home / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
+    assert (home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
@@ -263,6 +264,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
     )
 
     # Credential file projection and env contract setup.
@@ -408,9 +410,9 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     processing_skill = (
         result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
-    gateway_skill = (
-        result.home_path / "skills/houmao-email-via-agent-gateway/SKILL.md"
-    ).read_text(encoding="utf-8")
+    gateway_skill = (result.home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "houmao-process-emails-via-gateway" in processing_skill
     assert "metadata-first triage" in processing_skill

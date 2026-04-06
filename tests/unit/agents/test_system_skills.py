@@ -45,6 +45,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
     )
     assert tuple(catalog.sets.keys()) == (
@@ -84,6 +85,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
     )
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
@@ -100,6 +102,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_skil
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
     )
 
@@ -155,12 +158,16 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     manage_specialist_references = home_path / "skills/houmao-manage-specialist/references"
     manage_credentials_path = home_path / "skills/houmao-manage-credentials/SKILL.md"
     manage_credentials_actions = home_path / "skills/houmao-manage-credentials/actions"
+    manage_agent_definition_path = home_path / "skills/houmao-manage-agent-definition/SKILL.md"
+    manage_agent_definition_agents = home_path / "skills/houmao-manage-agent-definition/agents"
+    manage_agent_definition_actions = home_path / "skills/houmao-manage-agent-definition/actions"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
         "houmao-email-via-agent-gateway",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
         "houmao-email-via-filesystem",
     )
     assert state is not None
@@ -171,8 +178,10 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert (home_path / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
+    assert manage_agent_definition_path.is_file()
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
+    manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
     create_action_path = manage_specialist_actions / "create.md"
     list_action_path = manage_specialist_actions / "list.md"
     get_action_path = manage_specialist_actions / "get.md"
@@ -183,8 +192,15 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     credentials_add_action_path = manage_credentials_actions / "add.md"
     credentials_set_action_path = manage_credentials_actions / "set.md"
     credentials_remove_action_path = manage_credentials_actions / "remove.md"
+    definition_create_action_path = manage_agent_definition_actions / "create.md"
+    definition_list_action_path = manage_agent_definition_actions / "list.md"
+    definition_get_action_path = manage_agent_definition_actions / "get.md"
+    definition_set_action_path = manage_agent_definition_actions / "set.md"
+    definition_remove_action_path = manage_agent_definition_actions / "remove.md"
     credentials_get_action = credentials_get_action_path.read_text(encoding="utf-8")
     credentials_set_action = credentials_set_action_path.read_text(encoding="utf-8")
+    definition_get_action = definition_get_action_path.read_text(encoding="utf-8")
+    definition_set_action = definition_set_action_path.read_text(encoding="utf-8")
     assert ".venv/bin/houmao-mgr" in manage_specialist_skill
     assert "pixi run houmao-mgr" in manage_specialist_skill
     assert "uv run houmao-mgr" in manage_specialist_skill
@@ -226,7 +242,52 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
     assert "Do not bypass `auth get`" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
-    assert "Do not continue with set when the user has not provided any explicit supported change" in credentials_set_action
+    assert (
+        "Do not continue with set when the user has not provided any explicit supported change"
+        in credentials_set_action
+    )
+    assert ".venv/bin/houmao-mgr" in manage_agent_definition_skill
+    assert "pixi run houmao-mgr" in manage_agent_definition_skill
+    assert "uv run houmao-mgr" in manage_agent_definition_skill
+    assert "actions/create.md" in manage_agent_definition_skill
+    assert "actions/list.md" in manage_agent_definition_skill
+    assert "actions/get.md" in manage_agent_definition_skill
+    assert "actions/set.md" in manage_agent_definition_skill
+    assert "actions/remove.md" in manage_agent_definition_skill
+    assert "project agents roles list|get|init|set|remove" in manage_agent_definition_skill
+    assert "project agents presets list|get|add|set|remove" in manage_agent_definition_skill
+    assert "houmao-manage-credentials" in manage_agent_definition_skill
+    assert "project agents roles scaffold" in manage_agent_definition_skill
+    assert "project agents roles presets ..." in manage_agent_definition_skill
+    assert "direct hand-editing under `.houmao/agents/`" in manage_agent_definition_skill
+    assert (manage_agent_definition_agents / "openai.yaml").is_file()
+    assert definition_create_action_path.is_file()
+    assert definition_list_action_path.is_file()
+    assert definition_get_action_path.is_file()
+    assert definition_set_action_path.is_file()
+    assert definition_remove_action_path.is_file()
+    assert "project agents roles init --name <role>" in definition_create_action_path.read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "project agents presets add --name <preset> --role <role> --tool <tool>"
+        in definition_create_action_path.read_text(encoding="utf-8")
+    )
+    assert "project agents roles list" in definition_list_action_path.read_text(encoding="utf-8")
+    assert "project agents presets list" in definition_list_action_path.read_text(encoding="utf-8")
+    assert "project agents roles get --name <role> --include-prompt" in definition_get_action
+    assert "project agents presets get --name <preset>" in definition_get_action
+    assert "project agents roles set --name <role>" in definition_set_action
+    assert "project agents presets set --name <preset>" in definition_set_action
+    assert "--clear-auth" in definition_set_action
+    assert "houmao-manage-credentials" in definition_set_action
+    assert "project agents roles remove --name <role>" in definition_remove_action_path.read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "project agents presets remove --name <preset>"
+        in definition_remove_action_path.read_text(encoding="utf-8")
+    )
     assert list_action_path.is_file()
     assert get_action_path.is_file()
     assert remove_action_path.is_file()
@@ -251,12 +312,15 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert ".credentials.json" in claude_reference
     assert "optional bootstrap state" in claude_reference
     assert "not itself a credential-providing method" in claude_reference
-    assert "do not treat `.credentials.json` or `~/.claude.json` as directly importable specialist inputs" not in claude_reference
+    assert (
+        "do not treat `.credentials.json` or `~/.claude.json` as directly importable specialist inputs"
+        not in claude_reference
+    )
     assert "tests/fixtures/agents" not in claude_reference
 
     assert "CODEX_HOME" in codex_reference
     assert "auth.json" in codex_reference
-    assert 'requires_openai_auth = false' in codex_reference
+    assert "requires_openai_auth = false" in codex_reference
     assert 'wire_api = "responses"' in codex_reference
     assert "tests/fixtures/agents" not in codex_reference
 
@@ -292,9 +356,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_skil
         "houmao-email-via-stalwart",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
+        "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
     )
     assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
@@ -341,7 +407,9 @@ def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Pa
         )
 
 
-def test_install_system_skills_for_home_migrates_previous_owned_family_paths(tmp_path: Path) -> None:
+def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
+    tmp_path: Path,
+) -> None:
     home_path = (tmp_path / "codex-home").resolve()
     _write(
         home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md",
@@ -409,7 +477,9 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(tmp
     )
 
 
-def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(tmp_path: Path) -> None:
+def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
+    tmp_path: Path,
+) -> None:
     home_path = (tmp_path / "codex-home").resolve()
     _write(
         home_path / "skills/houmao-create-specialist/SKILL.md",
@@ -450,9 +520,7 @@ def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(t
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
     assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == (
-        "houmao-manage-specialist",
-    )
+    assert tuple(record.name for record in state.installed_skills) == ("houmao-manage-specialist",)
     assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
         "skills/houmao-manage-specialist",
     )
