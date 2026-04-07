@@ -1484,6 +1484,197 @@ def test_agents_launch_reports_project_aware_root_details_in_json(
     )
 
 
+def test_agents_launch_uses_invocation_project_roots_when_workdir_points_elsewhere(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_repo = (tmp_path / "source-repo").resolve()
+    runtime_workdir = (tmp_path / "runtime-workdir").resolve()
+    source_repo.mkdir(parents=True, exist_ok=True)
+    runtime_workdir.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = source_repo / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    preset = SimpleNamespace(
+        tool="codex",
+        skills=[],
+        setup="default",
+        auth="default",
+        launch_overrides=None,
+        launch_env_records=None,
+        operator_prompt_mode="unattended",
+        mailbox=None,
+        extra={},
+    )
+    target = SimpleNamespace(
+        tool="codex",
+        agent_def_dir=(source_repo / ".houmao" / "agents").resolve(),
+        role_name="gpu-kernel-coder",
+        preset=preset,
+        preset_path=(source_repo / ".houmao" / "agents" / "presets" / "gpu.yaml").resolve(),
+    )
+    controller = SimpleNamespace(
+        manifest_path=source_repo / ".houmao" / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="gpu",
+        tmux_session_name="gpu-session",
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(source_repo)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: (captured.setdefault("target_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: build_result,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "launch",
+            "--agents",
+            "gpu-kernel-coder",
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "codex",
+            "--headless",
+            "--workdir",
+            str(runtime_workdir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    expected_overlay_root = (source_repo / ".houmao").resolve()
+    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
+    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert payload["project_overlay_bootstrapped"] is True
+    assert captured["target_kwargs"]["working_directory"] == runtime_workdir
+    assert captured["target_kwargs"]["agent_def_dir"] == (expected_overlay_root / "agents")
+    assert captured["start_kwargs"]["working_directory"] == runtime_workdir
+    assert not (runtime_workdir / ".houmao").exists()
+
+
+def test_agents_launch_explicit_preset_path_uses_preset_source_project(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    invocation_directory = (tmp_path / "invocation").resolve()
+    source_repo = (tmp_path / "source-repo").resolve()
+    runtime_workdir = (tmp_path / "runtime-workdir").resolve()
+    invocation_directory.mkdir(parents=True, exist_ok=True)
+    runtime_workdir.mkdir(parents=True, exist_ok=True)
+    preset_path = (
+        source_repo / ".houmao" / "agents" / "presets" / "gpu-kernel-coder-codex-default.yaml"
+    ).resolve()
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: gpu-kernel-coder",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = source_repo / "brain.json"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    build_result = SimpleNamespace(manifest_path=manifest_path)
+    preset = SimpleNamespace(
+        tool="codex",
+        skills=[],
+        setup="default",
+        auth="default",
+        launch_overrides=None,
+        launch_env_records=None,
+        operator_prompt_mode="unattended",
+        mailbox=None,
+        extra={},
+    )
+    target = SimpleNamespace(
+        tool="codex",
+        agent_def_dir=(source_repo / ".houmao" / "agents").resolve(),
+        role_name="gpu-kernel-coder",
+        preset=preset,
+        preset_path=preset_path,
+    )
+    controller = SimpleNamespace(
+        manifest_path=source_repo / ".houmao" / "runtime" / "manifest.json",
+        agent_id="agent-1234",
+        agent_identity="gpu",
+        tmux_session_name="gpu-session",
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(invocation_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: (captured.setdefault("target_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: build_result,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "launch",
+            "--agents",
+            str(preset_path),
+            "--agent-name",
+            "gpu",
+            "--provider",
+            "codex",
+            "--headless",
+            "--workdir",
+            str(runtime_workdir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    expected_overlay_root = (source_repo / ".houmao").resolve()
+    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
+    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["overlay_root"] == str(expected_overlay_root)
+    assert captured["target_kwargs"]["agent_def_dir"] == (expected_overlay_root / "agents")
+    assert captured["target_kwargs"]["working_directory"] == runtime_workdir
+    assert captured["start_kwargs"]["working_directory"] == runtime_workdir
+    assert not (invocation_directory / ".houmao").exists()
+    assert not (runtime_workdir / ".houmao").exists()
+
+
+def test_agents_launch_help_exposes_workdir_not_working_directory() -> None:
+    result = CliRunner().invoke(cli, ["agents", "launch", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "--workdir DIRECTORY" in result.output
+    assert "--working-directory" not in result.output
+
+
 def test_server_sessions_shutdown_all_uses_pair_client(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _FakePairClient()
 

@@ -28,7 +28,7 @@ Headless join requires:
 Other optional inputs:
 
 - `--agent-id`
-- `--working-directory`
+- `--workdir`
 - repeatable `--launch-env NAME=value|NAME`
 - `--resume-id`
 - `--no-install-houmao-skills`

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -10,8 +12,15 @@ from typing import Any
 
 import click
 
+from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
-from houmao.agents.native_launch_resolver import resolve_native_launch_target
+from houmao.agents.native_launch_resolver import (
+    infer_launch_source_directory_from_agent_def_dir,
+    resolve_effective_agent_def_dir,
+    resolve_native_launch_target,
+    resolve_preset_owner_agent_def_dir,
+)
+from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -31,10 +40,9 @@ from houmao.agents.realm_controller.errors import (
 )
 from houmao.agents.realm_controller.models import HeadlessResumeSelection, JoinedLaunchEnvBinding
 from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
     ensure_project_aware_local_roots,
-    resolve_project_aware_local_jobs_root,
-    resolve_project_aware_mailbox_root,
-    resolve_project_aware_runtime_root,
+    materialize_project_agent_catalog_projection,
 )
 from houmao.server.tui.process import PaneProcessInspector
 
@@ -99,6 +107,7 @@ _PROVIDER_BY_TOOL: dict[str, str] = {
     "codex": "codex",
     "gemini": "gemini_cli",
 }
+_PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
 
 
 @dataclass(frozen=True)
@@ -151,6 +160,35 @@ def _validate_provider(provider: str) -> None:
         )
 
 
+def _is_path_like_launch_selector(selector: str) -> bool:
+    """Return whether one launch selector should resolve as an explicit preset path."""
+
+    return (
+        "/" in selector
+        or "\\" in selector
+        or selector.startswith(".")
+        or selector.startswith("~")
+        or selector.endswith(_PRESET_FILE_SUFFIXES)
+    )
+
+
+def _pinned_launch_source_env() -> dict[str, str]:
+    """Return one source-resolution env mapping that ignores invocation overrides."""
+
+    env = dict(os.environ)
+    env.pop(AGENT_DEF_DIR_ENV_VAR, None)
+    env.pop(PROJECT_OVERLAY_DIR_ENV_VAR, None)
+    return env
+
+
+def _materialize_source_agent_def_dir(*, project_roots: Any) -> Path:
+    """Resolve the effective agent-definition tree for one source context."""
+
+    if project_roots.project_overlay is not None:
+        return materialize_project_agent_catalog_projection(project_roots.project_overlay)
+    return project_roots.agent_def_dir.resolve()
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -161,32 +199,71 @@ def launch_managed_agent_locally(
     headless: bool,
     provider: str,
     working_directory: Path,
+    source_working_directory: Path | None = None,
+    source_agent_def_dir: Path | None = None,
+    source_env: Mapping[str, str] | None = None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     launch_env_overrides: dict[str, str] | None = None,
+    gateway_auto_attach: bool = False,
+    gateway_host: str | None = None,
+    gateway_port: int | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
 
-    project_roots = ensure_project_aware_local_roots(cwd=working_directory)
-    resolved_runtime_root = resolve_project_aware_runtime_root(cwd=working_directory)
-    resolved_jobs_root = resolve_project_aware_local_jobs_root(cwd=working_directory)
-    resolved_mailbox_root = (
-        mailbox_root.resolve()
-        if mailbox_root is not None
-        else resolve_project_aware_mailbox_root(cwd=working_directory)
-    )
-
     _validate_provider(provider)
+
+    resolved_working_directory = working_directory.resolve()
+    resolved_source_working_directory = (
+        source_working_directory.resolve()
+        if source_working_directory is not None
+        else resolved_working_directory
+    )
+    resolved_source_agent_def_dir = (
+        source_agent_def_dir.resolve() if source_agent_def_dir is not None else None
+    )
+    effective_source_env = dict(source_env) if source_env is not None else None
 
     resolved_backend_name = "unknown"
     try:
+        if resolved_source_agent_def_dir is None and _is_path_like_launch_selector(agents):
+            invocation_agent_def_dir = resolve_effective_agent_def_dir(
+                working_directory=resolved_source_working_directory
+            )
+            preset_path = resolve_explicit_or_named_preset_path(
+                agent_def_dir=invocation_agent_def_dir,
+                selector=agents,
+            )
+            resolved_source_agent_def_dir = resolve_preset_owner_agent_def_dir(
+                preset_path=preset_path
+            )
+            resolved_source_working_directory = infer_launch_source_directory_from_agent_def_dir(
+                agent_def_dir=resolved_source_agent_def_dir
+            )
+            effective_source_env = _pinned_launch_source_env()
+        project_roots = ensure_project_aware_local_roots(
+            cwd=resolved_source_working_directory,
+            env=effective_source_env,
+        )
+        effective_agent_def_dir = (
+            resolved_source_agent_def_dir
+            if resolved_source_agent_def_dir is not None
+            else _materialize_source_agent_def_dir(project_roots=project_roots)
+        )
+
+        resolved_runtime_root = project_roots.runtime_root
+        resolved_jobs_root = project_roots.jobs_root
+        resolved_mailbox_root = (
+            mailbox_root.resolve() if mailbox_root is not None else project_roots.mailbox_root
+        )
         target = resolve_native_launch_target(
             selector=agents,
             provider=provider,
-            working_directory=working_directory,
+            working_directory=resolved_working_directory,
+            agent_def_dir=effective_agent_def_dir,
         )
         build_result = build_brain_home(
             BuildRequest(
@@ -218,11 +295,14 @@ def launch_managed_agent_locally(
             runtime_root=resolved_runtime_root,
             jobs_root=resolved_jobs_root,
             backend=resolved_backend,
-            working_directory=working_directory,
+            working_directory=resolved_working_directory,
             agent_name=agent_name,
             agent_id=agent_id,
             tmux_session_name=session_name,
             launch_env_overrides=launch_env_overrides,
+            gateway_auto_attach=gateway_auto_attach,
+            gateway_host=gateway_host,
+            gateway_port=gateway_port,
             mailbox_transport=mailbox_transport,
             mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,
@@ -275,24 +355,35 @@ def emit_local_launch_completion(
     """Print one successful local launch result and hand off to tmux when appropriate."""
 
     controller = launch_result.controller
+    payload = {
+        "status": "Managed agent launch complete",
+        "agent_name": controller.agent_identity or agent_name,
+        "agent_id": controller.agent_id or "unknown",
+        "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
+        "manifest_path": str(controller.manifest_path),
+        "runtime_root": str(launch_result.runtime_root),
+        "runtime_root_detail": launch_result.runtime_root_detail,
+        "jobs_root": str(launch_result.jobs_root),
+        "jobs_root_detail": launch_result.jobs_root_detail,
+        "mailbox_root": str(launch_result.mailbox_root),
+        "mailbox_root_detail": launch_result.mailbox_root_detail,
+        "overlay_root": str(launch_result.overlay_root),
+        "overlay_root_detail": launch_result.overlay_root_detail,
+        "project_overlay_bootstrapped": launch_result.project_overlay_bootstrapped,
+        "overlay_bootstrap_detail": launch_result.overlay_bootstrap_detail,
+    }
+    gateway_host = getattr(controller, "gateway_host", None)
+    if gateway_host is not None:
+        payload["gateway_host"] = gateway_host
+    gateway_port = getattr(controller, "gateway_port", None)
+    if gateway_port is not None:
+        payload["gateway_port"] = gateway_port
+    gateway_auto_attach_error = getattr(controller, "gateway_auto_attach_error", None)
+    if gateway_auto_attach_error is not None:
+        payload["gateway_auto_attach_error"] = gateway_auto_attach_error
+
     emit(
-        {
-            "status": "Managed agent launch complete",
-            "agent_name": controller.agent_identity or agent_name,
-            "agent_id": controller.agent_id or "unknown",
-            "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
-            "manifest_path": str(controller.manifest_path),
-            "runtime_root": str(launch_result.runtime_root),
-            "runtime_root_detail": launch_result.runtime_root_detail,
-            "jobs_root": str(launch_result.jobs_root),
-            "jobs_root_detail": launch_result.jobs_root_detail,
-            "mailbox_root": str(launch_result.mailbox_root),
-            "mailbox_root_detail": launch_result.mailbox_root_detail,
-            "overlay_root": str(launch_result.overlay_root),
-            "overlay_root_detail": launch_result.overlay_root_detail,
-            "project_overlay_bootstrapped": launch_result.project_overlay_bootstrapped,
-            "overlay_bootstrap_detail": launch_result.overlay_bootstrap_detail,
-        },
+        payload,
         plain_renderer=render_launch_completion_plain,
         fancy_renderer=render_launch_completion_fancy,
     )
@@ -311,6 +402,8 @@ def emit_local_launch_completion(
                     "attach_command": f"tmux attach-session -t {controller.tmux_session_name}",
                 }
             )
+    if gateway_auto_attach_error is not None:
+        raise SystemExit(2)
 
 
 @click.group(name="agents")
@@ -325,6 +418,12 @@ def agents_group() -> None:
 @click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
+@click.option(
+    "--workdir",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
+    default=None,
+    help="Optional runtime working directory override; defaults to the invocation cwd.",
+)
 @click.option(
     "--headless-display-style",
     type=click.Choice(["plain", "json", "fancy"]),
@@ -352,13 +451,15 @@ def launch_agents_command(
     auth: str | None,
     session_name: str | None,
     headless: bool,
+    workdir: Path | None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     provider: str,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
 
-    working_directory = Path.cwd().resolve()
+    source_working_directory = Path.cwd().resolve()
+    working_directory = (workdir or source_working_directory).resolve()
     launch_result = launch_managed_agent_locally(
         agents=agents,
         agent_name=agent_name,
@@ -368,6 +469,7 @@ def launch_agents_command(
         headless=headless,
         provider=provider,
         working_directory=working_directory,
+        source_working_directory=source_working_directory,
         headless_display_style=headless_display_style,
         headless_display_detail=headless_display_detail,
     )
@@ -400,7 +502,7 @@ def launch_agents_command(
     help="Repeatable Docker-style env spec (`NAME=value` or `NAME`).",
 )
 @click.option(
-    "--working-directory",
+    "--workdir",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
     default=None,
     help="Optional working directory override; defaults from tmux window `0`, pane `0`.",
@@ -422,7 +524,7 @@ def join_agents_command(
     provider: str | None,
     launch_args: tuple[str, ...],
     launch_env: tuple[str, ...],
-    working_directory: Path | None,
+    workdir: Path | None,
     resume_id: str | None,
     no_install_houmao_skills: bool,
 ) -> None:
@@ -470,7 +572,7 @@ def join_agents_command(
             headless=headless,
             tmux_session_name=tmux_session_name,
             tmux_window_name=pane.window_name,
-            working_directory=(working_directory or pane_current_path).resolve(),
+            working_directory=(workdir or pane_current_path).resolve(),
             launch_args=launch_args,
             launch_env=launch_env_bindings,
             install_houmao_skills=not no_install_houmao_skills,

@@ -1661,6 +1661,23 @@ def easy_instance_group() -> None:
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option(
+    "--no-gateway",
+    is_flag=True,
+    help="Skip the default launch-time gateway attach for this instance.",
+)
+@click.option(
+    "--gateway-port",
+    type=click.IntRange(1, 65535),
+    default=None,
+    help="Request one fixed loopback gateway listener port for this launch.",
+)
+@click.option(
+    "--workdir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional runtime working directory override; defaults to the invocation cwd.",
+)
+@click.option(
     "--env-set",
     "env_set",
     multiple=True,
@@ -1690,6 +1707,9 @@ def launch_easy_instance_command(
     auth: str | None,
     session_name: str | None,
     headless: bool,
+    no_gateway: bool,
+    gateway_port: int | None,
+    workdir: Path | None,
     env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
@@ -1703,6 +1723,8 @@ def launch_easy_instance_command(
         raise click.ClickException(
             "Gemini specialists are currently headless-only. Use `--headless`."
         )
+    if no_gateway and gateway_port is not None:
+        raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
     if mail_transport == "email":
         raise click.ClickException(
             "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
@@ -1719,8 +1741,14 @@ def launch_easy_instance_command(
         raise click.ClickException(
             "`--mail-account-dir` is only supported with `--mail-transport filesystem`."
         )
-    materialize_project_agent_catalog_projection(overlay)
+    source_agent_def_dir = materialize_project_agent_catalog_projection(overlay)
     launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
+    working_directory = (workdir or Path.cwd()).resolve()
+    gateway_auto_attach = not no_gateway
+    gateway_host = "127.0.0.1" if gateway_auto_attach else None
+    requested_gateway_port = (
+        gateway_port if gateway_port is not None else 0 if gateway_auto_attach else None
+    )
 
     launch_result = launch_managed_agent_locally(
         agents=str(specialist_metadata.resolved_preset_path(overlay)),
@@ -1730,10 +1758,15 @@ def launch_easy_instance_command(
         session_name=_optional_non_empty_value(session_name),
         headless=headless,
         provider=specialist_metadata.provider,
-        working_directory=Path.cwd().resolve(),
+        working_directory=working_directory,
+        source_working_directory=overlay.project_root,
+        source_agent_def_dir=source_agent_def_dir,
         headless_display_style="plain",
         headless_display_detail="concise",
         launch_env_overrides=launch_env_overrides,
+        gateway_auto_attach=gateway_auto_attach,
+        gateway_host=gateway_host,
+        gateway_port=requested_gateway_port,
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
         mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),

@@ -55,6 +55,8 @@ sequenceDiagram
 
 Use `agents join` when the provider session already exists and you want Houmao to wrap it without rebuilding a home.
 
+If the adopted session should record a different cwd than tmux window `0`, pane `0`, add `--workdir /path/to/worktree`.
+
 ## Workflow 2: Build From A Local `.houmao/` Overlay
 
 ### Step 1: Initialize The Project Overlay
@@ -177,7 +179,8 @@ Launch from the compiled bare role selector:
 pixi run houmao-mgr agents launch \
   --agents researcher \
   --provider claude_code \
-  --agent-name research
+  --agent-name research \
+  --workdir /tmp/research-target
 ```
 
 The bare selector plus provider resolves:
@@ -185,7 +188,7 @@ The bare selector plus provider resolves:
 - `researcher` + `claude_code`
 - to `.houmao/agents/presets/researcher-claude-default.yaml`
 
-You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`.
+You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`. `--workdir` only changes the launched agent cwd; the current project remains the launch source for overlay, runtime, jobs, mailbox, and bare-selector preset resolution.
 
 If you want the higher-level launch path, use:
 
@@ -193,11 +196,14 @@ If you want the higher-level launch path, use:
 pixi run houmao-mgr project easy instance launch \
   --specialist researcher \
   --name research \
+  --workdir /tmp/research-target \
   --env-set FEATURE_FLAG_X=1 \
   --env-set OPENAI_BASE_URL
 ```
 
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
+
+For easy launch, `--workdir` only changes the launched agent cwd. The selected project overlay and specialist still supply the compatibility preset source plus overlay-local runtime, jobs, and mailbox defaults.
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
 

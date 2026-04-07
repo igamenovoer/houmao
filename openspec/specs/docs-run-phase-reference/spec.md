@@ -43,6 +43,8 @@ The run-phase reference SHALL include a page documenting the `BackendKind` type 
 
 The backend reference SHALL explicitly distinguish between implemented backend existence and recommended operator usage.
 
+When the launch policy reference mentions launch surfaces, it SHALL clarify the relationship between `LaunchSurface` (build-phase type that includes `raw_launch`) and `BackendKind` (run-phase type that uses `local_interactive`). The docs SHALL note that `raw_launch` in the build-phase surface maps to `local_interactive` at runtime.
+
 #### Scenario: local_interactive presented as primary
 
 - **WHEN** a reader opens the backends page
@@ -59,11 +61,27 @@ The backend reference SHALL explicitly distinguish between implemented backend e
 - **WHEN** the backends page describes backend resolution
 - **THEN** it explains `backend_for_tool()` mapping and how `LaunchPlan.backend` is determined
 
+#### Scenario: Launch surface vs backend kind distinction clarified
+
+- **WHEN** a reader checks the launch policy reference for backend surface examples
+- **THEN** the page explains that `LaunchSurface` includes `raw_launch` while `BackendKind` uses `local_interactive`
+- **AND THEN** the page notes that `raw_launch` maps to `local_interactive` at runtime
+
 ### Requirement: Role injection documented per backend
 
-The run-phase reference SHALL include a page documenting role injection: how `plan_role_injection()` produces a `RoleInjectionPlan` with backend-specific strategies (Codex → native developer instructions, Claude → appended system prompt + bootstrap message, Gemini → bootstrap message, CAO/server → profile-based injection). Content SHALL be derived from `launch_plan.py` role injection logic.
+The run-phase reference SHALL include a page documenting role injection: how `plan_role_injection()` produces a `RoleInjectionPlan` with backend-specific strategies. The reference SHALL explain the rationale for per-backend differences.
+
+The `RoleInjectionMethod` enumeration in the docs SHALL use the literal values from the code type: `native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, and `cao_profile`. The docs SHALL NOT use the stale name `profile_based`.
+
+The per-backend strategy table and Mermaid diagram SHALL use `cao_profile` for the `cao_rest` and `houmao_server_rest` backends.
 
 #### Scenario: Reader understands why role injection differs by backend
 
 - **WHEN** a reader opens the role-injection page
 - **THEN** they find a table or list mapping each backend to its injection method with a rationale for the difference
+
+#### Scenario: Reader sees correct RoleInjectionMethod values
+
+- **WHEN** a reader checks the `RoleInjectionMethod` enumeration in the role injection reference
+- **THEN** the listed values are `native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, and `cao_profile`
+- **AND THEN** the name `profile_based` does not appear anywhere on the page

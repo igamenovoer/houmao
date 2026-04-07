@@ -20,6 +20,7 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
 )
+from houmao.srv_ctrl.commands.agents.core import emit_local_launch_completion
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -2297,11 +2298,261 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
     assert captured["agent_name"] == "repo-research-1"
     assert captured["provider"] == "codex"
     assert captured["headless"] is True
+    assert captured["gateway_auto_attach"] is True
+    assert captured["gateway_host"] == "127.0.0.1"
+    assert captured["gateway_port"] == 0
     assert captured["mailbox_transport"] == "filesystem"
     assert captured["mailbox_root"] == mail_root
     assert captured["mailbox_account_dir"] == private_mailbox_dir
     assert emitted["agent_name"] == "repo-research-1"
     assert emitted["headless"] is True
+
+
+def test_project_easy_instance_launch_keeps_selected_overlay_when_workdir_points_elsewhere(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    runtime_workdir = (tmp_path / "runtime-workdir").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    runtime_workdir.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--workdir",
+            str(runtime_workdir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["working_directory"] == runtime_workdir
+    assert captured["source_working_directory"] == repo_root
+    assert captured["source_agent_def_dir"] == (repo_root / ".houmao" / "agents").resolve()
+    assert captured["agents"] == str(
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    )
+
+
+def test_project_easy_instance_launch_help_exposes_workdir() -> None:
+    result = CliRunner().invoke(cli, ["project", "easy", "instance", "launch", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "--workdir DIRECTORY" in result.output
+    assert "--no-gateway" in result.output
+    assert "--gateway-port INTEGER RANGE" in result.output
+
+
+def test_project_easy_instance_launch_no_gateway_opt_out(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--no-gateway",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["gateway_auto_attach"] is False
+    assert captured["gateway_host"] is None
+    assert captured["gateway_port"] is None
+
+
+def test_project_easy_instance_launch_gateway_port_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--gateway-port",
+            "43123",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["gateway_auto_attach"] is True
+    assert captured["gateway_host"] == "127.0.0.1"
+    assert captured["gateway_port"] == 43123
 
 
 def test_project_easy_instance_launch_resolves_one_off_env_set(
@@ -2384,6 +2635,205 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
         "FEATURE_FLAG_X": "1",
         "OPENAI_BASE_URL": "https://example.invalid/v1",
     }
+
+
+def test_project_easy_instance_launch_rejects_conflicting_gateway_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    launch_called = False
+
+    def _unexpected_launch(**kwargs: object) -> SimpleNamespace:
+        nonlocal launch_called
+        launch_called = True
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        _unexpected_launch,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--no-gateway",
+            "--gateway-port",
+            "43123",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "`--no-gateway` and `--gateway-port` cannot be combined" in result.output
+    assert launch_called is False
+
+
+def test_emit_local_launch_completion_reports_gateway_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    emitted: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit",
+        lambda payload, **kwargs: emitted.append(dict(payload)),
+    )
+
+    launch_result = SimpleNamespace(
+        controller=SimpleNamespace(
+            agent_identity="repo-research-1",
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+            gateway_host="127.0.0.1",
+            gateway_port=43123,
+            gateway_auto_attach_error=None,
+        ),
+        runtime_root=(tmp_path / "runtime").resolve(),
+        runtime_root_detail="runtime-root-detail",
+        jobs_root=(tmp_path / "jobs").resolve(),
+        jobs_root_detail="jobs-root-detail",
+        mailbox_root=(tmp_path / "mailbox").resolve(),
+        mailbox_root_detail="mailbox-root-detail",
+        overlay_root=(tmp_path / "overlay").resolve(),
+        overlay_root_detail="overlay-root-detail",
+        project_overlay_bootstrapped=False,
+        overlay_bootstrap_detail="overlay-bootstrap-detail",
+    )
+
+    emit_local_launch_completion(
+        launch_result=launch_result,
+        agent_name="repo-research-1",
+        session_name="HOUMAO-repo-research-1",
+        headless=True,
+    )
+
+    assert emitted == [
+        {
+            "status": "Managed agent launch complete",
+            "agent_name": "repo-research-1",
+            "agent_id": "agent-123",
+            "tmux_session_name": "HOUMAO-repo-research-1",
+            "manifest_path": str(manifest_path),
+            "runtime_root": str((tmp_path / "runtime").resolve()),
+            "runtime_root_detail": "runtime-root-detail",
+            "jobs_root": str((tmp_path / "jobs").resolve()),
+            "jobs_root_detail": "jobs-root-detail",
+            "mailbox_root": str((tmp_path / "mailbox").resolve()),
+            "mailbox_root_detail": "mailbox-root-detail",
+            "overlay_root": str((tmp_path / "overlay").resolve()),
+            "overlay_root_detail": "overlay-root-detail",
+            "project_overlay_bootstrapped": False,
+            "overlay_bootstrap_detail": "overlay-bootstrap-detail",
+            "gateway_host": "127.0.0.1",
+            "gateway_port": 43123,
+        }
+    ]
+
+
+def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_two(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    emitted: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit",
+        lambda payload, **kwargs: emitted.append(dict(payload)),
+    )
+
+    launch_result = SimpleNamespace(
+        controller=SimpleNamespace(
+            agent_identity="repo-research-1",
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+            gateway_host=None,
+            gateway_port=None,
+            gateway_auto_attach_error="bind failure",
+        ),
+        runtime_root=(tmp_path / "runtime").resolve(),
+        runtime_root_detail="runtime-root-detail",
+        jobs_root=(tmp_path / "jobs").resolve(),
+        jobs_root_detail="jobs-root-detail",
+        mailbox_root=(tmp_path / "mailbox").resolve(),
+        mailbox_root_detail="mailbox-root-detail",
+        overlay_root=(tmp_path / "overlay").resolve(),
+        overlay_root_detail="overlay-root-detail",
+        project_overlay_bootstrapped=False,
+        overlay_bootstrap_detail="overlay-bootstrap-detail",
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        emit_local_launch_completion(
+            launch_result=launch_result,
+            agent_name="repo-research-1",
+            session_name="HOUMAO-repo-research-1",
+            headless=True,
+        )
+
+    assert exc_info.value.code == 2
+    assert emitted == [
+        {
+            "status": "Managed agent launch complete",
+            "agent_name": "repo-research-1",
+            "agent_id": "agent-123",
+            "tmux_session_name": "HOUMAO-repo-research-1",
+            "manifest_path": str(manifest_path),
+            "runtime_root": str((tmp_path / "runtime").resolve()),
+            "runtime_root_detail": "runtime-root-detail",
+            "jobs_root": str((tmp_path / "jobs").resolve()),
+            "jobs_root_detail": "jobs-root-detail",
+            "mailbox_root": str((tmp_path / "mailbox").resolve()),
+            "mailbox_root_detail": "mailbox-root-detail",
+            "overlay_root": str((tmp_path / "overlay").resolve()),
+            "overlay_root_detail": "overlay-root-detail",
+            "project_overlay_bootstrapped": False,
+            "overlay_bootstrap_detail": "overlay-bootstrap-detail",
+            "gateway_auto_attach_error": "bind failure",
+        }
+    ]
 
 
 def test_project_easy_instance_launch_requires_specialist_and_name(tmp_path: Path) -> None:

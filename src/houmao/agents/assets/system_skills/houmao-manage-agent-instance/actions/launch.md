@@ -38,6 +38,12 @@ Common optional inputs:
 - `--auth`
 - `--session-name`
 - `--headless`
+- `--workdir`
+
+Behavior note:
+
+- `--workdir` changes only the launched agent runtime cwd.
+- When the selected role or preset resolves from a Houmao project source, source-project overlay resolution stays pinned to that source instead of following `--workdir`.
 
 ### Specialist-Backed Managed Launch
 
@@ -59,7 +65,13 @@ Common optional inputs:
 - `--auth`
 - `--session-name`
 - `--headless`
+- `--workdir`
 - `--env-set NAME=value|NAME`
+
+Behavior note:
+
+- `--workdir` changes only the launched agent runtime cwd.
+- The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
 
 If the selected specialist is known to use Gemini, the launch must be headless.
 
@@ -70,5 +82,6 @@ If the selected specialist is known to use Gemini, the launch must be headless.
 - Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
 - Do not route specialist-backed launch through `agents launch`.
 - Do not route role/preset launch through `project easy instance launch`.
+- Do not describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
 - Do not include mailbox launch flags in this skill; mailbox-enabled launch is out of scope here.
 - Do not treat prompt submission or gateway attach as part of launch completion for this skill.

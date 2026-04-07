@@ -1369,6 +1369,55 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
     assert "Managed agent join complete" in result.output
 
 
+def test_houmao_mgr_agents_join_respects_workdir_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    explicit_workdir = (tmp_path / "explicit-workdir").resolve()
+    explicit_workdir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
+    monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
+    monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: "codex")
+    monkeypatch.setattr(
+        agents_core.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
+        ),
+    )
+
+    def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
+        captured.update(kwargs)
+        return _fake_joined_session_artifacts(agent_name="coder", agent_id="agent-1")
+
+    monkeypatch.setattr(agents_core, "materialize_joined_launch", fake_materialize_joined_launch)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "join",
+            "--agent-name",
+            "coder",
+            "--workdir",
+            str(explicit_workdir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["working_directory"] == explicit_workdir
+
+
+def test_houmao_mgr_agents_join_help_uses_workdir_flag() -> None:
+    result = CliRunner().invoke(cli, ["agents", "join", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "--workdir DIRECTORY" in result.output
+    assert "--working-directory" not in result.output
+
+
 def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 

@@ -110,8 +110,11 @@ houmao-mgr project easy specialist create \
 ```bash
 houmao-mgr project easy instance launch \
   --specialist my-reviewer \
-  --name reviewer-1
+  --name reviewer-1 \
+  --workdir ../review-target
 ```
+
+By default, easy instance launch also auto-attaches a live loopback gateway for the new session on `127.0.0.1` with a system-assigned port. Use `--no-gateway` to skip that default for one launch, or `--gateway-port <port>` when you want one fixed loopback listener port on the current launch. If the managed session starts but gateway attachment fails afterward, Houmao keeps the session running and reports the attach error together with the manifest/session identity so you can retry or stop it explicitly.
 
 Key options:
 
@@ -119,7 +122,10 @@ Key options:
 |---|---|---|
 | `--specialist` | Required | Specialist name to launch from. |
 | `--name` | Required | Managed-agent instance name. |
+| `--workdir` | None | Optional runtime working directory override for the launched agent session. |
 | `--headless` | False | Launch in detached/background mode. |
+| `--no-gateway` | False | Skip the default launch-time gateway attach for this instance. |
+| `--gateway-port` | Auto | Request one fixed loopback gateway listener port for this launch. |
 | `--session-name` | None | Optional tmux session name override. |
 | `--auth` | Specialist's credential | Optional auth bundle override. |
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
@@ -128,6 +134,10 @@ Key options:
 | `--mail-account-dir` | None | Optional private filesystem mailbox directory to symlink into the shared root. |
 
 Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project easy instance launch`.
+
+`--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for preset resolution plus overlay-local runtime, jobs, and mailbox defaults.
+
+`--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port.
 
 There is no separate easy-launch `--yolo` override. Startup autonomy is owned by the stored specialist `launch.prompt_mode`: `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 

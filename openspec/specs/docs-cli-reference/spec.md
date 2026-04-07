@@ -31,6 +31,8 @@ When the CLI reference documents `agents gateway`, that coverage SHALL include t
 
 The `brains build` options table in the CLI reference SHALL reflect the current live CLI flag names: `--preset`, `--setup`, and `--auth`. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
 
+When the `houmao-mgr` reference describes Claude credential lanes for `project easy specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed `project agents tools claude auth` flag names (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
+
 #### Scenario: Reader finds current agent lifecycle and project command groups
 - **WHEN** a reader looks up `houmao-mgr`
 - **THEN** they find documented subcommands for `agents`, `brains`, `mailbox`, `project`, `server`, and `admin`
@@ -71,6 +73,12 @@ The `brains build` options table in the CLI reference SHALL reflect the current 
 - **THEN** the CLI reference includes `tui state`, `tui history`, `tui watch`, `tui note-prompt` with option tables
 - **AND THEN** the CLI reference includes `mail-notifier status`, `mail-notifier enable`, `mail-notifier disable` with option tables
 
+#### Scenario: Reader sees correct Claude auth flag-name distinction
+- **WHEN** a reader looks up Claude credential lanes in the `houmao-mgr` reference
+- **THEN** the page shows that `project agents tools claude auth` uses `--auth-token`, `--oauth-token`, `--config-dir`
+- **AND THEN** the page shows that `project easy specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
+- **AND THEN** the page states that both surfaces accept the same credential semantics
+
 ### Requirement: houmao-server reference documents serve and query commands
 
 The CLI reference SHALL include a page for `houmao-server` documenting its commands (`serve`, `health`, `current-instance`, `register-launch`, `sessions`, and `terminals`) derived from `server/commands/` module docstrings and live help output.
@@ -92,10 +100,18 @@ The `serve` reference SHALL describe the implemented startup behavior and the cu
 
 The CLI reference SHALL include a page for `houmao-passive-server` documenting its registry-driven discovery model, serve command, and API surface derived from `passive_server/` module docstrings. The page SHALL position passive-server as the clean, CAO-free server path.
 
+The comparison table SHALL list the correct default ports: 9891 for `houmao-passive-server` and 9889 for `houmao-server`.
+
 #### Scenario: Reader understands passive vs active server difference
 
 - **WHEN** a reader compares passive-server and houmao-server pages
 - **THEN** they understand that passive-server is stateless/registry-driven with no CAO dependency, while houmao-server is the CAO-compatible path
+
+#### Scenario: Comparison table shows correct default ports
+
+- **WHEN** a reader checks the comparison table in houmao-passive-server.md
+- **THEN** the default port for `houmao-passive-server` is listed as 9891
+- **AND THEN** the default port for `houmao-server` is listed as 9889
 
 ### Requirement: Deprecated entrypoints noted briefly
 
@@ -260,6 +276,34 @@ That page SHALL describe the CLI-default system-skill install selection as inclu
 - **THEN** the page explains that CLI-default installation includes both packaged non-mailbox Houmao skills
 - **AND THEN** it does not imply that managed launch or managed join auto-install changed in the same way
 
+### Requirement: Managed-launch CLI reference documents `--workdir` and source-project pinning
+The CLI reference pages that document `houmao-mgr agents launch`, `houmao-mgr agents join`, and `houmao-mgr project easy instance launch` SHALL describe `--workdir` as the current public runtime-cwd flag.
+
+That coverage SHALL describe the default behavior as using the invocation cwd for launch-time runtime workdir and tmux-pane current path for join-time adopted workdir when `--workdir` is omitted.
+
+That coverage SHALL explain that `--workdir` sets the launched or adopted agent cwd and does not retarget launch source project resolution.
+
+For `agents launch`, that coverage SHALL explain that when launch originates from a Houmao project, source overlay selection and overlay-local runtime/jobs roots remain pinned to that source project rather than following `--workdir`.
+
+For `project easy instance launch`, that coverage SHALL explain that the selected easy-project overlay and specialist source remain authoritative even when `--workdir` points somewhere else.
+
+That coverage SHALL NOT present `--working-directory` as part of the current public CLI for `agents join`.
+
+#### Scenario: Reader sees `--workdir` on the managed launch surfaces
+- **WHEN** a reader opens the CLI reference for `houmao-mgr agents launch`, `houmao-mgr agents join`, or `houmao-mgr project easy instance launch`
+- **THEN** the documented runtime-cwd flag is `--workdir`
+- **AND THEN** the reference does not describe `--working-directory` as the current join flag
+
+#### Scenario: Reader understands source-project pinning for managed launch
+- **WHEN** a reader looks up `houmao-mgr agents launch --workdir`
+- **THEN** the reference explains that `--workdir` changes the launched agent cwd
+- **AND THEN** it explains that source overlay/runtime/jobs resolution remains pinned to the launch source project when one exists
+
+#### Scenario: Reader understands easy launch keeps the selected overlay even with external workdir
+- **WHEN** a reader looks up `houmao-mgr project easy instance launch --workdir`
+- **THEN** the reference explains that the selected project overlay and specialist source remain authoritative
+- **AND THEN** it explains that `--workdir` only changes the launched agent cwd
+
 ### Requirement: System-skills reference documents effective-home resolution and omitted-selection defaults
 The CLI reference pages `docs/reference/cli/system-skills.md` and `docs/reference/cli/houmao-mgr.md` SHALL describe `houmao-mgr system-skills install` and `houmao-mgr system-skills status` as requiring `--tool` and accepting an optional `--home`.
 
@@ -342,3 +386,13 @@ At minimum, that coverage SHALL:
 - **THEN** the page documents `project agents presets list|get|add|set|remove`
 - **AND THEN** it describes those commands as operations on `agents/presets/<name>.yaml`
 - **AND THEN** it does not present `roles presets ...` or `roles scaffold` as the supported surface
+
+### Requirement: Easy-specialist launch options table includes mail-account-dir
+
+The `docs/getting-started/easy-specialists.md` options table for `project easy instance launch` SHALL include the `--mail-account-dir` option with its default (None) and its description as an optional private filesystem mailbox directory to symlink into the shared root.
+
+#### Scenario: Reader finds mail-account-dir in the instance launch table
+
+- **WHEN** a reader checks the options table for `project easy instance launch` in `easy-specialists.md`
+- **THEN** the table includes a row for `--mail-account-dir` with default `None`
+- **AND THEN** the description explains it is an optional private filesystem mailbox directory to symlink into the shared root
