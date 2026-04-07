@@ -213,7 +213,7 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 
 ### System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface — without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, and control other agent instances autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, message other managed agents, and control live runtime workflows autonomously.
 
 | Skill | What it enables |
 |---|---|
@@ -221,14 +221,15 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-manage-credentials` | Add, update, inspect, and remove project-local tool auth bundles |
 | `houmao-manage-agent-definition` | List, inspect, initialize, update, and remove roles and presets |
 | `houmao-manage-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
+| `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, follow up by mailbox, and reset context for already-running managed agents |
 
-`agents join` and `agents launch` auto-install these skills by default. To install them into an external tool home manually:
+`agents join` and `agents launch` auto-install the packaged `user-control` and `agent-messaging` skills into managed homes by default. To prepare an external tool home with the broader CLI-default selection, including the separate lifecycle-only `houmao-manage-agent-instance` skill, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-See the [System Skills reference](docs/reference/cli/system-skills.md) for the full catalog, named sets, and install options.
+See the [System Skills reference](docs/reference/cli/system-skills.md) for the full catalog, named sets, managed-home versus external-home defaults, and install options.
 
 ## Full Documentation
 

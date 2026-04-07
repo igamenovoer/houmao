@@ -253,6 +253,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
@@ -265,6 +266,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
+        "houmao-agent-messaging",
     )
 
     # Credential file projection and env contract setup.

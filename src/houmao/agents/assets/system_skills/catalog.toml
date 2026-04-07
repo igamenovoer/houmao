@@ -32,6 +32,10 @@ description = "Low-level project-local role and preset definition management ski
 asset_subpath = "houmao-manage-agent-instance"
 description = "Managed agent instance lifecycle skill."
 
+[skills.houmao-agent-messaging]
+asset_subpath = "houmao-agent-messaging"
+description = "Managed agent communication and control skill."
+
 [sets.mailbox-core]
 description = "Core shared mailbox workflow skills."
 skills = [
@@ -62,7 +66,13 @@ skills = [
   "houmao-manage-agent-instance",
 ]
 
+[sets.agent-messaging]
+description = "Managed agent communication and control system skills."
+skills = [
+  "houmao-agent-messaging",
+]
+
 [auto_install]
-managed_launch_sets = ["mailbox-full", "user-control"]
-managed_join_sets = ["mailbox-full", "user-control"]
-cli_default_sets = ["mailbox-full", "user-control", "agent-instance"]
+managed_launch_sets = ["mailbox-full", "user-control", "agent-messaging"]
+managed_join_sets = ["mailbox-full", "user-control", "agent-messaging"]
+cli_default_sets = ["mailbox-full", "user-control", "agent-instance", "agent-messaging"]

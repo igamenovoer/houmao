@@ -1,0 +1,55 @@
+# Use Managed-Agent Mail Follow-Up
+
+Use this action only when the target has mailbox capability and the work should be expressed as mailbox follow-up instead of a normal prompt turn or raw gateway control.
+
+## Workflow
+
+1. Use the launcher resolved from the top-level skill.
+2. Recover the target selector and mailbox intent from the current prompt first and recent chat context second when they were stated explicitly.
+3. If the target selector or mailbox intent is still missing, ask the user in Markdown before proceeding.
+4. Use `agents mail resolve-live` first when the task needs current mailbox bindings, mailbox capability confirmation, or an exact live `gateway.base_url`.
+5. Use the managed-agent mailbox commands or `/houmao/agents/{agent_ref}/mail/*` routes for transport-neutral mailbox follow-up:
+   - `status`
+   - `check`
+   - `send`
+   - `reply`
+   - `mark-read`
+6. When the mailbox task becomes a notifier-driven round with a live gateway mailbox facade, hand off to `houmao-process-emails-via-gateway`.
+7. When the mailbox task needs the exact `/v1/mail/*` gateway contract, hand off to `houmao-email-via-agent-gateway`.
+8. When the mailbox task needs filesystem-specific or Stalwart-specific behavior, hand off to `houmao-email-via-filesystem` or `houmao-email-via-stalwart`.
+9. Report the mailbox result from the selected transport-neutral surface.
+
+## Command Shapes
+
+Resolve live bindings:
+
+```text
+<resolved houmao-mgr launcher> agents mail resolve-live --agent-name <name>
+```
+
+Common mailbox follow-up:
+
+```text
+<resolved houmao-mgr launcher> agents mail status --agent-name <name>
+<resolved houmao-mgr launcher> agents mail check --agent-name <name>
+<resolved houmao-mgr launcher> agents mail send --agent-name <name> ...
+<resolved houmao-mgr launcher> agents mail reply --agent-name <name> ...
+<resolved houmao-mgr launcher> agents mail mark-read --agent-name <name> --message-ref <message_ref>
+```
+
+Managed-agent HTTP mailbox surfaces:
+
+- `GET /houmao/agents/{agent_ref}/mail/resolve-live`
+- `GET /houmao/agents/{agent_ref}/mail/status`
+- `POST /houmao/agents/{agent_ref}/mail/check`
+- `POST /houmao/agents/{agent_ref}/mail/send`
+- `POST /houmao/agents/{agent_ref}/mail/reply`
+- `POST /houmao/agents/{agent_ref}/mail/state`
+
+## Guardrails
+
+- Do not guess mailbox capability, mailbox addresses, or message references.
+- Do not restate filesystem layout, Stalwart credential handling, or the lower-level `/v1/mail/*` contract here.
+- Do not mark a message read before the corresponding send, reply, or processing action succeeds.
+- Do not turn mailbox follow-up into a raw `send-keys` or ordinary prompt workflow.
+- Do not guess a direct gateway base URL for mailbox work.
