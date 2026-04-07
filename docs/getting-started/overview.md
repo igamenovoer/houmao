@@ -1,16 +1,16 @@
 # Architecture Overview
 
-Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases, but the reusable source model is now `preset + setup + auth` rather than `recipe + config-profile + credential-profile`.
+Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties easy profiles and explicit launch profiles together, see [Launch Profiles](launch-profiles.md).
 
 ## Two-Phase Lifecycle
 
 ```mermaid
 flowchart TD
-    Op["Operator"] --> SRC["Source Tree<br/>(roles + presets + tools + skills)"]
+    Op["Operator"] --> SRC["Source Tree<br/>(roles + recipes + launch-profiles +<br/>tools + skills)"]
     SRC --> CAT["Canonical Parsed Catalog"]
-    CAT --> RLS["Resolved Launch Spec<br/>(tool, role, setup,<br/>skills, auth)"]
+    CAT --> RLS["Resolved Launch Spec<br/>(tool, role, setup, skills, auth,<br/>launch-profile defaults)"]
     RLS --> BB["BrainBuilder"]
-    BB --> BM["Brain Manifest<br/>(schema_version=3)"]
+    BB --> BM["Brain Manifest<br/>(schema_version=3,<br/>launch-profile provenance)"]
     BM --> LP["LaunchPlanRequest<br/>(manifest + role)"]
     LP --> RT["Runtime Session<br/>Controller"]
 ```
@@ -99,9 +99,13 @@ houmao-mgr project
 ├── init | status
 ├── agents
 │   ├── roles ...
+│   ├── recipes ...                # canonical low-level source recipes
+│   ├── presets ...                # compatibility alias for `recipes`
+│   ├── launch-profiles ...        # explicit recipe-backed birth-time launch profiles
 │   └── tools <tool> ...
 ├── easy
 │   ├── specialist ...
+│   ├── profile ...                # specialist-backed easy birth-time profiles
 │   └── instance ...
 └── mailbox
     ├── init | status | register | unregister | repair | cleanup
@@ -109,8 +113,8 @@ houmao-mgr project
     └── messages list|get
 ```
 
-- `project agents ...` maps directly to the canonical `.houmao/agents/` source tree.
-- `project easy ...` lets users author reusable specialists and view running instances without hand-editing the tree.
+- `project agents ...` maps directly to the canonical `.houmao/agents/` source tree, including named recipes, recipe-backed launch profiles, and tool-scoped setup/auth bundles.
+- `project easy ...` lets users author reusable specialists, optional specialist-backed easy profiles, and view running instances without hand-editing the tree.
 - `project mailbox ...` mirrors the generic `houmao-mgr mailbox ...` operations, but automatically targets `<project-root>/.houmao/mailbox`.
 
 Project-aware commands select that overlay root through one shared contract:

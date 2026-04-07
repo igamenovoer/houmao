@@ -112,6 +112,23 @@ def set_json_key(
     write_json_state(path, payload)
 
 
+def delete_json_key(
+    *,
+    path: Path,
+    key_path: tuple[str, ...],
+    repair_invalid: bool = False,
+) -> None:
+    """Delete one nested JSON key path while preserving unrelated state."""
+
+    payload = (
+        _load_json_state_with_template(path, repair_invalid=repair_invalid)
+        if path.name == _CLAUDE_RUNTIME_STATE_FILENAME
+        else _load_json_state_with_repair(path, repair_invalid=repair_invalid)
+    )
+    _delete_nested_json_key(payload, key_path)
+    write_json_state(path, payload)
+
+
 def load_toml_state(path: Path, *, repair_invalid: bool = False) -> dict[str, Any]:
     """Load one TOML object from disk, defaulting to an empty object."""
 
@@ -636,13 +653,14 @@ def _ensure_codex_model_migration_state(*, config_path: Path, repair_invalid: bo
         repair_invalid=repair_invalid,
     )
     model_value = payload.get("model")
-    if model_value is None or model_value == _CODEX_MODEL_MIGRATION_SOURCE:
+    if model_value is None:
         set_toml_key(
             path=config_path,
             key_path=("model",),
             value=_CODEX_MODEL_MIGRATION_TARGET,
             repair_invalid=repair_invalid,
         )
+    if model_value is None or model_value == _CODEX_MODEL_MIGRATION_SOURCE:
         set_toml_key(
             path=config_path,
             key_path=("notice", "model_migrations", _CODEX_MODEL_MIGRATION_SOURCE),

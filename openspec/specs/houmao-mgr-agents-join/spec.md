@@ -6,7 +6,9 @@ Define the operator-facing `houmao-mgr agents join` workflow for adopting existi
 ### Requirement: `houmao-mgr agents join` adopts an existing supported TUI from the current tmux session
 `houmao-mgr agents join` SHALL provide a local adoption path for a supported provider TUI that is already running inside the caller's current tmux session.
 
-The command SHALL require `--agent-name <name>` and MAY accept `--agent-id <id>`, `--provider <provider>`, repeatable `--launch-args <arg>`, repeatable `--launch-env <env-spec>`, and `--working-directory <path>`.
+The command SHALL require `--agent-name <name>` and MAY accept `--agent-id <id>`, `--provider <provider>`, repeatable `--launch-args <arg>`, repeatable `--launch-env <env-spec>`, and `--workdir <path>`.
+
+The command SHALL NOT expose `--working-directory` as part of the current public join surface.
 
 The command SHALL resolve its adoption target from the caller's current tmux session and SHALL treat tmux window `0`, pane `0` as the canonical adopted agent surface in v1.
 
@@ -19,7 +21,7 @@ When present, `--launch-env` SHALL follow Docker `--env` style:
 - `NAME=value` persists a literal env binding for later relaunch,
 - `NAME` means the later relaunch resolves `NAME` from the adopted tmux session environment.
 
-When `--working-directory` is omitted, the command SHALL derive it from the target pane's current path. If no usable pane current path is available, the command SHALL fail explicitly rather than guessing another directory.
+When `--workdir` is omitted, the command SHALL derive it from the target pane's current path. If no usable pane current path is available, the command SHALL fail explicitly rather than guessing another directory.
 
 A successful TUI join SHALL materialize the managed-agent identity and runtime artifacts through the join runtime path without restarting the current TUI process.
 
@@ -31,6 +33,11 @@ After a successful TUI join, later local `houmao-mgr agents state` commands SHAL
 - **AND THEN** it adopts that tmux session into managed-agent control as a `local_interactive` session without restarting the live Codex process
 - **AND THEN** later `houmao-mgr agents state --agent-name coder` resolves that adopted managed agent through the normal local discovery path
 
+#### Scenario: Join help exposes `--workdir` instead of `--working-directory`
+- **WHEN** an operator runs `houmao-mgr agents join --help`
+- **THEN** the help output lists `--workdir`
+- **AND THEN** the help output does not present `--working-directory` as a supported join option
+
 #### Scenario: Joined TUI remains inspectable through later local state commands
 - **WHEN** an operator joins a live Claude TUI whose adopted window `0` is still named `claude`
 - **AND WHEN** the operator later runs `houmao-mgr agents state --agent-name tester`
@@ -40,7 +47,7 @@ After a successful TUI join, later local `houmao-mgr agents state` commands SHAL
 ### Requirement: `houmao-mgr agents join --headless` adopts a tmux-backed native headless logical session
 `houmao-mgr agents join --headless` SHALL adopt a tmux-backed native headless logical session between turns rather than a live provider TUI surface.
 
-The headless join form SHALL require `--headless`, `--agent-name <name>`, `--provider <claude_code|codex|gemini_cli>`, and at least one `--launch-args <arg>`. It MAY accept `--agent-id <id>`, repeatable `--launch-env <env-spec>`, optional `--resume-id <provider-resume-selector>`, and `--working-directory <path>`.
+The headless join form SHALL require `--headless`, `--agent-name <name>`, `--provider <claude_code|codex|gemini_cli>`, and at least one `--launch-args <arg>`. It MAY accept `--agent-id <id>`, repeatable `--launch-env <env-spec>`, optional `--resume-id <provider-resume-selector>`, and `--workdir <path>`.
 
 For headless join, `--resume-id` SHALL use the following semantics:
 
@@ -50,7 +57,7 @@ For headless join, `--resume-id` SHALL use the following semantics:
 
 The command SHALL run inside the target tmux session and SHALL treat tmux window `0`, pane `0` as the canonical headless console surface for the adopted session.
 
-When `--working-directory` is omitted, the command SHALL derive it from the primary pane current path and SHALL fail explicitly if that path is unavailable.
+When `--workdir` is omitted, the command SHALL derive it from the primary pane current path and SHALL fail explicitly if that path is unavailable.
 
 A successful headless join SHALL adopt the logical session using the provider-specific native headless backend (`claude_headless`, `codex_headless`, or `gemini_headless`) and SHALL persist the supplied launch args, launch env specs, and resume-selection metadata for later runtime-controlled turns.
 
@@ -82,7 +89,7 @@ This failure-closed posture SHALL cover at minimum:
 - TUI provider detection returns zero or multiple supported providers and the caller did not provide a usable `--provider`,
 - the caller supplies `--provider` that conflicts with the detected live TUI process,
 - headless join omits required `--launch-args`,
-- the working directory cannot be resolved from `--working-directory` or tmux pane metadata.
+- the workdir cannot be resolved from `--workdir` or tmux pane metadata.
 
 The command SHALL return an explicit operator-facing error that identifies the missing or inconsistent input instead of fabricating placeholder values or publishing partially usable runtime metadata.
 

@@ -1,8 +1,6 @@
 ## Purpose
 Define packaged catalog, selection, projection, and install-state behavior for the current Houmao-owned system-skill set.
-
 ## Requirements
-
 ### Requirement: Current Houmao-owned system skills are packaged as maintained runtime assets
 The system SHALL package the current Houmao-owned `houmao-*` skills under one maintained Houmao-owned runtime asset root that is separate from project starter assets.
 
@@ -51,7 +49,7 @@ For the current skill set, the visible projected paths SHALL remain tool-native:
 
 - Claude: `skills/<houmao-skill>/`
 - Codex: `skills/<houmao-skill>/`
-- Gemini: `.agents/skills/<houmao-skill>/`
+- Gemini: `.gemini/skills/<houmao-skill>/`
 
 The shared installer SHALL support these projection modes:
 
@@ -80,9 +78,9 @@ The shared installer SHALL NOT require a project-local copied skill mirror or wo
 
 #### Scenario: Managed home installation preserves the current Gemini skill root with copied projection
 - **WHEN** Houmao installs selected current Houmao-owned skills into a managed Gemini home
-- **THEN** the installer projects those skills under `.agents/skills/`
+- **THEN** the installer projects those skills under `.gemini/skills/`
 - **AND THEN** it uses copied projection rather than symlink projection in this change
-- **AND THEN** it does not require `.gemini/skills` as the primary visible projection root for those installed skills
+- **AND THEN** it does not require `.agents/skills` as the primary visible projection root for those installed skills
 
 #### Scenario: Explicit symlink installation fails when the packaged skill root is not filesystem-backed
 - **WHEN** an operator explicitly requests symlink installation for one selected current Houmao-owned skill
@@ -210,40 +208,54 @@ Because managed launch and managed join already resolve `user-control`, those fi
 - **AND THEN** the resolved `user-control` install list now includes `houmao-manage-agent-definition` without requiring a new named set
 
 ### Requirement: Packaged system-skill catalog includes agent-instance lifecycle guidance and adds it to CLI-default installs
-The packaged current-system-skill catalog SHALL include `houmao-manage-agent-instance` as a current installable Houmao-owned skill.
+The packaged current-system-skill catalog SHALL include `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` as current installable Houmao-owned skills.
 
-That packaged skill SHALL use `houmao-manage-agent-instance` as both its catalog key and its packaged `asset_subpath`.
+Each packaged skill SHALL use its skill name as both its catalog key and its packaged `asset_subpath`.
 
-The packaged catalog SHALL define a dedicated named set for the lifecycle skill instead of folding that skill into `user-control`.
+The packaged catalog SHALL define dedicated named sets for:
+
+- the lifecycle skill,
+- the messaging skill,
+- the gateway skill,
+
+instead of folding any of those skills into `user-control`.
 
 The packaged catalog's fixed `managed_launch_sets` selection SHALL include:
 
 - `mailbox-full`
 - `user-control`
+- the dedicated agent-messaging set containing `houmao-agent-messaging`
+- the dedicated agent-gateway set containing `houmao-agent-gateway`
 
 The packaged catalog's fixed `managed_join_sets` selection SHALL include:
 
 - `mailbox-full`
 - `user-control`
+- the dedicated agent-messaging set containing `houmao-agent-messaging`
+- the dedicated agent-gateway set containing `houmao-agent-gateway`
 
-The packaged catalog's fixed `cli_default_sets` selection SHALL include both:
+The packaged catalog's fixed `cli_default_sets` selection SHALL include:
 
-- the `user-control` set containing `houmao-manage-specialist`, `houmao-manage-credentials`, and `houmao-manage-agent-definition`
+- `mailbox-full`
+- `user-control`
 - the dedicated agent-instance lifecycle set containing `houmao-manage-agent-instance`
+- the dedicated agent-messaging set containing `houmao-agent-messaging`
+- the dedicated agent-gateway set containing `houmao-agent-gateway`
 
-This change SHALL NOT require adding the new agent-instance lifecycle set to `managed_launch_sets` or `managed_join_sets`.
+This change SHALL NOT require adding the separate agent-instance lifecycle set to `managed_launch_sets` or `managed_join_sets`.
 
-#### Scenario: Maintainer sees the new lifecycle skill in the packaged catalog
+#### Scenario: Maintainer sees the lifecycle, messaging, and gateway skills in the packaged catalog
 - **WHEN** a maintainer inspects the packaged current-system-skill catalog
-- **THEN** the current installable skill inventory includes `houmao-manage-agent-instance`
-- **AND THEN** that skill uses its own flat asset subpath under the maintained runtime asset root
+- **THEN** the current installable skill inventory includes `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway`
+- **AND THEN** each skill uses its own flat asset subpath under the maintained runtime asset root
 
-#### Scenario: CLI-default selection includes user-control and instance lifecycle guidance
+#### Scenario: CLI-default selection includes lifecycle, messaging, and gateway guidance
 - **WHEN** a maintainer inspects the packaged auto-install selection lists
-- **THEN** the fixed `cli_default_sets` selection includes both `user-control` and the agent-instance lifecycle set
-- **AND THEN** the CLI-default install path resolves `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition`, and `houmao-manage-agent-instance`
+- **THEN** the fixed `cli_default_sets` selection includes the agent-instance lifecycle set, the agent-messaging set, and the agent-gateway set
+- **AND THEN** the CLI-default install path resolves `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway`
 
-#### Scenario: Managed auto-install lists use user-control and still exclude the agent-instance set
+#### Scenario: Managed auto-install gains gateway guidance but still excludes the lifecycle-only set
 - **WHEN** a maintainer inspects the packaged `managed_launch_sets` and `managed_join_sets`
-- **THEN** those fixed auto-install selections use `user-control` instead of `project-easy`
-- **AND THEN** they resolve the packaged user-control skills without adding the separate agent-instance lifecycle set
+- **THEN** those fixed auto-install selections include both the dedicated agent-messaging set and the dedicated agent-gateway set
+- **AND THEN** they do not add the separate agent-instance lifecycle set as part of this change
+

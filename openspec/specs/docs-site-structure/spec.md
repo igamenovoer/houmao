@@ -50,15 +50,18 @@ The `docs/` directory structure SHALL organize reference content by system phase
 
 ### Requirement: Index pages link to all new documentation pages
 
-The `docs/index.md` and `docs/reference/index.md` files SHALL include links to all new pages created in this change:
+The `docs/index.md` and `docs/reference/index.md` files SHALL include links to all new pages created in prior changes plus the new launch-profiles guide:
 
 - `docs/reference/gateway/operations/mail-notifier.md`
 - `docs/reference/agents/operations/project-aware-operations.md`
 - `docs/reference/mailbox/contracts/project-mailbox-skills.md`
 - `docs/getting-started/easy-specialists.md`
+- `docs/getting-started/launch-profiles.md`
 - `docs/reference/build-phase/launch-policy.md`
 
 Each link SHALL include a one-line description of the page content.
+
+The `mkdocs.yml` navigation SHALL list `docs/getting-started/launch-profiles.md` under the getting-started section so the page is discoverable through the published navigation, and SHALL contain no dangling entries for that page.
 
 #### Scenario: New gateway mail-notifier page discoverable from index
 
@@ -75,11 +78,23 @@ Each link SHALL include a one-line description of the page content.
 - **WHEN** a reader navigates to `docs/index.md`
 - **THEN** the getting-started section lists the easy-specialists guide alongside overview, quickstart, and agent-definitions
 
+#### Scenario: New launch-profiles guide listed in index and mkdocs nav
+
+- **WHEN** a reader navigates to `docs/index.md`
+- **THEN** the getting-started section lists the launch-profiles guide alongside overview, quickstart, agent-definitions, and easy-specialists
+- **AND THEN** `mkdocs.yml` navigation includes a getting-started entry for `launch-profiles.md`
+- **AND THEN** the mkdocs navigation has no dangling entry for that path
+
 ### Requirement: Cross-references between new and existing pages verified
 
 All cross-references between new pages and existing pages SHALL resolve correctly. Specifically:
 
-- The easy-specialist guide SHALL link to the CLI reference for `project easy` commands.
+- The easy-specialist guide SHALL link to the CLI reference for `project easy` commands and to the launch-profiles guide for the shared conceptual model.
+- The launch-profiles guide SHALL link to the easy-specialists guide, the agent-definitions guide, the `houmao-mgr` CLI reference, and the build-phase launch-overrides reference.
+- The agent-definitions guide SHALL link to the launch-profiles guide for the shared conceptual model.
+- The quickstart SHALL link to the launch-profiles guide where it mentions `agents launch --launch-profile`.
+- The launch-overrides reference SHALL link to the launch-profiles guide for the shared conceptual model.
+- The launch-plan reference SHALL link to the launch-profiles guide for the shared conceptual model.
 - The gateway mail-notifier page SHALL link to the agents-gateway CLI page for command details.
 - The project-aware operations page SHALL link to the getting-started agent-definitions page for overlay structure.
 - The launch-policy page SHALL link to the launch-overrides page for the related override system.
@@ -87,4 +102,54 @@ All cross-references between new pages and existing pages SHALL resolve correctl
 #### Scenario: No broken cross-references in new pages
 
 - **WHEN** a reader follows any cross-reference link in a new page
+- **THEN** the target page exists and the link resolves correctly
+
+#### Scenario: Launch-profiles guide cross-links resolve
+
+- **WHEN** a reader follows the cross-reference links from `docs/getting-started/launch-profiles.md`
+- **THEN** the easy-specialists, agent-definitions, `houmao-mgr` CLI reference, and launch-overrides target pages exist and resolve
+
+### Requirement: Index pages link the new managed prompt header reference and system-skills overview guide
+
+The `docs/index.md` and `docs/reference/index.md` files SHALL include links to the two new pages introduced by this change:
+
+- `docs/reference/run-phase/managed-prompt-header.md` — under the run-phase section of the reference index, alongside `launch-plan.md`, `session-lifecycle.md`, `backends.md`, and `role-injection.md`,
+- `docs/getting-started/system-skills-overview.md` — under the getting-started section of `docs/index.md`, alongside the overview, quickstart, agent-definitions, easy-specialists, and launch-profiles entries.
+
+Each link SHALL include a one-line description.
+
+The `mkdocs.yml` navigation SHALL list both new pages under the appropriate section so they are reachable through the published navigation, and SHALL contain no dangling entries for those paths.
+
+#### Scenario: Managed prompt header reference is linked from the reference index
+
+- **WHEN** a reader navigates to `docs/reference/index.md`
+- **THEN** the run-phase section lists `managed-prompt-header.md` alongside `launch-plan.md`, `session-lifecycle.md`, `backends.md`, and `role-injection.md`
+- **AND THEN** the entry has a one-line description
+
+#### Scenario: System-skills overview guide is linked from the docs index
+
+- **WHEN** a reader navigates to `docs/index.md`
+- **THEN** the getting-started section lists `system-skills-overview.md` alongside the existing getting-started entries
+- **AND THEN** the entry has a one-line description
+
+#### Scenario: mkdocs.yml has navigation entries for both new pages
+
+- **WHEN** parsing `mkdocs.yml` nav entries
+- **THEN** the run-phase nav contains an entry for `managed-prompt-header.md`
+- **AND THEN** the getting-started nav contains an entry for `system-skills-overview.md`
+- **AND THEN** the navigation has no dangling entries for either path
+
+### Requirement: Cross-references between new pages and existing pages verified during this pass
+
+The cross-references introduced by this change SHALL all resolve correctly. Specifically:
+
+- The managed prompt header reference SHALL link to `docs/getting-started/launch-profiles.md`, `docs/reference/run-phase/role-injection.md`, and `docs/reference/cli/houmao-mgr.md`.
+- The system-skills overview guide SHALL link to `docs/reference/cli/system-skills.md`, `docs/getting-started/easy-specialists.md`, `docs/getting-started/launch-profiles.md`, and the README system-skills subsection.
+- The CLI reference for `houmao-mgr` SHALL link to `docs/reference/run-phase/managed-prompt-header.md` from the `--managed-header` flag coverage.
+- The CLI reference for `system-skills` SHALL link to `docs/getting-started/system-skills-overview.md` from its introduction.
+- The README system-skills subsection SHALL link to `docs/getting-started/system-skills-overview.md` alongside the existing link to `docs/reference/cli/system-skills.md`.
+
+#### Scenario: No broken cross-references in pages introduced by this change
+
+- **WHEN** a reader follows any cross-reference link in a page introduced or modified by this change
 - **THEN** the target page exists and the link resolves correctly

@@ -156,13 +156,14 @@ The prompt SHALL provide the exact current `gateway.base_url` for the current ro
 The later gateway-operations section SHALL emphasize the exact current `gateway.base_url` for that turn.
 
 When the shared gateway mailbox facade is available, that later section SHALL list the full current mailbox endpoint URLs derived from that exact base URL for:
+
 - `GET <gateway.base_url>/v1/mail/status`,
 - `POST <gateway.base_url>/v1/mail/check`,
 - `POST <gateway.base_url>/v1/mail/send`,
 - `POST <gateway.base_url>/v1/mail/reply`,
 - `POST <gateway.base_url>/v1/mail/state`.
 
-The prompt MAY reference the lower-level `houmao-email-via-agent-gateway` skill or the active transport-specific mailbox skill as supporting material, but it SHALL center `houmao-process-emails-via-gateway` as the action-taking workflow for the current round.
+The prompt MAY reference `houmao-agent-email-comms` as the lower-level operational skill for ordinary mailbox actions in the round, but it SHALL center `houmao-process-emails-via-gateway` as the action-taking workflow for the current round.
 
 Repeated reminders for unchanged unread mail SHALL continue to announce unread work and provide the current gateway bootstrap contract rather than switching to notifier-owned per-message or per-reminder state.
 
@@ -268,3 +269,4 @@ The gateway sidecar SHALL remain the source of truth for notifier configuration,
 - **WHEN** a caller disables notifier behavior through the direct gateway `/v1/mail-notifier` surface
 - **THEN** a later read through the server-owned managed-agent gateway route reports notifier as disabled
 - **AND THEN** both surfaces continue reflecting the same gateway-owned notifier truth
+

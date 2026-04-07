@@ -22,6 +22,8 @@ normalize_managed_agent_id
     Validate a managed-agent authoritative id without adding a prefix.
 derive_auto_agent_name_base
     Build a short safe base for auto-generated identities.
+derive_default_canonical_agent_name
+    Build the default canonical managed-agent name for one tool and role.
 """
 
 from __future__ import annotations
@@ -190,6 +192,15 @@ def derive_auto_agent_name_base(*, tool: str, role_name: str) -> str:
     if not short[0].isalnum():
         return f"a{short}"
     return short
+
+
+def derive_default_canonical_agent_name(*, tool: str, role_name: str) -> str:
+    """Return the default canonical managed-agent name for one launch."""
+
+    normalized = normalize_agent_identity_name(
+        derive_auto_agent_name_base(tool=tool, role_name=role_name)
+    )
+    return normalized.canonical_name
 
 
 def derive_agent_id_from_name(value: str) -> str:

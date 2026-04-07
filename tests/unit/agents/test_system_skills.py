@@ -7,10 +7,12 @@ import pytest
 
 import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
+    SYSTEM_SKILL_SET_AGENT_GATEWAY,
+    SYSTEM_SKILL_SET_AGENT_MESSAGING,
     SYSTEM_SKILL_SET_AGENT_INSTANCE,
-    SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
     SYSTEM_SKILL_SET_USER_CONTROL,
+    SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SystemSkillCatalogError,
     SystemSkillInstallError,
     install_system_skills_for_home,
@@ -47,32 +49,40 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.schema_version == 1
     assert tuple(catalog.skills.keys()) == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
+        "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
     assert tuple(catalog.sets.keys()) == (
         "mailbox-core",
         "mailbox-full",
         "user-control",
         "agent-instance",
+        "agent-messaging",
+        "agent-gateway",
     )
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_USER_CONTROL,
+        SYSTEM_SKILL_SET_AGENT_MESSAGING,
+        SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
     assert catalog.auto_install.managed_join_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_USER_CONTROL,
+        SYSTEM_SKILL_SET_AGENT_MESSAGING,
+        SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_INSTANCE,
+        SYSTEM_SKILL_SET_AGENT_MESSAGING,
+        SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
 
 
@@ -81,36 +91,38 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
 
     resolved = resolve_system_skill_selection(
         catalog,
-        set_names=("mailbox-core", "mailbox-full", "user-control"),
-        skill_names=("houmao-email-via-filesystem", "houmao-manage-specialist"),
+        set_names=("mailbox-core", "mailbox-full", "user-control", "agent-messaging", "agent-gateway"),
+        skill_names=("houmao-agent-email-comms", "houmao-manage-specialist"),
     )
 
     assert resolved == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
+        "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
 
-def test_resolve_system_skill_selection_cli_default_includes_agent_instance_skill() -> None:
+def test_resolve_system_skill_selection_cli_default_includes_agent_instance_messaging_and_gateway_skills() -> (
+    None
+):
     catalog = load_system_skill_catalog()
 
     resolved = resolve_auto_install_skill_selection(catalog, kind="cli_default")
 
     assert resolved == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
+        "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
 
 
@@ -121,11 +133,11 @@ def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) ->
         """
 schema_version = 1
 
-[skills.houmao-email-via-agent-gateway]
-asset_subpath = "houmao-email-via-agent-gateway"
+[skills.houmao-agent-email-comms]
+asset_subpath = "houmao-agent-email-comms"
 
 [sets.mailbox-core]
-skills = ["houmao-email-via-agent-gateway", "houmao-missing"]
+skills = ["houmao-agent-email-comms", "houmao-missing"]
 
 [auto_install]
 managed_launch_sets = ["mailbox-core"]
@@ -156,7 +168,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         tool="codex",
         home_path=home_path,
         set_names=("mailbox-core", "user-control"),
-        skill_names=("houmao-email-via-filesystem",),
+        skill_names=("houmao-agent-email-comms",),
     )
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
@@ -171,11 +183,10 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
-        "houmao-email-via-filesystem",
     )
     assert state is not None
     assert state.schema_version == SYSTEM_SKILL_STATE_SCHEMA_VERSION
@@ -186,12 +197,10 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "copy",
         "copy",
         "copy",
-        "copy",
     )
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
@@ -202,7 +211,14 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     list_action_path = manage_specialist_actions / "list.md"
     get_action_path = manage_specialist_actions / "get.md"
     remove_action_path = manage_specialist_actions / "remove.md"
+    launch_action_path = manage_specialist_actions / "launch.md"
+    stop_action_path = manage_specialist_actions / "stop.md"
     create_action = create_action_path.read_text(encoding="utf-8")
+    list_action = list_action_path.read_text(encoding="utf-8")
+    get_action = get_action_path.read_text(encoding="utf-8")
+    remove_action = remove_action_path.read_text(encoding="utf-8")
+    launch_action = launch_action_path.read_text(encoding="utf-8")
+    stop_action = stop_action_path.read_text(encoding="utf-8")
     credentials_list_action_path = manage_credentials_actions / "list.md"
     credentials_get_action_path = manage_credentials_actions / "get.md"
     credentials_add_action_path = manage_credentials_actions / "add.md"
@@ -225,8 +241,14 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "actions/list.md" in manage_specialist_skill
     assert "actions/get.md" in manage_specialist_skill
     assert "actions/remove.md" in manage_specialist_skill
-    assert "project easy instance launch" in manage_specialist_skill
+    assert "actions/launch.md" in manage_specialist_skill
+    assert "create profile" in manage_specialist_skill
+    assert "list profiles" in manage_specialist_skill
+    assert "get profile" in manage_specialist_skill
+    assert "remove profile" in manage_specialist_skill
     assert "Explicit Auth Mode" in create_action
+    assert "project easy profile create" in create_action
+    assert "--prompt-overlay-mode append|replace" in create_action
     assert "Env Lookup Mode" in create_action
     assert "Directory Scan Mode" in create_action
     assert "auto credentials" in create_action
@@ -240,6 +262,12 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "not a credential-providing method" in create_action
     assert "do not scan env vars, directories, repo-local tool homes" in create_action
     assert "tests/fixtures/agents" not in create_action
+    assert "project easy profile list" in list_action
+    assert "project easy profile get --name <name>" in get_action
+    assert "project easy profile remove --name <name>" in remove_action
+    assert "project easy instance launch --profile <profile>" in launch_action
+    assert "project easy profile get --name <profile>" in launch_action
+    assert "whether it was launched from a specialist or from an easy profile" in stop_action
     assert ".venv/bin/houmao-mgr" in manage_credentials_skill
     assert "pixi run houmao-mgr" in manage_credentials_skill
     assert "uv run houmao-mgr" in manage_credentials_skill
@@ -249,6 +277,9 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
     assert "project agents tools <tool> auth ..." in manage_credentials_skill
+    assert "project easy profile ..." in manage_credentials_skill
+    assert "project agents launch-profiles ..." in manage_credentials_skill
+    assert "Do not treat changing an easy profile or explicit launch profile `--auth` override" in manage_credentials_skill
     assert "Do not print raw secret values" in manage_credentials_skill
     assert credentials_list_action_path.is_file()
     assert credentials_get_action_path.is_file()
@@ -257,7 +288,9 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert credentials_remove_action_path.is_file()
     assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
     assert "Do not bypass `auth get`" in credentials_get_action
+    assert "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
+    assert "stored easy-profile or explicit launch-profile `--auth` override change" in credentials_set_action
     assert (
         "Do not continue with set when the user has not provided any explicit supported change"
         in credentials_set_action
@@ -271,6 +304,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "actions/set.md" in manage_agent_definition_skill
     assert "actions/remove.md" in manage_agent_definition_skill
     assert "project agents roles list|get|init|set|remove" in manage_agent_definition_skill
+    assert "project agents recipes list|get|add|set|remove" in manage_agent_definition_skill
     assert "project agents presets list|get|add|set|remove" in manage_agent_definition_skill
     assert "houmao-manage-credentials" in manage_agent_definition_skill
     assert "project agents roles scaffold" in manage_agent_definition_skill
@@ -286,22 +320,22 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         encoding="utf-8"
     )
     assert (
-        "project agents presets add --name <preset> --role <role> --tool <tool>"
+        "project agents recipes add --name <recipe> --role <role> --tool <tool>"
         in definition_create_action_path.read_text(encoding="utf-8")
     )
     assert "project agents roles list" in definition_list_action_path.read_text(encoding="utf-8")
-    assert "project agents presets list" in definition_list_action_path.read_text(encoding="utf-8")
+    assert "project agents recipes list" in definition_list_action_path.read_text(encoding="utf-8")
     assert "project agents roles get --name <role> --include-prompt" in definition_get_action
-    assert "project agents presets get --name <preset>" in definition_get_action
+    assert "project agents recipes get --name <recipe>" in definition_get_action
     assert "project agents roles set --name <role>" in definition_set_action
-    assert "project agents presets set --name <preset>" in definition_set_action
+    assert "project agents recipes set --name <recipe>" in definition_set_action
     assert "--clear-auth" in definition_set_action
     assert "houmao-manage-credentials" in definition_set_action
     assert "project agents roles remove --name <role>" in definition_remove_action_path.read_text(
         encoding="utf-8"
     )
     assert (
-        "project agents presets remove --name <preset>"
+        "project agents recipes remove --name <recipe>"
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
     assert list_action_path.is_file()
@@ -346,7 +380,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "tests/fixtures/agents" not in gemini_reference
 
 
-def test_install_system_skills_for_home_cli_default_includes_agent_instance_skill(
+def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
@@ -359,53 +393,140 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_skil
 
     manage_agent_instance_path = home_path / "skills/houmao-manage-agent-instance/SKILL.md"
     manage_agent_instance_actions = home_path / "skills/houmao-manage-agent-instance/actions"
+    agent_messaging_path = home_path / "skills/houmao-agent-messaging/SKILL.md"
+    agent_messaging_actions = home_path / "skills/houmao-agent-messaging/actions"
+    agent_messaging_references = home_path / "skills/houmao-agent-messaging/references"
+    agent_gateway_path = home_path / "skills/houmao-agent-gateway/SKILL.md"
+    agent_gateway_actions = home_path / "skills/houmao-agent-gateway/actions"
+    agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
 
     assert result.selected_set_names == (
         "mailbox-full",
         "user-control",
         "agent-instance",
+        "agent-messaging",
+        "agent-gateway",
     )
     assert result.projection_mode == "copy"
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
+        "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
     assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
+    assert agent_messaging_path.is_file()
+    assert agent_gateway_path.is_file()
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
+    agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
+    agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
     stop_action_path = manage_agent_instance_actions / "stop.md"
+    relaunch_action_path = manage_agent_instance_actions / "relaunch.md"
     cleanup_action_path = manage_agent_instance_actions / "cleanup.md"
     launch_action = launch_action_path.read_text(encoding="utf-8")
+    relaunch_action = relaunch_action_path.read_text(encoding="utf-8")
     cleanup_action = cleanup_action_path.read_text(encoding="utf-8")
+    discover_action_path = agent_messaging_actions / "discover.md"
+    prompt_action_path = agent_messaging_actions / "prompt.md"
+    interrupt_action_path = agent_messaging_actions / "interrupt.md"
+    gateway_queue_action_path = agent_messaging_actions / "gateway-queue.md"
+    send_keys_action_path = agent_messaging_actions / "send-keys.md"
+    mail_action_path = agent_messaging_actions / "mail.md"
+    reset_context_action_path = agent_messaging_actions / "reset-context.md"
+    intent_matrix_reference_path = agent_messaging_references / "intent-matrix.md"
+    managed_agent_http_reference_path = agent_messaging_references / "managed-agent-http.md"
+    gateway_lifecycle_action_path = agent_gateway_actions / "lifecycle.md"
+    gateway_discover_action_path = agent_gateway_actions / "discover.md"
+    gateway_services_action_path = agent_gateway_actions / "gateway-services.md"
+    gateway_wakeups_action_path = agent_gateway_actions / "wakeups.md"
+    gateway_mail_notifier_action_path = agent_gateway_actions / "mail-notifier.md"
+    gateway_scope_reference_path = agent_gateway_references / "scope-and-routing.md"
+    gateway_http_reference_path = agent_gateway_references / "http-surface.md"
+    reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
+    mail_action = mail_action_path.read_text(encoding="utf-8")
+    gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
+    gateway_wakeups_action = gateway_wakeups_action_path.read_text(encoding="utf-8")
+    gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
 
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill
     assert "actions/stop.md" in manage_agent_instance_skill
+    assert "actions/relaunch.md" in manage_agent_instance_skill
     assert "actions/cleanup.md" in manage_agent_instance_skill
     assert "project easy specialist create" in manage_agent_instance_skill
     assert "agents cleanup mailbox" in manage_agent_instance_skill
+    assert "agents relaunch" in manage_agent_instance_skill
     assert launch_action_path.is_file()
     assert join_action_path.is_file()
     assert list_action_path.is_file()
     assert stop_action_path.is_file()
+    assert relaunch_action_path.is_file()
     assert cleanup_action_path.is_file()
     assert "agents launch" in launch_action
+    assert "--launch-profile" in launch_action
+    assert "launch-profile-backed" in launch_action
     assert "project easy instance launch" in launch_action
     assert "--mail-transport" in launch_action
+    assert "agents relaunch --agent-name" in relaunch_action
+    assert "current-session relaunch" in relaunch_action
+    assert "Do not reinterpret a relaunch request as `agents launch`" in relaunch_action
     assert "agents cleanup session" in cleanup_action
     assert "agents cleanup logs" in cleanup_action
     assert "admin cleanup runtime" in cleanup_action
+    assert "actions/discover.md" in agent_messaging_skill
+    assert "actions/prompt.md" in agent_messaging_skill
+    assert "actions/interrupt.md" in agent_messaging_skill
+    assert "actions/gateway-queue.md" in agent_messaging_skill
+    assert "actions/send-keys.md" in agent_messaging_skill
+    assert "actions/mail.md" in agent_messaging_skill
+    assert "actions/reset-context.md" in agent_messaging_skill
+    assert "houmao-mgr agents prompt" in agent_messaging_skill
+    assert "globally installed `houmao-mgr` from uv tools" in agent_messaging_skill
+    assert discover_action_path.is_file()
+    assert prompt_action_path.is_file()
+    assert interrupt_action_path.is_file()
+    assert gateway_queue_action_path.is_file()
+    assert send_keys_action_path.is_file()
+    assert mail_action_path.is_file()
+    assert reset_context_action_path.is_file()
+    assert intent_matrix_reference_path.is_file()
+    assert managed_agent_http_reference_path.is_file()
+    assert "actions/lifecycle.md" in agent_gateway_skill
+    assert "actions/discover.md" in agent_gateway_skill
+    assert "actions/gateway-services.md" in agent_gateway_skill
+    assert "actions/wakeups.md" in agent_gateway_skill
+    assert "actions/mail-notifier.md" in agent_gateway_skill
+    assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
+    assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
+    assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
+    assert "globally installed `houmao-mgr` from uv tools" in agent_gateway_skill
+    assert gateway_lifecycle_action_path.is_file()
+    assert gateway_discover_action_path.is_file()
+    assert gateway_services_action_path.is_file()
+    assert gateway_wakeups_action_path.is_file()
+    assert gateway_mail_notifier_action_path.is_file()
+    assert gateway_scope_reference_path.is_file()
+    assert gateway_http_reference_path.is_file()
+    assert "HOUMAO_AGENT_ID" in gateway_discover_action
+    assert "agents mail resolve-live" in gateway_discover_action
+    assert "/v1/wakeups" in gateway_wakeups_action
+    assert "gateway stop or restart" in gateway_wakeups_action
+    assert "process-local in-memory state" in gateway_wakeups_action
+    assert "/houmao/agents/{agent_ref}/gateway/wakeups" in gateway_http_reference
+    assert "POST /houmao/agents/{agent_ref}/gateway/control/prompt" in reset_context_action
+    assert 'chat_session.mode = "new"' in reset_context_action
+    assert "houmao-process-emails-via-gateway" in mail_action
+    assert "houmao-agent-email-comms" in mail_action
 
 
 def test_install_system_skills_for_home_supports_explicit_symlink_projection(
@@ -501,7 +622,7 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
 
 def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Path) -> None:
     home_path = (tmp_path / "codex-home").resolve()
-    conflicting_skill_path = home_path / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    conflicting_skill_path = home_path / "skills/houmao-agent-email-comms/SKILL.md"
     _write(conflicting_skill_path, "user-authored collision\n")
 
     with pytest.raises(
@@ -511,7 +632,7 @@ def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Pa
         install_system_skills_for_home(
             tool="codex",
             home_path=home_path,
-            skill_names=("houmao-email-via-agent-gateway",),
+            skill_names=("houmao-agent-email-comms",),
         )
 
 
@@ -582,6 +703,75 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
     assert tuple(record.name for record in state.installed_skills) == (
         "houmao-process-emails-via-gateway",
         "houmao-manage-specialist",
+    )
+    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
+
+
+def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_recorded_skills(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "gemini-home").resolve()
+    _write(
+        home_path / ".agents/skills/houmao-manage-specialist/SKILL.md",
+        "old specialist path\n",
+    )
+    _write(
+        home_path / ".agents/skills/houmao-manage-agent-instance/SKILL.md",
+        "old agent-instance path\n",
+    )
+    state_path = system_skill_state_path_for_home(home_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "tool": "gemini",
+                "installed_at": "2026-04-05T00:00:00Z",
+                "installed_skills": [
+                    {
+                        "name": "houmao-manage-specialist",
+                        "asset_subpath": "houmao-manage-specialist",
+                        "projected_relative_dir": ".agents/skills/houmao-manage-specialist",
+                        "projection_mode": "copy",
+                        "content_digest": "old-specialist",
+                    },
+                    {
+                        "name": "houmao-manage-agent-instance",
+                        "asset_subpath": "houmao-manage-agent-instance",
+                        "projected_relative_dir": ".agents/skills/houmao-manage-agent-instance",
+                        "projection_mode": "copy",
+                        "content_digest": "old-agent-instance",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = install_system_skills_for_home(
+        tool="gemini",
+        home_path=home_path,
+        skill_names=("houmao-manage-specialist",),
+    )
+
+    assert result.projected_relative_dirs == (".gemini/skills/houmao-manage-specialist",)
+    assert (home_path / ".gemini/skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (home_path / ".gemini/skills/houmao-manage-agent-instance/SKILL.md").is_file()
+    assert not (home_path / ".agents/skills/houmao-manage-specialist").exists()
+    assert not (home_path / ".agents/skills/houmao-manage-agent-instance").exists()
+    assert not (home_path / ".agents/skills").exists()
+
+    state = load_system_skill_install_state(tool="gemini", home_path=home_path)
+    assert state is not None
+    assert tuple(record.name for record in state.installed_skills) == (
+        "houmao-manage-specialist",
+        "houmao-manage-agent-instance",
+    )
+    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+        ".gemini/skills/houmao-manage-specialist",
+        ".gemini/skills/houmao-manage-agent-instance",
     )
     assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
 

@@ -38,4 +38,5 @@ Supported tool-specific inputs:
 - Do not scan env vars, tool homes, or home directories to synthesize auth input unless the user explicitly asked for that narrower inspection.
 - Do not invent unsupported file flags for Claude vendor login files; the maintained lane is `--config-dir`.
 - Do not treat optional Claude state-template input as a credential-providing method.
+- Do not claim that adding one auth bundle also updates any easy profile or explicit launch profile to use it.
 - Do not reinterpret `add` as `set` when the bundle already exists.

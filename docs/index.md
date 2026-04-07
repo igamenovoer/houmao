@@ -2,14 +2,16 @@
 
 Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agents as real tmux-backed processes.
 
-> **New here?** Start with the [project README](https://github.com/igamenovoer/houmao#readme) for installation, quick-start workflows (`agents join`, easy specialists, preset launch), and runnable demos. This site covers the full reference, developer guides, and subsystem internals.
+> **New here?** Start with the [project README](https://github.com/igamenovoer/houmao#readme) for installation, quick-start workflows (`agents join`, easy specialists, recipe launch), and runnable demos. This site covers the full reference, developer guides, and subsystem internals.
 
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
-- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, presets, and skills.
+- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, recipes, launch profiles, and skills.
 - [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
-- [Easy Specialists](getting-started/easy-specialists.md): When to use easy specialists vs full role/preset definitions.
+- [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional easy profiles, and instances.
+- [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
+- [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of the eight packaged Houmao-owned system skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
 ## Reference
 

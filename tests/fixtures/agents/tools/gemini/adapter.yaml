@@ -15,7 +15,7 @@ launch:
 setup_projection:
   destination: .gemini
 skills_projection:
-  destination: .agents/skills
+  destination: .gemini/skills
   mode: symlink
 auth_projection:
   files_dir: files

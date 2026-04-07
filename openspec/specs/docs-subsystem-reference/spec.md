@@ -74,6 +74,10 @@ Operator-facing pages within the registry reference (notably `operations/discove
 
 Mermaid sequence diagrams in these pages SHALL use `houmao-mgr agents launch`, `houmao-mgr agents prompt`, and `houmao-mgr agents stop` (with appropriate `<br/>` wrapping for width) rather than the abstract `start-session`, `send-prompt`, and `stop-session` verb forms.
 
+The managed-agent API reference SHALL document the API routes for agent session control and headless turn management.
+
+When the managed-agent API reference documents the headless turn `chat_session` parameter, it SHALL list the five accepted gateway-level modes (`auto`, `new`, `current`, `tool_last_or_new`, `exact`) and note that `auto` and `current` are gateway-level selectors resolved by the gateway before dispatch. The docs SHALL clarify that the internal headless turn API accepts only `new`, `tool_last_or_new`, and `exact`.
+
 #### Scenario: Reader copies a prompt example from public-interfaces.md
 
 - **WHEN** a reader reads the session targeting or control surface examples in `agents/contracts/public-interfaces.md`
@@ -85,6 +89,13 @@ Mermaid sequence diagrams in these pages SHALL use `houmao-mgr agents launch`, `
 - **WHEN** a reader views the session lifecycle sequence diagram in `agents/operations/session-and-message-flows.md`
 - **THEN** the diagram labels show `houmao-mgr agents launch`, `houmao-mgr agents prompt`, and `houmao-mgr agents stop`
 - **AND THEN** no `start-session`, `send-prompt`, or `stop-session` labels appear in the diagram
+
+#### Scenario: Reader understands chat-session mode scope
+
+- **WHEN** a reader checks the `chat_session` parameter in the managed-agent API reference
+- **THEN** the page lists all five gateway-level modes (`auto`, `new`, `current`, `tool_last_or_new`, `exact`)
+- **AND THEN** the page notes that `auto` and `current` are resolved by the gateway before dispatch to the internal headless turn API
+- **AND THEN** the page states that the internal headless turn API accepts only `new`, `tool_last_or_new`, and `exact`
 
 ### Requirement: send-keys reference reframed around gateway send-keys
 

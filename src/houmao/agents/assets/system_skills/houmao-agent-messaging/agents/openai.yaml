@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Messaging"
+  short_description: "Message already-running Houmao managed agents."
+  default_prompt: "Use $houmao-agent-messaging to discover, prompt, interrupt, queue, send raw input, handle mailbox follow-up, or reset context for Houmao managed agents in this workspace, preferring gateway-backed prompt and outgoing mailbox work whenever the target has a live gateway."

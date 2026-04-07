@@ -77,8 +77,9 @@ launch_args=(
   --agents minimal-launch
   --provider "${provider}"
   --agent-name "${agent_name}"
-  --yolo
 )
+# Unattended posture is declared in the recipe (`launch.prompt_mode: unattended`);
+# the `--yolo` flag was removed from `agents launch` in 0.3.x.
 if [[ "${headless}" == "true" ]]; then
   launch_args+=(--headless)
 fi

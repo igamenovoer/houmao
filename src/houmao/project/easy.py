@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from houmao.project.catalog import ProjectCatalog, SpecialistCatalogEntry
+from houmao.project.catalog import (
+    LaunchProfileCatalogEntry,
+    ProjectCatalog,
+    SpecialistCatalogEntry,
+)
 from houmao.project.overlay import HoumaoProjectOverlay
 
 TOOL_PROVIDER_MAP: dict[str, str] = {
@@ -20,6 +24,7 @@ TOOL_AUTH_FILE_FLAG_NAMES: dict[str, str] = {
 }
 
 SpecialistMetadata = SpecialistCatalogEntry
+EasyProfileMetadata = LaunchProfileCatalogEntry
 
 
 def list_specialists(*, overlay: HoumaoProjectOverlay) -> list[SpecialistMetadata]:
@@ -38,3 +43,27 @@ def remove_specialist_metadata(*, overlay: HoumaoProjectOverlay, name: str) -> P
     """Delete one persisted specialist definition from the catalog."""
 
     return ProjectCatalog.from_overlay(overlay).remove_specialist(name)
+
+
+def list_profiles(*, overlay: HoumaoProjectOverlay) -> list[EasyProfileMetadata]:
+    """Load every persisted easy-profile definition for one overlay."""
+
+    catalog = ProjectCatalog.from_overlay(overlay)
+    return [
+        entry for entry in catalog.list_launch_profiles() if entry.profile_lane == "easy_profile"
+    ]
+
+
+def load_profile(*, overlay: HoumaoProjectOverlay, name: str) -> EasyProfileMetadata:
+    """Load one persisted easy-profile definition from the catalog."""
+
+    entry = ProjectCatalog.from_overlay(overlay).load_launch_profile(name)
+    if entry.profile_lane != "easy_profile":
+        raise FileNotFoundError(f"Easy profile `{name}` was not found: {overlay.catalog_path}")
+    return entry
+
+
+def remove_profile_metadata(*, overlay: HoumaoProjectOverlay, name: str) -> Path:
+    """Delete one persisted easy-profile definition from the catalog."""
+
+    return ProjectCatalog.from_overlay(overlay).remove_launch_profile(name)

@@ -2,25 +2,37 @@
 
 Module: `src/houmao/agents/launch_overrides/` — "Shared launch-override models and resolution helpers."
 
-Launch overrides control how tool launch arguments and parameters are customized beyond the adapter's built-in defaults. They flow through a layered resolution pipeline: adapter defaults → preset overrides → direct overrides.
+Launch overrides control how tool launch arguments and parameters are customized beyond the adapter's built-in defaults. They flow through a layered resolution pipeline: adapter defaults → recipe overrides → launch-profile defaults → direct overrides → live runtime mutations. For the shared conceptual model that ties launch profiles to this build-phase pipeline, see [Launch Profiles](../../getting-started/launch-profiles.md).
+
+The managed prompt header is adjacent to this pipeline but is not itself a `LaunchOverrides` field. It is a separate launch-prompt composition step that happens after prompt-overlay resolution and before backend-specific prompt injection.
 
 ### Override Precedence
 
 ```mermaid
 flowchart TD
-    A["ToolAdapter LaunchDefaults<br/>(lowest priority)"]
-    B["Recipe launch_overrides"]
-    C["Direct launch_overrides<br/>(highest priority)"]
-    D["merge_launch_intent()"]
-    E["resolve_launch_behavior()"]
+    A["1. ToolAdapter LaunchDefaults<br/>(lowest priority)"]
+    B["2. Recipe LaunchOverrides<br/>(`project agents recipes ...` /<br/>compatibility `presets ...`)"]
+    C["3. Launch-profile defaults<br/>(easy `project easy profile ...` or<br/>explicit `project agents launch-profiles ...`)"]
+    D["4. Direct LaunchOverrides<br/>(CLI overrides on the launching command)"]
+    E["5. Live runtime mutations<br/>(late mailbox registration, etc.)"]
+    M["merge_launch_intent()"]
+    R["resolve_launch_behavior()"]
     F["Final LaunchBehavior<br/>(args + tool_params)"]
 
-    A --> D
-    B --> D
-    C --> D
-    D --> E
-    E --> F
+    A --> M
+    B --> M
+    C --> M
+    D --> M
+    E --> M
+    M --> R
+    R --> F
 ```
+
+Layer rules:
+
+- Fields omitted by a higher-priority layer survive from the next lower-priority layer.
+- Direct CLI overrides win over launch-profile defaults but **never rewrite** the stored recipe or launch profile. The next launch from the same recipe and profile sees the original stored defaults again.
+- Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite stored source or birth-time configuration.
 
 ## LaunchDefaults
 
@@ -33,7 +45,7 @@ flowchart TD
 
 ## LaunchOverrides
 
-`LaunchOverrides` is a frozen dataclass used by presets and direct build requests to customize launch behavior on top of the adapter defaults.
+`LaunchOverrides` is a frozen dataclass used by recipes (formerly called presets) and direct build requests to customize launch behavior on top of the adapter defaults. The same model is reused when a launch profile contributes its own birth-time launch defaults during build.
 
 | Field | Type | Description |
 |---|---|---|
@@ -57,7 +69,7 @@ Two key functions handle the merge:
 
 ### `merge_launch_intent`
 
-Merges launch overrides from multiple layers (preset overrides and direct overrides) into a single resolved intent. Later layers take precedence: direct overrides win over preset overrides.
+Merges launch overrides from multiple layers — recipe overrides, launch-profile defaults, and direct overrides — into a single resolved intent. Later layers take precedence: direct overrides win over launch-profile defaults, which in turn win over recipe overrides.
 
 ### `resolve_launch_behavior`
 
@@ -68,8 +80,10 @@ Takes the merged intent and the adapter's `LaunchDefaults` and produces the fina
 ```
 Adapter LaunchDefaults
   └─▶ Recipe LaunchOverrides (if present)
-        └─▶ Direct LaunchOverrides (if present)
-              └─▶ Final resolved launch arguments + tool params
+        └─▶ Launch-profile defaults (if launch came from a launch profile)
+              └─▶ Direct LaunchOverrides (if present)
+                    └─▶ Live runtime mutations (runtime-owned, not rewritten back)
+                          └─▶ Final resolved launch arguments + tool params
 ```
 
 Each layer can override `tool_params` by key (later values win) and modify `args` according to the `LaunchArgsSection.mode`.

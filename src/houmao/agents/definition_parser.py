@@ -18,6 +18,7 @@ from houmao.agents.launch_overrides import (
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
+from houmao.agents.model_selection import ModelConfig, parse_model_config
 from houmao.agents.realm_controller.gateway_models import BlueprintGatewayDefaults
 
 _PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
@@ -91,6 +92,7 @@ class PresetLaunchSettings:
     """Preset-owned launch settings."""
 
     prompt_mode: OperatorPromptMode | None = None
+    model_config: ModelConfig | None = None
     overrides: LaunchOverrides | None = None
     env_records: dict[str, str] = field(default_factory=dict)
 
@@ -141,6 +143,12 @@ class AgentPreset:
         """Return persistent preset-owned launch env records."""
 
         return dict(self.launch.env_records)
+
+    @property
+    def launch_model_config(self) -> ModelConfig | None:
+        """Return persistent preset-owned model configuration."""
+
+        return self.launch.model_config
 
     @property
     def default_agent_name(self) -> str | None:
@@ -492,12 +500,13 @@ def _parse_preset_launch(raw_value: object, *, source: str) -> PresetLaunchSetti
         raise ValueError(f"{source}: launch must be a mapping when set")
 
     unknown_fields = sorted(
-        key for key in raw_value if key not in {"prompt_mode", "overrides", "env_records"}
+        key for key in raw_value if key not in {"prompt_mode", "model", "overrides", "env_records"}
     )
     if unknown_fields:
         joined = ", ".join(unknown_fields)
         raise ValueError(
-            f"{source}: launch supports only `prompt_mode`, `overrides`, and `env_records`, got {joined}"
+            f"{source}: launch supports only `prompt_mode`, `model`, `overrides`, and "
+            f"`env_records`, got {joined}"
         )
 
     overrides_payload = raw_value.get("overrides")
@@ -517,6 +526,10 @@ def _parse_preset_launch(raw_value: object, *, source: str) -> PresetLaunchSetti
         prompt_mode=_parse_operator_prompt_mode(
             raw_value.get("prompt_mode"),
             source=f"{source}:launch",
+        ),
+        model_config=parse_model_config(
+            raw_value.get("model"),
+            source=source,
         ),
         overrides=overrides,
         env_records=env_records,

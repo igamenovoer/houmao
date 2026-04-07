@@ -91,8 +91,81 @@ When no active project overlay exists for the caller and no stronger overlay sel
 - **THEN** the command fails clearly before attempting specialist removal
 - **AND THEN** it does not create a new project overlay as a side effect of that remove command
 
+### Requirement: `project easy profile create/list/get/remove` manages specialist-backed easy profiles
+`houmao-mgr project easy profile create --name <profile> --specialist <specialist>` SHALL persist one reusable easy profile that targets exactly one existing specialist.
+
+Easy profiles SHALL be specialist-backed birth-time launch configuration owned by the easy lane.
+
+When no active project overlay exists for the caller and no stronger overlay selection override is supplied, `project easy profile create` SHALL ensure `<cwd>/.houmao` exists before persisting profile state.
+
+`project easy profile list`, `get`, and `remove` SHALL resolve the active overlay through the shared non-creating project-aware resolver and SHALL fail clearly when no active overlay exists.
+
+`project easy profile get --name <profile>` SHALL report the source specialist plus the stored easy-profile launch defaults.
+
+`project easy profile remove --name <profile>` SHALL remove only the profile definition and SHALL NOT remove the referenced specialist only because that specialist was the profile source.
+
+#### Scenario: Easy profile create bootstraps the missing overlay on demand
+- **WHEN** no active project overlay exists
+- **AND WHEN** an operator runs `houmao-mgr project easy profile create --name alice --specialist cuda-coder`
+- **THEN** the command ensures `<cwd>/.houmao` exists before storing the profile
+- **AND THEN** the persisted profile lands in the resulting project-local catalog and compatibility projection
+
+#### Scenario: Easy profile remove preserves the referenced specialist
+- **WHEN** easy profile `alice` targets specialist `cuda-coder`
+- **AND WHEN** an operator runs `houmao-mgr project easy profile remove --name alice`
+- **THEN** the command removes the persisted `alice` profile
+- **AND THEN** it does not remove specialist `cuda-coder` only because `alice` referenced it
+
+### Requirement: `project easy` surfaces support unified model configuration
+`houmao-mgr project easy specialist create` SHALL accept optional `--model <name>` as a launch-owned default model selection for the created specialist.
+
+`houmao-mgr project easy specialist create` SHALL accept optional `--reasoning-level <1..10>` as a launch-owned default normalized reasoning level for the created specialist.
+
+When supplied, those values SHALL be persisted in the specialist's launch metadata and in the generated compatibility preset as launch configuration rather than as auth-bundle content.
+
+`houmao-mgr project easy profile create` SHALL accept optional `--model <name>` as a reusable easy-profile model override.
+
+`houmao-mgr project easy profile create` SHALL accept optional `--reasoning-level <1..10>` as a reusable easy-profile reasoning override.
+
+`houmao-mgr project easy instance launch` SHALL accept optional `--model <name>` and `--reasoning-level <1..10>` as one-off launch overrides for either `--specialist` or `--profile` launch.
+
+For easy-profile-backed launch, the effective model configuration SHALL resolve with this precedence:
+
+1. stored specialist or source recipe default
+2. easy-profile model override
+3. direct `project easy instance launch` override
+
+Direct easy-instance override SHALL NOT rewrite the stored specialist or easy profile.
+
+#### Scenario: Specialist create persists launch-owned model configuration
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool codex --api-key sk-test --model gpt-5.4 --reasoning-level 6`
+- **THEN** the persisted specialist metadata records model `gpt-5.4` and reasoning level `6` as launch configuration
+- **AND THEN** the generated compatibility preset records the same values under `launch`
+
+#### Scenario: Easy profile create stores a reusable model override
+- **WHEN** specialist `reviewer` already exists with source model `gpt-5.4`
+- **AND WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-fast --specialist reviewer --model gpt-5.4-mini --reasoning-level 4`
+- **THEN** the stored easy profile records model override `gpt-5.4-mini` and reasoning override `4`
+- **AND THEN** those values are treated as easy-profile launch configuration rather than as credential state
+
+#### Scenario: Direct easy-instance model override wins over the easy-profile default
+- **WHEN** easy profile `reviewer-fast` stores model override `gpt-5.4-mini`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-fast --name reviewer-fast-1 --model gpt-5.4-nano`
+- **THEN** the resulting launch uses model `gpt-5.4-nano`
+- **AND THEN** the stored easy profile still records `gpt-5.4-mini` as its reusable default
+
+#### Scenario: Direct easy-instance reasoning override wins over the easy-profile default
+- **WHEN** easy profile `reviewer-fast` stores reasoning override `4`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-fast --name reviewer-fast-1 --reasoning-level 9`
+- **THEN** the resulting launch uses launch-owned reasoning level `9`
+- **AND THEN** the stored easy profile still records `4` as its reusable default
+
 ### Requirement: `project easy instance launch` derives provider from one specialist and launches one runtime instance
 `houmao-mgr project easy instance launch --specialist <specialist> --name <instance>` SHALL launch one managed agent by resolving the stored specialist definition from the active project-local catalog and delegating to the existing native managed-agent launch flow.
+
+The command MAY accept `--workdir <path>` as an explicit runtime working directory for the launched agent session.
+
+When `--workdir` is omitted, the launched runtime workdir SHALL default to the invocation cwd.
 
 When no active project overlay exists for the caller and no stronger overlay selection override is supplied, the command SHALL ensure `<cwd>/.houmao` exists before launch preparation begins.
 
@@ -103,6 +176,8 @@ When no stronger explicit or env-var override is supplied, easy instance launch 
 - mailbox root: `<active-overlay>/mailbox` for project-aware mailbox defaults
 
 The launch provider SHALL still be derived from the specialist's selected tool, and the command SHALL still honor stored specialist launch posture and mailbox validation rules.
+
+The selected project overlay and stored specialist source SHALL remain authoritative for easy launch source resolution even when `--workdir` points somewhere else.
 
 The command SHALL NOT expose or require a separate launch-time workspace-trust bypass flag on this surface.
 
@@ -119,17 +194,98 @@ When the stored specialist launch posture is `as_is`, easy instance launch SHALL
 - **THEN** the resulting brain build and runtime session use `/repo/.houmao/runtime`
 - **AND THEN** the session-local job dir is derived under `/repo/.houmao/jobs/<session-id>/`
 
+#### Scenario: Easy instance launch keeps the selected project overlay when `--workdir` points outside the project
+- **WHEN** an active project overlay resolves as `/repo-a/.houmao`
+- **AND WHEN** specialist `researcher` is stored in that project-local catalog
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --workdir /repo-b`
+- **THEN** the launch resolves the specialist, runtime root, jobs root, and mailbox root from `/repo-a/.houmao`
+- **AND THEN** it records `/repo-b` as the launched runtime workdir
+- **AND THEN** it does not retarget specialist or overlay resolution to `/repo-b`
+
 #### Scenario: Easy instance launch bootstraps the missing overlay before launch
 - **WHEN** no active project overlay exists
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
 - **THEN** the command ensures `<cwd>/.houmao` exists before resolving the specialist-backed launch
 - **AND THEN** the launch uses that resulting overlay as the default local root family
 
+#### Scenario: Easy instance launch does not bootstrap the runtime workdir as a project overlay
+- **WHEN** no active project overlay exists for the invocation cwd
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --workdir /repo-b`
+- **THEN** the command bootstraps the selected invocation overlay candidate before launch preparation begins
+- **AND THEN** it does not bootstrap `/repo-b/.houmao` only because `/repo-b` was selected as the runtime workdir
+
 #### Scenario: Stored as-is posture launches without a separate yolo-style override
 - **WHEN** specialist `researcher` stores `launch.prompt_mode: as_is`
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
 - **THEN** the command delegates to native launch without a Houmao-managed workspace trust confirmation prompt
 - **AND THEN** it does not inject a separate yolo-style startup override on top of the stored `as_is` posture
+
+### Requirement: `project easy instance launch` supports easy-profile-backed launch
+`houmao-mgr project easy instance launch` SHALL support selecting a reusable easy profile through `--profile <profile>`.
+
+`--profile` and `--specialist` SHALL be mutually exclusive on this surface.
+
+When `--profile` is used, the command SHALL derive the source specialist from the stored profile, SHALL apply easy-profile defaults before direct CLI overrides, and SHALL still use the selected project overlay as the authoritative source context.
+
+When a selected profile stores a default managed-agent name, the command MAY omit `--name` and SHALL use the profile-owned default identity.
+
+When a selected profile stores workdir, auth override, mailbox config, or launch posture, those values SHALL apply unless the operator supplies a direct launch-time override.
+
+If the selected profile resolves to a Gemini specialist, the existing headless-only Gemini rule SHALL still apply.
+
+#### Scenario: Easy-profile-backed launch uses stored instance name and workdir
+- **WHEN** easy profile `alice` targets specialist `cuda-coder`
+- **AND WHEN** `alice` stores default managed-agent name `alice` and default workdir `/repos/alice-cuda`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile alice`
+- **THEN** the launch uses specialist `cuda-coder`
+- **AND THEN** the launch uses managed-agent name `alice` and runtime workdir `/repos/alice-cuda`
+
+#### Scenario: Direct CLI overrides still win for easy-profile-backed launch
+- **WHEN** easy profile `alice` stores auth override `alice-creds` and workdir `/repos/alice-cuda`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile alice --auth breakglass --workdir /tmp/debug`
+- **THEN** the resulting launch uses auth bundle `breakglass`
+- **AND THEN** the resulting launch records `/tmp/debug` as the runtime workdir instead of the profile default
+
+### Requirement: `project easy instance launch` defaults gateway attach with explicit per-launch overrides
+`houmao-mgr project easy instance launch` SHALL request launch-time gateway attach by default unless the operator explicitly passes `--no-gateway`.
+
+For that default attached path, the easy launch surface SHALL use an opinionated gateway listener request of loopback host plus system-assigned port rather than requiring persisted specialist gateway config.
+
+When an operator passes `--gateway-port <port>`, the easy launch surface SHALL request launch-time gateway attach for that explicit port on the current launch instead of using a system-assigned port.
+
+`--no-gateway` and `--gateway-port` SHALL be mutually exclusive on this surface.
+
+If launch-time gateway attach fails after the managed session has already started, `project easy instance launch` SHALL keep the session running and SHALL report the attach failure explicitly together with the launched session identity needed for retry.
+
+#### Scenario: Default easy launch attaches a loopback gateway with a system-assigned port
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
+- **AND WHEN** the addressed specialist launch resolves to a gateway-capable supported backend
+- **THEN** the command requests launch-time gateway attach by default
+- **AND THEN** it requests loopback binding with a system-assigned port for that launch
+- **AND THEN** the launch result reports the resolved gateway host and bound gateway port
+
+#### Scenario: Operator skips launch-time gateway attach explicitly
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --no-gateway`
+- **THEN** the command does not request launch-time gateway attach for that launch
+- **AND THEN** the launch result does not claim that a live gateway endpoint was attached automatically
+
+#### Scenario: Operator requests a fixed gateway port for one easy launch
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --gateway-port 43123`
+- **THEN** the command requests launch-time gateway attach for that launch
+- **AND THEN** it requests gateway listener port `43123` instead of a system-assigned port
+- **AND THEN** a successful launch reports the resolved gateway endpoint for that session
+
+#### Scenario: Conflicting gateway launch flags fail clearly
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --no-gateway --gateway-port 43123`
+- **THEN** the command fails explicitly before launch
+- **AND THEN** the error states that `--no-gateway` and `--gateway-port` cannot be combined
+
+#### Scenario: Gateway auto-attach failure preserves the launched session
+- **WHEN** `houmao-mgr project easy instance launch` starts the managed session successfully
+- **AND WHEN** launch-time gateway attach fails afterward for that launch
+- **THEN** the managed session remains running
+- **AND THEN** the command reports the gateway attach failure explicitly
+- **AND THEN** the failure surface includes the launched session identity or manifest path needed for later retry or stop
 
 ### Requirement: `project easy instance list/get/stop` presents runtime state by specialist and wraps existing runtime stop control
 
@@ -197,6 +353,18 @@ The `instance` group SHALL own launch, stop, and runtime inspection, while the `
 - **AND WHEN** an operator runs `houmao-mgr project easy instance stop --name repo-research-1`
 - **THEN** the command fails clearly before attempting runtime ownership verification or stop delegation
 - **AND THEN** it does not create a new project overlay only to reject or stop an existing instance
+
+### Requirement: Easy instance inspection reports easy-profile origin when available
+When a managed-agent instance was launched from a project-easy profile, `project easy instance list` and `project easy instance get` SHALL report that originating easy-profile identity when it is resolvable from runtime-backed state.
+
+The instance inspection surface SHALL continue to report the originating specialist when available.
+
+#### Scenario: Easy instance get reports both easy-profile origin and specialist origin
+- **WHEN** instance `alice` was launched from easy profile `alice`
+- **AND WHEN** that profile targets specialist `cuda-coder`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance get --name alice`
+- **THEN** the command reports easy profile `alice` as the originating reusable birth-time configuration
+- **AND THEN** it also reports specialist `cuda-coder` as the underlying reusable source
 
 ### Requirement: `project easy specialist create` persists explicit tool setup selection
 `houmao-mgr project easy specialist create` SHALL accept an optional `--setup <name>` input with a default of `default`.
@@ -277,3 +445,45 @@ These Claude vendor-auth lanes SHALL remain valid even when `--api-key`, `--clau
 - **AND WHEN** `--claude-state-template-file` is omitted
 - **THEN** the specialist persists successfully
 - **AND THEN** the operator-facing contract does not describe the omitted template as missing Claude credentials
+
+### Requirement: `project easy profile create` supports stored managed-header policy
+`houmao-mgr project easy profile create` SHALL accept:
+
+- `--managed-header`
+- `--no-managed-header`
+
+Those flags SHALL be mutually exclusive.
+
+When neither flag is supplied, the created easy profile SHALL store managed-header policy `inherit`.
+
+`project easy profile get --name <profile>` SHALL report the stored managed-header policy.
+
+#### Scenario: Easy profile create stores disabled managed-header policy
+- **WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-fast --specialist reviewer --no-managed-header`
+- **THEN** the created easy profile stores managed-header policy `disabled`
+- **AND THEN** later `project easy profile get --name reviewer-fast` reports that stored policy
+
+### Requirement: `project easy instance launch` supports one-shot managed-header override
+`houmao-mgr project easy instance launch` SHALL accept:
+
+- `--managed-header`
+- `--no-managed-header`
+
+Those flags SHALL be mutually exclusive.
+
+When neither flag is supplied, easy-instance launch SHALL inherit managed-header policy from the selected easy profile when one is present, otherwise from the system default.
+
+Direct one-shot managed-header override SHALL NOT rewrite the stored easy profile.
+
+#### Scenario: Easy-instance launch disables the managed header for one profile-backed launch
+- **WHEN** easy profile `reviewer-fast` stores managed-header policy `enabled`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-fast --no-managed-header`
+- **THEN** the resulting managed launch does not prepend the managed prompt header
+- **AND THEN** easy profile `reviewer-fast` still records managed-header policy `enabled`
+
+#### Scenario: Easy-instance launch enables the managed header despite stored disabled policy
+- **WHEN** easy profile `reviewer-fast` stores managed-header policy `disabled`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-fast --managed-header`
+- **THEN** the resulting managed launch prepends the managed prompt header
+- **AND THEN** easy profile `reviewer-fast` still records managed-header policy `disabled`
+

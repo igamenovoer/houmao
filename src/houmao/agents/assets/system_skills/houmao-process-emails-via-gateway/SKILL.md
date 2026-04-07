@@ -8,7 +8,7 @@ license: MIT
 
 Use this Houmao skill when a notifier or operator prompt tells you there are unread shared-mailbox emails to process through a live gateway facade and already provides the exact gateway base URL for the current round.
 
-This is the round-oriented workflow skill. Use `houmao-email-via-agent-gateway` when you need the lower-level endpoint-discovery fallback or the exact `/v1/mail/*` request contract.
+This is the round-oriented workflow skill. Use `houmao-agent-email-comms` when you need the lower-level endpoint-discovery fallback, the exact `/v1/mail/*` request contract, or transport-local no-gateway guidance for ordinary mailbox actions inside the round.
 
 ## Workflow
 
@@ -32,8 +32,8 @@ This is the round-oriented workflow skill. Use `houmao-email-via-agent-gateway` 
 - It is acceptable to continue multiple interrupted email-driven tasks in the same round when they are all still relevant and feasible.
 - It is acceptable to defer unrelated unread emails for a later round.
 - The notifier prompt tells you unread work exists; use the shared gateway mailbox API to list the actual unread set for this round.
-- If you need the exact gateway route contract for `check`, `read`, `send`, `reply`, or `mark-read`, use the installed Houmao skill `houmao-email-via-agent-gateway`.
-- Use the installed transport-specific Houmao mailbox skill only for transport-local context or no-gateway fallback.
+- If you need the exact gateway route contract for `status`, `check`, `read`, `send`, `reply`, or `mark-read`, use the installed Houmao skill `houmao-agent-email-comms`.
+- Use the transport-local guidance inside `houmao-agent-email-comms` only for transport-specific context or no-gateway fallback.
 
 ## Guardrails
 

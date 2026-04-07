@@ -3,7 +3,7 @@
 ## CLI Surfaces
 
 - [houmao-mgr](cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
-- [system-skills](cli/system-skills.md): Install and inspect the packaged Houmao-owned skill sets for explicit tool homes.
+- [system-skills](cli/system-skills.md): Install and inspect the packaged Houmao-owned skill sets for resolved tool homes.
 - [houmao-server](cli/houmao-server.md): HTTP server for session management and TUI tracking.
 - [houmao-passive-server](cli/houmao-passive-server.md): Registry-driven stateless server.
 - [CLI Entrypoints](cli.md): Module-level entry points and common runtime flags.
@@ -27,6 +27,7 @@
 - [Session Lifecycle](run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
 - [Backends](run-phase/backends.md): Backend model and per-backend notes.
 - [Role Injection](run-phase/role-injection.md): Per-backend role injection strategies.
+- [Managed Launch Prompt Header](run-phase/managed-prompt-header.md): Houmao-owned prompt header prepended to every managed launch by default — content, composition order, opt-out flags, and stored launch-profile policy.
 
 ## Subsystems
 

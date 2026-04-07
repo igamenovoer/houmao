@@ -1,12 +1,12 @@
 ---
 name: houmao-manage-agent-definition
-description: Use Houmao's supported low-level project agent-definition commands to create, list, inspect, update, or remove roles and presets with the correct `houmao-mgr` launcher for the current environment.
+description: Use Houmao's supported low-level project agent-definition commands to create, list, inspect, update, or remove roles and recipes with the correct `houmao-mgr` launcher for the current environment.
 license: MIT
 ---
 
 # Houmao Manage Agent Definition
 
-Use this Houmao skill when you need to manage project-local low-level agent definitions through `houmao-mgr project agents roles ...` and `houmao-mgr project agents presets ...` instead of hand-editing `.houmao/agents/`.
+Use this Houmao skill when you need to manage project-local low-level agent definitions through `houmao-mgr project agents roles ...` and `houmao-mgr project agents recipes ...` instead of hand-editing `.houmao/agents/`.
 
 The trigger word `houmao` is intentional. Use the `houmao-manage-agent-definition` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -23,14 +23,15 @@ This packaged skill covers exactly these low-level definition actions:
 This packaged skill routes those actions to the maintained low-level command families:
 
 - `houmao-mgr project agents roles list|get|init|set|remove`
-- `houmao-mgr project agents presets list|get|add|set|remove`
+- `houmao-mgr project agents recipes list|get|add|set|remove`
+- `houmao-mgr project agents presets list|get|add|set|remove` as the compatibility alias for the same recipe resources
 
 This packaged skill does not cover:
 
 - `houmao-mgr project easy specialist ...`
 - `houmao-mgr project easy instance ...`
 - `houmao-mgr agents launch|join|list|stop|cleanup`
-- `houmao-mgr project agents tools <tool> auth list|get|add|set|remove` when the user wants to mutate auth-bundle contents rather than which bundle one preset references
+- `houmao-mgr project agents tools <tool> auth list|get|add|set|remove` when the user wants to mutate auth-bundle contents rather than which bundle one recipe references
 - direct hand-editing under `.houmao/agents/`
 - retired `houmao-mgr project agents roles scaffold`
 - retired `houmao-mgr project agents roles presets ...`
@@ -38,7 +39,7 @@ This packaged skill does not cover:
 ## Workflow
 
 1. Identify which definition-management action the user wants: `create`, `list`, `get`, `set`, or `remove`.
-2. Determine whether the target is one low-level role or one named preset.
+2. Determine whether the target is one low-level role or one named recipe.
 3. If the action or target is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 4. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
    - repo-local `.venv/bin/houmao-mgr`
@@ -66,11 +67,11 @@ This packaged skill does not cover:
 
 ## Routing Guidance
 
-- Use `actions/create.md` only when the user wants to create one new low-level role or one named preset.
-- Use `actions/list.md` only when the user wants to list low-level roles or named presets.
-- Use `actions/get.md` only when the user wants to inspect one low-level role or one named preset. Add `--include-prompt` only when the user explicitly asked for prompt text or the full low-level role definition.
-- Use `actions/set.md` only when the user wants to update one existing low-level role or one named preset. Keep preset auth-reference changes on `project agents presets set --auth ...` or `--clear-auth`.
-- Use `actions/remove.md` only when the user wants to remove one low-level role or one named preset.
+- Use `actions/create.md` only when the user wants to create one new low-level role or one named recipe.
+- Use `actions/list.md` only when the user wants to list low-level roles or named recipes.
+- Use `actions/get.md` only when the user wants to inspect one low-level role or one named recipe. Add `--include-prompt` only when the user explicitly asked for prompt text or the full low-level role definition.
+- Use `actions/set.md` only when the user wants to update one existing low-level role or one named recipe. Keep recipe auth-reference changes on `project agents recipes set --auth ...` or `--clear-auth`.
+- Use `actions/remove.md` only when the user wants to remove one low-level role or one named recipe.
 
 ## Guardrails
 
@@ -79,7 +80,7 @@ This packaged skill does not cover:
 - Do not route auth-bundle content mutation through this skill; use `houmao-manage-credentials`.
 - Do not use `houmao-mgr project agents roles scaffold`.
 - Do not use `houmao-mgr project agents roles presets ...`.
-- Do not hand-edit `.houmao/agents/roles/`, `.houmao/agents/presets/`, or `.houmao/agents/tools/`.
+- Do not hand-edit `.houmao/agents/roles/`, `.houmao/agents/presets/`, `.houmao/agents/launch-profiles/`, or `.houmao/agents/tools/`.
 - Do not force `pixi run houmao-mgr` when the workspace is not a development project.
 - Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.
 - Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for low-level definition management.

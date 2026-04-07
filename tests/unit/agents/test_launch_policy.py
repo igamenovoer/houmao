@@ -146,6 +146,34 @@ wire_api = "responses"
     assert payload["projects"][str((tmp_path / "workspace").resolve())]["trust_level"] == "trusted"
 
 
+def test_codex_unattended_strategy_preserves_explicit_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
+    (home / "config.toml").write_text('model = "gpt-5.4-mini"\n', encoding="utf-8")
+
+    apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="codex",
+            backend="codex_headless",
+            executable="codex",
+            base_args=(),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    payload = _load_toml(home / "config.toml")
+    assert payload["model"] == "gpt-5.4-mini"
+    assert payload.get("notice", {}).get("model_migrations") is None
+
+
 def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -775,7 +803,9 @@ def test_installed_claude_version_is_covered_by_declared_supported_versions_when
     )
 
 
-def test_installed_gemini_version_is_covered_by_declared_supported_versions_when_available() -> None:
+def test_installed_gemini_version_is_covered_by_declared_supported_versions_when_available() -> (
+    None
+):
     if shutil.which("gemini") is None:
         pytest.skip("gemini is not available on PATH")
 

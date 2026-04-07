@@ -316,20 +316,20 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     )
 
     processing_skill_path = codex_home / "skills/houmao-process-emails-via-gateway/SKILL.md"
-    gateway_skill_path = codex_home / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    gateway_skill_path = codex_home / "skills/houmao-agent-email-comms/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
-    assert (codex_home / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
     processing_skill = processing_skill_path.read_text(encoding="utf-8")
     gateway_skill = gateway_skill_path.read_text(encoding="utf-8")
     assert "shared gateway mailbox API" in processing_skill
     assert "Do not switch to `houmao-mgr agents mail resolve-live`" in processing_skill
     assert (
-        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
@@ -337,12 +337,12 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     assert install_state is not None
     assert tuple(record.name for record in install_state.installed_skills) == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
+        "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
 
 
@@ -393,10 +393,11 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
     )
 
     processing_skill_path = claude_home / "skills/houmao-process-emails-via-gateway/SKILL.md"
-    gateway_skill_path = claude_home / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    gateway_skill_path = claude_home / "skills/houmao-agent-email-comms/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
-    assert (claude_home / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (claude_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (claude_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
     assert not (claude_home / "skills/mailbox").exists()
     assert not (tmp_path / ".claude").exists()
@@ -407,7 +408,7 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gemini_home = (tmp_path / "gemini-home").resolve()
-    user_skill = gemini_home / ".agents/skills/custom-user-skill/SKILL.md"
+    user_skill = gemini_home / ".gemini/skills/custom-user-skill/SKILL.md"
     user_skill.parent.mkdir(parents=True, exist_ok=True)
     user_skill.write_text("user skill\n", encoding="utf-8")
 
@@ -430,7 +431,7 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
         runtime_artifacts_module,
         "read_tmux_session_environment_value",
         lambda *, session_name, variable_name: (
-            str(gemini_home) if variable_name == "GEMINI_HOME" else None
+            str(gemini_home) if variable_name == "GEMINI_CLI_HOME" else None
         ),
     )
 
@@ -449,14 +450,15 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
     )
 
     processing_skill_path = (
-        gemini_home / ".agents/skills/houmao-process-emails-via-gateway/SKILL.md"
+        gemini_home / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     )
-    gateway_skill_path = gemini_home / ".agents/skills/houmao-email-via-agent-gateway/SKILL.md"
+    gateway_skill_path = gemini_home / ".gemini/skills/houmao-agent-email-comms/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
-    assert (gemini_home / ".agents/skills/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (gemini_home / ".gemini/skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (gemini_home / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
-    assert not (gemini_home / ".agents/skills/mailbox").exists()
+    assert not (gemini_home / ".gemini/skills/mailbox").exists()
 
 
 def test_materialize_joined_launch_skips_houmao_skill_install_when_opted_out(
@@ -504,7 +506,7 @@ def test_materialize_joined_launch_skips_houmao_skill_install_when_opted_out(
     )
 
     assert not (codex_home / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md").exists()
-    assert not (codex_home / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md").exists()
+    assert not (codex_home / "skills/mailbox/houmao-agent-email-comms/SKILL.md").exists()
 
 
 def test_materialize_joined_launch_fails_closed_when_tool_home_cannot_be_updated(

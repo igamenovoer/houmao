@@ -6,16 +6,18 @@ Define the packaged specialist-management system skill contract for routed speci
 ### Requirement: Houmao provides a packaged `houmao-create-specialist` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-manage-specialist` under the maintained system-skill asset root.
 
-That skill SHALL instruct agents to manage reusable specialists through `houmao-mgr project easy specialist create|list|get|remove` rather than through deprecated or lower-level authoring surfaces.
+That skill SHALL instruct agents to manage reusable specialists through `houmao-mgr project easy specialist create|list|get|remove` and specialist-scoped runtime actions through `houmao-mgr project easy instance launch|stop` rather than through deprecated or lower-level authoring surfaces.
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
 
 - `create`,
 - `list`,
 - `get`,
-- `remove`.
+- `remove`,
+- `launch`,
+- `stop`.
 
-That packaged skill SHALL treat `houmao-mgr project easy instance launch` and other easy-instance runtime actions as explicitly out of scope.
+That packaged skill SHALL treat generic managed-agent lifecycle actions outside specialist-scoped launch and stop as out of scope and SHALL direct users to `houmao-manage-agent-instance` for further agent management after a specialist-backed launch or stop flow.
 
 The create action within that packaged skill SHALL describe the documented project-easy defaults that matter for authoring behavior, including:
 
@@ -23,14 +25,14 @@ The create action within that packaged skill SHALL describe the documented proje
 - `--system-prompt` and `--system-prompt-file` are optional and mutually exclusive,
 - `--no-unattended` opts out of the easy unattended default.
 
-#### Scenario: Installed skill points the agent at the project-easy specialist management commands
+#### Scenario: Installed skill points the agent at specialist management and specialist-scoped lifecycle commands
 - **WHEN** an agent opens the installed specialist-management skill
-- **THEN** the skill directs the agent to use `houmao-mgr project easy specialist create|list|get|remove`
+- **THEN** the skill directs the agent to use `houmao-mgr project easy specialist create|list|get|remove` and `houmao-mgr project easy instance launch|stop`
 - **AND THEN** it does not redirect the agent to deprecated entrypoints or ad hoc filesystem editing
 
 #### Scenario: Installed skill routes to action-specific local guidance
 - **WHEN** an agent reads the installed `houmao-manage-specialist` skill
-- **THEN** the top-level `SKILL.md` acts as an index/router for `create`, `list`, `get`, and `remove`
+- **THEN** the top-level `SKILL.md` acts as an index/router for `create`, `list`, `get`, `remove`, `launch`, and `stop`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than being flattened into one long entry page
 
 #### Scenario: Installed skill preserves the documented easy-specialist create defaults
@@ -38,10 +40,10 @@ The create action within that packaged skill SHALL describe the documented proje
 - **THEN** the skill states that `--credential` defaults to `<specialist-name>-creds`
 - **AND THEN** it states that system-prompt input is optional and that `--no-unattended` is the explicit opt-out from the easy unattended default
 
-#### Scenario: Installed skill keeps easy-instance launch out of scope
-- **WHEN** an agent reads the installed `houmao-manage-specialist` skill
-- **THEN** the skill marks `houmao-mgr project easy instance launch` as outside the packaged skill scope
-- **AND THEN** it does not present easy-instance launch as one of the routed specialist-management actions
+#### Scenario: Installed skill hands off follow-up lifecycle work after specialist launch or stop
+- **WHEN** an agent completes a specialist-backed `launch` or `stop` action through `houmao-manage-specialist`
+- **THEN** the skill tells the user that further agent management should go through `houmao-manage-agent-instance`
+- **AND THEN** it does not imply that `houmao-manage-specialist` is the canonical surface for generic live managed-agent lifecycle
 
 ### Requirement: `houmao-create-specialist` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-manage-specialist` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace in this order:
@@ -90,7 +92,9 @@ At minimum, the skill SHALL require the agent to obtain:
 - no specialist name for `list`,
 - specialist name for `get`,
 - specialist name for `remove`,
-- specialist name, tool lane, and enough auth information for `create` unless an existing credential bundle for the intended credential name has already been confirmed.
+- specialist name, tool lane, and enough auth information for `create` unless an existing credential bundle for the intended credential name has already been confirmed,
+- specialist name and instance name for `launch`,
+- easy-instance name for specialist-scoped `stop`.
 
 When the user omits `--credential` on the create path, the skill MAY rely on the documented CLI default `<specialist-name>-creds` without treating that default as a guess.
 
@@ -117,8 +121,20 @@ The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remov
 - **THEN** the skill allows the agent to proceed without asking the user to restate API-key or auth inputs
 - **AND THEN** it treats the confirmed credential bundle as satisfying the auth requirement for specialist creation
 
-#### Scenario: Non-create actions do not trigger auth discovery
-- **WHEN** the user asks for `list`, `get`, or `remove`
+#### Scenario: Specialist launch asks before guessing the launch target
+- **WHEN** the current prompt asks to launch from a specialist
+- **AND WHEN** the specialist name or instance name is not explicit in current or recent conversation context
+- **THEN** the skill tells the agent to ask the user for the missing launch input before proceeding
+- **AND THEN** it does not guess which specialist or instance name to use
+
+#### Scenario: Specialist stop asks before guessing the easy-instance target
+- **WHEN** the current prompt asks to stop a specialist-backed instance
+- **AND WHEN** the easy-instance name is not explicit in current or recent conversation context
+- **THEN** the skill tells the agent to ask the user for the missing easy-instance name before proceeding
+- **AND THEN** it does not guess which running instance the user intended
+
+#### Scenario: Non-create lifecycle actions do not trigger auth discovery
+- **WHEN** the user asks for `list`, `get`, `remove`, `launch`, or `stop`
 - **THEN** the skill does not enter credential discovery or auth-bundle creation flow
 - **AND THEN** it keeps create-only auth logic scoped to the create action
 

@@ -23,4 +23,5 @@ Use:
 - Do not guess which tool or auth bundle the user meant.
 - Do not bypass `auth get` by reading raw `env/vars.env` or raw auth files just to expose secrets.
 - Do not print raw secret values when the command reports them as present but redacted.
+- Do not treat `auth get` as inspection of a stored easy-profile or explicit launch-profile `--auth` override.
 - Do not enter specialist-authoring flow or credential-discovery flow for this action.

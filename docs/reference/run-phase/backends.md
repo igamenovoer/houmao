@@ -80,7 +80,7 @@ Runs Gemini CLI in headless mode (`gemini -p`).
 
 - **Session class:** `GeminiHeadlessSession` (extends `HeadlessInteractiveSession`)
 - **Auth lanes:** managed Gemini homes support `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via projected `oauth_creds.json`. OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present.
-- **Managed skills:** Houmao-owned Gemini skills project into `.agents/skills`; `.gemini/skills` remains an upstream compatibility path rather than Houmao's target contract.
+- **Managed skills:** Houmao-owned Gemini skills project into `.gemini/skills`; `.agents/skills` is only Gemini's upstream alias surface and is not Houmao's maintained contract.
 - **Resume:** `--resume <session_id>` when the session manifest already persists a Gemini session id. Resume stays bound to the same recorded working directory/project context.
 - **Role injection:** bootstrap message sent as the first-turn prompt.
 - **Use case:** automated pipelines and non-interactive agent orchestration.
@@ -89,7 +89,7 @@ Runs Gemini CLI in headless mode (`gemini -p`).
 
 - API-key lane: create a Gemini auth bundle with `--api-key` and optional `--base-url`, build or launch a managed Gemini home, and confirm the effective launch environment exports `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL` when configured.
 - OAuth lane: create a Gemini auth bundle with `oauth_creds.json` only, build or launch a managed Gemini home, and confirm the runtime exports `GOOGLE_GENAI_USE_GCA=true` without depending on a user-global Gemini `settings.json`.
-- Skill projection: inspect the constructed home and confirm Houmao-owned Gemini skills land under top-level `.agents/skills/houmao-.../`; treat `.gemini/skills` as compatibility-only.
+- Skill projection: inspect the constructed home and confirm Houmao-owned Gemini skills land under top-level `.gemini/skills/houmao-.../`; Houmao does not maintain a parallel `.agents/skills` mirror.
 - First-turn capture: verify the first `stream-json` Gemini turn emits a `session_id` and that Houmao persists that id into the managed session manifest.
 - Resume behavior: send a follow-up Gemini prompt from the same working directory and confirm Houmao launches `gemini -p --resume <persisted-session-id>`; changing the working directory should fail explicitly instead of silently retargeting another Gemini project store.
 

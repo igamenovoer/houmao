@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Gateway"
+  short_description: "Operate Houmao managed-agent gateways and gateway-only services."
+  default_prompt: "Use $houmao-agent-gateway to attach, discover, inspect, and operate a Houmao managed-agent gateway, including wakeups and gateway mail-notifier behavior."

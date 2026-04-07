@@ -1,47 +1,55 @@
 ---
 name: houmao-manage-specialist
-description: Use Houmao's supported project-easy specialist workflow to create, list, inspect, or remove reusable specialists with the correct `houmao-mgr` launcher for the current environment.
+description: Use Houmao's supported project-easy workflow to create, list, inspect, or remove specialists and easy profiles, and to launch or stop easy instances from either source with the correct `houmao-mgr` launcher for the current environment.
 license: MIT
 ---
 
 # Houmao Manage Specialist
 
-Use this Houmao skill when you need to manage project-local easy specialists through `houmao-mgr project easy specialist ...` instead of hand-editing project files.
+Use this Houmao skill when you need to manage project-local easy specialists, reusable easy profiles, and their easy-instance launch or stop flows through `houmao-mgr` instead of hand-editing project files.
 
 The trigger word `houmao` is intentional. Use the `houmao-manage-specialist` skill name directly when you intend to activate this Houmao-owned skill.
 
 ## Scope
 
-This packaged skill covers exactly these `project easy specialist` actions:
+This packaged skill covers exactly these routed easy-workflow actions:
 
-- `create`
-- `list`
-- `get`
-- `remove`
+- `create specialist`
+- `create profile`
+- `list specialists`
+- `list profiles`
+- `get specialist`
+- `get profile`
+- `remove specialist`
+- `remove profile`
+- `launch`
+- `stop`
 
 This packaged skill does not cover:
 
-- `houmao-mgr project easy instance launch`
 - `houmao-mgr project easy instance list`
 - `houmao-mgr project easy instance get`
-- `houmao-mgr project easy instance stop`
+- generic managed-agent lifecycle beyond easy-workflow `launch` and `stop`
 
 ## Workflow
 
-1. Identify which specialist-management action the user wants: `create`, `list`, `get`, or `remove`.
-2. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
+1. Identify which easy-workflow action the user wants: `create`, `list`, `get`, `remove`, `launch`, or `stop`, and whether it targets a `specialist`, a `profile`, or one easy instance.
+2. If the requested action or target resource kind is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 3. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
    - repo-local `.venv/bin/houmao-mgr`
    - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
    - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
    - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-4. Reuse that same resolved launcher for the selected specialist-management action.
+4. Reuse that same resolved launcher for the selected easy-workflow action.
 5. Load exactly one action page:
    - `actions/create.md`
    - `actions/list.md`
    - `actions/get.md`
    - `actions/remove.md`
+   - `actions/launch.md`
+   - `actions/stop.md`
 6. Follow the selected action page and report the result from the command that ran.
+7. After an easy-instance `launch` or `stop`, tell the user that further agent management should go through `houmao-manage-agent-instance`.
 
 ## Missing Input Questions
 
@@ -50,20 +58,25 @@ This packaged skill does not cover:
 - When asking for missing input, use readable Markdown:
   - a short bullet list when only one or two fields are missing
   - a compact table when several required fields or credential-lane choices need clarification
-- Name the command you intend to run and keep the question scoped to the selected specialist action.
+- Name the command you intend to run and keep the question scoped to the selected easy-workflow action and target resource kind.
 
 ## Routing Guidance
 
-- Use `actions/create.md` only when the user wants to create or replace a reusable specialist.
-- Use `actions/list.md` only when the user wants to list persisted specialists.
-- Use `actions/get.md` only when the user wants to inspect one persisted specialist definition.
-- Use `actions/remove.md` only when the user wants to remove one persisted specialist definition.
+- Use `actions/create.md` only when the user wants to create or replace one reusable specialist or one reusable easy profile.
+- Use `actions/list.md` only when the user wants to list persisted specialists or persisted easy profiles.
+- Use `actions/get.md` only when the user wants to inspect one persisted specialist definition or one persisted easy profile.
+- Use `actions/remove.md` only when the user wants to remove one persisted specialist definition or one persisted easy profile.
+- Use `actions/launch.md` only when the user wants to launch one easy instance from an existing specialist or an existing easy profile.
+- Use `actions/stop.md` only when the user wants to stop one easy instance in the easy workflow.
 
 ## Guardrails
 
-- Do not guess the intended action when the prompt could mean either specialist authoring or easy-instance runtime work.
+- Do not guess the intended action when the prompt could mean specialist authoring, easy-profile authoring, or easy-instance runtime work.
+- Do not guess between specialist and easy-profile authoring when the prompt could mean either reusable source.
 - Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
-- Do not route `project easy instance ...` tasks through this skill.
+- Do not route `project easy instance list|get` through this skill.
+- Do not route generic managed-agent `join`, `list`, `stop`, or `cleanup` requests through this skill.
+- Do not imply that this skill replaces `houmao-manage-agent-instance` for broader live-agent lifecycle work.
 - Do not force `pixi run houmao-mgr` when the workspace is not a development project.
 - Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.
 - Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for specialist management.

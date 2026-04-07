@@ -92,6 +92,7 @@ def _native_launch_target(*, tmp_path: Path, agent_def_dir: Path) -> SimpleNames
         tool="claude",
         agent_def_dir=agent_def_dir.resolve(),
         role_name="r",
+        role_prompt="Role prompt",
         preset=SimpleNamespace(
             tool="claude",
             skills=[],
@@ -584,6 +585,89 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
     stop_payload = json.loads(stop_result.output)
     assert stop_payload["success"] is True
     assert resolve_live_agent_record("gpu") is None
+
+
+def test_houmao_mgr_agents_launch_supports_explicit_launch_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`agents launch --launch-profile` should resolve the stored profile and publish registry state."""
+
+    agent_def_dir = tmp_path / "agent-def"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    _install_fake_tmux_runtime(monkeypatch)
+
+    overlay = SimpleNamespace(project_root=tmp_path / "repo")
+    recipe_path = (tmp_path / "overlay-agents" / "presets" / "r-claude-default.yaml").resolve()
+    recipe_path.parent.mkdir(parents=True, exist_ok=True)
+    recipe_path.write_text("role: r\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root.resolve()))
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
+        lambda **kwargs: SimpleNamespace(project_overlay=overlay),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
+        lambda **kwargs: SimpleNamespace(
+            entry=SimpleNamespace(
+                name="alice",
+                profile_lane="launch_profile",
+                source_kind="recipe",
+                source_name="r-claude-default",
+                managed_agent_name="alice",
+                managed_agent_id=None,
+                workdir=None,
+                auth_name="default",
+                operator_prompt_mode=None,
+                env_payload={},
+                mailbox_payload=None,
+                posture_payload={},
+                prompt_overlay_mode=None,
+            ),
+            source_exists=True,
+            recipe_path=recipe_path,
+            provider="claude_code",
+            recipe_name="r-claude-default",
+            prompt_overlay_text=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
+        lambda project_overlay: agent_def_dir.resolve(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: _native_launch_target(tmp_path=tmp_path, agent_def_dir=agent_def_dir),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: SimpleNamespace(manifest_path=brain_manifest_path),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
+        lambda *, session_name: session_name.startswith("alice"),
+    )
+
+    runner = CliRunner()
+
+    launch_result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--launch-profile",
+            "alice",
+            "--headless",
+        ],
+    )
+
+    assert launch_result.exit_code == 0, launch_result.output
+    assert "Managed agent launch complete:" in launch_result.output
+    assert resolve_live_agent_record("alice") is not None
 
 
 def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_control(
@@ -1367,6 +1451,55 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
     assert captured["tmux_window_name"] == "manual"
     assert captured["working_directory"] == Path("/tmp/project")
     assert "Managed agent join complete" in result.output
+
+
+def test_houmao_mgr_agents_join_respects_workdir_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    explicit_workdir = (tmp_path / "explicit-workdir").resolve()
+    explicit_workdir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
+    monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
+    monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: "codex")
+    monkeypatch.setattr(
+        agents_core.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
+        ),
+    )
+
+    def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
+        captured.update(kwargs)
+        return _fake_joined_session_artifacts(agent_name="coder", agent_id="agent-1")
+
+    monkeypatch.setattr(agents_core, "materialize_joined_launch", fake_materialize_joined_launch)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "join",
+            "--agent-name",
+            "coder",
+            "--workdir",
+            str(explicit_workdir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["working_directory"] == explicit_workdir
+
+
+def test_houmao_mgr_agents_join_help_uses_workdir_flag() -> None:
+    result = CliRunner().invoke(cli, ["agents", "join", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "--workdir DIRECTORY" in result.output
+    assert "--working-directory" not in result.output
 
 
 def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyPatch) -> None:

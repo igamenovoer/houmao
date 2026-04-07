@@ -674,6 +674,7 @@ def ensure_project_agent_compatibility_tree(
     for directory in (
         projection_root,
         projection_root / "presets",
+        projection_root / "launch-profiles",
         projection_root / "skills",
         projection_root / "roles",
         projection_root / "tools",

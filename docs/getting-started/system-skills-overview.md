@@ -1,0 +1,127 @@
+# System Skills Overview
+
+Houmao installs packaged "system skills" into agent tool homes so the **agent itself** can drive Houmao management without the operator running `houmao-mgr` commands by hand. When an agent inside a managed home is asked to "create a new specialist," "send mail to another managed agent," or "attach a gateway," it discovers the right Houmao-owned skill, follows that skill's guidance, and routes through the supported `houmao-mgr` surface.
+
+This page is the **narrative tour**. For the per-flag CLI surface, see the [`system-skills` CLI reference](../reference/cli/system-skills.md). For the 60-second view, see the system-skills subsection in the [project README](https://github.com/igamenovoer/houmao#system-skills-agent-self-management).
+
+```
+catalog → narrative → reference
+
+   README                this page                  CLI reference
+ (one-line               (5-minute walk-          (every flag,
+  per skill)              through, when            every set,
+                          each fires)              effective home)
+```
+
+## What System Skills Are
+
+Each system skill ships as a directory under `src/houmao/agents/assets/system_skills/<skill-name>/` with a top-level `SKILL.md` and supporting reference material. The packaged catalog at `src/houmao/agents/assets/system_skills/catalog.toml` declares which skills exist, which **named sets** group them, and which sets are auto-installed by managed launches and joins versus selected by explicit `system-skills install` invocations.
+
+System skills are not Python plugins, MCP servers, or runtime hooks. They are agent-readable instruction packages that guide the agent toward the right `houmao-mgr` command for the task. The supporting code is whatever `houmao-mgr` already exposes through `srv_ctrl/commands/`.
+
+## The Eight Packaged Skills
+
+Houmao currently ships **eight** system skills. They split into three concern groups: **specialist and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
+
+### Specialist and credential authoring
+
+| Skill | What it enables | Canonical CLI routing |
+|---|---|---|
+| `houmao-manage-specialist` | Create, list, inspect, remove easy specialists; create, list, inspect, remove easy profiles; launch and stop easy instances from either source. | `houmao-mgr project easy specialist ...`, `houmao-mgr project easy profile ...`, `houmao-mgr project easy instance launch|stop` |
+| `houmao-manage-credentials` | Add, update, inspect, remove project-local tool auth bundles for Claude, Codex, and Gemini. Manages auth bundle contents, not stored profile-level auth overrides. | `houmao-mgr project agents tools <tool> auth list|get|add|set|remove` |
+
+### Agent definition and instance management
+
+| Skill | What it enables | Canonical CLI routing |
+|---|---|---|
+| `houmao-manage-agent-definition` | Low-level project-local role and recipe management. Use this when the right move is editing roles or named recipes instead of going through the easy specialist surface. | `houmao-mgr project agents roles ...`, `houmao-mgr project agents recipes ...` (with `presets ...` as the compatibility alias) |
+| `houmao-manage-agent-instance` | Launch, adopt (`join`), list, stop, relaunch, and clean up live managed-agent instances created from roles, recipes, explicit launch profiles, or specialists. The canonical lifecycle skill for general live-agent work after any specialist-scoped launch or stop entry. | `houmao-mgr agents launch|join|list|state|stop|relaunch|cleanup` |
+
+### Agent communication, gateway, and mailbox
+
+| Skill | What it enables | Canonical CLI routing |
+|---|---|---|
+| `houmao-agent-messaging` | Communicate with already-running managed agents — synchronous prompt and interrupt, queued gateway requests, raw `send-keys`, mailbox routing, and reset-context guidance. Routes by **communication intent**, not by one hardcoded transport. Prefers live gateway-backed delivery when available. | `houmao-mgr agents prompt|interrupt`, `houmao-mgr agents gateway prompt|interrupt|send-keys|tui state|history|note-prompt`, `houmao-mgr agents mail resolve-live` |
+| `houmao-agent-gateway` | Live gateway lifecycle, manifest-first discovery from inside or outside the attached session, gateway-only control surfaces, gateway wakeups, and gateway mail-notifier behavior. Distinct from `houmao-agent-messaging` because it focuses on the gateway sidecar itself, not the messages going through it. | `houmao-mgr agents gateway attach|detach|status|tui watch`, `houmao-mgr agents gateway mail-notifier status|enable|disable` |
+| `houmao-agent-email-comms` | Unified ordinary shared-mailbox operations and no-gateway fallback guidance. Covers gateway-backed `/v1/mail/*` work, transport-local context, and the no-gateway fallback path. The canonical mailbox-operations skill paired with `houmao-mgr agents mail`. | `houmao-mgr agents mail status|check|send|reply|mark-read|resolve-live` |
+| `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL: gateway-API-first triage, selective inspection, post-success mark-read, and stop-after-round discipline. | `houmao-mgr agents mail check|mark-read` plus the live gateway `/v1/mail/*` facade |
+
+## Auto-Install vs Explicit Install
+
+The same eight skills can land in a tool home through either path, but the **default selections** are different.
+
+```
+                       INSTALL DEFAULTS
+                ════════════════════════════════════
+                                                     
+   Managed launch / join                Explicit external install
+   (auto, into managed home)            (houmao-mgr system-skills install
+                                         --tool <t> --home <path>)
+   ┌───────────────────────────┐        ┌───────────────────────────┐
+   │ mailbox-full              │        │ mailbox-full              │
+   │ user-control              │        │ user-control              │
+   │ agent-messaging           │        │ agent-instance  ◄── ADDS  │
+   │ agent-gateway             │        │ agent-messaging           │
+   │                           │        │ agent-gateway             │
+   │ → 7 skills:               │        │                           │
+   │  process-emails-via-gw    │        │ → 8 skills:               │
+   │  agent-email-comms        │        │  all of managed launch    │
+   │  manage-specialist        │        │  PLUS:                    │
+   │  manage-credentials       │        │  manage-agent-instance    │
+   │  manage-agent-definition  │        │                           │
+   │  agent-messaging          │        │                           │
+   │  agent-gateway            │        │                           │
+   └───────────────────────────┘        └───────────────────────────┘
+```
+
+The catalog source of truth lives at `src/houmao/agents/assets/system_skills/catalog.toml`:
+
+```toml
+[auto_install]
+managed_launch_sets = ["mailbox-full", "user-control", "agent-messaging", "agent-gateway"]
+managed_join_sets   = ["mailbox-full", "user-control", "agent-messaging", "agent-gateway"]
+cli_default_sets    = ["mailbox-full", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]
+```
+
+The named sets resolve as:
+
+| Set | Skills it expands to |
+|---|---|
+| `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms` |
+| `user-control` | `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition` |
+| `agent-instance` | `houmao-manage-agent-instance` |
+| `agent-messaging` | `houmao-agent-messaging` |
+| `agent-gateway` | `houmao-agent-gateway` |
+
+### Why managed launch/join leaves out `houmao-manage-agent-instance`
+
+When the operator launches or joins through `houmao-mgr`, **the operator already has full instance lifecycle control**. The packaged `houmao-manage-agent-instance` skill exists for the case where an agent in some other managed home needs to drive lifecycle for live agents itself. Inside a freshly-managed home there is no second-tier instance authority to delegate to, so the auto-install set keeps the lifecycle-only skill out and lets `system-skills install` add it on demand for external homes that want the full agent-driven surface.
+
+### How to install the broader CLI-default set
+
+To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the eight-skill default selection, omit both `--set` and `--skill`:
+
+```bash
+houmao-mgr system-skills install --tool claude --home ~/.claude
+```
+
+When `--home` is omitted, the effective home resolves through `--home` → tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>` for Gemini). The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`.
+
+For named-set or explicit-skill installs, repeat `--set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
+
+For the full flag surface, see the [`system-skills` CLI reference](../reference/cli/system-skills.md).
+
+## When to Use Which Skill
+
+Two short heuristics help decide which skill applies to a task that an agent or operator is asked to perform:
+
+**By concern.** Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to one of the three `manage-*` skills. Driving *what a live agent does* — sending it a prompt, attaching a gateway, processing its mailbox — belongs to one of the three `agent-*` skills (`agent-messaging`, `agent-gateway`, `agent-email-comms`/`process-emails-via-gateway`).
+
+**By transport.** When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the unread mail batch the notifier just told us about," use the round-oriented `houmao-process-emails-via-gateway`.
+
+## See Also
+
+- [`system-skills` CLI reference](../reference/cli/system-skills.md) — full flag surface, effective-home resolution, and projection paths.
+- [Easy Specialists guide](easy-specialists.md) — the operator-facing flow that exercises `houmao-manage-specialist`.
+- [Launch Profiles guide](launch-profiles.md) — the launch-side concepts that the messaging and gateway skills observe.
+- README "System Skills" subsection — the catalog-table view bridging this narrative to the per-skill rows.

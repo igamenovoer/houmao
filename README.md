@@ -26,7 +26,7 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 ### What The Framework Provides
 
 - **Zero-setup adoption**: wrap any running `claude`, `codex`, or `gemini` session with `houmao-mgr agents join` — no configuration, no restart. You keep your familiar coding-agent workflow and gain management, coordination, and team features on top.
-- **Construction** (when you need it): build agent runtimes from tool setups + skills + roles (and optional presets) for reproducible, declarative agent setups.
+- **Construction** (when you need it): build agent runtimes from tool setups + skills + roles, with reusable recipes and optional launch profiles, for reproducible declarative agent setups.
 - **Management**: start/resume/prompt/stop agents with `houmao-mgr` (typically tmux-backed so you can attach and interact).
 - **Team communication**: a shared gateway and mailbox plane for groups of agents (built on Houmao's own gateway service).
 
@@ -42,13 +42,13 @@ Instead of shipping a fixed “agent graph” runtime (LangGraph / AutoGen-style
 
 - **Parallel specialist agents**: run a "coder" agent and a "reviewer" agent side by side on the same repo — each with a different role and tool — so one writes while the other critiques.
 - **Optimization loops**: set up a coder agent that implements changes and a profiler agent that benchmarks them, iterating back and forth without manual handoff.
-- **Team agent presets**: give every team member the same pre-configured agent lineup (same models, skills, and roles) checked into the repo, without sharing anyone's API keys.
+- **Team agent recipes**: give every team member the same pre-configured agent lineup (same models, skills, and roles) checked into the repo, without sharing anyone's API keys.
 - **Swap the AI, keep the workflow**: change which model or CLI tool an agent uses without touching its role prompt or the task it is working on.
 
 ### How Agents Join Your Workflow
 
 - **Adopt an existing session (recommended):** start your CLI tool (`claude`, `codex`, or `gemini`) in a tmux session the way you normally would, then run `houmao-mgr agents join --agent-name <name>` from inside that session. Houmao wraps the running process with its management envelope — registry, gateway, prompt/interrupt, mailbox — without restarting the tool. Zero agent-definition setup required. This is the recommended starting point because there is nothing new to learn: you keep your familiar coding-agent workflow and layer Houmao management on top.
-- **Managed launch (full control):** for teams that need reproducible, declarative agent setups, construct from tool setups + skills + roles/presets, then start/resume/prompt/stop via `houmao-mgr agents launch`. This path builds an isolated runtime home with projected configs, skills, and credentials.
+- **Managed launch (full control):** for teams that need reproducible, declarative agent setups, construct from tool setups + skills + roles/recipes or resolve a saved launch profile, then start/resume/prompt/stop via `houmao-mgr agents launch`. This path builds an isolated runtime home with projected configs, skills, and credentials.
 - **Bring-your-own process with launch options:** you can also start the underlying CLI tool manually (for example via the generated `launch_helper_path` from `build-brain`) and then use `agents join` with `--launch-args` and `--launch-env` to record enough state for later `agents relaunch`.
 
 ## Installation
@@ -81,15 +81,18 @@ command -v tmux
 | Entrypoint | Purpose | Status |
 |---|---|---|
 | `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, server control | **Active** |
-| `houmao-server` | Houmao-owned REST server for multi-agent coordination | **In development — not ready for use** |
-| `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **In development — not ready for use** |
+| `houmao-server` | Houmao-owned REST server for managed-agent session lifecycle | **Stabilizing — usable for the documented surfaces** |
+| `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **Stabilizing — usable for the documented surfaces** |
 | `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
 | `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
 
 ```bash
 houmao-mgr --help
+houmao-mgr --version          # prints the packaged Houmao version and exits
 houmao-server --help
 ```
+
+`houmao-mgr --version` is a root reporting flag that prints the packaged Houmao version for the current `houmao-mgr` binary and exits successfully without requiring a subcommand. See the [`houmao-mgr` CLI reference](docs/reference/cli/houmao-mgr.md#root-options) for the full root option surface.
 
 ### 1. Quick Start: Adopt an Existing Session (`agents join`)
 
@@ -149,6 +152,8 @@ Once `agents join` completes, the adopted session has the same management capabi
 
 The only difference: a joined agent has a *placeholder* brain manifest (no skills/configs were projected), and relaunch support depends on whether you provided `--launch-args` at join time.
 
+> **Managed prompt header.** Both `agents launch` and `agents join` prepend a short Houmao-owned prompt header to the managed agent's effective prompt by default. The header identifies the agent as Houmao-managed, names `houmao-mgr` as the canonical interface, and tells the model to prefer supported Houmao workflows for managed-runtime tasks. The behavior is per-launch opt-out via `--no-managed-header` and is also persisted in stored launch profiles. See the [Managed Launch Prompt Header](docs/reference/run-phase/managed-prompt-header.md) reference for the full content, the prompt composition order, and the precedence rules.
+
 ### 2. Easy Specialists (`project easy`)
 
 For a reusable, named agent without learning the full agent-definition-directory layout, use the easy specialist workflow. This is the natural next step after `agents join`.
@@ -173,16 +178,20 @@ houmao-mgr project easy instance get --name my-coder
 houmao-mgr project easy instance stop --name my-coder
 ```
 
-Specialists persist under `.houmao/` and survive across sessions. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full model (specialist vs preset, lifecycle, storage layout, and management commands).
+Specialists persist under `.houmao/` and survive across sessions. For reusable specialist-backed birth-time defaults, use `houmao-mgr project easy profile ...`. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full easy lane (specialists, easy profiles, lifecycle, storage layout, management commands) and the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared conceptual model that ties easy profiles to explicit recipe-backed launch profiles.
 
-### 3. Full Preset Launch
+### 3. Full Recipes and Launch Profiles
 
-For teams that need full control over roles, skills, presets, and tool configurations, use the preset-backed launch path. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout.
+For teams that need full control over roles, skills, recipes, and tool configurations, use the recipe-backed launch path. Add explicit launch profiles when you want reusable birth-time defaults that stay separate from the recipe itself. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared semantic model and the precedence chain, and the canonical `project agents recipes ...` and `project agents launch-profiles ...` authoring commands. `project agents presets ...` remains the compatibility alias for recipes.
 
 ```bash
+# Launch directly from a recipe selector
 houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code
-houmao-mgr agents prompt --agent-name gpu-kernel-coder --prompt "Review the latest commit"
-houmao-mgr agents stop --agent-name gpu-kernel-coder
+
+# Or resolve a saved explicit launch profile
+houmao-mgr agents launch --launch-profile gpu-kernel-coder-default
+houmao-mgr agents prompt --agent-name <runtime-name> --prompt "Review the latest commit"
+houmao-mgr agents stop --agent-name <runtime-name>
 ```
 
 For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](scripts/demo/minimal-agent-launch/).
@@ -191,7 +200,7 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 The repository ships two maintained runnable demos under `scripts/demo/`:
 
-- **[`minimal-agent-launch/`](scripts/demo/minimal-agent-launch/)** — Preset-backed headless launch with Claude or Codex. Shows the full build → launch → prompt → stop cycle and records reproducible outputs.
+- **[`minimal-agent-launch/`](scripts/demo/minimal-agent-launch/)** — Recipe-backed headless launch with Claude or Codex. Shows the full build → launch → prompt → stop cycle and records reproducible outputs.
 
   ```bash
   scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code
@@ -213,22 +222,26 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 
 ### System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface — without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, and control other agent instances autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
 
 | Skill | What it enables |
 |---|---|
-| `houmao-manage-specialist` | Create, list, inspect, and remove project-local specialist definitions |
+| `houmao-manage-specialist` | Create, list, inspect, remove, launch, and stop easy specialist/profile-backed project-local workflows |
 | `houmao-manage-credentials` | Add, update, inspect, and remove project-local tool auth bundles |
-| `houmao-manage-agent-definition` | List, inspect, initialize, update, and remove roles and presets |
+| `houmao-manage-agent-definition` | List, inspect, initialize, update, and remove roles and recipes |
 | `houmao-manage-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
+| `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
+| `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule wakeups, and manage gateway mail-notifier behavior |
+| `houmao-agent-email-comms` | Ordinary shared-mailbox operations and the no-gateway fallback path; the canonical mailbox-operations skill paired with `houmao-mgr agents mail` |
+| `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL |
 
-`agents join` and `agents launch` auto-install these skills by default. To install them into an external tool home manually:
+`agents join` and `agents launch` auto-install seven of these eight skills (everything except the lifecycle-only `houmao-manage-agent-instance`) into managed homes by default — that is the `mailbox-full`, `user-control`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-manage-agent-instance`, run:
 
 ```bash
-houmao-mgr system-skills install --tool claude --home ~/.claude --default
+houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-See the [System Skills reference](docs/reference/cli/system-skills.md) for the full catalog, named sets, and install options.
+For the 5-minute walkthrough of all eight skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
 
 ## Full Documentation
 

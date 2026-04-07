@@ -164,12 +164,14 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     )
 
     visible_processing_skill = (
-        build_result.home_path / "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md"
+        build_result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
     )
     visible_gateway_skill = (
-        build_result.home_path / "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md"
+        build_result.home_path / "skills/houmao-agent-email-comms/SKILL.md"
     )
-    visible_skill = build_result.home_path / "skills/mailbox/houmao-email-via-filesystem/SKILL.md"
+    visible_skill = (
+        build_result.home_path / "skills/houmao-agent-email-comms/transports/filesystem.md"
+    )
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_skill.is_file()
@@ -177,12 +179,10 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         encoding="utf-8"
     )
     assert (
-        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in visible_gateway_skill.read_text(encoding="utf-8")
     )
-    assert not (
-        build_result.home_path / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md"
-    ).exists()
+    assert not (build_result.home_path / "skills/.system/mailbox").exists()
 
     class _FakeStartBackend:
         def update_launch_plan(self, launch_plan: LaunchPlan) -> None:

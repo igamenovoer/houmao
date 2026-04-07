@@ -92,7 +92,7 @@ from houmao.srv_ctrl.commands.project_aware_wording import (
 _HOME_ENV_BY_TOOL: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
-    "gemini": "GEMINI_HOME",
+    "gemini": "GEMINI_CLI_HOME",
 }
 _EXECUTABLE_BY_TOOL: dict[str, str] = {
     "claude": "claude",

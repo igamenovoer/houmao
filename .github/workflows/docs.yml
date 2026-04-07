@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - devel
+  release:
+    types:
+      - published
   pull_request:
   workflow_dispatch:
 
@@ -21,11 +24,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      MKDOCS_REPO_REF: ${{ github.ref_name }}
+      MKDOCS_REPO_REF: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -41,17 +46,17 @@ jobs:
         run: mkdocs build --strict
 
       - name: Set up GitHub Pages
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'release'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'release'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
   deploy:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
     environment:

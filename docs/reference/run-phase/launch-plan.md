@@ -48,7 +48,22 @@ Composes a backend-specific launch plan from the given request. The function per
 3. **Binds mailbox configuration** when inter-agent messaging is requested.
 4. **Applies the role injection strategy** appropriate for the target backend (see [Role Injection](role-injection.md)).
 
-The result is a fully resolved `LaunchPlan` that a backend can execute without further interpretation.
+The result is a fully resolved `LaunchPlan` that a backend can execute without further interpretation. The runtime `LaunchPlan` is derived and ephemeral; it is **not** a user-authored object and is not persisted as project-local source.
+
+### Launch-profile inputs flow through the manifest
+
+When a managed agent was launched from a reusable launch profile (either an easy `project easy profile` or an explicit `project agents launch-profiles`), the build manifest carries launch-profile-derived inputs into run-phase resolution. At minimum, the following profile-owned values reach the manifest before `build_launch_plan` consumes it:
+
+- effective auth selection (by bundle name; secrets remain in the auth bundle, never inline),
+- operator prompt-mode intent (`unattended` or `as_is`),
+- durable non-secret env records,
+- declarative mailbox configuration (transport, root, address, principal, Stalwart-only fields when applicable),
+- managed-agent identity defaults (`agent_name`, optionally `agent_id`),
+- the **effective launch prompt** — prompt composition happens in this order: source role prompt, launch-profile prompt overlay resolution, managed-header prepend when enabled, then backend-specific role injection. The runtime does not replay the overlay or managed header later as separate bootstrap steps on resumed turns.
+
+The build manifest and the resulting runtime launch metadata also preserve secret-free **launch-profile provenance** sufficient for inspection and replay: the source lane (specialist or recipe), the birth-time lane (`easy_profile` or `launch_profile`), and the originating profile name when available. Inspection commands such as `houmao-mgr agents state`, `houmao-mgr agents list`, and the easy `houmao-mgr project easy instance get|list` surfaces report that provenance.
+
+For the shared conceptual model that ties launch profiles to this run-phase composition step, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
 ## LaunchPlan
 
@@ -66,7 +81,7 @@ The result is a fully resolved `LaunchPlan` that a backend can execute without f
 | `env` | `dict[str, str]` | Effective launch environment — contains secrets in-memory only, never persisted |
 | `env_var_names` | `list[str]` | Names of environment variables set in `env` (for auditing without exposing values) |
 | `role_injection` | `RoleInjectionPlan` | Backend-specific role injection plan (see [Role Injection](role-injection.md)) |
-| `metadata` | `dict[str, Any]` | Additional metadata carried through from the brain manifest |
+| `metadata` | `dict[str, Any]` | Additional metadata carried through from the brain manifest. When the launch came from a reusable launch profile, this carries secret-free launch-profile provenance — at minimum the profile name, the profile lane (`easy_profile` or `launch_profile`), the source kind (`specialist` or `recipe`), and prompt-overlay metadata. |
 | `mailbox` | `MailboxResolvedConfig \| None` | Resolved mailbox configuration, if any |
 | `launch_policy_provenance` | `LaunchPolicyProvenance \| None` | Provenance information for the applied launch policy |
 

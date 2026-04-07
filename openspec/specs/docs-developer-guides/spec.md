@@ -7,7 +7,9 @@ Define the documentation requirements for Houmao developer guides.
 
 ### Requirement: TUI parsing developer guide rewritten without CAO transport framing
 
-The `developer/tui-parsing/` guide SHALL be rewritten to describe the TUI parsing stack in terms of current abstractions: `StreamStateReducer`, detector profiles from `DetectorProfileRegistry`, signal contracts per tool, and the `shared_tui_tracking` package. All references to "CAO transport surface" or "CAO terminal" as primary framing SHALL be replaced with the actual execution contexts (tmux panes for `local_interactive`, process stdout for headless).
+The `developer/tui-parsing/` guide SHALL be rewritten to describe the runtime-owned TUI parsing stack in terms of current abstractions: `StreamStateReducer`, detector profiles from `DetectorProfileRegistry`, signal contracts per tool, and the `shared_tui_tracking` package. All references to "CAO transport surface" or "CAO terminal" as primary framing SHALL be replaced with the actual execution contexts (tmux panes for `local_interactive`, process stdout for headless).
+
+The guide SHALL explicitly state that Gemini is intentionally unsupported for TUI tracking. The index page SHALL include a note after the reading-order table explaining that Gemini uses a headless-only architecture and does not have a TUI parser. The shared-contracts page SHALL note that the provider subclasses (`ClaudeSurfaceAssessment`, `CodexSurfaceAssessment`) cover only the two TUI-tracked providers and that Gemini is excluded by design.
 
 #### Scenario: Architecture page describes actual execution contexts
 
@@ -18,6 +20,12 @@ The `developer/tui-parsing/` guide SHALL be rewritten to describe the TUI parsin
 
 - **WHEN** a reader opens `developer/tui-parsing/maintenance.md`
 - **THEN** maintenance procedures reference `shared_tui_tracking/` detectors and `shared_tui_tracking/apps/` for per-tool signal profiles
+
+#### Scenario: Reader understands why Gemini has no TUI parser
+
+- **WHEN** a reader checks the TUI parsing index page
+- **THEN** the page includes a note explaining that Gemini is headless-only by design and does not have a TUI parser
+- **AND THEN** the shared-contracts page confirms that provider subclasses cover Claude and Codex only
 
 ### Requirement: Terminal record developer guide updated
 

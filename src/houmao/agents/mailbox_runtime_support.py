@@ -70,22 +70,14 @@ MAILBOX_TRANSPORT_FILESYSTEM = "filesystem"
 MAILBOX_TRANSPORT_STALWART = "stalwart"
 MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
 MAILBOX_PROCESSING_SKILL_NAME = "houmao-process-emails-via-gateway"
-MAILBOX_GATEWAY_SKILL_NAME = "houmao-email-via-agent-gateway"
-MAILBOX_FILESYSTEM_SKILL_NAME = "houmao-email-via-filesystem"
-MAILBOX_STALWART_SKILL_NAME = "houmao-email-via-stalwart"
+MAILBOX_COMMS_SKILL_NAME = "houmao-agent-email-comms"
 MAILBOX_PROCESSING_SKILL_REFERENCE = (
     f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_PROCESSING_SKILL_NAME}"
 )
-MAILBOX_GATEWAY_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_GATEWAY_SKILL_NAME}"
-MAILBOX_FILESYSTEM_SKILL_REFERENCE = (
-    f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_FILESYSTEM_SKILL_NAME}"
-)
-MAILBOX_STALWART_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_STALWART_SKILL_NAME}"
+MAILBOX_COMMS_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_COMMS_SKILL_NAME}"
 MAILBOX_PRIMARY_SKILL_REFERENCES = (
     MAILBOX_PROCESSING_SKILL_REFERENCE,
-    MAILBOX_GATEWAY_SKILL_REFERENCE,
-    MAILBOX_FILESYSTEM_SKILL_REFERENCE,
-    MAILBOX_STALWART_SKILL_REFERENCE,
+    MAILBOX_COMMS_SKILL_REFERENCE,
 )
 
 _MAILBOX_COMMON_ENV_VARS = (
@@ -847,25 +839,21 @@ def bootstrap_resolved_mailbox(
 
 
 def mailbox_skill_reference(config: MailboxResolvedConfig, *, tool: str | None = None) -> str:
-    """Return the primary projected mailbox skill reference for one transport."""
+    """Return the unified projected ordinary-mailbox skill reference."""
 
-    if isinstance(config, FilesystemMailboxResolvedConfig):
-        return _mailbox_skill_reference_for_name(MAILBOX_FILESYSTEM_SKILL_NAME, tool=tool)
-    return _mailbox_skill_reference_for_name(MAILBOX_STALWART_SKILL_NAME, tool=tool)
+    return _mailbox_skill_reference_for_name(MAILBOX_COMMS_SKILL_NAME, tool=tool)
 
 
 def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
-    """Return the stable transport-specific mailbox skill name."""
+    """Return the stable unified ordinary-mailbox skill name."""
 
-    if isinstance(config, FilesystemMailboxResolvedConfig):
-        return MAILBOX_FILESYSTEM_SKILL_NAME
-    return MAILBOX_STALWART_SKILL_NAME
+    return MAILBOX_COMMS_SKILL_NAME
 
 
 def mailbox_gateway_skill_reference(*, tool: str | None = None) -> str:
-    """Return the primary projected shared-gateway mailbox skill reference."""
+    """Return the primary projected ordinary-mailbox skill reference."""
 
-    return _mailbox_skill_reference_for_name(MAILBOX_GATEWAY_SKILL_NAME, tool=tool)
+    return _mailbox_skill_reference_for_name(MAILBOX_COMMS_SKILL_NAME, tool=tool)
 
 
 def mailbox_processing_skill_reference(*, tool: str | None = None) -> str:
@@ -875,9 +863,9 @@ def mailbox_processing_skill_reference(*, tool: str | None = None) -> str:
 
 
 def mailbox_gateway_skill_name() -> str:
-    """Return the stable shared-gateway mailbox skill name."""
+    """Return the stable ordinary-mailbox skill name."""
 
-    return MAILBOX_GATEWAY_SKILL_NAME
+    return MAILBOX_COMMS_SKILL_NAME
 
 
 def mailbox_processing_skill_name() -> str:
@@ -929,8 +917,6 @@ def mailbox_primary_skill_references(*, tool: str | None = None) -> tuple[str, .
     return (
         mailbox_processing_skill_reference(tool=tool),
         mailbox_gateway_skill_reference(tool=tool),
-        _mailbox_skill_reference_for_name(MAILBOX_FILESYSTEM_SKILL_NAME, tool=tool),
-        _mailbox_skill_reference_for_name(MAILBOX_STALWART_SKILL_NAME, tool=tool),
     )
 
 
@@ -960,9 +946,7 @@ def install_runtime_mailbox_system_skills_for_tool(
         home_path=home_path,
         skill_names=(
             MAILBOX_PROCESSING_SKILL_NAME,
-            MAILBOX_GATEWAY_SKILL_NAME,
-            MAILBOX_FILESYSTEM_SKILL_NAME,
-            MAILBOX_STALWART_SKILL_NAME,
+            MAILBOX_COMMS_SKILL_NAME,
         ),
     )
     return tuple(
@@ -986,9 +970,7 @@ def project_runtime_mailbox_system_skills(
         tool=tool,
         skill_names=(
             MAILBOX_PROCESSING_SKILL_NAME,
-            MAILBOX_GATEWAY_SKILL_NAME,
-            MAILBOX_FILESYSTEM_SKILL_NAME,
-            MAILBOX_STALWART_SKILL_NAME,
+            MAILBOX_COMMS_SKILL_NAME,
         ),
     )
 

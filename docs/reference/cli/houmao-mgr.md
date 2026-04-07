@@ -7,8 +7,21 @@ Houmao pair CLI with native server and managed-agent command families.
 ## Synopsis
 
 ```
-houmao-mgr [--print-plain | --print-json | --print-fancy] COMMAND [ARGS]...
+houmao-mgr [--version] [--print-plain | --print-json | --print-fancy] COMMAND [ARGS]...
 ```
+
+The root help surface for `houmao-mgr --help` and bare `houmao-mgr` invocation includes a direct pointer to the published detailed docs site at `https://igamenovoer.github.io/houmao/`.
+
+## Root Options
+
+| Option | Description |
+|---|---|
+| `--version` | Print the packaged Houmao version and exit successfully without requiring a subcommand. |
+| `--print-plain` | Human-readable aligned text (default). |
+| `--print-json` | Machine-readable JSON with stable formatting (`indent=2`, `sort_keys=True`). |
+| `--print-fancy` | Rich-formatted output with tables, panels, and colors (requires a terminal that supports ANSI escape codes). |
+
+`--version` is a root CLI reporting option. It prints the packaged Houmao version for the current `houmao-mgr` binary and exits successfully without running a subcommand.
 
 ## Output Style
 
@@ -59,7 +72,7 @@ For dedicated coverage of complex nested command families, see:
 
 | Subcommand | Description |
 |---|---|
-| `launch` | Start a managed agent. Provisions a runtime home, builds the brain, and launches a live session. |
+| `launch` | Start a managed agent. Provisions a runtime home, builds the brain, and launches a live session. Accepts either `--agents <selector>` for a direct recipe selector or `--launch-profile <name>` to resolve a stored explicit launch profile (mutually exclusive). |
 | `join` | Adopt an existing tmux-backed TUI or native headless logical session into Houmao managed-agent control. |
 | `list`, `state` | Inspect locally discovered or pair-backed managed agents. |
 | `prompt` | Send a prompt to a running agent session. |
@@ -110,6 +123,22 @@ Cleanup targeting rules:
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
 - Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus fresh shared-registry metadata second.
 - Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
+
+`agents launch` source-selector and launch-profile rules:
+
+- `agents launch` accepts exactly one of `--agents <selector>` and `--launch-profile <name>`. The two are mutually exclusive and one is required.
+- `--agents` is the direct recipe selector form. The effective provider defaults to `claude_code` when `--provider` is omitted.
+- `--launch-profile` resolves the named launch profile from the active project overlay and rejects easy `project easy profile ...` selections; only explicit recipe-backed launch profiles (`profile_lane=launch_profile`) are accepted.
+- A launch-profile-backed launch derives the source recipe from the stored profile, then composes effective inputs in the precedence order: source recipe defaults → launch-profile defaults → direct CLI overrides.
+- Direct overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch and never rewrite the stored launch profile.
+- `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides for the Houmao-managed prompt header. For what the header contains and the full prompt composition order, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
+- When neither managed-header flag is supplied, `agents launch` inherits managed-header policy from the selected launch profile when one is present; otherwise it falls back to the default enabled behavior.
+- Direct managed-header override wins over stored launch-profile policy for the current launch only and does not rewrite the stored profile.
+- `agents launch` accepts `--workdir` to override the launched agent runtime cwd; when omitted, the runtime cwd defaults to the invocation cwd. When the launch source resolves from a Houmao project, that source project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
+- `agents launch` accepts `--model` and `--reasoning-level` as launch-owned model-selection flags. `--model` is a tool-agnostic name that resolves through the provider mapping. `--reasoning-level` uses Houmao's normalized `1..10` scale rather than a vendor-native knob. Both apply to the current launch only and do not rewrite the stored launch profile.
+- `--provider` defaults from the resolved launch-profile recipe when one tool family is determined by that source. Supplying `--provider` together with `--launch-profile` is accepted only when it matches the resolved source; otherwise the command fails clearly before build.
+- Launch-profile-stored fields that flow through the manifest into runtime launch resolution include managed-agent identity defaults, working directory, auth override by name, prompt-mode override, durable env records, declarative mailbox config, headless and gateway posture, the managed-header policy, and the prompt overlay. Prompt composition order is source role prompt → prompt overlay resolution → managed-header prepend → backend-specific role injection.
+- For the conceptual model that ties `agents launch --launch-profile` to easy `project easy profile` and to the broader launch-profile object family, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
 ### `mailbox` — Local filesystem mailbox administration
 
@@ -181,29 +210,32 @@ houmao-mgr brains build [OPTIONS]
 
 When `--preset` resolves to a recipe that carries `launch.env_records`, `brains build` projects those records as durable non-credential launch env alongside the selected auth bundle. Those env records come from specialist launch config, not from one-off instance launch input.
 
-### `system-skills` — Packaged Houmao-owned skill installation for explicit tool homes
+### `system-skills` — Packaged Houmao-owned skill installation for resolved tool homes
 
 ```
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install or inspect the packaged current Houmao-owned `houmao-*` skill set for explicit Claude, Codex, or Gemini homes.
+Install or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, or Gemini homes.
 
 #### Subcommands
 
 | Subcommand | Description |
 |---|---|
 | `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
-| `status` | Show whether one explicit tool home has Houmao-owned install state and which skills are recorded there. |
-| `install` | Install the CLI-default set list, explicit named sets, explicit skills, or any combination of those into one explicit tool home. |
+| `status` | Show whether one resolved tool home has Houmao-owned install state and which skills are recorded there. |
+| `install` | Install the CLI-default set list, explicit named sets, explicit skills, or any combination of those into one resolved tool home. |
 
 Operational notes:
 
-- `system-skills install` requires `--tool` and `--home`.
-- selection must come from `--default`, `--set`, `--skill`, or a combination of those inputs
+- `system-skills install` requires `--tool` and accepts optional `--home`
+- `system-skills status` requires `--tool` and accepts optional `--home`
+- when `--home` is omitted, the effective home resolves with precedence `--home` override, tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`), then the project-scoped default home
+- the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, and `<cwd>` for Gemini
+- omitting both `--set` and `--skill` selects the packaged CLI-default set list
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
 - repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.agents/skills/houmao-...`
+- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
 - each target home records Houmao-owned install state under `.houmao/system-skills/install-state.json`
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 
@@ -224,10 +256,13 @@ houmao-mgr project
 ├── init | status
 ├── agents
 │   ├── roles ...
-│   ├── presets ...
+│   ├── recipes ...                # canonical low-level source recipes
+│   ├── presets ...                # compatibility alias for `recipes`
+│   ├── launch-profiles ...        # explicit recipe-backed birth-time launch profiles
 │   └── tools <tool> ...
 ├── easy
 │   ├── specialist ...
+│   ├── profile ...                # specialist-backed easy birth-time profiles
 │   └── instance ...
 └── mailbox
     ├── init | status | register | unregister | repair | cleanup
@@ -263,7 +298,9 @@ Project overlay notes:
 | Subcommand | Description |
 |---|---|
 | `roles list|get|init|set|remove` | Inspect, create, update, or delete prompt-only role roots under `agents/roles/`. Use `roles get --include-prompt` when you explicitly need prompt text in CLI output. |
-| `presets list|get|add|set|remove` | Manage canonical named preset files under `agents/presets/<name>.yaml`, including which auth bundle one preset references. |
+| `recipes list|get|add|set|remove` | **Canonical** low-level recipe administration. Manages named recipe files projected under `agents/presets/<name>.yaml`, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference. |
+| `presets list|get|add|set|remove` | Compatibility alias for `recipes`. Operates on the same files under `agents/presets/<name>.yaml` and accepts the same flags. |
+| `launch-profiles list|get|add|set|remove` | Manage explicit recipe-backed reusable birth-time launch profiles projected under `agents/launch-profiles/<name>.yaml`. See the dedicated section below for the field set. |
 | `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
 | `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
 | `tools <tool> auth list|get|add|set|remove` | Manage project-local auth bundles under `agents/tools/<tool>/auth/<name>/`, including env vars and auth files stored inside those bundles. |
@@ -271,8 +308,27 @@ Project overlay notes:
 Low-level boundary notes:
 
 - `roles ...` owns the canonical low-level role prompt.
-- `presets ...` owns named preset structure, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference.
-- `tools <tool> auth ...` owns auth-bundle contents. Use that surface when the task is changing env vars or auth files inside the bundle rather than which bundle a preset selects.
+- `recipes ...` (canonical) and `presets ...` (compatibility alias) own named recipe structure, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference. Both surfaces administer the same `.houmao/agents/presets/<name>.yaml` files.
+- `launch-profiles ...` owns reusable recipe-backed birth-time launch configuration, including managed-agent identity defaults, working directory, auth override by name, prompt-mode override, durable env records, declarative mailbox config, launch posture, and an optional prompt overlay. For the shared semantic model that ties these to easy profiles, see [Launch Profiles](../../getting-started/launch-profiles.md).
+- Managed launches prepend a short Houmao-owned prompt header by default. `houmao-mgr` is the canonical direct Houmao interface named by that header, and the stored launch-profile policy plus launch-time flags determine whether the header is enabled for a given launch. See [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md) for what the header contains and the prompt composition order.
+- `tools <tool> auth ...` owns auth-bundle contents. Use that surface when the task is changing env vars or auth files inside the bundle rather than which bundle a recipe selects.
+
+`project agents recipes` notes:
+
+- `recipes add` requires `--name`, `--role`, `--tool`, accepts repeatable `--skill`, optional `--auth`, optional `--setup` (defaults to `default`), and optional `--prompt-mode` (`unattended` or `as_is`; defaults to `unattended` when omitted).
+- `recipes set` patches without dropping advanced blocks. It supports `--role`, `--tool`, `--setup`, `--auth`, `--clear-auth`, repeatable `--add-skill` and `--remove-skill`, `--clear-skills`, `--prompt-mode`, and `--clear-prompt-mode`. `mailbox` and `extra` blocks already present in a recipe are preserved.
+- The system rejects creation or mutation that would make two recipes share the same `(role, tool, setup)` tuple.
+- `recipes remove` deletes the named recipe file but does not delete any launch profile that references it; remove referencing launch profiles separately when needed.
+
+`project agents launch-profiles` notes:
+
+- `launch-profiles add` requires `--name` and `--recipe`. It accepts: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), and prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`).
+- `launch-profiles add` also accepts `--managed-header` or `--no-managed-header` to store explicit managed-header policy. Omitting both stores `inherit`. For the conceptual model behind these flags, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
+- `launch-profiles set` patches without dropping unspecified advanced blocks and exposes matching `--clear-*` flags for nullable fields (`--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-mailbox`, `--clear-headless`, `--clear-managed-header`, `--clear-prompt-overlay`).
+- `launch-profiles set` also accepts `--managed-header` or `--no-managed-header`. Those flags are mutually exclusive, and `--clear-managed-header` returns the stored field to `inherit`.
+- `launch-profiles list` accepts optional `--recipe` and `--tool` filters when those identities are derivable from the referenced recipe.
+- `launch-profiles remove` deletes one launch-profile resource without deleting the referenced recipe.
+- Launch profiles authored here are recipe-backed and explicit. They are stored as the same kind of catalog object that backs easy `project easy profile ...`, but the explicit lane keeps the lower-level launch contract visible by intent.
 
 `project agents tools claude auth add|set` notes:
 
@@ -289,9 +345,11 @@ Low-level boundary notes:
 |---|---|
 | `specialist create` | Persist one specialist in `catalog.sqlite`, snapshot prompt/auth/skill payloads into `content/`, and materialize the needed `agents/` compatibility projection under the active overlay root. |
 | `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection; `get` reports stored launch config such as `launch.prompt_mode` and `launch.env_records`. |
-| `instance launch` | Launch one managed agent from a compiled specialist with required `--specialist` and `--name` inputs. |
+| `profile create` | Persist one specialist-backed easy profile that captures reusable birth-time launch defaults over exactly one specialist. Stored in the shared launch-profile catalog family with `profile_lane=easy_profile`. |
+| `profile list|get|remove` | Inspect or remove persisted easy profiles. `get` reports the source specialist plus the stored easy-profile launch defaults. `remove` deletes the easy profile without removing the specialist it referenced. |
+| `instance launch` | Launch one managed agent from either a compiled specialist (`--specialist`) or a stored easy profile (`--profile`). The two selectors are mutually exclusive and exactly one is required. |
 | `instance stop` | Stop one managed agent through the project-aware easy instance surface. |
-| `instance list|get` | View existing managed-agent runtime state as project-local specialist instances. |
+| `instance list|get` | View existing managed-agent runtime state as project-local specialist instances. `list` and `get` also report the originating easy-profile identity when runtime-backed state makes it resolvable. |
 
 `project easy specialist create` notes:
 
@@ -300,28 +358,53 @@ Low-level boundary notes:
 - `--system-prompt` and `--system-prompt-file` are both optional; provide at most one.
 - `--no-unattended` opts out of the easy unattended default and persists `launch.prompt_mode: as_is` for that specialist.
 - repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
-- when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt/preset projection and accepts `--yes` for non-interactive replacement.
+- `--model` and `--reasoning-level` are the supported launch-owned model-selection surfaces. `--reasoning-level` uses Houmao's normalized `1..10` scale rather than a vendor-native knob.
+- when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt and recipe projection and accepts `--yes` for non-interactive replacement.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
-- maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility preset, including Gemini's headless-only easy lane.
+- maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility recipe projected under `.houmao/agents/presets/`, including Gemini's headless-only easy lane.
 - specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
-- Claude credential lanes use the same credential semantics in both `project agents tools claude auth add|set` and `project easy specialist create --tool claude`, but the flag names differ: the tools surface uses unprefixed names (`--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`) while the easy-specialist surface uses prefixed names (`--api-key`, `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`, `--base-url`, `--claude-model`).
-- Claude auth bundle updates are patch-preserving: setting `--claude-oauth-token`, `--claude-config-dir`, `--base-url`, or `--claude-model` does not implicitly delete other stored Claude auth inputs, and refreshing `--claude-config-dir` replaces the imported vendor login files as one maintained set.
+- Claude credential lanes use the same credential semantics in both `project agents tools claude auth add|set` and `project easy specialist create --tool claude`, but the flag names differ: the tools surface uses unprefixed names (`--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`) while the easy-specialist surface uses prefixed names (`--api-key`, `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`, `--base-url`). Model selection on the easy surface is now unified under `--model` plus optional `--reasoning-level`, with `--claude-model` retained only as a compatibility alias for `--model`.
+- Claude auth bundle updates are patch-preserving: setting `--claude-oauth-token`, `--claude-config-dir`, or `--base-url` does not implicitly delete other stored Claude auth inputs, and refreshing `--claude-config-dir` replaces the imported vendor login files as one maintained set. `--claude-model` no longer writes auth-owned model env; it resolves into launch-owned model selection.
 - `--claude-state-template-file` remains optional Claude bootstrap state and is not itself a credential-providing method on the easy-specialist surface.
 - The maintained vendor-login lane is still directory-based. Pass `--config-dir` or `--claude-config-dir`, not separate `.credentials.json` or `.claude.json` file flags.
+- Detailed vendor-native model tuning belongs in the relevant specialist or credential skill documentation rather than the core CLI reference.
 - Gemini credential lanes use the same project-tool contract in both `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini`: `--api-key`, optional `--base-url`, and optional `--oauth-creds` or `--gemini-oauth-creds`.
 - Gemini auth bundle updates are patch-preserving: setting `--base-url` or `--oauth-creds` does not implicitly delete other Gemini auth inputs that were already stored.
 - The project-local catalog is the source of truth; `agents/` under the active overlay root is a compatibility projection that is materialized as needed.
 
+`project easy profile create` notes:
+
+- `--name` and `--specialist` are required. The named profile targets exactly one existing specialist.
+- Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), managed-header flags (`--managed-header`, `--no-managed-header`), and prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`).
+- The persisted easy profile lives in the shared catalog launch-profile family with `profile_lane=easy_profile` and `source_kind=specialist`. It projects into the same compatibility tree (`.houmao/agents/launch-profiles/<name>.yaml`) used by explicit launch profiles.
+- Omitting both managed-header flags on `project easy profile create` stores `inherit`, which falls back to the default enabled managed-header behavior later at launch time.
+- When no active project overlay exists for the caller, `project easy profile create` ensures `<cwd>/.houmao` exists before persisting the profile (matching the `project easy specialist create` bootstrap behavior).
+- `project easy profile remove` removes only the profile definition. It does not remove the specialist that the profile referenced.
+- For the conceptual model that ties easy profiles to explicit launch profiles, see [Launch Profiles](../../getting-started/launch-profiles.md).
+
 `project easy instance launch` notes:
 
-- `--specialist` selects the compiled specialist definition to launch from.
+- Exactly one of `--specialist` or `--profile` is required. The two selectors are mutually exclusive.
+- `--specialist` selects a compiled specialist definition to launch from directly. `--name` is required when launching from `--specialist`.
+- `--profile` selects a stored easy profile. The command derives the source specialist from that profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless/gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the selected profile stores a default managed-agent name; otherwise it remains required.
+- Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, and `--mail-account-dir` win over easy-profile defaults but never rewrite the stored easy profile. The next launch from the same profile will see the original stored defaults again.
+- `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides. They win over the stored easy-profile managed-header policy for the current launch only and never rewrite the stored easy profile.
+- When neither managed-header flag is supplied, easy-instance launch inherits policy from the selected profile when one is present; otherwise it falls back to the default enabled behavior.
+- Easy-instance inspection (`project easy instance list` and `project easy instance get`) reports the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
+- unless `--no-gateway` is supplied, the easy surface now requests launch-time gateway attach by default on loopback (`127.0.0.1`) with a system-assigned port.
+- `--gateway-port <port>` keeps the default easy gateway attach enabled for that launch, but requests the specified loopback listener port instead of a system-assigned port.
+- `--no-gateway` and `--gateway-port` are mutually exclusive.
+- `--workdir` overrides only the launched agent runtime cwd; the selected project overlay, specialist source, runtime root, jobs root, and default mailbox root remain pinned to the selected project.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
 - Gemini specialists remain headless-only here and fail fast unless `--headless` is supplied.
 - repeatable `--env-set NAME=value|NAME` applies one-off env to the current live session, resolves inherited `NAME` bindings from the invoking shell, and does not survive relaunch.
 - `--mail-transport filesystem` requires `--mail-root` and optionally accepts `--mail-account-dir` for a symlink-backed private mailbox directory.
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.
 - `--mail-transport email` is reserved for a future real-email path and currently fails fast as not implemented.
+- when the managed session starts but launch-time gateway attach fails afterward, the command still reports the live session identity and manifest path, includes `gateway_auto_attach_error`, and exits with degraded-success status code `2`.
+- `agents launch` likewise accepts `--workdir`; when the launch source resolves from a Houmao project, that source project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
+- `agents join` now uses `--workdir` instead of `--working-directory`; when omitted, the adopted cwd comes from tmux window `0`, pane `0`.
 
 #### `project mailbox`
 

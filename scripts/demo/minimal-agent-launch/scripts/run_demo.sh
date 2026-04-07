@@ -225,8 +225,9 @@ export HOUMAO_PROJECT_OVERLAY_DIR="${overlay_root}"
         --agents minimal-launch
         --provider "${provider}"
         --agent-name "${agent_name}"
-        --yolo
     )
+    # Unattended posture is now declared in the recipe via `launch.prompt_mode: unattended`;
+    # the previously-passed `--yolo` flag was removed from `agents launch` in 0.3.x.
     if [[ "${headless}" == "true" ]]; then
         launch_args+=(--headless)
     fi

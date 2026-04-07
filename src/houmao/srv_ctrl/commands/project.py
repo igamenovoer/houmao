@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 import yaml
@@ -21,6 +21,17 @@ from houmao.agents.launch_env import (
     resolve_runtime_env_set_specs,
     validate_persistent_env_records,
 )
+from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.managed_prompt_header import ManagedHeaderPolicy
+from houmao.agents.mailbox_runtime_support import (
+    parse_declarative_mailbox_config,
+    serialize_declarative_mailbox_config,
+)
+from houmao.agents.model_selection import (
+    ModelConfig,
+    model_config_to_payload,
+    normalize_model_config,
+)
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.project.catalog import ProjectCatalog
 from houmao.project.easy import (
@@ -28,7 +39,14 @@ from houmao.project.easy import (
     TOOL_PROVIDER_MAP,
     list_specialists,
     load_specialist,
+    remove_profile_metadata,
     remove_specialist_metadata,
+)
+from houmao.project.launch_profiles import (
+    launch_profile_defaults_payload,
+    launch_profile_source_payload,
+    list_resolved_launch_profiles,
+    resolve_launch_profile,
 )
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
@@ -1069,7 +1087,7 @@ def remove_project_role_command(name: str) -> None:
     if referencing_presets:
         preset_names = ", ".join(str(item["name"]) for item in referencing_presets)
         raise click.ClickException(
-            f"Cannot remove role `{role_name}` because named presets still reference it: "
+            f"Cannot remove role `{role_name}` because named recipes still reference it: "
             f"{preset_names}"
         )
     shutil.rmtree(role_root)
@@ -1085,7 +1103,13 @@ def remove_project_role_command(name: str) -> None:
 
 @agents_project_group.group(name="presets")
 def project_presets_group() -> None:
-    """Manage project-local named presets stored under `.houmao/agents/presets/`."""
+    """Compatibility alias for `project agents recipes` stored under `.houmao/agents/presets/`."""
+
+
+project_recipes_group = click.Group(
+    name="recipes",
+    help="Manage project-local named recipes stored under `.houmao/agents/presets/`.",
+)
 
 
 @project_presets_group.command(name="list")
@@ -1098,13 +1122,13 @@ def project_presets_group() -> None:
     help="Optional tool filter.",
 )
 def list_project_presets_command(role: str | None, tool_name: str | None) -> None:
-    """List project-local named presets."""
+    """List project-local named recipes."""
 
     overlay = _resolve_existing_project_overlay()
     emit(
         {
             "project_root": str(overlay.project_root),
-            "presets": _list_named_preset_summaries(
+            "recipes": _list_named_preset_summaries(
                 overlay=overlay,
                 role_name=_optional_non_empty_value(role),
                 tool=tool_name,
@@ -1114,9 +1138,9 @@ def list_project_presets_command(role: str | None, tool_name: str | None) -> Non
 
 
 @project_presets_group.command(name="get")
-@click.option("--name", required=True, help="Preset name.")
+@click.option("--name", required=True, help="Recipe name.")
 def get_project_preset_command(name: str) -> None:
-    """Inspect one project-local named preset."""
+    """Inspect one project-local named recipe."""
 
     overlay = _resolve_existing_project_overlay()
     emit(
@@ -1127,7 +1151,7 @@ def get_project_preset_command(name: str) -> None:
 
 
 @project_presets_group.command(name="add")
-@click.option("--name", required=True, help="Preset name.")
+@click.option("--name", required=True, help="Recipe name.")
 @click.option("--role", required=True, help="Role name.")
 @click.option(
     "--tool",
@@ -1136,7 +1160,7 @@ def get_project_preset_command(name: str) -> None:
     type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
     help="Tool lane.",
 )
-@click.option("--setup", default="default", show_default=True, help="Preset setup name.")
+@click.option("--setup", default="default", show_default=True, help="Recipe setup name.")
 @click.option("--skill", "skill_names", multiple=True, help="Repeatable skill name.")
 @click.option("--auth", default=None, help="Optional auth bundle name.")
 @click.option(
@@ -1144,6 +1168,13 @@ def get_project_preset_command(name: str) -> None:
     type=click.Choice(("unattended", "as_is")),
     default=None,
     help="Optional launch.prompt_mode value; defaults to `unattended`.",
+)
+@click.option("--model", default=None, help="Optional launch-owned model name.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
 )
 def add_project_preset_command(
     name: str,
@@ -1153,8 +1184,10 @@ def add_project_preset_command(
     skill_names: tuple[str, ...],
     auth: str | None,
     prompt_mode: str | None,
+    model: str | None,
+    reasoning_level: int | None,
 ) -> None:
-    """Create one minimal project-local named preset."""
+    """Create one minimal project-local named recipe."""
 
     overlay = _ensure_project_overlay()
     preset_name = _require_non_empty_name(name, field_name="--name")
@@ -1177,6 +1210,10 @@ def add_project_preset_command(
         skills=[_require_non_empty_name(value, field_name="--skill") for value in skill_names],
         auth=_optional_non_empty_value(auth),
         prompt_mode=_optional_non_empty_value(prompt_mode),
+        model_config=_build_model_config_or_click(
+            model_name=_resolve_model_name_or_click(model),
+            reasoning_level=reasoning_level,
+        ),
     )
     emit(
         {
@@ -1189,7 +1226,7 @@ def add_project_preset_command(
 
 
 @project_presets_group.command(name="set")
-@click.option("--name", required=True, help="Preset name.")
+@click.option("--name", required=True, help="Recipe name.")
 @click.option("--role", default=None, help="Optional role name override.")
 @click.option(
     "--tool",
@@ -1200,7 +1237,7 @@ def add_project_preset_command(
 )
 @click.option("--setup", default=None, help="Optional setup override.")
 @click.option("--auth", default=None, help="Optional auth override.")
-@click.option("--clear-auth", is_flag=True, help="Clear the preset auth bundle reference.")
+@click.option("--clear-auth", is_flag=True, help="Clear the recipe auth bundle reference.")
 @click.option("--add-skill", "add_skill_names", multiple=True, help="Repeatable skill to add.")
 @click.option(
     "--remove-skill",
@@ -1208,7 +1245,7 @@ def add_project_preset_command(
     multiple=True,
     help="Repeatable skill to remove.",
 )
-@click.option("--clear-skills", is_flag=True, help="Clear all preset skill bindings.")
+@click.option("--clear-skills", is_flag=True, help="Clear all recipe skill bindings.")
 @click.option(
     "--prompt-mode",
     type=click.Choice(("unattended", "as_is")),
@@ -1216,6 +1253,19 @@ def add_project_preset_command(
     help="Optional launch.prompt_mode override.",
 )
 @click.option("--clear-prompt-mode", is_flag=True, help="Clear launch.prompt_mode.")
+@click.option("--model", default=None, help="Optional launch-owned model name override.")
+@click.option("--clear-model", is_flag=True, help="Clear launch.model.name.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning level override (1..10).",
+)
+@click.option(
+    "--clear-reasoning-level",
+    is_flag=True,
+    help="Clear launch.model.reasoning.level.",
+)
 def set_project_preset_command(
     name: str,
     role: str | None,
@@ -1228,18 +1278,28 @@ def set_project_preset_command(
     clear_skills: bool,
     prompt_mode: str | None,
     clear_prompt_mode: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
 ) -> None:
-    """Update one existing project-local named preset."""
+    """Update one existing project-local named recipe."""
 
     overlay = _ensure_project_overlay()
     preset_name = _require_non_empty_name(name, field_name="--name")
     preset_path = _preset_path(overlay=overlay, preset_name=preset_name)
     if not preset_path.is_file():
-        raise click.ClickException(f"Preset not found: {preset_path}")
+        raise click.ClickException(f"Recipe not found: {preset_path}")
     if clear_auth and auth is not None:
         raise click.ClickException("`--auth` cannot be combined with `--clear-auth`.")
     if clear_prompt_mode and prompt_mode is not None:
         raise click.ClickException("`--prompt-mode` cannot be combined with `--clear-prompt-mode`.")
+    if clear_model and model is not None:
+        raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
+    if clear_reasoning_level and reasoning_level is not None:
+        raise click.ClickException(
+            "`--reasoning-level` cannot be combined with `--clear-reasoning-level`."
+        )
     if (
         role is None
         and tool_name is None
@@ -1251,8 +1311,12 @@ def set_project_preset_command(
         and not clear_skills
         and prompt_mode is None
         and not clear_prompt_mode
+        and model is None
+        and not clear_model
+        and reasoning_level is None
+        and not clear_reasoning_level
     ):
-        raise click.ClickException("No preset updates were requested.")
+        raise click.ClickException("No recipe updates were requested.")
 
     raw_payload = _load_yaml_mapping(preset_path)
     parsed_preset = parse_agent_preset(preset_path)
@@ -1318,6 +1382,32 @@ def set_project_preset_command(
         launch_mapping["prompt_mode"] = prompt_mode
     elif clear_prompt_mode:
         launch_mapping.pop("prompt_mode", None)
+    current_model_payload = _build_model_config_or_click(
+        model_name=parsed_preset.launch.model_config.name
+        if parsed_preset.launch.model_config is not None
+        else None,
+        reasoning_level=parsed_preset.launch.model_config.reasoning.level
+        if parsed_preset.launch.model_config is not None
+        and parsed_preset.launch.model_config.reasoning is not None
+        else None,
+    )
+    updated_model_config = _merge_model_config_for_storage(
+        current_name=current_model_payload.name if current_model_payload is not None else None,
+        current_reasoning_level=(
+            current_model_payload.reasoning.level
+            if current_model_payload is not None and current_model_payload.reasoning is not None
+            else None
+        ),
+        model_name=_resolve_model_name_or_click(model) if model is not None else None,
+        reasoning_level=reasoning_level,
+        clear_model=clear_model,
+        clear_reasoning_level=clear_reasoning_level,
+    )
+    model_payload = _model_mapping_payload(updated_model_config)
+    if model_payload is None:
+        launch_mapping.pop("model", None)
+    else:
+        launch_mapping["model"] = model_payload
     if launch_mapping:
         raw_payload["launch"] = launch_mapping
     else:
@@ -1328,15 +1418,15 @@ def set_project_preset_command(
 
 
 @project_presets_group.command(name="remove")
-@click.option("--name", required=True, help="Preset name.")
+@click.option("--name", required=True, help="Recipe name.")
 def remove_project_preset_command(name: str) -> None:
-    """Remove one project-local named preset."""
+    """Remove one project-local named recipe."""
 
     overlay = _resolve_existing_project_overlay()
     preset_name = _require_non_empty_name(name, field_name="--name")
     preset_path = _preset_path(overlay=overlay, preset_name=preset_name)
     if not preset_path.is_file():
-        raise click.ClickException(f"Preset not found: {preset_path}")
+        raise click.ClickException(f"Recipe not found: {preset_path}")
     preset_path.unlink()
     emit(
         {
@@ -1348,9 +1438,616 @@ def remove_project_preset_command(name: str) -> None:
     )
 
 
+project_recipes_group.add_command(list_project_presets_command, name="list")
+project_recipes_group.add_command(get_project_preset_command, name="get")
+project_recipes_group.add_command(add_project_preset_command, name="add")
+project_recipes_group.add_command(set_project_preset_command, name="set")
+project_recipes_group.add_command(remove_project_preset_command, name="remove")
+agents_project_group.add_command(project_recipes_group)
+
+
+@agents_project_group.group(name="launch-profiles")
+def project_launch_profiles_group() -> None:
+    """Manage recipe-backed reusable launch profiles stored under `.houmao/agents/launch-profiles/`."""
+
+
+@project_launch_profiles_group.command(name="list")
+@click.option("--recipe", default=None, help="Optional source recipe filter.")
+@click.option(
+    "--tool",
+    "tool_name",
+    default=None,
+    type=click.Choice(_SUPPORTED_PROJECT_TOOLS),
+    help="Optional tool filter.",
+)
+def list_project_launch_profiles_command(recipe: str | None, tool_name: str | None) -> None:
+    """List project-local named launch profiles."""
+
+    overlay = _resolve_existing_project_overlay()
+    emit(
+        {
+            "project_root": str(overlay.project_root),
+            "launch_profiles": _list_launch_profile_payloads(
+                overlay=overlay,
+                source_recipe=_optional_non_empty_value(recipe),
+                tool=tool_name,
+            ),
+        }
+    )
+
+
+@project_launch_profiles_group.command(name="get")
+@click.option("--name", required=True, help="Launch profile name.")
+def get_project_launch_profile_command(name: str) -> None:
+    """Inspect one project-local named launch profile."""
+
+    overlay = _resolve_existing_project_overlay()
+    emit(
+        _launch_profile_payload(
+            overlay=overlay,
+            profile_name=_require_non_empty_name(name, field_name="--name"),
+        )
+    )
+
+
+@project_launch_profiles_group.command(name="add")
+@click.option("--name", required=True, help="Launch profile name.")
+@click.option("--recipe", required=True, help="Source recipe name.")
+@click.option("--agent-name", default=None, help="Optional default managed-agent name.")
+@click.option("--agent-id", default=None, help="Optional default managed-agent id.")
+@click.option("--workdir", default=None, help="Optional default working directory.")
+@click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option("--model", default=None, help="Optional launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+)
+@click.option(
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Optional default operator prompt mode.",
+)
+@click.option(
+    "--env-set",
+    "env_set",
+    multiple=True,
+    help="Repeatable persistent launch env record (`NAME=value`).",
+)
+@click.option(
+    "--mail-transport",
+    type=click.Choice(("filesystem", "stalwart")),
+    default=None,
+    help="Optional declarative mailbox transport.",
+)
+@click.option(
+    "--mail-principal-id", default=None, help="Optional declarative mailbox principal id."
+)
+@click.option("--mail-address", default=None, help="Optional declarative mailbox address.")
+@click.option("--mail-root", default=None, help="Optional declarative filesystem mailbox root.")
+@click.option("--mail-base-url", default=None, help="Optional declarative Stalwart base URL.")
+@click.option("--mail-jmap-url", default=None, help="Optional declarative Stalwart JMAP URL.")
+@click.option(
+    "--mail-management-url",
+    default=None,
+    help="Optional declarative Stalwart management URL.",
+)
+@click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
+@click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
+@click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Persist managed prompt header policy for launches from this profile.",
+)
+@click.option(
+    "--gateway-port",
+    type=click.IntRange(1, 65535),
+    default=None,
+    help="Persist one fixed loopback gateway port for launches from this profile.",
+)
+@click.option(
+    "--prompt-overlay-mode",
+    type=click.Choice(("append", "replace")),
+    default=None,
+    help="Optional prompt-overlay mode.",
+)
+@click.option("--prompt-overlay-text", default=None, help="Inline prompt-overlay text.")
+@click.option(
+    "--prompt-overlay-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a prompt-overlay text file.",
+)
+def add_project_launch_profile_command(
+    name: str,
+    recipe: str,
+    agent_name: str | None,
+    agent_id: str | None,
+    workdir: str | None,
+    auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
+    prompt_mode: str | None,
+    env_set: tuple[str, ...],
+    mail_transport: str | None,
+    mail_principal_id: str | None,
+    mail_address: str | None,
+    mail_root: str | None,
+    mail_base_url: str | None,
+    mail_jmap_url: str | None,
+    mail_management_url: str | None,
+    headless: bool,
+    no_gateway: bool,
+    managed_header: bool | None,
+    gateway_port: int | None,
+    prompt_overlay_mode: str | None,
+    prompt_overlay_text: str | None,
+    prompt_overlay_file: Path | None,
+) -> None:
+    """Create one recipe-backed explicit launch profile."""
+
+    overlay = _ensure_project_overlay()
+    payload = _store_launch_profile_from_cli(
+        overlay=overlay,
+        profile_name=_require_non_empty_name(name, field_name="--name"),
+        profile_lane="launch_profile",
+        source_kind="recipe",
+        source_name=_require_non_empty_name(recipe, field_name="--recipe"),
+        agent_name=agent_name,
+        agent_id=agent_id,
+        workdir=workdir,
+        auth=auth,
+        model=model,
+        reasoning_level=reasoning_level,
+        prompt_mode=prompt_mode,
+        env_set=env_set,
+        mail_transport=mail_transport,
+        mail_principal_id=mail_principal_id,
+        mail_address=mail_address,
+        mail_root=mail_root,
+        mail_base_url=mail_base_url,
+        mail_jmap_url=mail_jmap_url,
+        mail_management_url=mail_management_url,
+        headless=headless,
+        clear_headless=False,
+        no_gateway=no_gateway,
+        managed_header=managed_header,
+        clear_managed_header=False,
+        gateway_port=gateway_port,
+        prompt_overlay_mode=prompt_overlay_mode,
+        prompt_overlay_text=prompt_overlay_text,
+        prompt_overlay_file=prompt_overlay_file,
+        clear_prompt_overlay=False,
+        clear_mailbox=False,
+        clear_env=False,
+        clear_agent_name=False,
+        clear_agent_id=False,
+        clear_workdir=False,
+        clear_auth=False,
+        clear_model=False,
+        clear_reasoning_level=False,
+        clear_prompt_mode=False,
+        existing_name=None,
+    )
+    emit(payload)
+
+
+@project_launch_profiles_group.command(name="set")
+@click.option("--name", required=True, help="Launch profile name.")
+@click.option("--agent-name", default=None, help="Optional default managed-agent name override.")
+@click.option(
+    "--clear-agent-name", is_flag=True, help="Clear the stored default managed-agent name."
+)
+@click.option("--agent-id", default=None, help="Optional default managed-agent id override.")
+@click.option("--clear-agent-id", is_flag=True, help="Clear the stored default managed-agent id.")
+@click.option("--workdir", default=None, help="Optional default working directory override.")
+@click.option("--clear-workdir", is_flag=True, help="Clear the stored default working directory.")
+@click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option("--clear-auth", is_flag=True, help="Clear the stored auth override.")
+@click.option("--model", default=None, help="Optional launch-owned model override.")
+@click.option("--clear-model", is_flag=True, help="Clear the stored launch-owned model.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+)
+@click.option(
+    "--clear-reasoning-level",
+    is_flag=True,
+    help="Clear the stored launch-owned reasoning level.",
+)
+@click.option(
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Optional default operator prompt mode override.",
+)
+@click.option("--clear-prompt-mode", is_flag=True, help="Clear the stored operator prompt mode.")
+@click.option(
+    "--env-set",
+    "env_set",
+    multiple=True,
+    help="Repeatable persistent launch env record replacement (`NAME=value`).",
+)
+@click.option("--clear-env", is_flag=True, help="Clear stored persistent launch env records.")
+@click.option(
+    "--mail-transport",
+    type=click.Choice(("filesystem", "stalwart")),
+    default=None,
+    help="Optional declarative mailbox transport override.",
+)
+@click.option(
+    "--mail-principal-id", default=None, help="Optional declarative mailbox principal id."
+)
+@click.option("--mail-address", default=None, help="Optional declarative mailbox address.")
+@click.option("--mail-root", default=None, help="Optional declarative filesystem mailbox root.")
+@click.option("--mail-base-url", default=None, help="Optional declarative Stalwart base URL.")
+@click.option("--mail-jmap-url", default=None, help="Optional declarative Stalwart JMAP URL.")
+@click.option(
+    "--mail-management-url",
+    default=None,
+    help="Optional declarative Stalwart management URL.",
+)
+@click.option(
+    "--clear-mailbox", is_flag=True, help="Clear the stored declarative mailbox defaults."
+)
+@click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
+@click.option("--clear-headless", is_flag=True, help="Clear the stored headless launch posture.")
+@click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
+@click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Persist managed prompt header policy for launches from this profile.",
+)
+@click.option(
+    "--clear-managed-header",
+    is_flag=True,
+    help="Clear the stored managed prompt header policy back to inherit.",
+)
+@click.option(
+    "--gateway-port",
+    type=click.IntRange(1, 65535),
+    default=None,
+    help="Persist one fixed loopback gateway port for launches from this profile.",
+)
+@click.option(
+    "--prompt-overlay-mode",
+    type=click.Choice(("append", "replace")),
+    default=None,
+    help="Optional prompt-overlay mode override.",
+)
+@click.option("--prompt-overlay-text", default=None, help="Inline prompt-overlay text override.")
+@click.option(
+    "--prompt-overlay-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a prompt-overlay text file.",
+)
+@click.option("--clear-prompt-overlay", is_flag=True, help="Clear the stored prompt overlay.")
+def set_project_launch_profile_command(
+    name: str,
+    agent_name: str | None,
+    clear_agent_name: bool,
+    agent_id: str | None,
+    clear_agent_id: bool,
+    workdir: str | None,
+    clear_workdir: bool,
+    auth: str | None,
+    clear_auth: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
+    prompt_mode: str | None,
+    clear_prompt_mode: bool,
+    env_set: tuple[str, ...],
+    clear_env: bool,
+    mail_transport: str | None,
+    mail_principal_id: str | None,
+    mail_address: str | None,
+    mail_root: str | None,
+    mail_base_url: str | None,
+    mail_jmap_url: str | None,
+    mail_management_url: str | None,
+    clear_mailbox: bool,
+    headless: bool,
+    clear_headless: bool,
+    no_gateway: bool,
+    managed_header: bool | None,
+    clear_managed_header: bool,
+    gateway_port: int | None,
+    prompt_overlay_mode: str | None,
+    prompt_overlay_text: str | None,
+    prompt_overlay_file: Path | None,
+    clear_prompt_overlay: bool,
+) -> None:
+    """Update one recipe-backed explicit launch profile."""
+
+    overlay = _ensure_project_overlay()
+    profile_name = _require_non_empty_name(name, field_name="--name")
+    payload = _store_launch_profile_from_cli(
+        overlay=overlay,
+        profile_name=profile_name,
+        profile_lane="launch_profile",
+        source_kind="recipe",
+        source_name=_load_launch_profile_or_click(
+            overlay=overlay,
+            name=profile_name,
+            expected_lane="launch_profile",
+        ).entry.source_name,
+        agent_name=agent_name,
+        agent_id=agent_id,
+        workdir=workdir,
+        auth=auth,
+        model=model,
+        reasoning_level=reasoning_level,
+        prompt_mode=prompt_mode,
+        env_set=env_set,
+        mail_transport=mail_transport,
+        mail_principal_id=mail_principal_id,
+        mail_address=mail_address,
+        mail_root=mail_root,
+        mail_base_url=mail_base_url,
+        mail_jmap_url=mail_jmap_url,
+        mail_management_url=mail_management_url,
+        headless=headless,
+        clear_headless=clear_headless,
+        no_gateway=no_gateway,
+        managed_header=managed_header,
+        clear_managed_header=clear_managed_header,
+        gateway_port=gateway_port,
+        prompt_overlay_mode=prompt_overlay_mode,
+        prompt_overlay_text=prompt_overlay_text,
+        prompt_overlay_file=prompt_overlay_file,
+        clear_prompt_overlay=clear_prompt_overlay,
+        clear_mailbox=clear_mailbox,
+        clear_env=clear_env,
+        clear_agent_name=clear_agent_name,
+        clear_agent_id=clear_agent_id,
+        clear_workdir=clear_workdir,
+        clear_auth=clear_auth,
+        clear_model=clear_model,
+        clear_reasoning_level=clear_reasoning_level,
+        clear_prompt_mode=clear_prompt_mode,
+        existing_name=profile_name,
+    )
+    emit(payload)
+
+
+@project_launch_profiles_group.command(name="remove")
+@click.option("--name", required=True, help="Launch profile name.")
+def remove_project_launch_profile_command(name: str) -> None:
+    """Remove one project-local named launch profile."""
+
+    overlay = _resolve_existing_project_overlay()
+    profile_name = _require_non_empty_name(name, field_name="--name")
+    try:
+        metadata_path = ProjectCatalog.from_overlay(overlay).remove_launch_profile(profile_name)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    emit(
+        {
+            "project_root": str(overlay.project_root),
+            "name": profile_name,
+            "removed": True,
+            "metadata_path": str(metadata_path),
+            "path": str(
+                (overlay.agents_root / "launch-profiles" / f"{profile_name}.yaml").resolve()
+            ),
+        }
+    )
+
+
 @project_group.group(name="easy")
 def easy_project_group() -> None:
     """Use a higher-level specialist and instance view over the project overlay."""
+
+
+@easy_project_group.group(name="profile")
+def easy_profile_group() -> None:
+    """Manage high-level specialist-backed reusable launch profiles."""
+
+
+@easy_profile_group.command(name="create")
+@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--specialist", required=True, help="Source specialist name.")
+@click.option("--agent-name", default=None, help="Optional default managed-agent name.")
+@click.option("--agent-id", default=None, help="Optional default managed-agent id.")
+@click.option("--workdir", default=None, help="Optional default working directory.")
+@click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option("--model", default=None, help="Optional launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+)
+@click.option(
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Optional default operator prompt mode override.",
+)
+@click.option(
+    "--env-set",
+    "env_set",
+    multiple=True,
+    help="Repeatable persistent launch env record (`NAME=value`).",
+)
+@click.option(
+    "--mail-transport",
+    type=click.Choice(("filesystem", "stalwart")),
+    default=None,
+    help="Optional declarative mailbox transport.",
+)
+@click.option(
+    "--mail-principal-id", default=None, help="Optional declarative mailbox principal id."
+)
+@click.option("--mail-address", default=None, help="Optional declarative mailbox address.")
+@click.option("--mail-root", default=None, help="Optional declarative filesystem mailbox root.")
+@click.option("--mail-base-url", default=None, help="Optional declarative Stalwart base URL.")
+@click.option("--mail-jmap-url", default=None, help="Optional declarative Stalwart JMAP URL.")
+@click.option(
+    "--mail-management-url",
+    default=None,
+    help="Optional declarative Stalwart management URL.",
+)
+@click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
+@click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
+@click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Persist managed prompt header policy for launches from this easy profile.",
+)
+@click.option(
+    "--gateway-port",
+    type=click.IntRange(1, 65535),
+    default=None,
+    help="Persist one fixed loopback gateway port for launches from this profile.",
+)
+@click.option(
+    "--prompt-overlay-mode",
+    type=click.Choice(("append", "replace")),
+    default=None,
+    help="Optional prompt-overlay mode.",
+)
+@click.option("--prompt-overlay-text", default=None, help="Inline prompt-overlay text.")
+@click.option(
+    "--prompt-overlay-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a prompt-overlay text file.",
+)
+def create_easy_profile_command(
+    name: str,
+    specialist: str,
+    agent_name: str | None,
+    agent_id: str | None,
+    workdir: str | None,
+    auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
+    prompt_mode: str | None,
+    env_set: tuple[str, ...],
+    mail_transport: str | None,
+    mail_principal_id: str | None,
+    mail_address: str | None,
+    mail_root: str | None,
+    mail_base_url: str | None,
+    mail_jmap_url: str | None,
+    mail_management_url: str | None,
+    headless: bool,
+    no_gateway: bool,
+    managed_header: bool | None,
+    gateway_port: int | None,
+    prompt_overlay_mode: str | None,
+    prompt_overlay_text: str | None,
+    prompt_overlay_file: Path | None,
+) -> None:
+    """Create one specialist-backed easy profile."""
+
+    overlay = _ensure_project_overlay()
+    payload = _store_launch_profile_from_cli(
+        overlay=overlay,
+        profile_name=_require_non_empty_name(name, field_name="--name"),
+        profile_lane="easy_profile",
+        source_kind="specialist",
+        source_name=_require_non_empty_name(specialist, field_name="--specialist"),
+        agent_name=agent_name,
+        agent_id=agent_id,
+        workdir=workdir,
+        auth=auth,
+        model=model,
+        reasoning_level=reasoning_level,
+        prompt_mode=prompt_mode,
+        env_set=env_set,
+        mail_transport=mail_transport,
+        mail_principal_id=mail_principal_id,
+        mail_address=mail_address,
+        mail_root=mail_root,
+        mail_base_url=mail_base_url,
+        mail_jmap_url=mail_jmap_url,
+        mail_management_url=mail_management_url,
+        headless=headless,
+        clear_headless=False,
+        no_gateway=no_gateway,
+        managed_header=managed_header,
+        clear_managed_header=False,
+        gateway_port=gateway_port,
+        prompt_overlay_mode=prompt_overlay_mode,
+        prompt_overlay_text=prompt_overlay_text,
+        prompt_overlay_file=prompt_overlay_file,
+        clear_prompt_overlay=False,
+        clear_mailbox=False,
+        clear_env=False,
+        clear_agent_name=False,
+        clear_agent_id=False,
+        clear_workdir=False,
+        clear_auth=False,
+        clear_model=False,
+        clear_reasoning_level=False,
+        clear_prompt_mode=False,
+        existing_name=None,
+    )
+    emit(payload)
+
+
+@easy_profile_group.command(name="list")
+def list_easy_profiles_command() -> None:
+    """List persisted project-local easy profiles."""
+
+    overlay = _resolve_existing_project_overlay()
+    profiles = [
+        _launch_profile_payload_from_resolved(overlay=overlay, resolved=profile)
+        for profile in list_resolved_launch_profiles(overlay=overlay)
+        if profile.entry.profile_lane == "easy_profile"
+    ]
+    emit({"project_root": str(overlay.project_root), "profiles": profiles})
+
+
+@easy_profile_group.command(name="get")
+@click.option("--name", required=True, help="Easy profile name.")
+def get_easy_profile_command(name: str) -> None:
+    """Inspect one persisted easy profile definition."""
+
+    overlay = _resolve_existing_project_overlay()
+    emit(
+        _launch_profile_payload(
+            overlay=overlay,
+            profile_name=_require_non_empty_name(name, field_name="--name"),
+            expected_lane="easy_profile",
+        )
+    )
+
+
+@easy_profile_group.command(name="remove")
+@click.option("--name", required=True, help="Easy profile name.")
+def remove_easy_profile_command(name: str) -> None:
+    """Remove one persisted easy profile definition."""
+
+    overlay = _resolve_existing_project_overlay()
+    profile_name = _require_non_empty_name(name, field_name="--name")
+    try:
+        metadata_path = remove_profile_metadata(overlay=overlay, name=profile_name)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    emit(
+        {
+            "project_root": str(overlay.project_root),
+            "name": profile_name,
+            "removed": True,
+            "metadata_path": str(metadata_path),
+            "path": str(
+                (overlay.agents_root / "launch-profiles" / f"{profile_name}.yaml").resolve()
+            ),
+        }
+    )
 
 
 @easy_project_group.group(name="specialist")
@@ -1382,7 +2079,18 @@ def easy_specialist_group() -> None:
 )
 @click.option("--claude-auth-token", default=None, help="Optional Claude auth token input.")
 @click.option("--claude-oauth-token", default=None, help="Optional Claude OAuth token input.")
-@click.option("--claude-model", default=None, help="Optional Claude model input.")
+@click.option("--model", default=None, help="Optional launch-owned default model name.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
+)
+@click.option(
+    "--claude-model",
+    default=None,
+    help="Compatibility alias for `--model` on Claude specialists.",
+)
 @click.option(
     "--claude-state-template-file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
@@ -1443,6 +2151,8 @@ def create_easy_specialist_command(
     base_url: str | None,
     claude_auth_token: str | None,
     claude_oauth_token: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     claude_model: str | None,
     claude_state_template_file: Path | None,
     claude_config_dir: Path | None,
@@ -1505,6 +2215,15 @@ def create_easy_specialist_command(
         adapter=adapter,
         env_set=env_set,
     )
+    if model is not None and claude_model is not None:
+        raise click.ClickException("`--model` cannot be combined with `--claude-model`.")
+    if claude_model is not None and tool_name != "claude":
+        raise click.ClickException("`--claude-model` is only supported with `--tool claude`.")
+    resolved_model_name = _resolve_model_name_or_click(model or claude_model)
+    resolved_model_config = _build_model_config_or_click(
+        model_name=resolved_model_name,
+        reasoning_level=reasoning_level,
+    )
     auth_result = _ensure_specialist_auth_bundle(
         overlay=overlay,
         tool=tool_name,
@@ -1513,7 +2232,6 @@ def create_easy_specialist_command(
         base_url=base_url,
         claude_auth_token=claude_auth_token,
         claude_oauth_token=claude_oauth_token,
-        claude_model=claude_model,
         claude_state_template_file=claude_state_template_file,
         claude_config_dir=claude_config_dir,
         codex_org_id=codex_org_id,
@@ -1526,6 +2244,9 @@ def create_easy_specialist_command(
         "as_is" if no_unattended or tool_name not in {"claude", "codex", "gemini"} else "unattended"
     )
     launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}
+    model_payload = _model_mapping_payload(resolved_model_config)
+    if model_payload is not None:
+        launch_mapping["model"] = model_payload
     if persistent_env_records:
         launch_mapping["env_records"] = dict(persistent_env_records)
 
@@ -1558,6 +2279,7 @@ def create_easy_specialist_command(
         skills=[skill_path.name for skill_path in imported_skills],
         auth=credential_name,
         prompt_mode=prompt_mode,
+        model_config=resolved_model_config,
         env_records=persistent_env_records,
         overwrite=replace_conflict is not None,
     )
@@ -1655,11 +2377,40 @@ def easy_instance_group() -> None:
 
 
 @easy_instance_group.command(name="launch")
-@click.option("--specialist", required=True, help="Specialist name.")
-@click.option("--name", required=True, help="Managed-agent instance name.")
+@click.option("--specialist", default=None, help="Specialist name.")
+@click.option("--profile", default=None, help="Easy profile name.")
+@click.option("--name", default=None, help="Managed-agent instance name.")
 @click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
+@click.option("--model", default=None, help="Optional one-off launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional one-off Houmao-defined reasoning override (1..10).",
+)
 @click.option("--session-name", default=None, help="Optional tmux session name.")
-@click.option("--headless", is_flag=True, help="Launch in detached mode.")
+@click.option(
+    "--headless/--no-headless",
+    default=None,
+    help="Override detached launch posture.",
+)
+@click.option(
+    "--no-gateway",
+    is_flag=True,
+    help="Skip the default launch-time gateway attach for this instance.",
+)
+@click.option(
+    "--gateway-port",
+    type=click.IntRange(1, 65535),
+    default=None,
+    help="Request one fixed loopback gateway listener port for this launch.",
+)
+@click.option(
+    "--workdir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional runtime working directory override; defaults to the invocation cwd.",
+)
 @click.option(
     "--env-set",
     "env_set",
@@ -1684,25 +2435,128 @@ def easy_instance_group() -> None:
     default=None,
     help="Optional private filesystem mailbox directory to symlink into the shared root.",
 )
+@click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Force-enable or disable the Houmao-managed prompt header for this launch.",
+)
 def launch_easy_instance_command(
-    specialist: str,
-    name: str,
+    specialist: str | None,
+    profile: str | None,
+    name: str | None,
     auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     session_name: str | None,
-    headless: bool,
+    headless: bool | None,
+    no_gateway: bool,
+    gateway_port: int | None,
+    workdir: Path | None,
     env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
     mail_account_dir: Path | None,
+    managed_header: bool | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
     overlay = _ensure_project_overlay()
-    specialist_metadata = _load_specialist_or_click(overlay=overlay, name=specialist)
-    if specialist_metadata.tool == "gemini" and not headless:
+    if specialist is not None and profile is not None:
+        raise click.ClickException("`--specialist` and `--profile` cannot be combined.")
+    if specialist is None and profile is None:
+        raise click.ClickException("Provide exactly one of `--specialist` or `--profile`.")
+
+    resolved_profile = None
+    declared_mailbox = None
+    operator_prompt_mode: OperatorPromptMode | None = None
+    persistent_env_records: dict[str, str] | None = None
+    launch_profile_model_config: ModelConfig | None = None
+    prompt_overlay_mode = None
+    prompt_overlay_text = None
+    launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
+    launch_profile_provenance = None
+    direct_model_config = _build_model_config_or_click(
+        model_name=_resolve_model_name_or_click(model),
+        reasoning_level=reasoning_level,
+    )
+    default_gateway_auto_attach = True
+    default_gateway_host: str | None = "127.0.0.1"
+    default_gateway_port: int | None = 0
+    if profile is not None:
+        resolved_profile = _load_launch_profile_or_click(
+            overlay=overlay,
+            name=_require_non_empty_name(profile, field_name="--profile"),
+            expected_lane="easy_profile",
+        )
+        if resolved_profile.specialist is None or not resolved_profile.source_exists:
+            raise click.ClickException(
+                f"Easy profile `{resolved_profile.entry.name}` references unavailable specialist "
+                f"`{resolved_profile.entry.source_name}`."
+            )
+        specialist_metadata = resolved_profile.specialist
+        declared_mailbox = _stored_mailbox_or_click(
+            resolved_profile.entry.mailbox_payload,
+            source=f"easy profile `{resolved_profile.entry.name}`",
+        )
+        operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
+            resolved_profile.entry.operator_prompt_mode,
+            source=f"easy profile `{resolved_profile.entry.name}`",
+        )
+        persistent_env_records = dict(resolved_profile.entry.env_payload)
+        launch_profile_model_config = _build_model_config_or_click(
+            model_name=resolved_profile.entry.model_name,
+            reasoning_level=resolved_profile.entry.reasoning_level,
+        )
+        launch_profile_managed_header_policy = resolved_profile.entry.managed_header_policy
+        prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
+        prompt_overlay_text = resolved_profile.prompt_overlay_text
+        launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
+        posture_payload = dict(resolved_profile.entry.posture_payload)
+        if posture_payload.get("gateway_auto_attach") is False:
+            default_gateway_auto_attach = False
+            default_gateway_port = None
+            default_gateway_host = None
+        if posture_payload.get("gateway_port") is not None:
+            default_gateway_auto_attach = True
+            default_gateway_port = int(posture_payload["gateway_port"])
+            default_gateway_host = str(posture_payload.get("gateway_host") or "127.0.0.1")
+        resolved_headless = (
+            headless if headless is not None else bool(posture_payload.get("headless", False))
+        )
+        resolved_name = _optional_non_empty_value(name) or resolved_profile.entry.managed_agent_name
+        if resolved_name is None:
+            raise click.ClickException(
+                "`project easy instance launch --profile` requires `--name` unless the selected "
+                "profile stores a default managed-agent name."
+            )
+        resolved_auth = _optional_non_empty_value(auth) or resolved_profile.entry.auth_name
+        working_directory = (
+            Path(resolved_profile.entry.workdir).expanduser().resolve()
+            if workdir is None and resolved_profile.entry.workdir is not None
+            else (workdir or Path.cwd()).resolve()
+        )
+    else:
+        assert specialist is not None
+        specialist_metadata = _load_specialist_or_click(
+            overlay=overlay,
+            name=_require_non_empty_name(specialist, field_name="--specialist"),
+        )
+        resolved_headless = bool(headless)
+        resolved_name = _optional_non_empty_value(name)
+        if resolved_name is None:
+            raise click.ClickException(
+                "`project easy instance launch --specialist` requires `--name`."
+            )
+        resolved_auth = _optional_non_empty_value(auth)
+        working_directory = (workdir or Path.cwd()).resolve()
+
+    if specialist_metadata.tool == "gemini" and not resolved_headless:
         raise click.ClickException(
             "Gemini specialists are currently headless-only. Use `--headless`."
         )
+    if no_gateway and gateway_port is not None:
+        raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
     if mail_transport == "email":
         raise click.ClickException(
             "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
@@ -1719,30 +2573,61 @@ def launch_easy_instance_command(
         raise click.ClickException(
             "`--mail-account-dir` is only supported with `--mail-transport filesystem`."
         )
-    materialize_project_agent_catalog_projection(overlay)
+    source_agent_def_dir = materialize_project_agent_catalog_projection(overlay)
     launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
+    gateway_auto_attach = default_gateway_auto_attach
+    requested_gateway_port = default_gateway_port if gateway_auto_attach else None
+    if no_gateway:
+        gateway_auto_attach = False
+        requested_gateway_port = None
+    elif gateway_port is not None:
+        gateway_auto_attach = True
+        requested_gateway_port = gateway_port
+    gateway_host = default_gateway_host if gateway_auto_attach else None
+    requested_gateway_port = (
+        requested_gateway_port
+        if requested_gateway_port is not None
+        else 0
+        if gateway_auto_attach
+        else None
+    )
 
     launch_result = launch_managed_agent_locally(
         agents=str(specialist_metadata.resolved_preset_path(overlay)),
-        agent_name=_require_non_empty_name(name, field_name="--name"),
+        agent_name=resolved_name,
         agent_id=None,
-        auth=_optional_non_empty_value(auth),
+        auth=resolved_auth,
         session_name=_optional_non_empty_value(session_name),
-        headless=headless,
+        headless=resolved_headless,
         provider=specialist_metadata.provider,
-        working_directory=Path.cwd().resolve(),
+        working_directory=working_directory,
+        source_working_directory=overlay.project_root,
+        source_agent_def_dir=source_agent_def_dir,
         headless_display_style="plain",
         headless_display_detail="concise",
         launch_env_overrides=launch_env_overrides,
+        gateway_auto_attach=gateway_auto_attach,
+        gateway_host=gateway_host,
+        gateway_port=requested_gateway_port,
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
         mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),
+        declared_mailbox=declared_mailbox,
+        operator_prompt_mode=operator_prompt_mode,
+        persistent_env_records=persistent_env_records,
+        launch_profile_model_config=launch_profile_model_config,
+        direct_model_config=direct_model_config,
+        prompt_overlay_mode=prompt_overlay_mode,
+        prompt_overlay_text=prompt_overlay_text,
+        managed_header_override=managed_header,
+        launch_profile_managed_header_policy=launch_profile_managed_header_policy,
+        launch_profile_provenance=launch_profile_provenance,
     )
     emit_local_launch_completion(
         launch_result=launch_result,
-        agent_name=name,
+        agent_name=resolved_name,
         session_name=session_name,
-        headless=headless,
+        headless=resolved_headless,
     )
 
 
@@ -2304,7 +3189,7 @@ def _role_summary(
         "role_path": str(role_root),
         "system_prompt_path": str(prompt_path),
         "system_prompt_exists": prompt_path.is_file(),
-        "presets": _list_named_preset_summaries(overlay=overlay, role_name=role_name),
+        "recipes": _list_named_preset_summaries(overlay=overlay, role_name=role_name),
     }
     if include_prompt:
         payload["system_prompt_text"] = (
@@ -2411,7 +3296,7 @@ def _ensure_unique_preset_tuple(
             and str(summary["setup"]) == setup
         ):
             raise click.ClickException(
-                "Preset `(role, tool, setup)` tuples must remain unique across "
+                "Recipe `(role, tool, setup)` tuples must remain unique across "
                 f"`.houmao/agents/presets/`: `{role_name}`, `{tool}`, `{setup}` is already "
                 f"owned by `{summary['name']}`."
             )
@@ -2427,6 +3312,7 @@ def _write_named_preset(
     skills: list[str],
     auth: str | None,
     prompt_mode: str | None,
+    model_config: ModelConfig | None = None,
     env_records: dict[str, str] | None = None,
     overwrite: bool = False,
 ) -> Path:
@@ -2453,6 +3339,9 @@ def _write_named_preset(
     if auth is not None:
         payload["auth"] = auth
     payload["launch"] = {"prompt_mode": resolved_prompt_mode}
+    model_payload = _model_mapping_payload(model_config)
+    if model_payload is not None:
+        payload["launch"]["model"] = model_payload
     if env_records:
         payload["launch"]["env_records"] = dict(env_records)
     _write_yaml_mapping(preset_file, payload)
@@ -2833,7 +3722,6 @@ def _ensure_specialist_auth_bundle(
     base_url: str | None,
     claude_auth_token: str | None,
     claude_oauth_token: str | None,
-    claude_model: str | None,
     claude_state_template_file: Path | None,
     claude_config_dir: Path | None,
     codex_org_id: str | None,
@@ -2852,7 +3740,6 @@ def _ensure_specialist_auth_bundle(
                 "ANTHROPIC_AUTH_TOKEN": claude_auth_token,
                 "CLAUDE_CODE_OAUTH_TOKEN": claude_oauth_token,
                 "ANTHROPIC_BASE_URL": base_url,
-                "ANTHROPIC_MODEL": claude_model,
             }
         )
         file_sources = _claude_auth_file_sources(
@@ -3071,6 +3958,597 @@ def _resolve_instance_env_set_or_click(env_set: tuple[str, ...]) -> dict[str, st
         raise click.ClickException(str(exc)) from exc
 
 
+def _load_recipe_or_click(*, overlay: HoumaoProjectOverlay, name: str) -> Any:
+    """Load one project-local recipe or raise one operator-facing error."""
+
+    recipe_name = _require_non_empty_name(name, field_name="--recipe")
+    recipe_path = _preset_path(overlay=overlay, preset_name=recipe_name)
+    if not recipe_path.is_file():
+        raise click.ClickException(f"Recipe not found: {recipe_path}")
+    try:
+        return parse_agent_preset(recipe_path)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _profile_lane_label(profile_lane: str) -> str:
+    """Return one operator-facing launch-profile lane label."""
+
+    if profile_lane == "easy_profile":
+        return "easy-profile"
+    if profile_lane == "launch_profile":
+        return "launch-profile"
+    return profile_lane
+
+
+def _load_launch_profile_or_click(
+    *,
+    overlay: HoumaoProjectOverlay,
+    name: str,
+    expected_lane: str | None = None,
+) -> Any:
+    """Load one resolved launch profile or raise one operator-facing error."""
+
+    try:
+        resolved = resolve_launch_profile(overlay=overlay, name=name)
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if expected_lane is not None and resolved.entry.profile_lane != expected_lane:
+        lane_label = _profile_lane_label(expected_lane)
+        raise click.ClickException(
+            f"Launch profile `{name}` is not an available `{lane_label}` definition."
+        )
+    return resolved
+
+
+def _launch_profile_payload(
+    *,
+    overlay: HoumaoProjectOverlay,
+    profile_name: str,
+    expected_lane: str | None = None,
+) -> dict[str, object]:
+    """Return one operator-facing launch-profile payload."""
+
+    resolved = _load_launch_profile_or_click(
+        overlay=overlay,
+        name=profile_name,
+        expected_lane=expected_lane,
+    )
+    return _launch_profile_payload_from_resolved(overlay=overlay, resolved=resolved)
+
+
+def _launch_profile_payload_from_resolved(
+    *,
+    overlay: HoumaoProjectOverlay,
+    resolved: Any,
+) -> dict[str, object]:
+    """Return one operator-facing payload from a resolved launch profile."""
+
+    payload: dict[str, object] = {
+        "name": resolved.entry.name,
+        "profile_lane": _profile_lane_label(resolved.entry.profile_lane),
+        "source": launch_profile_source_payload(resolved),
+        "defaults": launch_profile_defaults_payload(resolved),
+        "path": str(resolved.entry.resolved_projection_path(overlay)),
+        "metadata_path": str(resolved.entry.metadata_path)
+        if resolved.entry.metadata_path is not None
+        else None,
+    }
+    if resolved.entry.source_kind == "specialist":
+        payload["specialist"] = resolved.entry.source_name
+    if resolved.entry.source_kind == "recipe":
+        payload["recipe"] = resolved.entry.source_name
+    if resolved.tool is not None:
+        payload["tool"] = resolved.tool
+    return payload
+
+
+def _list_launch_profile_payloads(
+    *,
+    overlay: HoumaoProjectOverlay,
+    source_recipe: str | None = None,
+    tool: str | None = None,
+) -> list[dict[str, object]]:
+    """Return explicit launch-profile payloads filtered by recipe or tool when requested."""
+
+    results: list[dict[str, object]] = []
+    for resolved in list_resolved_launch_profiles(overlay=overlay):
+        if resolved.entry.profile_lane != "launch_profile":
+            continue
+        if source_recipe is not None and resolved.recipe_name != source_recipe:
+            continue
+        if tool is not None and resolved.tool != tool:
+            continue
+        results.append(_launch_profile_payload_from_resolved(overlay=overlay, resolved=resolved))
+    return results
+
+
+def _parse_launch_profile_env_records_or_click(
+    *,
+    adapter: ToolAdapter,
+    env_set: tuple[str, ...],
+    source_label: str,
+) -> dict[str, str]:
+    """Parse and validate persistent launch-profile env records."""
+
+    try:
+        parsed = parse_persistent_env_record_specs(env_set)
+        return validate_persistent_env_records(
+            parsed,
+            auth_env_allowlist=adapter.auth_env_allowlist,
+            source=source_label,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_prompt_overlay_text_or_click(
+    *,
+    prompt_overlay_mode: str | None,
+    prompt_overlay_text: str | None,
+    prompt_overlay_file: Path | None,
+) -> tuple[str | None, str | None]:
+    """Resolve one optional prompt overlay from inline or file input."""
+
+    if prompt_overlay_text is not None and prompt_overlay_file is not None:
+        raise click.ClickException(
+            "Provide at most one of `--prompt-overlay-text` or `--prompt-overlay-file`."
+        )
+    resolved_text = (
+        prompt_overlay_text.strip()
+        if prompt_overlay_text is not None
+        else (
+            prompt_overlay_file.read_text(encoding="utf-8").rstrip()
+            if prompt_overlay_file is not None
+            else None
+        )
+    )
+    if resolved_text is not None and not resolved_text:
+        raise click.ClickException("Prompt-overlay text must not be empty.")
+    if prompt_overlay_mode is None and resolved_text is not None:
+        raise click.ClickException(
+            "Prompt-overlay text requires `--prompt-overlay-mode append|replace`."
+        )
+    if prompt_overlay_mode is not None and resolved_text is None:
+        raise click.ClickException(
+            "Prompt-overlay mode requires `--prompt-overlay-text` or `--prompt-overlay-file`."
+    )
+    return prompt_overlay_mode, resolved_text
+
+
+def _managed_header_policy_from_override(value: bool | None) -> ManagedHeaderPolicy | None:
+    """Return one stored managed-header policy from a tri-state CLI override."""
+
+    if value is None:
+        return None
+    return "enabled" if value else "disabled"
+
+
+def _build_profile_mailbox_mapping_or_click(
+    *,
+    mail_transport: str | None,
+    mail_principal_id: str | None,
+    mail_address: str | None,
+    mail_root: str | None,
+    mail_base_url: str | None,
+    mail_jmap_url: str | None,
+    mail_management_url: str | None,
+    source_label: str,
+) -> dict[str, Any] | None:
+    """Resolve one optional declarative mailbox mapping for launch-profile storage."""
+
+    if mail_transport is None:
+        provided = (
+            mail_principal_id is not None
+            or mail_address is not None
+            or mail_root is not None
+            or mail_base_url is not None
+            or mail_jmap_url is not None
+            or mail_management_url is not None
+        )
+        if provided:
+            raise click.ClickException(
+                "Mailbox fields require `--mail-transport filesystem|stalwart`."
+            )
+        return None
+
+    payload: dict[str, Any] = {"transport": mail_transport}
+    if mail_principal_id is not None:
+        payload["principal_id"] = _require_non_empty_name(
+            mail_principal_id, field_name="--mail-principal-id"
+        )
+    if mail_address is not None:
+        payload["address"] = _require_non_empty_name(mail_address, field_name="--mail-address")
+    if mail_transport == "filesystem":
+        if (
+            mail_base_url is not None
+            or mail_jmap_url is not None
+            or mail_management_url is not None
+        ):
+            raise click.ClickException(
+                "Filesystem mailbox defaults do not accept Stalwart URL flags."
+            )
+        if mail_root is not None:
+            payload["filesystem_root"] = mail_root.strip()
+    else:
+        if mail_root is not None:
+            raise click.ClickException("Stalwart mailbox defaults do not accept `--mail-root`.")
+        if mail_base_url is not None:
+            payload["base_url"] = mail_base_url.strip()
+        if mail_jmap_url is not None:
+            payload["jmap_url"] = mail_jmap_url.strip()
+        if mail_management_url is not None:
+            payload["management_url"] = mail_management_url.strip()
+    try:
+        parsed = parse_declarative_mailbox_config(payload, source=source_label)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if parsed is None:
+        return None
+    return serialize_declarative_mailbox_config(parsed)
+
+
+def _stored_mailbox_or_click(
+    payload: dict[str, Any] | None,
+    *,
+    source: str,
+) -> Any:
+    """Parse one stored mailbox payload or raise one operator-facing error."""
+
+    if payload is None:
+        return None
+    try:
+        return parse_declarative_mailbox_config(payload, source=source)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_profile_posture_mapping(
+    *,
+    current: dict[str, Any] | None,
+    headless: bool,
+    clear_headless: bool,
+    no_gateway: bool,
+    gateway_port: int | None,
+) -> dict[str, Any]:
+    """Resolve one persisted launch-posture mapping."""
+
+    if clear_headless and headless:
+        raise click.ClickException("`--headless` cannot be combined with `--clear-headless`.")
+    if no_gateway and gateway_port is not None:
+        raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
+
+    payload = dict(current or {})
+    if clear_headless:
+        payload.pop("headless", None)
+    elif headless:
+        payload["headless"] = True
+
+    if no_gateway:
+        payload["gateway_auto_attach"] = False
+        payload.pop("gateway_host", None)
+        payload.pop("gateway_port", None)
+    elif gateway_port is not None:
+        payload["gateway_auto_attach"] = True
+        payload["gateway_host"] = "127.0.0.1"
+        payload["gateway_port"] = gateway_port
+
+    return payload
+
+
+def _store_launch_profile_from_cli(
+    *,
+    overlay: HoumaoProjectOverlay,
+    profile_name: str,
+    profile_lane: str,
+    source_kind: str,
+    source_name: str,
+    agent_name: str | None,
+    agent_id: str | None,
+    workdir: str | None,
+    auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
+    prompt_mode: str | None,
+    env_set: tuple[str, ...],
+    mail_transport: str | None,
+    mail_principal_id: str | None,
+    mail_address: str | None,
+    mail_root: str | None,
+    mail_base_url: str | None,
+    mail_jmap_url: str | None,
+    mail_management_url: str | None,
+    headless: bool,
+    clear_headless: bool,
+    no_gateway: bool,
+    managed_header: bool | None,
+    clear_managed_header: bool,
+    gateway_port: int | None,
+    prompt_overlay_mode: str | None,
+    prompt_overlay_text: str | None,
+    prompt_overlay_file: Path | None,
+    clear_prompt_overlay: bool,
+    clear_mailbox: bool,
+    clear_env: bool,
+    clear_agent_name: bool,
+    clear_agent_id: bool,
+    clear_workdir: bool,
+    clear_auth: bool,
+    clear_model: bool,
+    clear_reasoning_level: bool,
+    clear_prompt_mode: bool,
+    existing_name: str | None,
+) -> dict[str, object]:
+    """Create or update one catalog-backed launch profile from CLI inputs."""
+
+    catalog = ProjectCatalog.from_overlay(overlay)
+    current = (
+        _load_launch_profile_or_click(
+            overlay=overlay,
+            name=existing_name,
+            expected_lane=profile_lane,
+        )
+        if existing_name is not None
+        else None
+    )
+    if existing_name is None:
+        try:
+            catalog.load_launch_profile(profile_name)
+        except FileNotFoundError:
+            pass
+        else:
+            raise click.ClickException(
+                f"Launch profile `{profile_name}` already exists in `{overlay.catalog_path}`."
+            )
+
+    if source_kind == "specialist":
+        source = _load_specialist_or_click(overlay=overlay, name=source_name)
+        adapter = _load_overlay_tool_adapter(overlay=overlay, tool=source.tool)
+    else:
+        source = _load_recipe_or_click(overlay=overlay, name=source_name)
+        adapter = _load_overlay_tool_adapter(overlay=overlay, tool=source.tool)
+
+    mailbox_mapping = (
+        None
+        if clear_mailbox
+        else _build_profile_mailbox_mapping_or_click(
+            mail_transport=mail_transport,
+            mail_principal_id=mail_principal_id,
+            mail_address=mail_address,
+            mail_root=mail_root,
+            mail_base_url=mail_base_url,
+            mail_jmap_url=mail_jmap_url,
+            mail_management_url=mail_management_url,
+            source_label=f"{profile_name}:mailbox",
+        )
+    )
+    prompt_overlay = (
+        (None, None)
+        if clear_prompt_overlay
+        else _resolve_prompt_overlay_text_or_click(
+            prompt_overlay_mode=prompt_overlay_mode,
+            prompt_overlay_text=prompt_overlay_text,
+            prompt_overlay_file=prompt_overlay_file,
+        )
+    )
+    env_mapping = (
+        {}
+        if clear_env
+        else (
+            _parse_launch_profile_env_records_or_click(
+                adapter=adapter,
+                env_set=env_set,
+                source_label=f"{profile_name}:env",
+            )
+            if env_set
+            else None
+        )
+    )
+    resolved_model_input = _resolve_model_name_or_click(model) if model is not None else None
+
+    if current is None:
+        resolved_agent_name = _optional_non_empty_value(agent_name)
+        resolved_agent_id = _optional_non_empty_value(agent_id)
+        resolved_workdir = _optional_non_empty_value(workdir)
+        resolved_auth = _optional_non_empty_value(auth)
+        resolved_model_config = _build_model_config_or_click(
+            model_name=resolved_model_input,
+            reasoning_level=reasoning_level,
+        )
+        resolved_prompt_mode = _optional_non_empty_value(prompt_mode)
+        resolved_mailbox = mailbox_mapping
+        resolved_env = env_mapping if env_mapping is not None else {}
+        resolved_posture = _resolve_profile_posture_mapping(
+            current=None,
+            headless=headless,
+            clear_headless=clear_headless,
+            no_gateway=no_gateway,
+            gateway_port=gateway_port,
+        )
+        resolved_managed_header_policy = (
+            _managed_header_policy_from_override(managed_header) or "inherit"
+        )
+        resolved_prompt_overlay_mode, resolved_prompt_overlay_text = prompt_overlay
+    else:
+        resolved_agent_name = (
+            None
+            if clear_agent_name
+            else (
+                _optional_non_empty_value(agent_name)
+                if agent_name is not None
+                else current.entry.managed_agent_name
+            )
+        )
+        resolved_agent_id = (
+            None
+            if clear_agent_id
+            else (
+                _optional_non_empty_value(agent_id)
+                if agent_id is not None
+                else current.entry.managed_agent_id
+            )
+        )
+        resolved_workdir = (
+            None
+            if clear_workdir
+            else (
+                _optional_non_empty_value(workdir) if workdir is not None else current.entry.workdir
+            )
+        )
+        if clear_auth and auth is not None:
+            raise click.ClickException("`--auth` cannot be combined with `--clear-auth`.")
+        resolved_auth = (
+            None
+            if clear_auth
+            else (_optional_non_empty_value(auth) if auth is not None else current.entry.auth_name)
+        )
+        if clear_model and model is not None:
+            raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
+        if clear_reasoning_level and reasoning_level is not None:
+            raise click.ClickException(
+                "`--reasoning-level` cannot be combined with `--clear-reasoning-level`."
+            )
+        resolved_model_config = _merge_model_config_for_storage(
+            current_name=current.entry.model_name,
+            current_reasoning_level=current.entry.reasoning_level,
+            model_name=resolved_model_input,
+            reasoning_level=reasoning_level,
+            clear_model=clear_model,
+            clear_reasoning_level=clear_reasoning_level,
+        )
+        if clear_prompt_mode and prompt_mode is not None:
+            raise click.ClickException(
+                "`--prompt-mode` cannot be combined with `--clear-prompt-mode`."
+            )
+        resolved_prompt_mode = (
+            None
+            if clear_prompt_mode
+            else (
+                _optional_non_empty_value(prompt_mode)
+                if prompt_mode is not None
+                else current.entry.operator_prompt_mode
+            )
+        )
+        resolved_mailbox = (
+            mailbox_mapping if mail_transport is not None else current.entry.mailbox_payload
+        )
+        if clear_mailbox:
+            resolved_mailbox = None
+        resolved_env = (
+            {}
+            if clear_env
+            else (env_mapping if env_mapping is not None else dict(current.entry.env_payload))
+        )
+        resolved_posture = _resolve_profile_posture_mapping(
+            current=current.entry.posture_payload,
+            headless=headless,
+            clear_headless=clear_headless,
+            no_gateway=no_gateway,
+            gateway_port=gateway_port,
+        )
+        if clear_managed_header and managed_header is not None:
+            raise click.ClickException(
+                "`--managed-header` or `--no-managed-header` cannot be combined with "
+                "`--clear-managed-header`."
+            )
+        if clear_managed_header:
+            resolved_managed_header_policy = "inherit"
+        elif managed_header is not None:
+            resolved_managed_header_policy = _managed_header_policy_from_override(managed_header)
+        else:
+            resolved_managed_header_policy = current.entry.managed_header_policy
+        if clear_prompt_overlay:
+            resolved_prompt_overlay_mode = None
+            resolved_prompt_overlay_text = None
+        elif prompt_overlay[0] is not None:
+            resolved_prompt_overlay_mode, resolved_prompt_overlay_text = prompt_overlay
+        else:
+            resolved_prompt_overlay_mode = current.entry.prompt_overlay_mode
+            resolved_prompt_overlay_text = current.prompt_overlay_text
+
+    mutation_requested = any(
+        (
+            current is None,
+            agent_name is not None,
+            clear_agent_name,
+            agent_id is not None,
+            clear_agent_id,
+            workdir is not None,
+            clear_workdir,
+            auth is not None,
+            clear_auth,
+            model is not None,
+            clear_model,
+            reasoning_level is not None,
+            clear_reasoning_level,
+            prompt_mode is not None,
+            clear_prompt_mode,
+            bool(env_set),
+            clear_env,
+            mail_transport is not None,
+            clear_mailbox,
+            headless,
+            clear_headless,
+            no_gateway,
+            managed_header is not None,
+            clear_managed_header,
+            gateway_port is not None,
+            prompt_overlay_mode is not None,
+            prompt_overlay_text is not None,
+            prompt_overlay_file is not None,
+            clear_prompt_overlay,
+        )
+    )
+    if not mutation_requested:
+        raise click.ClickException("No launch-profile updates were requested.")
+
+    catalog.store_launch_profile(
+        name=profile_name,
+        profile_lane=profile_lane,
+        source_kind=source_kind,
+        source_name=source_name,
+        managed_agent_name=resolved_agent_name,
+        managed_agent_id=resolved_agent_id,
+        workdir=resolved_workdir,
+        auth_name=resolved_auth,
+        model_name=resolved_model_config.name if resolved_model_config is not None else None,
+        reasoning_level=(
+            resolved_model_config.reasoning.level
+            if resolved_model_config is not None and resolved_model_config.reasoning is not None
+            else None
+        ),
+        operator_prompt_mode=resolved_prompt_mode,
+        env_mapping=resolved_env,
+        mailbox_mapping=resolved_mailbox,
+        posture_mapping=resolved_posture,
+        managed_header_policy=resolved_managed_header_policy,
+        prompt_overlay_mode=resolved_prompt_overlay_mode,
+        prompt_overlay_text=resolved_prompt_overlay_text,
+    )
+    materialize_project_agent_catalog_projection(overlay)
+    return _launch_profile_payload(
+        overlay=overlay,
+        profile_name=profile_name,
+        expected_lane=profile_lane,
+    )
+
+
+def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
+    """Return secret-free launch-profile provenance for build and runtime metadata."""
+
+    return {
+        "name": resolved.entry.name,
+        "lane": resolved.entry.profile_lane,
+        "source_kind": resolved.entry.source_kind,
+        "source_name": resolved.entry.source_name,
+        "recipe_name": resolved.recipe_name,
+        "prompt_overlay": {
+            "mode": resolved.entry.prompt_overlay_mode,
+            "present": resolved.prompt_overlay_text is not None,
+        },
+    }
+
+
 def _specialist_payload(
     *,
     overlay: HoumaoProjectOverlay,
@@ -3165,6 +4643,7 @@ def _instance_payload(
     tool_name = str(manifest_payload.get("tool", "")).strip() or None
     specialist = specialists_by_name.get(role_name) if role_name is not None else None
     mailbox_payload = _instance_mailbox_payload(manifest_payload)
+    easy_profile_name = _instance_easy_profile_name(manifest_payload)
     runtime_payload = manifest_payload.get("runtime")
     return {
         "instance_name": identity_payload.get("agent_name"),
@@ -3176,12 +4655,49 @@ def _instance_payload(
         "session_root": identity_payload.get("session_root"),
         "tmux_session_name": identity_payload.get("tmux_session_name"),
         "specialist": specialist.name if specialist is not None else None,
+        "easy_profile": easy_profile_name,
         "project_root": str(overlay.project_root),
         "project_agent_def_dir": runtime_payload.get("agent_def_dir")
         if isinstance(runtime_payload, dict)
         else None,
         "mailbox": mailbox_payload,
     }
+
+
+def _instance_easy_profile_name(manifest_payload: dict[str, object]) -> str | None:
+    """Return the originating easy-profile name from one runtime manifest when available."""
+
+    launch_profile = _instance_launch_profile_provenance(manifest_payload)
+    if not isinstance(launch_profile, dict):
+        return None
+    lane = launch_profile.get("lane")
+    name = launch_profile.get("name")
+    if lane != "easy_profile" or not isinstance(name, str) or not name.strip():
+        return None
+    return name
+
+
+def _instance_launch_profile_provenance(
+    manifest_payload: dict[str, object],
+) -> dict[str, Any] | None:
+    """Return secret-free launch-profile provenance from one runtime manifest."""
+
+    launch_plan_payload = manifest_payload.get("launch_plan")
+    if not isinstance(launch_plan_payload, dict):
+        return None
+    metadata_payload = launch_plan_payload.get("metadata")
+    if not isinstance(metadata_payload, dict):
+        return None
+    launch_overrides_payload = metadata_payload.get("launch_overrides")
+    if not isinstance(launch_overrides_payload, dict):
+        return None
+    construction_provenance_payload = launch_overrides_payload.get("construction_provenance")
+    if not isinstance(construction_provenance_payload, dict):
+        return None
+    launch_profile_payload = construction_provenance_payload.get("launch_profile")
+    if not isinstance(launch_profile_payload, dict):
+        return None
+    return dict(launch_profile_payload)
 
 
 def _instance_mailbox_payload(manifest_payload: dict[str, object]) -> dict[str, object] | None:
@@ -3405,6 +4921,85 @@ def _write_yaml_mapping(path: Path, payload: dict[str, object]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+
+def _resolve_model_name_or_click(
+    value: str | None,
+    *,
+    field_name: str = "--model",
+) -> str | None:
+    """Return one optional non-empty model name."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise click.ClickException(f"{field_name} must not be empty.")
+    return stripped
+
+
+def _build_model_config_or_click(
+    *,
+    model_name: str | None,
+    reasoning_level: int | None,
+) -> ModelConfig | None:
+    """Build one normalized model config from CLI inputs."""
+
+    try:
+        return normalize_model_config(name=model_name, reasoning_level=reasoning_level)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_operator_prompt_mode_or_click(
+    value: str | None,
+    *,
+    source: str,
+) -> OperatorPromptMode | None:
+    """Return one validated operator prompt mode from stored project state."""
+
+    if value is None:
+        return None
+    if value not in {"as_is", "unattended"}:
+        raise click.ClickException(
+            f"{source} stores invalid launch.prompt_mode {value!r}; expected `as_is` or "
+            "`unattended`."
+        )
+    return cast(OperatorPromptMode, value)
+
+
+def _model_mapping_payload(model_config: ModelConfig | None) -> dict[str, object] | None:
+    """Return one YAML/JSON-ready payload for optional model config."""
+
+    payload = model_config_to_payload(model_config)
+    if payload is None:
+        return None
+    return payload
+
+
+def _merge_model_config_for_storage(
+    *,
+    current_name: str | None,
+    current_reasoning_level: int | None,
+    model_name: str | None,
+    reasoning_level: int | None,
+    clear_model: bool,
+    clear_reasoning_level: bool,
+) -> ModelConfig | None:
+    """Resolve one stored model-config mutation on a per-subfield basis."""
+
+    resolved_name = (
+        None if clear_model else (model_name if model_name is not None else current_name)
+    )
+    resolved_reasoning_level = (
+        None
+        if clear_reasoning_level
+        else (reasoning_level if reasoning_level is not None else current_reasoning_level)
+    )
+    return _build_model_config_or_click(
+        model_name=resolved_name,
+        reasoning_level=resolved_reasoning_level,
+    )
 
 
 def _resolve_required_prompt_text(

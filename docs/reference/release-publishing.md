@@ -13,6 +13,7 @@ The workflow contract is:
 - Build behavior: build both wheel and sdist from the published tag
 - Validation: run `twine check` on the exact built artifacts
 - Publish behavior: publish the downloaded build artifacts to PyPI
+- Docs publication: publishing a GitHub release also triggers the docs workflow to build from the same tag and deploy GitHub Pages
 - Authentication: GitHub OIDC trusted publishing, using the GitHub environment `pypi`
 
 Because the workflow is release-driven, the workflow file must already exist on `main` before maintainers publish a release.
@@ -56,19 +57,20 @@ Recommended release flow:
 ```bash
 git checkout main
 git pull --ff-only origin main
-git tag v0.3.1
-git push origin v0.3.1
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
-6. Create and publish the GitHub release for tag `v0.3.1`:
+6. Create and publish the GitHub release for tag `v0.4.0`:
 
 ```bash
-gh release create v0.3.1 --verify-tag --generate-notes
+gh release create v0.4.0 --verify-tag --generate-notes
 ```
 
 7. Confirm that the `pypi-release` workflow run completes successfully and that PyPI shows the new version.
+8. Confirm that the `docs` workflow run triggered by the same release completes successfully and that GitHub Pages reflects the release tag content.
 
-For clarity and conventional GitHub release handling, use `v0.3.1` as the public tag name.
+For clarity and conventional GitHub release handling, use `v0.4.0` as the public tag name.
 
 ## Release Artifact Scope
 

@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Literal, cast
+from typing import Any, Callable, Literal, cast
 
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
@@ -25,13 +25,17 @@ from houmao.project.overlay import (
     ensure_project_aware_local_roots,
     resolve_project_aware_mailbox_root,
 )
+from houmao.agents.managed_prompt_header import (
+    compose_managed_launch_prompt,
+    resolve_managed_prompt_header_decision,
+)
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
-    derive_auto_agent_name_base,
     derive_agent_id_from_name,
+    derive_default_canonical_agent_name,
     derive_tmux_session_name,
     is_path_like_agent_identity,
     normalize_managed_agent_id,
@@ -951,6 +955,65 @@ class RuntimeSessionController:
         _LOGGER.warning(message)
 
 
+def _effective_role_prompt_from_brain_manifest(
+    manifest: dict[str, Any],
+    *,
+    fallback: str,
+) -> str:
+    """Return the effective role prompt recorded in one brain manifest."""
+
+    stored_role_prompt = _stored_role_prompt_from_brain_manifest(manifest)
+    if stored_role_prompt is None:
+        return fallback
+    return stored_role_prompt
+
+
+def _stored_role_prompt_from_brain_manifest(manifest: dict[str, Any]) -> str | None:
+    """Return one stored effective role prompt from a brain manifest when present."""
+
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, dict):
+        return None
+    raw_value = inputs.get("role_prompt_text")
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str):
+        raise SessionManifestError("Brain manifest inputs.role_prompt_text must be a string.")
+    return raw_value
+
+
+def _managed_prompt_header_payload_from_brain_manifest(
+    manifest: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return one stored managed-header metadata payload when present."""
+
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, dict):
+        return None
+    raw_value = inputs.get("managed_prompt_header")
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, dict):
+        raise SessionManifestError("Brain manifest inputs.managed_prompt_header must be a mapping.")
+    return cast(dict[str, Any], raw_value)
+
+
+def _managed_prompt_header_enabled_from_brain_manifest(manifest: dict[str, Any]) -> bool | None:
+    """Return one persisted managed-header enabled flag when present."""
+
+    payload = _managed_prompt_header_payload_from_brain_manifest(manifest)
+    if payload is None:
+        return None
+    raw_enabled = payload.get("enabled")
+    if raw_enabled is None:
+        return None
+    if not isinstance(raw_enabled, bool):
+        raise SessionManifestError(
+            "Brain manifest inputs.managed_prompt_header.enabled must be a boolean."
+        )
+    return raw_enabled
+
+
 def start_runtime_session(
     *,
     agent_def_dir: Path,
@@ -1006,6 +1069,13 @@ def start_runtime_session(
         )
     else:
         role_package = load_role_package(agent_def_dir, resolved_role_name)
+    role_package = replace(
+        role_package,
+        system_prompt=_effective_role_prompt_from_brain_manifest(
+            manifest,
+            fallback=role_package.system_prompt,
+        ),
+    )
 
     try:
         effective_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
@@ -1294,6 +1364,13 @@ def resume_runtime_session(
         )
     else:
         manifest = load_brain_manifest(brain_manifest_path)
+        role_package = replace(
+            role_package,
+            system_prompt=_effective_role_prompt_from_brain_manifest(
+                manifest,
+                fallback=role_package.system_prompt,
+            ),
+        )
         launch_plan = build_launch_plan(
             LaunchPlanRequest(
                 brain_manifest=manifest,
@@ -2422,6 +2499,45 @@ def _build_provider_start_launch_plan_for_relaunch(
 
     manifest = load_brain_manifest(controller.brain_manifest_path)
     role_package = load_role_package(controller.agent_def_dir, controller.role_name)
+    stored_role_prompt = _stored_role_prompt_from_brain_manifest(manifest)
+    if stored_role_prompt is not None:
+        role_package = replace(role_package, system_prompt=stored_role_prompt)
+    else:
+        persisted_managed_header_enabled = _managed_prompt_header_enabled_from_brain_manifest(manifest)
+        managed_header_decision = resolve_managed_prompt_header_decision(
+            launch_override=None,
+            stored_policy=None,
+            default_enabled=(
+                persisted_managed_header_enabled
+                if persisted_managed_header_enabled is not None
+                else True
+            ),
+        )
+        built_agent_name, built_agent_id = _built_manifest_identity(manifest)
+        resolved_agent_name = controller.agent_identity or built_agent_name
+        if resolved_agent_name is None:
+            resolved_agent_name = derive_default_canonical_agent_name(
+                tool=controller.launch_plan.tool,
+                role_name=controller.role_name,
+            )
+        else:
+            resolved_agent_name = normalize_managed_agent_name(resolved_agent_name)
+        resolved_agent_id = controller.agent_id or built_agent_id
+        if resolved_agent_id is not None:
+            resolved_agent_id = normalize_managed_agent_id(resolved_agent_id)
+        else:
+            resolved_agent_id = derive_agent_id_from_name(resolved_agent_name)
+        role_package = replace(
+            role_package,
+            system_prompt=compose_managed_launch_prompt(
+                base_prompt=role_package.system_prompt,
+                overlay_mode=None,
+                overlay_text=None,
+                managed_header_enabled=managed_header_decision.enabled,
+                agent_name=resolved_agent_name,
+                agent_id=resolved_agent_id,
+            ),
+        )
     updated_launch_plan = build_launch_plan(
         LaunchPlanRequest(
             brain_manifest=manifest,
@@ -2588,10 +2704,7 @@ def _built_manifest_identity(manifest: dict[str, object]) -> tuple[str | None, s
 def _default_canonical_agent_name(*, tool: str, role_name: str) -> str:
     """Return the default canonical agent name for a tmux-backed session."""
 
-    normalized = normalize_agent_identity_name(
-        derive_auto_agent_name_base(tool=tool, role_name=role_name)
-    )
-    return normalized.canonical_name
+    return derive_default_canonical_agent_name(tool=tool, role_name=role_name)
 
 
 def _canonical_runtime_agent_name(agent_name: str) -> str:

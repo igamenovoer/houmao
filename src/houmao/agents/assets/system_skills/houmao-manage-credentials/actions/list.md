@@ -23,4 +23,5 @@ Use:
 - Do not ask for a bundle name when the task is only to list credentials.
 - Do not guess the tool family when the prompt and recent chat context do not identify it explicitly.
 - Do not route listing through `project easy specialist` or managed-agent lifecycle commands.
+- Do not reinterpret the auth-bundle list as the set of easy profiles or explicit launch profiles that reference those bundles.
 - Do not filter or reinterpret the list unless the user explicitly asks for additional selection after listing.

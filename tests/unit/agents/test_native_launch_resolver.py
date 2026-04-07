@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.native_launch_resolver import (
+    infer_launch_source_directory_from_agent_def_dir,
     resolve_effective_agent_def_dir,
     resolve_native_launch_target,
+    resolve_preset_owner_agent_def_dir,
     tool_for_provider,
 )
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
@@ -71,6 +73,27 @@ def test_resolve_effective_agent_def_dir_uses_overlay_env_before_discovery(
     assert resolved.is_dir()
 
 
+def test_resolve_preset_owner_agent_def_dir_returns_owner_tree(tmp_path: Path) -> None:
+    preset_path = (tmp_path / "source" / ".houmao" / "agents" / "presets" / "demo.yaml").resolve()
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text("role: demo\ntool: claude\nsetup: default\nskills: []\n", encoding="utf-8")
+
+    resolved = resolve_preset_owner_agent_def_dir(preset_path=preset_path)
+
+    assert resolved == (tmp_path / "source" / ".houmao" / "agents").resolve()
+
+
+def test_infer_launch_source_directory_from_project_overlay_agent_def_dir_returns_project_root(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = (tmp_path / "source" / ".houmao" / "agents").resolve()
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+
+    resolved = infer_launch_source_directory_from_agent_def_dir(agent_def_dir=agent_def_dir)
+
+    assert resolved == (tmp_path / "source").resolve()
+
+
 def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -106,6 +129,39 @@ def test_resolve_native_launch_target_resolves_tool_lane_default_recipe_and_role
     assert target.recipe_path == preset_path.resolve()
     assert target.role_name == "gpu-kernel-coder"
     assert target.role_prompt == "Demo role prompt"
+    assert target.role_prompt_path == role_prompt_path.resolve()
+
+
+def test_resolve_native_launch_target_honors_explicit_agent_def_dir(tmp_path: Path) -> None:
+    agent_def_dir = (tmp_path / "source" / ".houmao" / "agents").resolve()
+    preset_path = agent_def_dir / "presets" / "gpu-kernel-coder-codex-default.yaml"
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: gpu-kernel-coder",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "auth: demo-default",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    role_prompt_path = agent_def_dir / "roles" / "gpu-kernel-coder" / "system-prompt.md"
+    role_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    role_prompt_path.write_text("Demo role prompt\n", encoding="utf-8")
+
+    target = resolve_native_launch_target(
+        selector="gpu-kernel-coder",
+        provider="codex",
+        working_directory=(tmp_path / "runtime-workdir").resolve(),
+        agent_def_dir=agent_def_dir,
+    )
+
+    assert target.agent_def_dir == agent_def_dir
+    assert target.recipe_path == preset_path.resolve()
     assert target.role_prompt_path == role_prompt_path.resolve()
 
 

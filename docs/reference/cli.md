@@ -70,24 +70,32 @@ Within that pair, `houmao-mgr` is split deliberately:
 - `server` is the server lifecycle and server-session family
 - `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
-- `system-skills` is the explicit Houmao-owned skill installer for arbitrary Claude, Codex, or Gemini homes
+- `system-skills` is the Houmao-owned skill installer for resolved Claude, Codex, or Gemini homes outside managed launch or join
 - `project` is the repo-local Houmao overlay family with `agents`, `easy`, and `mailbox` views
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots
 - `admin` is the local maintenance family
 
 The repo-local `project` tree is intentionally split by user view:
 
-- `project agents ...` is the low-level filesystem-oriented surface for `.houmao/agents/`
-- `project easy ...` is the higher-level specialist and instance surface
-- `project mailbox ...` is the project-scoped wrapper over the generic mailbox-root commands
+- `project agents ...` is the low-level filesystem-oriented surface for `.houmao/agents/`. It includes:
+    - `project agents roles ...` for prompt-only role management,
+    - `project agents recipes ...` (canonical) and `project agents presets ...` (compatibility alias) for named recipe administration under `.houmao/agents/presets/<name>.yaml`,
+    - `project agents launch-profiles ...` for explicit recipe-backed reusable birth-time launch profiles under `.houmao/agents/launch-profiles/<name>.yaml`,
+    - `project agents tools <tool> ...` for adapter, setup, and auth-bundle administration.
+- `project easy ...` is the higher-level specialist, easy-profile, and instance surface. It includes `project easy specialist ...`, `project easy profile ...` (specialist-backed reusable birth-time profiles), and `project easy instance ...` (the runtime lifecycle surface that accepts `--specialist` or `--profile` on `instance launch`).
+- `project mailbox ...` is the project-scoped wrapper over the generic mailbox-root commands.
+
+For the canonical option tables and edge cases on the new `project easy profile`, `project agents recipes`, `project agents launch-profiles`, and `agents launch --launch-profile` surfaces, see [houmao-mgr](cli/houmao-mgr.md). For the conceptual model that ties easy profiles and explicit launch profiles together, including managed-header composition and opt-out rules, see [Launch Profiles](../getting-started/launch-profiles.md).
+
+`houmao-mgr agents launch` now accepts either `--agents <selector>` (the direct recipe-selector form) or `--launch-profile <name>` (the explicit-launch-profile form). The two are mutually exclusive and exactly one is required. It also accepts one-shot `--managed-header` or `--no-managed-header` override flags for the Houmao-owned managed prompt header. See [houmao-mgr](cli/houmao-mgr.md) for the precedence rules and provider-derivation behavior.
 
 The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` are deprecated and removed from the supported command tree.
 
 Useful pair runtime controls:
 
-- `houmao-mgr agents launch --agents <selector> --agent-name <friendly-name> --provider <provider>` performs local brain build plus launch without requiring a running `houmao-server`.
-- `houmao-mgr agents join --agent-name <friendly-name>` adopts a supported TUI that is already running in tmux window `0`, pane `0` of the current session, publishes the normal manifest-first runtime envelope, and does not restart the live TUI.
-- `houmao-mgr agents join --headless --agent-name <friendly-name> --provider <provider> --launch-args <arg> ...` adopts a tmux-backed native headless logical session between turns; `--resume-id` is optional, where omitted means start from no known chat, `last` means resume the latest known chat, and any other non-empty value means resume that exact provider session id.
+- `houmao-mgr agents launch --agents <selector> --agent-name <friendly-name> --provider <provider> [--workdir <path>]` performs local brain build plus launch without requiring a running `houmao-server`. When `--workdir` is set, the invocation project or explicit preset owner still supplies the project-aware overlay, runtime root, jobs root, and mailbox root; `--workdir` only changes the launched session cwd.
+- `houmao-mgr agents join --agent-name <friendly-name> [--workdir <path>]` adopts a supported TUI that is already running in tmux window `0`, pane `0` of the current session, publishes the normal manifest-first runtime envelope, and does not restart the live TUI.
+- `houmao-mgr agents join --headless --agent-name <friendly-name> --provider <provider> --launch-args <arg> ... [--workdir <path>]` adopts a tmux-backed native headless logical session between turns; `--resume-id` is optional, where omitted means start from no known chat, `last` means resume the latest known chat, and any other non-empty value means resume that exact provider session id.
 - `houmao-mgr agents relaunch --agent-name <friendly-name>` or `houmao-mgr agents relaunch` from inside the owning tmux session refreshes the supported tmux-backed runtime surface without rebuilding the managed-agent home.
 - `houmao-mgr server start` is detached by default, emits one structured startup result (use `--print-json` for machine-readable output), and accepts `--foreground` when you want the server attached to the current terminal.
 - `houmao-mgr server start` exposes the same server startup flags as `houmao-server serve`, including `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds`.
@@ -103,6 +111,7 @@ For non-headless tmux-backed managed launches, immediate terminal handoff is now
 Joined-session notes:
 
 - `houmao-mgr agents join` must be run from inside the target tmux session and, in v1, always adopts tmux window `0`, pane `0` as the canonical managed surface.
+- `agents join` now exposes `--workdir` as the public cwd override; when omitted, Houmao derives the adopted workdir from the primary pane current path.
 - Successful join publishes the same stable tmux discovery variables used by native launches: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, and `HOUMAO_JOB_DIR`.
 - Joined sessions publish a shared-registry record immediately using a long sentinel lease instead of relying on a background lease-renewal daemon. Later runtime control can refresh that same record opportunistically.
 - Joined TUI sessions without recorded `--launch-args` and `--launch-env` remain controllable while live but fail explicitly on later `agents relaunch` because restart posture is unavailable by design.
@@ -139,7 +148,7 @@ For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --a
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project easy ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 
-For explicit installation of the packaged Houmao-owned skill surface into a non-managed external home, use `houmao-mgr system-skills list|status|install ...`. That surface is documented in [system-skills](cli/system-skills.md).
+For installation of the packaged Houmao-owned skill surface outside managed launch or join, use `houmao-mgr system-skills list|status|install ...`. `--home` is optional there: omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home. That surface is documented in [system-skills](cli/system-skills.md).
 
 All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. Plain and fancy modes print populated cleanup actions line by line, while `--print-json` preserves the machine-readable output. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus a fresh shared-registry record when needed.
 

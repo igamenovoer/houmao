@@ -2185,28 +2185,16 @@ class GatewayServiceRuntime:
         if gateway_path.is_file():
             if tool != "codex":
                 lines.append(
-                    "Use the lower-level Houmao mailbox gateway skill "
+                    "Use the lower-level Houmao mailbox communication skill "
                     f"`{mailbox_gateway_skill_name()}` by name when you need the exact "
-                    "`/v1/mail/*` operation contract for this round."
+                    "`/v1/mail/*` operation contract or no-gateway transport guidance for this round."
                 )
             else:
                 lines.append(
-                    "If you need the exact `/v1/mail/*` operation contract for this round, "
-                    f"use the lower-level Houmao mailbox gateway skill "
+                    "If you need the exact `/v1/mail/*` operation contract or no-gateway "
+                    "transport guidance for this round, use the lower-level Houmao mailbox "
+                    "communication skill "
                     f"`{mailbox_gateway_skill_name()}` after the round skill expands."
-                )
-        if transport_path.is_file():
-            if tool != "codex":
-                lines.append(
-                    "Use the transport-specific Houmao mailbox skill "
-                    f"`{mailbox_skill_name(mailbox)}` by name only for transport-local context "
-                    "and no-gateway fallback."
-                )
-            else:
-                lines.append(
-                    "Use the transport-specific Houmao mailbox skill "
-                    f"`{mailbox_skill_name(mailbox)}` only for transport-local context and "
-                    "no-gateway fallback."
                 )
         return "\n".join(lines)
 

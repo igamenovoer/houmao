@@ -155,37 +155,158 @@ When the runtime constructs a Gemini headless home from OAuth-backed credential 
 - **THEN** the runtime does not override that selection only because an OAuth credential file is present
 
 ### Requirement: Gemini managed skill projection uses the generic `.agents/skills` root
-When Houmao projects Gemini skills into a managed Gemini home or performs default Houmao-owned Gemini skill installation for an adopted session, the system SHALL use `.agents/skills` as the discoverable Gemini skill root.
+When Houmao projects Gemini skills into a managed Gemini home or performs default Houmao-owned Gemini skill installation for an adopted session, the system SHALL use `.gemini/skills` as the discoverable Gemini skill root.
 
 #### Scenario: Constructed Gemini home projects selected skills into `.agents/skills`
 - **WHEN** the runtime builds a Gemini managed home with one or more selected skills
-- **THEN** the projected Gemini skills are created under `.agents/skills` in that managed home
-- **AND THEN** the runtime does not target `.gemini/skills` as the primary Gemini skills destination for that managed home
+- **THEN** the projected Gemini skills are created under `.gemini/skills` in that managed home
+- **AND THEN** the runtime does not target `.agents/skills` as the primary Gemini skills destination for that managed home
 
 #### Scenario: Default Gemini join-time skill installation uses `.agents/skills`
 - **WHEN** Houmao adopts a Gemini session and performs the default Houmao-owned skill projection for that session
-- **THEN** the installed Gemini skills are created under the adopted session's `.agents/skills` root
-- **AND THEN** the default projection contract does not require a parallel mirror under `.gemini/skills`
+- **THEN** the installed Gemini skills are created under the adopted session's `.gemini/skills` root
+- **AND THEN** the default projection contract does not require a parallel mirror under `.agents/skills`
+
+#### Scenario: Reused Gemini managed home removes the legacy alias root
+- **WHEN** the runtime rebuilds or refreshes a Houmao-managed Gemini home that still contains Houmao-managed Gemini skill content under `.agents/skills`
+- **THEN** the runtime removes the legacy Houmao-managed `.agents/skills` entries before or during projection into `.gemini/skills`
+- **AND THEN** `.agents/skills` is not left behind as the maintained Houmao-managed Gemini skill root
 
 ### Requirement: Role prompt applied before first user turn
-The system SHALL apply the selected role package as the initial tool instructions before the first user prompt is processed when the role package contains prompt content.
+The system SHALL apply the effective launch prompt as the initial tool instructions before the first user prompt is processed when that effective launch prompt contains prompt content.
 
-When the selected role package intentionally contains an empty system prompt, launch SHALL remain valid and the runtime SHALL treat that role as having no startup prompt content.
+The effective launch prompt MAY be the raw selected role prompt or a launch-owned composition around that role prompt.
+
+When the selected role package intentionally contains an empty system prompt, launch SHALL remain valid. If no launch-owned prompt composition adds content, the runtime SHALL treat that role as having no startup prompt content.
 
 #### Scenario: Role is injected on session start
-- **WHEN** a session is started with role `R` whose `system-prompt.md` contains prompt content
-- **THEN** the tool is initialized with `R` as initial instructions using a tool-supported mechanism when available
-- **AND THEN** if the tool lacks a native mechanism, the system sends `R` as a clearly delimited bootstrap message before the first user prompt
+- **WHEN** a session is started with role `R` whose effective launch prompt contains prompt content
+- **THEN** the tool is initialized with that effective launch prompt as initial instructions using a tool-supported mechanism when available
+- **AND THEN** if the tool lacks a native mechanism, the system sends that effective launch prompt as a clearly delimited bootstrap message before the first user prompt
 
-#### Scenario: Empty role prompt skips startup injection
+#### Scenario: Empty role prompt skips startup injection when no launch-owned prompt content exists
 - **WHEN** a session is started with role `R` whose `system-prompt.md` is intentionally empty
+- **AND WHEN** the launch context does not add any launch-owned prompt content
 - **THEN** session startup remains valid
 - **AND THEN** the runtime does not pass empty native developer instructions, empty appended system-prompt arguments, or an empty bootstrap message to the provider
 
+#### Scenario: Managed launch can inject startup prompt content even when the source role prompt is empty
+- **WHEN** a managed session is started with role `R` whose `system-prompt.md` is intentionally empty
+- **AND WHEN** the launch context resolves to non-empty managed-header prompt content
+- **THEN** session startup remains valid
+- **AND THEN** the runtime injects that non-empty effective launch prompt instead of treating the launch as promptless
+
 #### Scenario: Role bootstrap is not replayed on resumed headless turns
-- **WHEN** a headless session has already applied role `R` during bootstrap
+- **WHEN** a headless session has already applied its effective launch prompt during bootstrap
 - **AND WHEN** a developer sends a follow-up prompt using the persisted resume identity
 - **THEN** the system does not replay role bootstrap content unless the caller explicitly starts a new session
+
+### Requirement: Build and launch resolution applies launch-profile defaults between recipe defaults and direct overrides
+When a launch is started from a reusable launch profile, the build and runtime pipeline SHALL resolve effective launch inputs by applying launch-profile defaults after source recipe defaults and before direct launch-time overrides.
+
+At minimum, the pipeline SHALL allow launch-profile-derived values to influence:
+- effective auth selection
+- effective model selection
+- effective normalized reasoning level
+- operator prompt-mode intent
+- durable non-secret env records
+- declarative mailbox configuration
+- managed-agent identity defaults
+- launch provenance
+
+The resulting build manifest or runtime launch metadata SHALL preserve profile provenance in a secret-free form sufficient for inspection and replay, including whether the birth-time config came from an easy profile or an explicit launch profile.
+
+#### Scenario: Launch-profile-derived auth and mailbox defaults survive into build and runtime resolution
+- **WHEN** a launch profile stores auth override `alice-creds` and declarative mailbox defaults
+- **AND WHEN** a managed-agent launch is started from that profile without conflicting direct overrides
+- **THEN** brain construction uses `alice-creds` as the effective auth selection
+- **AND THEN** the resulting launch pipeline carries the profile-derived mailbox configuration into runtime launch resolution
+
+#### Scenario: Direct launch override still wins over launch-profile-owned workdir
+- **WHEN** a launch profile stores working directory `/repos/alice`
+- **AND WHEN** the operator launches from that profile with direct workdir override `/tmp/debug`
+- **THEN** runtime launch uses `/tmp/debug` as the effective working directory
+- **AND THEN** profile provenance still records that the launch originated from the named profile
+
+#### Scenario: Direct launch override wins over launch-profile-owned model
+- **WHEN** a launch profile stores model override `gpt-5.4-mini`
+- **AND WHEN** the operator launches from that profile with direct override `--model gpt-5.4-nano`
+- **THEN** brain construction uses `gpt-5.4-nano` as the effective model
+- **AND THEN** profile provenance still records that the launch originated from the named profile
+
+#### Scenario: Direct launch reasoning override wins over launch-profile-owned reasoning
+- **WHEN** a launch profile stores reasoning override `4`
+- **AND WHEN** the operator launches from that profile with direct override `--reasoning-level 8`
+- **THEN** brain construction uses normalized reasoning level `8` as the effective launch-owned value
+- **AND THEN** profile provenance still records that the launch originated from the named profile
+
+### Requirement: Brain construction projects resolved model configuration into runtime homes and manifests
+During brain-home construction, the system SHALL resolve the effective model configuration before provider startup and SHALL project that configuration into the constructed runtime home or launch environment through maintained tool-native surfaces and a Houmao-owned reasoning mapping policy.
+
+At minimum, the maintained direct model-name projection surfaces SHALL include:
+- Claude launch env `ANTHROPIC_MODEL`
+- Codex runtime `${CODEX_HOME}/config.toml` key `model`
+- Gemini runtime `${GEMINI_CLI_HOME}/.gemini/settings.json` key path `model.name`
+
+This projection SHALL happen after setup copy and auth projection, and before launch helper synthesis and provider-start policy mutation.
+
+For reasoning-level projection, the system SHALL consult a dedicated Houmao mapping-policy module that can consider:
+- normalized requested level
+- selected tool
+- selected model name
+- tool version when available
+- runtime config context when required
+
+The built manifest SHALL preserve secret-free model-selection provenance sufficient to inspect:
+- the resolved effective model,
+- the requested normalized reasoning level,
+- the resolved native reasoning mapping summary,
+- whether launch-profile or direct launch input contributed it,
+- the tool-native projection target family used for that build.
+
+#### Scenario: Built manifest records the resolved effective model configuration
+- **WHEN** a recipe default, launch-profile override, and direct launch override are available for one build
+- **AND WHEN** the direct launch override wins
+- **THEN** the built manifest records the direct value as the resolved effective model
+- **AND THEN** the manifest records secret-free provenance that the value came from direct launch input
+
+#### Scenario: Built manifest records requested normalized reasoning and resolved native mapping
+- **WHEN** one build resolves launch-owned reasoning level `7`
+- **AND WHEN** the mapping policy projects that request into one native tool-specific reasoning configuration
+- **THEN** the built manifest records requested normalized level `7`
+- **AND THEN** the manifest records a secret-free summary of the resolved native mapping used for that runtime
+
+#### Scenario: Explicit Codex model survives later launch-policy mutation
+- **WHEN** a Codex runtime build resolves model `gpt-5.4-mini`
+- **AND WHEN** unattended launch policy later patches approval, sandbox, trust, and migration-owned config state
+- **THEN** the runtime `config.toml` still records `model = "gpt-5.4-mini"`
+- **AND THEN** the launch-policy path does not replace that explicit resolved model with a migration fallback value
+
+#### Scenario: Explicit reasoning projection survives later launch-policy mutation
+- **WHEN** one runtime build resolves launch-owned reasoning level `9`
+- **AND WHEN** the mapping policy projects that request into native reasoning settings before unattended launch-policy mutation
+- **THEN** later unattended launch-policy mutation does not silently discard that explicit reasoning projection
+- **AND THEN** any clamp or native rewrite applied by Houmao remains visible in manifest provenance
+
+### Requirement: Launch-profile prompt overlays are composed before backend-specific role injection
+When a launch profile defines a prompt overlay, the system SHALL derive one effective role prompt before backend-specific role injection planning begins.
+
+For `append`, the effective role prompt SHALL be the source role prompt followed by the profile overlay text.
+
+For `replace`, the effective role prompt SHALL be the profile overlay text instead of the source role prompt.
+
+The runtime SHALL treat that composed prompt as the role prompt for backend-specific role injection and SHALL NOT reapply the overlay as a separate second bootstrap step on resumed turns.
+
+#### Scenario: Append overlay becomes part of the effective role prompt
+- **WHEN** the source role prompt says `You are a CUDA programmer.`
+- **AND WHEN** the selected launch profile stores prompt overlay mode `append` with text `Prefer Alice's repository conventions.`
+- **THEN** the effective role prompt includes both the source role prompt and the appended profile text before role injection is planned
+- **AND THEN** the runtime does not submit the overlay as an unrelated extra prompt after startup
+
+#### Scenario: Replace overlay substitutes for the source role prompt
+- **WHEN** the selected launch profile stores prompt overlay mode `replace`
+- **THEN** the effective role prompt used for runtime role injection is the profile-owned overlay text
+- **AND THEN** the runtime does not also inject the original source role prompt for that launch
 
 ### Requirement: Optional CAO backend via REST boundary
 The system SHALL optionally support CAO-compatible session control through a REST boundary without requiring the core runtime to depend on CAO internals.
@@ -290,7 +411,7 @@ For Claude sessions, the isolated Claude skill root SHALL remain part of the run
 
 For Codex and other non-Claude sessions whose active skill destination remains `skills`, the discoverable tool-native mailbox skill surface MAY continue to use the existing visible mailbox namespace subtree when that remains the active contract for that tool.
 
-For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL use top-level Houmao-owned skill directories under `.agents/skills/` rather than `.agents/skills/mailbox/...`.
+For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL use top-level Houmao-owned skill directories under `.gemini/skills/` rather than `.gemini/skills/mailbox/...`.
 
 #### Scenario: Start Claude session projects mailbox system skills with a filesystem mailbox binding
 - **WHEN** a developer starts a Claude session with filesystem mailbox support enabled
@@ -317,8 +438,8 @@ For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL us
 
 #### Scenario: Start Gemini session projects mailbox system skills through native top-level Houmao skill directories
 - **WHEN** a developer starts a Gemini session with mailbox support enabled
-- **THEN** the runtime projects the mailbox system skills for that session into `.agents/skills/` through top-level Houmao-owned skill directories
-- **AND THEN** the runtime does not rely on a `.agents/skills/mailbox/...` namespace subtree for the maintained Gemini contract
+- **THEN** the runtime projects the mailbox system skills for that session into `.gemini/skills/` through top-level Houmao-owned skill directories
+- **AND THEN** the runtime does not rely on a `.gemini/skills/mailbox/...` namespace subtree for the maintained Gemini contract
 - **AND THEN** the runtime persists the transport-appropriate mailbox binding for that session in the session manifest
 
 #### Scenario: Start session defaults the filesystem mailbox root from the Houmao mailbox root
@@ -330,13 +451,13 @@ For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL us
 - **WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
 - **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
 - **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
-- **AND THEN** the persisted session mailbox binding reflects that derived path
+- **AND THEN** the persisted session mailbox binding reflects that env-var-derived mailbox root
 
-#### Scenario: Second mailbox-enabled session joins an initialized shared mailbox root without manual pre-registration
-- **WHEN** one mailbox-enabled session has already initialized and registered itself into a shared filesystem mailbox root
-- **AND WHEN** a second mailbox-enabled session starts against that same shared mailbox root with its own mailbox address
-- **THEN** the runtime bootstraps or confirms the second session's mailbox registration before persisting registration-dependent filesystem mailbox state for that session
-- **AND THEN** the second `start-session` succeeds without requiring manual mailbox pre-registration outside the runtime startup path
+#### Scenario: Start session bootstraps registration instead of synthesizing missing filesystem state
+- **WHEN** a developer starts an agent session with filesystem mailbox support enabled
+- **AND WHEN** current mailbox resolution would otherwise fail because the session address lacks an active mailbox registration
+- **THEN** the runtime bootstraps or confirms the active mailbox registration before persisting the durable mailbox binding
+- **AND THEN** it does not synthesize fallback mailbox paths just to satisfy later current-mailbox resolution
 
 ### Requirement: Runtime CLI exposes top-level agent-mediated mailbox operations for resumed sessions
 The runtime CLI SHALL expose a top-level `mail` command surface for resumed mailbox-enabled sessions.
@@ -472,19 +593,26 @@ If runtime bootstrap or later current-mailbox resolution can detect that the tar
 - **AND THEN** the error tells the operator to delete and re-bootstrap the mailbox root rather than silently deriving incorrect paths
 
 ### Requirement: Runtime-generated CAO agent profiles from roles
-When using CAO, the system SHALL generate CAO agent profiles at runtime from repo role packages rather than requiring committed/static CAO profile files.
+When using CAO, the system SHALL generate CAO agent profiles at runtime from the effective launch prompt for the selected role and launch context rather than requiring committed or static CAO profile files.
 
-The generated profile system prompt SHALL be derived from `agents/roles/<R>/system-prompt.md`, including the empty-string case for promptless roles.
+For plain role launches with no additional launch-owned prompt composition, the generated profile system prompt SHALL still be derived from `agents/roles/<R>/system-prompt.md`, including the empty-string case for promptless roles.
 
 #### Scenario: Generate and install a CAO profile for a role
 - **WHEN** a developer launches a CAO-backed session with role `R`
-- **THEN** the system generates an agent profile whose system prompt is derived from `agents/roles/<R>/system-prompt.md`
+- **THEN** the system generates an agent profile whose system prompt is derived from the effective launch prompt for that launch context
 - **AND THEN** the CAO terminal launch references that generated profile by name
 
-#### Scenario: Promptless role stays valid for CAO profile generation
+#### Scenario: Promptless role stays valid for CAO profile generation when launch-owned prompt content is absent
 - **WHEN** a developer launches a CAO-backed session with role `R` whose `system-prompt.md` is intentionally empty
+- **AND WHEN** the launch context does not add any launch-owned prompt content
 - **THEN** the generated profile uses an empty system prompt
 - **AND THEN** launch remains valid rather than failing role validation
+
+#### Scenario: Managed launch profile generation can become non-empty even when the source role prompt is empty
+- **WHEN** a managed CAO-backed launch uses role `R` whose `system-prompt.md` is intentionally empty
+- **AND WHEN** the launch context resolves to non-empty managed-header prompt content
+- **THEN** the generated profile uses that non-empty effective launch prompt
+- **AND THEN** compatibility profile generation does not incorrectly force the empty-string source role prompt through unchanged
 
 ### Requirement: Credential env var allowlist enforcement at launch
 The system SHALL apply only allowlisted credential environment variables at launch time, as defined by the selected tool adapter and auth bundle.
@@ -2539,3 +2667,4 @@ When a maintained build or launch flow implicitly bootstraps the selected overla
 - **WHEN** an operator runs a maintained build or launch command with an explicit runtime-root override
 - **THEN** the operator-facing result describes that root as an explicit runtime-root override
 - **AND THEN** it does not describe that path as though it were the active project runtime root selected from overlay-local defaults
+

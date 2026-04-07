@@ -17,11 +17,11 @@ Mailbox support spans build time, start time, resume time, and control time.
 
 `build_brain_home()` always projects the runtime-owned mailbox skills into the selected skills destination. The visible mailbox skill surface is tool-specific:
 
-- Claude uses top-level Houmao skill directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, such as `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`.
-- Codex also uses top-level Houmao skill directories under `skills/`, such as `skills/houmao-email-via-agent-gateway/SKILL.md`.
-- Gemini uses top-level Houmao skill directories under `.agents/skills/`, such as `.agents/skills/houmao-email-via-agent-gateway/SKILL.md`, instead of namespaced compatibility subtrees.
+- Claude uses top-level Houmao skill directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, such as `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`.
+- Codex also uses top-level Houmao skill directories under `skills/`, such as `skills/houmao-agent-email-comms/SKILL.md`.
+- Gemini uses top-level Houmao skill directories under `.gemini/skills/`, such as `.gemini/skills/houmao-agent-email-comms/SKILL.md`, instead of namespaced compatibility subtrees.
 
-That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent. Tool-aware prompt construction can invoke Gemini's installed Houmao mailbox skills by name without teaching Gemini to open raw `.agents/skills/.../SKILL.md` paths for ordinary mailbox rounds. Houmao keeps Claude's isolated runtime home separate from the launched workdir and does not repurpose the repo's project-local `.claude/` tree for runtime-owned mailbox skills.
+That means mailbox guidance is repo-owned runtime material, not something each role must copy or invent. Tool-aware prompt construction can invoke Gemini's installed Houmao mailbox skills by name without teaching Gemini to open raw `.gemini/skills/.../SKILL.md` paths for ordinary mailbox rounds. Houmao keeps Claude's isolated runtime home separate from the launched workdir and does not repurpose the repo's project-local `.claude/` tree for runtime-owned mailbox skills.
 
 ## Start Time
 

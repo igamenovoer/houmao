@@ -1,6 +1,6 @@
 # Stop Agent Instance
 
-Use this action only when the user wants to stop one live managed agent.
+Use this action only when the user wants to stop one live managed agent. This remains the canonical general lifecycle stop action even though `houmao-manage-specialist` may also front specialist-scoped easy-instance stop requests.
 
 ## Workflow
 

@@ -20,6 +20,10 @@ The root group SHALL use `invoke_without_command=True` so that running `houmao-m
 
 The root group SHALL accept `--print-plain`, `--print-json`, and `--print-fancy` as mutually exclusive flag-value options that control the output formatting style for all subcommands. The resolved print style SHALL be stored in `click.Context.obj["output"]` as an `OutputContext` instance accessible to all subcommands.
 
+The root group SHALL also accept `--version` as a root-level version-reporting option. When invoked, `houmao-mgr --version` SHALL print the packaged Houmao version and exit successfully without requiring a subcommand.
+
+The root help surface SHALL point readers to the published detailed Houmao documentation at `https://igamenovoer.github.io/houmao/`.
+
 Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the supported command tree.
 
 #### Scenario: Native help surface shows the new top-level command families
@@ -35,6 +39,25 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 #### Scenario: Root group help shows print style flags
 - **WHEN** an operator runs `houmao-mgr --help`
 - **THEN** the help output lists `--print-plain`, `--print-json`, and `--print-fancy` as available options
+
+#### Scenario: Root group help shows the version flag
+- **WHEN** an operator runs `houmao-mgr --help`
+- **THEN** the help output lists `--version` as an available root option
+
+#### Scenario: Root version request prints the packaged Houmao version
+- **WHEN** an operator runs `houmao-mgr --version`
+- **THEN** the CLI prints the packaged Houmao version
+- **AND THEN** the command exits successfully without requiring a subcommand
+
+#### Scenario: Root help points readers to the detailed docs site
+- **WHEN** an operator runs `houmao-mgr --help`
+- **THEN** the help output includes `https://igamenovoer.github.io/houmao/`
+- **AND THEN** the wording makes clear that the link is for more detailed documentation
+
+#### Scenario: Bare invocation also exposes the detailed docs link
+- **WHEN** an operator runs `houmao-mgr` without arguments
+- **THEN** the printed help output includes `https://igamenovoer.github.io/houmao/`
+- **AND THEN** the operator can discover the published docs site without already knowing a subcommand
 
 ### Requirement: `houmao-mgr project` exposes repo-local project views
 When `houmao-mgr` exposes the repo-local `project` command family, that family SHALL include:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tomllib
 
 import pytest
 import yaml
@@ -15,6 +16,7 @@ from houmao.agents.brain_builder import (
 )
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.system_skills import load_system_skill_install_state
 
 
@@ -176,7 +178,7 @@ launch:
 setup_projection:
   destination: .gemini
 skills_projection:
-  destination: .agents/skills
+  destination: .gemini/skills
   mode: symlink
 auth_projection:
   files_dir: files
@@ -244,27 +246,27 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
-    visible_gateway_skill = home / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    visible_gateway_skill = home / "skills/houmao-agent-email-comms/SKILL.md"
     visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
-    visible_mailbox_skill = home / "skills/houmao-email-via-filesystem/SKILL.md"
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
-    assert visible_mailbox_skill.is_file()
     assert (home / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
-    assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
+    assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
     assert install_state is not None
     assert tuple(record.name for record in install_state.installed_skills) == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
+        "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
 
     # Credential file projection and env contract setup.
@@ -410,7 +412,7 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     processing_skill = (
         result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
-    gateway_skill = (result.home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").read_text(
+    gateway_skill = (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").read_text(
         encoding="utf-8"
     )
 
@@ -422,10 +424,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "wait for the next notification" in processing_skill
     assert "Do not switch to `houmao-mgr agents mail resolve-live`" in processing_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
-    assert "houmao-email-via-agent-gateway" in gateway_skill
+    assert "houmao-agent-email-comms" in gateway_skill
     assert "houmao-process-emails-via-gateway" in gateway_skill
     assert (
-        "If the current prompt or recent mailbox context already provides the exact gateway base URL"
+        "If the current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
     assert "houmao-mgr agents mail resolve-live" in gateway_skill
@@ -462,46 +464,47 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     processing_skill = (skills_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
         encoding="utf-8"
     )
-    gateway_skill = (skills_root / "houmao-email-via-agent-gateway/SKILL.md").read_text(
+    gateway_skill = (skills_root / "houmao-agent-email-comms/SKILL.md").read_text(
         encoding="utf-8"
     )
-    filesystem_skill = (skills_root / "houmao-email-via-filesystem/SKILL.md").read_text(
+    filesystem_skill = (skills_root / "houmao-agent-email-comms/transports/filesystem.md").read_text(
         encoding="utf-8"
     )
-    stalwart_skill = (skills_root / "houmao-email-via-stalwart/SKILL.md").read_text(
+    stalwart_skill = (skills_root / "houmao-agent-email-comms/transports/stalwart.md").read_text(
         encoding="utf-8"
     )
     curl_reference = (
-        skills_root / "houmao-email-via-agent-gateway/references/curl-examples.md"
+        skills_root / "houmao-agent-email-comms/references/curl-examples.md"
     ).read_text(encoding="utf-8")
 
     assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (skills_root / "houmao-email-via-agent-gateway/SKILL.md").is_file()
-    assert (skills_root / "houmao-email-via-filesystem/SKILL.md").is_file()
-    assert (skills_root / "houmao-email-via-stalwart/SKILL.md").is_file()
+    assert (skills_root / "houmao-agent-email-comms/SKILL.md").is_file()
+    assert (skills_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
+    assert (skills_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
     assert not (skills_root / "mailbox").exists()
     assert not (agent_def_dir / ".claude").exists()
-    assert "houmao-email-via-agent-gateway" in processing_skill
-    assert "installed Houmao skill `houmao-email-via-agent-gateway`" in processing_skill
+    assert "houmao-agent-email-comms" in processing_skill
+    assert "installed Houmao skill `houmao-agent-email-comms`" in processing_skill
     assert (
-        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in (gateway_skill)
     )
-    assert "installed `houmao-process-emails-via-gateway` skill" in filesystem_skill
+    assert "For notifier-driven shared mailbox gateway work" in filesystem_skill
+    assert "use `houmao-process-emails-via-gateway`" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
     assert "houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
     assert "pixi run houmao-mgr agents mail resolve-live" not in curl_reference
     assert '"schema_version":1,"message_ref":"<opaque message_ref>","read":true' in curl_reference
 
     assert "houmao-process-emails-via-gateway" in filesystem_skill
-    assert "houmao-email-via-agent-gateway" in filesystem_skill
+    assert "houmao-agent-email-comms" not in filesystem_skill
     assert "gateway: null" in filesystem_skill
-    assert "houmao-email-via-filesystem" in filesystem_skill
+    assert "filesystem" in filesystem_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in filesystem_skill
     assert "houmao-process-emails-via-gateway" in stalwart_skill
-    assert "houmao-email-via-agent-gateway" in stalwart_skill
+    assert "houmao-agent-email-comms" not in stalwart_skill
     assert "gateway: null" in stalwart_skill
-    assert "houmao-email-via-stalwart" in stalwart_skill
+    assert "stalwart" in stalwart_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in stalwart_skill
 
 
@@ -821,7 +824,7 @@ def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_
     assert "--backend raw_launch" in launch_script
 
 
-def test_build_brain_home_projects_gemini_skills_under_agents_root_and_injects_oauth_selector(
+def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_oauth_selector(
     tmp_path: Path,
 ) -> None:
     agent_def_dir = tmp_path / "repo"
@@ -843,17 +846,60 @@ def test_build_brain_home_projects_gemini_skills_under_agents_root_and_injects_o
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
 
-    assert (result.home_path / ".agents/skills/skill-a").is_symlink()
-    assert (result.home_path / ".agents/skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (result.home_path / ".gemini/skills/skill-a").is_symlink()
+    assert (result.home_path / ".gemini/skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (
-        result.home_path / ".agents/skills/houmao-process-emails-via-gateway/SKILL.md"
+        result.home_path / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
-    assert not (result.home_path / ".agents/skills/mailbox").exists()
-    assert not (result.home_path / ".gemini/skills").exists()
+    assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
     assert "export GEMINI_API_KEY=" not in launch_script
     assert manifest["runtime"]["launch_contract"]["env_records"] == {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def test_build_brain_home_reuse_removes_legacy_gemini_agents_skill_root(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            home_id="gemini-home-reuse",
+        )
+    )
+
+    home_path = agent_def_dir / "tmp/agents-runtime/homes/gemini-home-reuse"
+    legacy_skill = home_path / ".agents/skills/skill-a/SKILL.md"
+    legacy_note = home_path / ".agents/README.md"
+    legacy_skill.parent.mkdir(parents=True, exist_ok=True)
+    legacy_skill.write_text("legacy skill\n", encoding="utf-8")
+    legacy_note.parent.mkdir(parents=True, exist_ok=True)
+    legacy_note.write_text("keep parent if it has other content\n", encoding="utf-8")
+
+    build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            home_id="gemini-home-reuse",
+            reuse_home=True,
+        )
+    )
+
+    assert not (home_path / ".agents/skills").exists()
+    assert (home_path / ".agents/README.md").is_file()
+    assert (home_path / ".gemini/skills/skill-a").is_symlink()
 
 
 def test_build_brain_home_gemini_preserves_explicit_api_key_and_base_url_with_oauth_file(
@@ -961,6 +1007,184 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
     assert "houmao.agents.launch_policy.cli" in launch_script
     assert "--requested-operator-prompt-mode unattended" in launch_script
     assert "--launch-arg --direct" in launch_script
+
+
+def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_override(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-profiled",
+            role_prompt_override="Operate only on Alice-owned repositories.",
+            managed_prompt_header={
+                "version": 1,
+                "enabled": True,
+                "resolution_source": "default",
+                "stored_policy": None,
+                "agent_name": "alice",
+                "agent_id": "agent-alice",
+            },
+            launch_profile_provenance={
+                "name": "alice",
+                "lane": "launch_profile",
+                "source_kind": "recipe",
+                "source_name": "researcher-claude-default",
+            },
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["inputs"]["role_prompt_text"] == "Operate only on Alice-owned repositories."
+    assert manifest["inputs"]["managed_prompt_header"] == {
+        "version": 1,
+        "enabled": True,
+        "resolution_source": "default",
+        "stored_policy": None,
+        "agent_name": "alice",
+        "agent_id": "agent-alice",
+    }
+    assert manifest["runtime"]["launch_contract"]["construction_provenance"]["launch_profile"] == {
+        "name": "alice",
+        "lane": "launch_profile",
+        "source_kind": "recipe",
+        "source_name": "researcher-claude-default",
+    }
+
+
+def test_build_brain_home_resolves_model_selection_precedence_for_codex(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="codex-home-model-selection",
+            preset_model_config=ModelConfig(
+                name="gpt-5.4",
+                reasoning=ModelReasoningConfig(level=7),
+            ),
+            launch_profile_model_config=ModelConfig(
+                reasoning=ModelReasoningConfig(level=3),
+            ),
+            direct_model_config=ModelConfig(
+                name="gpt-5.4-nano",
+                reasoning=ModelReasoningConfig(level=10),
+            ),
+        )
+    )
+
+    payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["model"] == "gpt-5.4-nano"
+    assert payload["model_reasoning_effort"] == "xhigh"
+    assert manifest["runtime"]["launch_contract"]["model_selection"]["resolved"] == {
+        "effective": {"name": "gpt-5.4-nano", "reasoning": {"level": 10}},
+        "sources": {
+            "name": "direct_launch",
+            "reasoning_level": "direct_launch",
+        },
+    }
+
+
+def test_build_brain_home_projects_claude_model_selection(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-model-selection",
+            operator_prompt_mode="as_is",
+            preset_model_config=ModelConfig(
+                name="claude-sonnet-4-5",
+                reasoning=ModelReasoningConfig(level=10),
+            ),
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    settings_payload = json.loads((result.home_path / "settings.json").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert "export ANTHROPIC_MODEL=claude-sonnet-4-5" in launch_script
+    assert settings_payload["effortLevel"] == "high"
+    assert manifest["runtime"]["launch_contract"]["model_selection"]["native_projection"][
+        "reasoning"
+    ] == {
+        "tool": "claude",
+        "tool_version": None,
+        "requested_level": 10,
+        "model_name": "claude-sonnet-4-5",
+        "native_scale": "effortLevel",
+        "native_value": "high",
+        "clamped": True,
+        "projection_target": {
+            "surface": "json",
+            "path": "settings.json",
+            "key_path": ["effortLevel"],
+        },
+    }
+
+
+def test_build_brain_home_projects_gemini_model_selection(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            home_id="gemini-home-model-selection",
+            preset_model_config=ModelConfig(
+                name="gemini-2.5-flash",
+                reasoning=ModelReasoningConfig(level=10),
+            ),
+        )
+    )
+
+    settings_payload = json.loads(
+        (result.home_path / ".gemini" / "settings.json").read_text(encoding="utf-8")
+    )
+
+    assert settings_payload["model"]["name"] == "gemini-2.5-flash"
+    assert settings_payload["modelConfigs"]["customOverrides"][0] == {
+        "match": {"model": "gemini-2.5-flash"},
+        "modelConfig": {
+            "generateContentConfig": {
+                "thinkingConfig": {
+                    "thinkingBudget": 16384,
+                }
+            }
+        },
+    }
 
 
 def test_claude_tool_adapter_allowlist_and_file_mappings_include_vendor_auth_surfaces() -> None:

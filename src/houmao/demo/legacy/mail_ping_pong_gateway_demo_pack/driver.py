@@ -508,21 +508,21 @@ def _build_kickoff_prompt(
     return "\n".join(
         [
             (
-                "Use the runtime-owned Houmao mailbox gateway skill "
-                "`houmao-email-via-agent-gateway` for shared mailbox actions in this demo."
+                "Use the runtime-owned Houmao mailbox communication skill "
+                "`houmao-agent-email-comms` for shared mailbox actions in this demo."
             ),
             (
-                "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` "
-                "only for transport-local context and no-gateway fallback."
+                "Use the transport-local guidance inside `houmao-agent-email-comms` only for "
+                "transport-specific context and no-gateway fallback."
             ),
             (
-                "Open and follow the exact shared gateway skill file "
-                "`skills/houmao-email-via-agent-gateway/SKILL.md` from the project worktree."
+                "Open and follow the exact mailbox communication skill file "
+                "`skills/houmao-agent-email-comms/SKILL.md` from the project worktree."
             ),
             (
-                "Open and follow the exact transport skill file "
-                "`skills/houmao-email-via-filesystem/SKILL.md` from the project worktree "
-                "only when transport-local guidance is needed."
+                "Open and follow the exact filesystem transport page "
+                "`skills/houmao-agent-email-comms/transports/filesystem.md` from the project "
+                "worktree only when transport-local guidance is needed."
             ),
             ("Do not search for those files with `rg`, `find`, or slash-skill lookup first."),
             (

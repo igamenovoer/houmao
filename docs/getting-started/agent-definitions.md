@@ -1,6 +1,6 @@
 # Agent Definition Directory
 
-The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named presets and tool-scoped setup/auth bundles.
+The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named recipes, shared launch profiles, and tool-scoped setup/auth bundles.
 
 For repo-local workflows, the supported path is `houmao-mgr project init`, which creates:
 
@@ -55,7 +55,9 @@ Maintained project-aware local-state commands reuse that same active overlay for
     │   ├── roles/
     │   │   └── <role>/system-prompt.md
     │   ├── presets/
-    │   │   └── <preset>.yaml
+    │   │   └── <recipe>.yaml
+    │   ├── launch-profiles/
+    │   │   └── <profile>.yaml
     │   ├── tools/
     │   │   └── <tool>/
     │   │       ├── adapter.yaml
@@ -79,7 +81,7 @@ The repo-local project surface is intentionally split into three views:
 
 ### `catalog.sqlite`
 
-The canonical semantic store for project-local specialists, roles, presets, setup profiles, skill packages, auth profiles, and managed content references. Advanced operators can inspect stable read views such as `v_specialists`, `v_presets`, and `v_content_refs` directly with SQLite tooling.
+The canonical semantic store for project-local specialists, roles, recipes, launch profiles, setup profiles, skill packages, auth profiles, and managed content references. Advanced operators can inspect stable read views such as `v_specialists`, `v_presets`, `v_launch_profiles`, and `v_content_refs` directly with SQLite tooling.
 
 ### `content/`
 
@@ -93,9 +95,9 @@ Reusable capability packages projected into runtime homes. Under `.houmao/agents
 
 The role prompt and behavior policy for one logical agent role. The file is canonical even for promptless roles and may be intentionally empty to mean "no system prompt."
 
-### `presets/<preset>.yaml`
+### `presets/<recipe>.yaml`
 
-The canonical declarative launch preset. The filename supplies the preset name, and the YAML stores:
+The compatibility-projected declarative recipe file. The filename supplies the recipe name, and the YAML stores:
 
 - required `role`
 - required `tool`
@@ -105,6 +107,15 @@ The canonical declarative launch preset. The filename supplies the preset name, 
 - optional `launch`
 - optional `mailbox`
 - optional `extra`
+
+### `launch-profiles/<profile>.yaml`
+
+The compatibility-projected reusable birth-time launch profile. Easy profiles and explicit launch profiles share the same underlying catalog model but remain distinct by source lane:
+
+- easy profiles are specialist-backed and managed through `project easy profile ...`
+- explicit launch profiles are recipe-backed and managed through `project agents launch-profiles ...`
+
+For the shared conceptual model — easy versus explicit lanes, the precedence chain, prompt overlays, and profile provenance reporting — see [Launch Profiles](launch-profiles.md).
 
 ### `tools/<tool>/adapter.yaml`
 
@@ -134,7 +145,8 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 | `.houmao/content/` | ❌ No | Managed prompt/auth/skill/setup payload store |
 | `.houmao/agents/skills/` | ❌ No | Repo-local reusable capability packages |
 | `.houmao/agents/roles/` | ❌ No | Repo-local role prompts |
-| `.houmao/agents/presets/` | ❌ No | Repo-local named presets |
+| `.houmao/agents/presets/` | ❌ No | Repo-local named recipes |
+| `.houmao/agents/launch-profiles/` | ❌ No | Repo-local launch-profile projection |
 | `.houmao/agents/tools/<tool>/adapter.yaml` | ❌ No | Local copy of the tool projection and launch contract |
 | `.houmao/agents/tools/<tool>/setups/` | ❌ No | Local copy of secret-free setup bundles |
 | `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles |
@@ -149,7 +161,7 @@ Generated runtime homes, manifests, mailbox state, and jobs are also local-only 
 2. When current builders or launchers need a file tree, Houmao materializes the `.houmao/agents/` compatibility projection from the catalog plus managed content refs.
 3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to the unique named preset whose YAML declares the matching `role`, provider-derived `tool`, and `setup: default`.
 4. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings, including durable `launch.env_records` when present. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
-5. `BrainBuilder` combines the preset with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, and any durable `launch.env_records` to materialize a runtime home.
+5. `BrainBuilder` combines the recipe with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, launch-profile-owned prompt or mailbox defaults when present, and any durable `launch.env_records` to materialize a runtime home.
 6. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
 
 ## Authoring Paths
@@ -157,6 +169,9 @@ Generated runtime homes, manifests, mailbox state, and jobs are also local-only 
 The compatibility `.houmao/agents/` tree can still be inspected directly, but project-local truth now lives in the catalog and managed content store. The main UX layers are:
 
 - `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist persisted into the catalog and projected into the compatibility tree.
+- `project easy profile ...` is the higher-level authoring path when you want reusable specialist-backed birth-time defaults without duplicating the specialist itself.
+- `project agents recipes ...` is the canonical low-level authoring path for named recipes; `project agents presets ...` remains the compatibility alias for the same resources.
+- `project agents launch-profiles ...` is the low-level authoring path for reusable recipe-backed birth-time launch profiles.
 - for maintained easy launch paths, `project easy specialist create ...` persists unattended launch posture by default; pass `--no-unattended` to persist `launch.prompt_mode: as_is` instead.
 - persistent non-credential launch env belongs to specialist config via repeatable `project easy specialist create --env-set NAME=value`, which projects into `launch.env_records` and survives relaunch.
 - `project easy instance launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.

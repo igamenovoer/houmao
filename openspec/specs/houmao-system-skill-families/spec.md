@@ -1,14 +1,12 @@
 ## Purpose
 Define how Houmao-owned system skills stay flat and tool-native across multiple logical workflow groups.
-
 ## Requirements
-
 ### Requirement: Houmao system skills keep flat visible projection across supported tools
 The system SHALL support packaged Houmao-owned system skills from more than one logical workflow group without requiring visible family-specific projection paths.
 
 Claude and Codex SHALL project installed Houmao-owned system skills into top-level Houmao-owned directories under `skills/`.
 
-Gemini SHALL project installed Houmao-owned system skills into top-level Houmao-owned directories under `.agents/skills/`.
+Gemini SHALL project installed Houmao-owned system skills into top-level Houmao-owned directories under `.gemini/skills/`.
 
 #### Scenario: Codex installs mailbox and user-control skills into the same flat skill root
 - **WHEN** Houmao installs one mailbox-oriented skill and one user-control skill into a Codex home
@@ -22,7 +20,7 @@ Gemini SHALL project installed Houmao-owned system skills into top-level Houmao-
 
 #### Scenario: Gemini keeps top-level Houmao-owned skill directories across logical groups
 - **WHEN** Houmao installs mailbox-oriented and user-control skills into a Gemini home
-- **THEN** both skills project into top-level Houmao-owned skill directories under `.agents/skills/`
+- **THEN** both skills project into top-level Houmao-owned skill directories under `.gemini/skills/`
 - **AND THEN** Gemini does not require a visible family subdirectory for those installed skills
 
 ### Requirement: Default Houmao-owned system-skill selection can include multiple logical groups
@@ -39,3 +37,4 @@ Managed launch, managed join, and CLI-default installation SHALL preserve first-
 - **WHEN** Houmao installs mailbox-oriented and user-control skills into the same supported tool home
 - **THEN** the recorded Houmao-owned install state includes the flat projected relative directories for those skills
 - **AND THEN** later reinstall or collision checks use those exact flat owned paths
+

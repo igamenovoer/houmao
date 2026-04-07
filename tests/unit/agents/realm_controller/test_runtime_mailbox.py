@@ -827,6 +827,56 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
     assert controller.launch_plan.transient_env_var_names == frozenset()
 
 
+def test_relaunch_of_older_manifest_recomputes_default_managed_header(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    _seed_role(agent_def_dir)
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: object(),
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="local_interactive",
+        working_directory=tmp_path,
+        agent_name="alice",
+        tmux_session_name="HOUMAO-alice",
+    )
+    controller.tmux_session_name = "HOUMAO-alice"
+    controller.persist_manifest(refresh_registry=False)
+
+    assert controller.launch_plan.role_injection.prompt == "Role prompt"
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._relaunch_backend_session",
+        lambda controller: SimpleNamespace(status="ok", action="relaunch", detail="relaunched"),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._refresh_pair_launch_registration",
+        lambda controller: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._refresh_backend_launch_plan",
+        lambda *, backend_session, launch_plan: None,
+    )
+
+    result = controller.relaunch()
+
+    assert result.status == "ok"
+    assert controller.launch_plan.role_injection.prompt.startswith("[HOUMAO MANAGED HEADER]")
+    assert "Managed agent name: alice" in controller.launch_plan.role_injection.prompt
+    assert controller.launch_plan.role_injection.prompt.endswith("\n\nRole prompt")
+
+
 def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_posture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -25,15 +25,19 @@ SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
 SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
 SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
 SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
+SYSTEM_SKILL_SET_AGENT_MESSAGING = "agent-messaging"
+SYSTEM_SKILL_SET_AGENT_GATEWAY = "agent-gateway"
 SYSTEM_SKILL_MANAGE_SPECIALIST = "houmao-manage-specialist"
 SYSTEM_SKILL_MANAGE_CREDENTIALS = "houmao-manage-credentials"
 SYSTEM_SKILL_MANAGE_AGENT_DEFINITION = "houmao-manage-agent-definition"
 SYSTEM_SKILL_MANAGE_AGENT_INSTANCE = "houmao-manage-agent-instance"
+SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
+SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",
     "codex": "skills",
-    "gemini": ".agents/skills",
+    "gemini": ".gemini/skills",
 }
 _SYSTEM_SKILL_RENAMED_FROM: dict[str, tuple[str, ...]] = {
     SYSTEM_SKILL_MANAGE_SPECIALIST: ("houmao-create-specialist",),
@@ -457,13 +461,19 @@ def install_system_skills_for_home(
 
     updated_records: dict[str, InstalledSystemSkillRecord] = dict(existing_records)
     projected_relative_dirs: list[str] = []
-    for skill_name in resolved_skill_names:
+    migrated_skill_names = _installed_skill_names_requiring_projection_refresh(
+        tool=tool,
+        existing_records=existing_records,
+        selected_skill_names=resolved_skill_names,
+    )
+    for skill_name in (*resolved_skill_names, *migrated_skill_names):
         skill_record = catalog.skills[skill_name]
         projected_relative_dir = projected_system_skill_relative_dir(
             tool=tool,
             skill_name=skill_name,
         )
-        projected_relative_dirs.append(projected_relative_dir)
+        if skill_name in resolved_skill_names:
+            projected_relative_dirs.append(projected_relative_dir)
         target_dir = resolved_home_path / projected_relative_dir
         prior_record = existing_records.get(skill_name)
         superseded_records = _superseded_installed_records_for_skill(
@@ -844,6 +854,32 @@ def _superseded_installed_records_for_skill(
         for legacy_name in _SYSTEM_SKILL_RENAMED_FROM.get(skill_name, ())
         if legacy_name in existing_records
     )
+
+
+def _installed_skill_names_requiring_projection_refresh(
+    *,
+    tool: str,
+    existing_records: dict[str, InstalledSystemSkillRecord],
+    selected_skill_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return current recorded skills that still need one path-contract refresh."""
+
+    selected = set(selected_skill_names)
+    names: list[str] = []
+    for skill_name, record in existing_records.items():
+        if skill_name in selected:
+            continue
+        try:
+            expected_relative_dir = projected_system_skill_relative_dir(
+                tool=tool,
+                skill_name=skill_name,
+            )
+        except SystemSkillCatalogError:
+            continue
+        if record.projected_relative_dir == expected_relative_dir:
+            continue
+        names.append(skill_name)
+    return tuple(names)
 
 
 def _write_system_skill_install_state(*, path: Path, state: SystemSkillInstallState) -> None:

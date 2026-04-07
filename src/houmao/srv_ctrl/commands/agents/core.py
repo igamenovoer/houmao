@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any
+from typing import Any, cast
 
 import click
 
+from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
-from houmao.agents.native_launch_resolver import resolve_native_launch_target
+from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.managed_prompt_header import (
+    ManagedHeaderPolicy,
+    compose_managed_launch_prompt,
+    managed_prompt_header_metadata,
+    normalize_managed_header_policy,
+    resolve_managed_launch_identity,
+    resolve_managed_prompt_header_decision,
+)
+from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
+from houmao.agents.model_selection import ModelConfig, normalize_model_config
+from houmao.agents.native_launch_resolver import (
+    infer_launch_source_directory_from_agent_def_dir,
+    resolve_effective_agent_def_dir,
+    resolve_native_launch_target,
+    resolve_preset_owner_agent_def_dir,
+)
+from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -31,11 +52,13 @@ from houmao.agents.realm_controller.errors import (
 )
 from houmao.agents.realm_controller.models import HeadlessResumeSelection, JoinedLaunchEnvBinding
 from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
+    ProjectAwareLocalRoots,
     ensure_project_aware_local_roots,
-    resolve_project_aware_local_jobs_root,
-    resolve_project_aware_mailbox_root,
-    resolve_project_aware_runtime_root,
+    materialize_project_agent_catalog_projection,
+    resolve_project_aware_local_roots,
 )
+from houmao.project.launch_profiles import resolve_launch_profile
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
@@ -99,6 +122,7 @@ _PROVIDER_BY_TOOL: dict[str, str] = {
     "codex": "codex",
     "gemini": "gemini_cli",
 }
+_PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
 
 
 @dataclass(frozen=True)
@@ -151,6 +175,81 @@ def _validate_provider(provider: str) -> None:
         )
 
 
+def _is_path_like_launch_selector(selector: str) -> bool:
+    """Return whether one launch selector should resolve as an explicit preset path."""
+
+    return (
+        "/" in selector
+        or "\\" in selector
+        or selector.startswith(".")
+        or selector.startswith("~")
+        or selector.endswith(_PRESET_FILE_SUFFIXES)
+    )
+
+
+def _pinned_launch_source_env() -> dict[str, str]:
+    """Return one source-resolution env mapping that ignores invocation overrides."""
+
+    env = dict(os.environ)
+    env.pop(AGENT_DEF_DIR_ENV_VAR, None)
+    env.pop(PROJECT_OVERLAY_DIR_ENV_VAR, None)
+    return env
+
+
+def _materialize_source_agent_def_dir(*, project_roots: ProjectAwareLocalRoots) -> Path:
+    """Resolve the effective agent-definition tree for one source context."""
+
+    if project_roots.project_overlay is not None:
+        return materialize_project_agent_catalog_projection(project_roots.project_overlay)
+    return project_roots.agent_def_dir.resolve()
+
+
+def _parse_stored_launch_profile_mailbox_or_click(
+    payload: dict[str, Any] | None,
+    *,
+    profile_name: str,
+) -> MailboxDeclarativeConfig | None:
+    """Parse one stored launch-profile mailbox payload or raise one CLI-facing error."""
+
+    if payload is None:
+        return None
+    try:
+        return parse_declarative_mailbox_config(
+            payload,
+            source=f"launch profile `{profile_name}`",
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _normalize_model_name_or_click(value: str | None) -> str | None:
+    """Return one optional non-empty model name."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise click.ClickException("`--model` must not be empty.")
+    return stripped
+
+
+def _resolve_operator_prompt_mode_or_click(
+    value: str | None,
+    *,
+    source: str,
+) -> OperatorPromptMode | None:
+    """Return one validated operator prompt mode from stored launch-profile state."""
+
+    if value is None:
+        return None
+    if value not in {"as_is", "unattended"}:
+        raise click.ClickException(
+            f"{source} stores invalid launch.prompt_mode {value!r}; expected `as_is` or "
+            "`unattended`."
+        )
+    return cast(OperatorPromptMode, value)
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -161,32 +260,102 @@ def launch_managed_agent_locally(
     headless: bool,
     provider: str,
     working_directory: Path,
+    source_working_directory: Path | None = None,
+    source_agent_def_dir: Path | None = None,
+    source_env: Mapping[str, str] | None = None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     launch_env_overrides: dict[str, str] | None = None,
+    gateway_auto_attach: bool = False,
+    gateway_host: str | None = None,
+    gateway_port: int | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
+    declared_mailbox: MailboxDeclarativeConfig | None = None,
+    operator_prompt_mode: OperatorPromptMode | None = None,
+    persistent_env_records: dict[str, str] | None = None,
+    launch_profile_model_config: ModelConfig | None = None,
+    direct_model_config: ModelConfig | None = None,
+    prompt_overlay_mode: str | None = None,
+    prompt_overlay_text: str | None = None,
+    managed_header_override: bool | None = None,
+    launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None,
+    launch_profile_provenance: dict[str, Any] | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
 
-    project_roots = ensure_project_aware_local_roots(cwd=working_directory)
-    resolved_runtime_root = resolve_project_aware_runtime_root(cwd=working_directory)
-    resolved_jobs_root = resolve_project_aware_local_jobs_root(cwd=working_directory)
-    resolved_mailbox_root = (
-        mailbox_root.resolve()
-        if mailbox_root is not None
-        else resolve_project_aware_mailbox_root(cwd=working_directory)
-    )
-
     _validate_provider(provider)
+
+    resolved_working_directory = working_directory.resolve()
+    resolved_source_working_directory = (
+        source_working_directory.resolve()
+        if source_working_directory is not None
+        else resolved_working_directory
+    )
+    resolved_source_agent_def_dir = (
+        source_agent_def_dir.resolve() if source_agent_def_dir is not None else None
+    )
+    effective_source_env = dict(source_env) if source_env is not None else None
 
     resolved_backend_name = "unknown"
     try:
+        if resolved_source_agent_def_dir is None and _is_path_like_launch_selector(agents):
+            invocation_agent_def_dir = resolve_effective_agent_def_dir(
+                working_directory=resolved_source_working_directory
+            )
+            preset_path = resolve_explicit_or_named_preset_path(
+                agent_def_dir=invocation_agent_def_dir,
+                selector=agents,
+            )
+            resolved_source_agent_def_dir = resolve_preset_owner_agent_def_dir(
+                preset_path=preset_path
+            )
+            resolved_source_working_directory = infer_launch_source_directory_from_agent_def_dir(
+                agent_def_dir=resolved_source_agent_def_dir
+            )
+            effective_source_env = _pinned_launch_source_env()
+        project_roots = ensure_project_aware_local_roots(
+            cwd=resolved_source_working_directory,
+            env=effective_source_env,
+        )
+        effective_agent_def_dir = (
+            resolved_source_agent_def_dir
+            if resolved_source_agent_def_dir is not None
+            else _materialize_source_agent_def_dir(project_roots=project_roots)
+        )
+
+        resolved_runtime_root = project_roots.runtime_root
+        resolved_jobs_root = project_roots.jobs_root
+        resolved_mailbox_root = (
+            mailbox_root.resolve() if mailbox_root is not None else project_roots.mailbox_root
+        )
         target = resolve_native_launch_target(
             selector=agents,
             provider=provider,
-            working_directory=working_directory,
+            working_directory=resolved_working_directory,
+            agent_def_dir=effective_agent_def_dir,
+        )
+        effective_persistent_env_records = dict(target.preset.launch_env_records or {})
+        if persistent_env_records is not None:
+            effective_persistent_env_records.update(dict(persistent_env_records))
+        managed_header_decision = resolve_managed_prompt_header_decision(
+            launch_override=managed_header_override,
+            stored_policy=launch_profile_managed_header_policy,
+        )
+        managed_launch_identity = resolve_managed_launch_identity(
+            tool=target.preset.tool,
+            role_name=target.role_name,
+            requested_agent_name=agent_name,
+            requested_agent_id=agent_id,
+        )
+        effective_role_prompt = compose_managed_launch_prompt(
+            base_prompt=target.role_prompt,
+            overlay_mode=prompt_overlay_mode,
+            overlay_text=prompt_overlay_text,
+            managed_header_enabled=managed_header_decision.enabled,
+            agent_name=managed_launch_identity.agent_name,
+            agent_id=managed_launch_identity.agent_id,
         )
         build_result = build_brain_home(
             BuildRequest(
@@ -198,12 +367,21 @@ def launch_managed_agent_locally(
                 auth=auth or target.preset.auth,
                 preset_path=target.preset_path,
                 preset_launch_overrides=target.preset.launch_overrides,
-                operator_prompt_mode=target.preset.operator_prompt_mode,
-                persistent_env_records=target.preset.launch_env_records,
-                mailbox=target.preset.mailbox,
+                preset_model_config=getattr(target.preset, "launch_model_config", None),
+                launch_profile_model_config=launch_profile_model_config,
+                direct_model_config=direct_model_config,
+                operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
+                persistent_env_records=effective_persistent_env_records,
+                mailbox=declared_mailbox or target.preset.mailbox,
                 extra=target.preset.extra,
-                agent_name=agent_name,
-                agent_id=agent_id,
+                agent_name=managed_launch_identity.agent_name,
+                agent_id=managed_launch_identity.agent_id,
+                role_prompt_override=effective_role_prompt,
+                managed_prompt_header=managed_prompt_header_metadata(
+                    decision=managed_header_decision,
+                    identity=managed_launch_identity,
+                ),
+                launch_profile_provenance=launch_profile_provenance,
             )
         )
         resolved_backend = backend_for_tool(
@@ -218,11 +396,14 @@ def launch_managed_agent_locally(
             runtime_root=resolved_runtime_root,
             jobs_root=resolved_jobs_root,
             backend=resolved_backend,
-            working_directory=working_directory,
+            working_directory=resolved_working_directory,
             agent_name=agent_name,
             agent_id=agent_id,
             tmux_session_name=session_name,
             launch_env_overrides=launch_env_overrides,
+            gateway_auto_attach=gateway_auto_attach,
+            gateway_host=gateway_host,
+            gateway_port=gateway_port,
             mailbox_transport=mailbox_transport,
             mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,
@@ -275,24 +456,35 @@ def emit_local_launch_completion(
     """Print one successful local launch result and hand off to tmux when appropriate."""
 
     controller = launch_result.controller
+    payload = {
+        "status": "Managed agent launch complete",
+        "agent_name": controller.agent_identity or agent_name,
+        "agent_id": controller.agent_id or "unknown",
+        "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
+        "manifest_path": str(controller.manifest_path),
+        "runtime_root": str(launch_result.runtime_root),
+        "runtime_root_detail": launch_result.runtime_root_detail,
+        "jobs_root": str(launch_result.jobs_root),
+        "jobs_root_detail": launch_result.jobs_root_detail,
+        "mailbox_root": str(launch_result.mailbox_root),
+        "mailbox_root_detail": launch_result.mailbox_root_detail,
+        "overlay_root": str(launch_result.overlay_root),
+        "overlay_root_detail": launch_result.overlay_root_detail,
+        "project_overlay_bootstrapped": launch_result.project_overlay_bootstrapped,
+        "overlay_bootstrap_detail": launch_result.overlay_bootstrap_detail,
+    }
+    gateway_host = getattr(controller, "gateway_host", None)
+    if gateway_host is not None:
+        payload["gateway_host"] = gateway_host
+    gateway_port = getattr(controller, "gateway_port", None)
+    if gateway_port is not None:
+        payload["gateway_port"] = gateway_port
+    gateway_auto_attach_error = getattr(controller, "gateway_auto_attach_error", None)
+    if gateway_auto_attach_error is not None:
+        payload["gateway_auto_attach_error"] = gateway_auto_attach_error
+
     emit(
-        {
-            "status": "Managed agent launch complete",
-            "agent_name": controller.agent_identity or agent_name,
-            "agent_id": controller.agent_id or "unknown",
-            "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
-            "manifest_path": str(controller.manifest_path),
-            "runtime_root": str(launch_result.runtime_root),
-            "runtime_root_detail": launch_result.runtime_root_detail,
-            "jobs_root": str(launch_result.jobs_root),
-            "jobs_root_detail": launch_result.jobs_root_detail,
-            "mailbox_root": str(launch_result.mailbox_root),
-            "mailbox_root_detail": launch_result.mailbox_root_detail,
-            "overlay_root": str(launch_result.overlay_root),
-            "overlay_root_detail": launch_result.overlay_root_detail,
-            "project_overlay_bootstrapped": launch_result.project_overlay_bootstrapped,
-            "overlay_bootstrap_detail": launch_result.overlay_bootstrap_detail,
-        },
+        payload,
         plain_renderer=render_launch_completion_plain,
         fancy_renderer=render_launch_completion_fancy,
     )
@@ -311,6 +503,8 @@ def emit_local_launch_completion(
                     "attach_command": f"tmux attach-session -t {controller.tmux_session_name}",
                 }
             )
+    if gateway_auto_attach_error is not None:
+        raise SystemExit(2)
 
 
 @click.group(name="agents")
@@ -319,12 +513,40 @@ def agents_group() -> None:
 
 
 @agents_group.command(name="launch")
-@click.option("--agents", required=True, help="Native launch selector to resolve the preset.")
+@click.option(
+    "--agents",
+    default=None,
+    help="Native launch selector to resolve the source recipe.",
+)
+@click.option(
+    "--launch-profile",
+    default=None,
+    help="Explicit project launch-profile name to resolve before launch.",
+)
 @click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
 @click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
+@click.option("--model", default=None, help="Optional one-off launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional one-off Houmao-defined reasoning override (1..10).",
+)
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
+@click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Force-enable or disable the Houmao-managed prompt header for this launch.",
+)
+@click.option(
+    "--workdir",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
+    default=None,
+    help="Optional runtime working directory override; defaults to the invocation cwd.",
+)
 @click.option(
     "--headless-display-style",
     type=click.Choice(["plain", "json", "fancy"]),
@@ -341,42 +563,191 @@ def agents_group() -> None:
 )
 @click.option(
     "--provider",
-    default=_DEFAULT_PROVIDER,
-    show_default=True,
-    help="Provider identifier to use for the launch.",
+    default=None,
+    help=(
+        "Provider identifier to use for the launch. Defaults to the resolved launch-profile "
+        "provider, or `claude_code` when launching directly from `--agents`."
+    ),
 )
 def launch_agents_command(
-    agents: str,
+    agents: str | None,
+    launch_profile: str | None,
     agent_name: str | None,
     agent_id: str | None,
     auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     session_name: str | None,
     headless: bool,
+    managed_header: bool | None,
+    workdir: Path | None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
-    provider: str,
+    provider: str | None,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
 
-    working_directory = Path.cwd().resolve()
+    source_working_directory = Path.cwd().resolve()
+    if agents is not None and launch_profile is not None:
+        raise click.ClickException("`--launch-profile` and `--agents` cannot be combined.")
+    if agents is None and launch_profile is None:
+        raise click.ClickException("Provide exactly one of `--agents` or `--launch-profile`.")
+
+    resolved_agents = agents
+    resolved_agent_name = agent_name
+    resolved_agent_id = agent_id
+    resolved_auth = auth
+    resolved_provider = provider
+    resolved_working_directory = (workdir or source_working_directory).resolve()
+    resolved_source_working_directory = source_working_directory
+    resolved_source_agent_def_dir: Path | None = None
+    resolved_headless = headless
+    declared_mailbox = None
+    operator_prompt_mode: OperatorPromptMode | None = None
+    persistent_env_records: dict[str, str] | None = None
+    launch_profile_model_config: ModelConfig | None = None
+    prompt_overlay_mode = None
+    prompt_overlay_text = None
+    launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
+    launch_profile_provenance = None
+    gateway_auto_attach = False
+    gateway_host = None
+    gateway_port = None
+    direct_model_config = normalize_model_config(
+        name=_normalize_model_name_or_click(model),
+        reasoning_level=reasoning_level,
+    )
+
+    if launch_profile is not None:
+        try:
+            project_roots = resolve_project_aware_local_roots(cwd=source_working_directory)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        overlay = project_roots.project_overlay
+        if overlay is None:
+            raise click.ClickException(
+                "No project overlay is available for `agents launch --launch-profile`; "
+                "select an existing project overlay first."
+            )
+        try:
+            resolved_profile = resolve_launch_profile(
+                overlay=overlay,
+                name=launch_profile.strip(),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        if resolved_profile.entry.profile_lane != "launch_profile":
+            raise click.ClickException(
+                f"Launch profile `{resolved_profile.entry.name}` is not an explicit "
+                "recipe-backed launch profile."
+            )
+        if (
+            not resolved_profile.source_exists
+            or resolved_profile.recipe_path is None
+            or resolved_profile.provider is None
+        ):
+            raise click.ClickException(
+                f"Launch profile `{resolved_profile.entry.name}` references unavailable recipe "
+                f"`{resolved_profile.entry.source_name}`."
+            )
+
+        resolved_agents = str(resolved_profile.recipe_path)
+        resolved_agent_name = resolved_agent_name or resolved_profile.entry.managed_agent_name
+        resolved_agent_id = resolved_agent_id or resolved_profile.entry.managed_agent_id
+        resolved_auth = resolved_auth or resolved_profile.entry.auth_name
+        if workdir is None and resolved_profile.entry.workdir is not None:
+            resolved_working_directory = Path(resolved_profile.entry.workdir).expanduser().resolve()
+        operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
+            resolved_profile.entry.operator_prompt_mode,
+            source=f"launch profile `{resolved_profile.entry.name}`",
+        )
+        persistent_env_records = dict(resolved_profile.entry.env_payload)
+        launch_profile_model_config = normalize_model_config(
+            name=resolved_profile.entry.model_name,
+            reasoning_level=resolved_profile.entry.reasoning_level,
+        )
+        launch_profile_managed_header_policy = normalize_managed_header_policy(
+            resolved_profile.entry.managed_header_policy,
+            source=f"launch profile `{resolved_profile.entry.name}`",
+        )
+        prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
+        prompt_overlay_text = resolved_profile.prompt_overlay_text
+        launch_profile_provenance = {
+            "name": resolved_profile.entry.name,
+            "lane": resolved_profile.entry.profile_lane,
+            "source_kind": resolved_profile.entry.source_kind,
+            "source_name": resolved_profile.entry.source_name,
+            "recipe_name": resolved_profile.recipe_name,
+            "prompt_overlay": {
+                "mode": resolved_profile.entry.prompt_overlay_mode,
+                "present": resolved_profile.prompt_overlay_text is not None,
+            },
+        }
+        declared_mailbox = _parse_stored_launch_profile_mailbox_or_click(
+            resolved_profile.entry.mailbox_payload,
+            profile_name=resolved_profile.entry.name,
+        )
+        posture_payload = dict(resolved_profile.entry.posture_payload)
+        resolved_headless = headless or bool(posture_payload.get("headless", False))
+        if posture_payload.get("gateway_port") is not None:
+            gateway_auto_attach = True
+            gateway_host = str(posture_payload.get("gateway_host") or "127.0.0.1")
+            gateway_port = int(posture_payload["gateway_port"])
+        elif posture_payload.get("gateway_auto_attach") is False:
+            gateway_auto_attach = False
+            gateway_host = None
+            gateway_port = None
+
+        resolved_source_working_directory = overlay.project_root
+        resolved_source_agent_def_dir = materialize_project_agent_catalog_projection(overlay)
+        if resolved_provider is None:
+            resolved_provider = resolved_profile.provider
+        elif resolved_provider != resolved_profile.provider:
+            raise click.ClickException(
+                f"`--provider {resolved_provider}` conflicts with launch profile "
+                f"`{resolved_profile.entry.name}`, which resolves provider "
+                f"`{resolved_profile.provider}`."
+            )
+    else:
+        assert resolved_agents is not None
+        if resolved_provider is None:
+            resolved_provider = _DEFAULT_PROVIDER
+
+    assert resolved_agents is not None
+    assert resolved_provider is not None
     launch_result = launch_managed_agent_locally(
-        agents=agents,
-        agent_name=agent_name,
-        agent_id=agent_id,
-        auth=auth,
+        agents=resolved_agents,
+        agent_name=resolved_agent_name,
+        agent_id=resolved_agent_id,
+        auth=resolved_auth,
         session_name=session_name,
-        headless=headless,
-        provider=provider,
-        working_directory=working_directory,
+        headless=resolved_headless,
+        provider=resolved_provider,
+        working_directory=resolved_working_directory,
+        source_working_directory=resolved_source_working_directory,
+        source_agent_def_dir=resolved_source_agent_def_dir,
         headless_display_style=headless_display_style,
         headless_display_detail=headless_display_detail,
+        gateway_auto_attach=gateway_auto_attach,
+        gateway_host=gateway_host,
+        gateway_port=gateway_port,
+        declared_mailbox=declared_mailbox,
+        operator_prompt_mode=operator_prompt_mode,
+        persistent_env_records=persistent_env_records,
+        launch_profile_model_config=launch_profile_model_config,
+        direct_model_config=direct_model_config,
+        prompt_overlay_mode=prompt_overlay_mode,
+        prompt_overlay_text=prompt_overlay_text,
+        managed_header_override=managed_header,
+        launch_profile_managed_header_policy=launch_profile_managed_header_policy,
+        launch_profile_provenance=launch_profile_provenance,
     )
 
     emit_local_launch_completion(
         launch_result=launch_result,
-        agent_name=agent_name,
+        agent_name=resolved_agent_name,
         session_name=session_name,
-        headless=headless,
+        headless=resolved_headless,
     )
 
 
@@ -400,7 +771,7 @@ def launch_agents_command(
     help="Repeatable Docker-style env spec (`NAME=value` or `NAME`).",
 )
 @click.option(
-    "--working-directory",
+    "--workdir",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
     default=None,
     help="Optional working directory override; defaults from tmux window `0`, pane `0`.",
@@ -422,7 +793,7 @@ def join_agents_command(
     provider: str | None,
     launch_args: tuple[str, ...],
     launch_env: tuple[str, ...],
-    working_directory: Path | None,
+    workdir: Path | None,
     resume_id: str | None,
     no_install_houmao_skills: bool,
 ) -> None:
@@ -470,7 +841,7 @@ def join_agents_command(
             headless=headless,
             tmux_session_name=tmux_session_name,
             tmux_window_name=pane.window_name,
-            working_directory=(working_directory or pane_current_path).resolve(),
+            working_directory=(workdir or pane_current_path).resolve(),
             launch_args=launch_args,
             launch_env=launch_env_bindings,
             install_houmao_skills=not no_install_houmao_skills,

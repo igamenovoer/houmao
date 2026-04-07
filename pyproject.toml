@@ -1,6 +1,6 @@
 [project]
 name = "Houmao"
-version = "0.3.1"
+version = "0.4.0"
 description = "Houmao runtime package for realm controller and CAO launcher workflows"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -141,6 +141,7 @@ test = { cmd = "python -m pytest tests/unit", description = "Run destination uni
 test-runtime = { cmd = "python -m pytest tests/unit/agents tests/unit/cao", description = "Run runtime-focused unit suites" }
 build-dist = { cmd = "python -m build --sdist --wheel", description = "Build sdist and wheel artifacts" }
 check-dist = { cmd = "python -m twine check dist/*", description = "Validate built package metadata" }
+install-global-tool = { cmd = "uv tool install --force .", description = "Install the current checkout as a global uv tool, replacing any existing houmao tool install" }
 
 [tool.pixi.feature.pg-hosting.dependencies]
 postgresql = ">=18.3,<19"

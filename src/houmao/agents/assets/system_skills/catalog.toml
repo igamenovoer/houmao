@@ -4,21 +4,13 @@ schema_version = 1
 asset_subpath = "houmao-process-emails-via-gateway"
 description = "Round-oriented gateway mailbox workflow skill."
 
-[skills.houmao-email-via-agent-gateway]
-asset_subpath = "houmao-email-via-agent-gateway"
-description = "Lower-level shared gateway mailbox operations skill."
-
-[skills.houmao-email-via-filesystem]
-asset_subpath = "houmao-email-via-filesystem"
-description = "Filesystem mailbox transport guidance skill."
-
-[skills.houmao-email-via-stalwart]
-asset_subpath = "houmao-email-via-stalwart"
-description = "Stalwart mailbox transport guidance skill."
+[skills.houmao-agent-email-comms]
+asset_subpath = "houmao-agent-email-comms"
+description = "Unified mailbox operations and fallback guidance skill."
 
 [skills.houmao-manage-specialist]
 asset_subpath = "houmao-manage-specialist"
-description = "Project-easy specialist management skill."
+description = "Project-easy specialist and profile management skill."
 
 [skills.houmao-manage-credentials]
 asset_subpath = "houmao-manage-credentials"
@@ -32,20 +24,26 @@ description = "Low-level project-local role and preset definition management ski
 asset_subpath = "houmao-manage-agent-instance"
 description = "Managed agent instance lifecycle skill."
 
+[skills.houmao-agent-messaging]
+asset_subpath = "houmao-agent-messaging"
+description = "Managed agent communication and control skill."
+
+[skills.houmao-agent-gateway]
+asset_subpath = "houmao-agent-gateway"
+description = "Managed agent gateway lifecycle and gateway-only control skill."
+
 [sets.mailbox-core]
 description = "Core shared mailbox workflow skills."
 skills = [
   "houmao-process-emails-via-gateway",
-  "houmao-email-via-agent-gateway",
+  "houmao-agent-email-comms",
 ]
 
 [sets.mailbox-full]
 description = "Full mailbox system-skill set."
 skills = [
   "houmao-process-emails-via-gateway",
-  "houmao-email-via-agent-gateway",
-  "houmao-email-via-filesystem",
-  "houmao-email-via-stalwart",
+  "houmao-agent-email-comms",
 ]
 
 [sets.user-control]
@@ -62,7 +60,19 @@ skills = [
   "houmao-manage-agent-instance",
 ]
 
+[sets.agent-messaging]
+description = "Managed agent communication and control system skills."
+skills = [
+  "houmao-agent-messaging",
+]
+
+[sets.agent-gateway]
+description = "Managed agent gateway lifecycle and gateway-only system skills."
+skills = [
+  "houmao-agent-gateway",
+]
+
 [auto_install]
-managed_launch_sets = ["mailbox-full", "user-control"]
-managed_join_sets = ["mailbox-full", "user-control"]
-cli_default_sets = ["mailbox-full", "user-control", "agent-instance"]
+managed_launch_sets = ["mailbox-full", "user-control", "agent-messaging", "agent-gateway"]
+managed_join_sets = ["mailbox-full", "user-control", "agent-messaging", "agent-gateway"]
+cli_default_sets = ["mailbox-full", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]
