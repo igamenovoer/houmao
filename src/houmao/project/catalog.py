@@ -20,7 +20,7 @@ from houmao.agents.definition_parser import parse_agent_preset
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 2
+CATALOG_SCHEMA_VERSION = 3
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -39,6 +39,12 @@ _CONTENT_KIND_VALUES = (
 _STORAGE_KIND_FILE = "file"
 _STORAGE_KIND_TREE = "tree"
 _STORAGE_KIND_VALUES = (_STORAGE_KIND_FILE, _STORAGE_KIND_TREE)
+_PROFILE_LANE_EASY = "easy_profile"
+_PROFILE_LANE_EXPLICIT = "launch_profile"
+_PROFILE_LANE_VALUES = (_PROFILE_LANE_EASY, _PROFILE_LANE_EXPLICIT)
+_SOURCE_KIND_SPECIALIST = "specialist"
+_SOURCE_KIND_RECIPE = "recipe"
+_SOURCE_KIND_VALUES = (_SOURCE_KIND_SPECIALIST, _SOURCE_KIND_RECIPE)
 
 
 @dataclass(frozen=True)
@@ -101,6 +107,32 @@ class SpecialistCatalogEntry:
         return tuple(
             (overlay.agents_root / "skills" / skill_name).resolve() for skill_name in self.skills
         )
+
+
+@dataclass(frozen=True)
+class LaunchProfileCatalogEntry:
+    """Resolved project-local launch-profile semantics loaded from the catalog."""
+
+    name: str
+    profile_lane: str
+    source_kind: str
+    source_name: str
+    managed_agent_name: str | None
+    managed_agent_id: str | None
+    workdir: str | None
+    auth_name: str | None
+    operator_prompt_mode: str | None
+    env_payload: dict[str, str]
+    mailbox_payload: dict[str, Any] | None
+    posture_payload: dict[str, Any]
+    prompt_overlay_mode: str | None
+    prompt_overlay_ref: ManagedContentRef | None
+    metadata_path: Path | None = None
+
+    def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
+        """Return the compatibility projection launch-profile path."""
+
+        return (overlay.agents_root / "launch-profiles" / f"{self.name}.yaml").resolve()
 
 
 @dataclass(frozen=True)
@@ -501,12 +533,210 @@ class ProjectCatalog:
             metadata_path.unlink()
         return self.m_catalog_path
 
+    def list_launch_profiles(self) -> list[LaunchProfileCatalogEntry]:
+        """Return every persisted launch-profile definition."""
+
+        self.initialize()
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    launch_profiles.name,
+                    launch_profiles.profile_lane,
+                    launch_profiles.source_kind,
+                    launch_profiles.source_name,
+                    launch_profiles.managed_agent_name,
+                    launch_profiles.managed_agent_id,
+                    launch_profiles.workdir,
+                    launch_profiles.auth_name,
+                    launch_profiles.operator_prompt_mode,
+                    launch_profiles.env_payload,
+                    launch_profiles.mailbox_payload,
+                    launch_profiles.posture_payload,
+                    launch_profiles.prompt_overlay_mode,
+                    prompt_refs.content_kind AS prompt_kind,
+                    prompt_refs.storage_kind AS prompt_storage_kind,
+                    prompt_refs.relative_path AS prompt_relative_path
+                FROM launch_profiles
+                LEFT JOIN content_refs AS prompt_refs
+                    ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+                ORDER BY launch_profiles.name
+                """
+            ).fetchall()
+        return [self._launch_profile_from_row(row) for row in rows]
+
+    def load_launch_profile(self, name: str) -> LaunchProfileCatalogEntry:
+        """Load one persisted launch profile from the catalog."""
+
+        self.initialize()
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    launch_profiles.name,
+                    launch_profiles.profile_lane,
+                    launch_profiles.source_kind,
+                    launch_profiles.source_name,
+                    launch_profiles.managed_agent_name,
+                    launch_profiles.managed_agent_id,
+                    launch_profiles.workdir,
+                    launch_profiles.auth_name,
+                    launch_profiles.operator_prompt_mode,
+                    launch_profiles.env_payload,
+                    launch_profiles.mailbox_payload,
+                    launch_profiles.posture_payload,
+                    launch_profiles.prompt_overlay_mode,
+                    prompt_refs.content_kind AS prompt_kind,
+                    prompt_refs.storage_kind AS prompt_storage_kind,
+                    prompt_refs.relative_path AS prompt_relative_path
+                FROM launch_profiles
+                LEFT JOIN content_refs AS prompt_refs
+                    ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+                WHERE launch_profiles.name = ?
+                LIMIT 1
+                """,
+                (name,),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError(f"Launch profile `{name}` was not found: {self.m_catalog_path}")
+        return self._launch_profile_from_row(row)
+
+    def store_launch_profile(
+        self,
+        *,
+        name: str,
+        profile_lane: str,
+        source_kind: str,
+        source_name: str,
+        managed_agent_name: str | None,
+        managed_agent_id: str | None,
+        workdir: str | None,
+        auth_name: str | None,
+        operator_prompt_mode: str | None,
+        env_mapping: dict[str, str] | None,
+        mailbox_mapping: dict[str, Any] | None,
+        posture_mapping: dict[str, Any] | None,
+        prompt_overlay_mode: str | None,
+        prompt_overlay_text: str | None,
+    ) -> LaunchProfileCatalogEntry:
+        """Insert or update one shared launch-profile record."""
+
+        self.initialize()
+        if profile_lane not in _PROFILE_LANE_VALUES:
+            raise ValueError(
+                f"Unsupported launch-profile lane {profile_lane!r}; expected one of "
+                f"{sorted(_PROFILE_LANE_VALUES)}."
+            )
+        if source_kind not in _SOURCE_KIND_VALUES:
+            raise ValueError(
+                f"Unsupported launch-profile source kind {source_kind!r}; expected one of "
+                f"{sorted(_SOURCE_KIND_VALUES)}."
+            )
+        if prompt_overlay_mode is None and prompt_overlay_text is not None:
+            raise ValueError("Prompt-overlay text requires a prompt-overlay mode.")
+        if prompt_overlay_mode is not None and prompt_overlay_mode not in {"append", "replace"}:
+            raise ValueError("Prompt-overlay mode must be `append` or `replace` when provided.")
+        if prompt_overlay_mode is not None and prompt_overlay_text is None:
+            raise ValueError("Prompt-overlay mode requires prompt-overlay text.")
+
+        prompt_overlay_ref: ManagedContentRef | None = None
+        if prompt_overlay_text is not None:
+            prompt_overlay_ref = self._snapshot_text(
+                text=prompt_overlay_text,
+                content_kind=_CONTENT_KIND_PROMPT,
+                relative_path=f"prompts/launch-profiles/{name}.md",
+            )
+
+        with self._connect() as connection:
+            prompt_overlay_ref_id = (
+                self._upsert_content_ref(connection, prompt_overlay_ref)
+                if prompt_overlay_ref is not None
+                else None
+            )
+            timestamp = _utcnow_iso()
+            connection.execute(
+                """
+                INSERT INTO launch_profiles (
+                    name,
+                    profile_lane,
+                    source_kind,
+                    source_name,
+                    managed_agent_name,
+                    managed_agent_id,
+                    workdir,
+                    auth_name,
+                    operator_prompt_mode,
+                    env_payload,
+                    mailbox_payload,
+                    posture_payload,
+                    prompt_overlay_mode,
+                    prompt_overlay_content_ref_id,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    profile_lane = excluded.profile_lane,
+                    source_kind = excluded.source_kind,
+                    source_name = excluded.source_name,
+                    managed_agent_name = excluded.managed_agent_name,
+                    managed_agent_id = excluded.managed_agent_id,
+                    workdir = excluded.workdir,
+                    auth_name = excluded.auth_name,
+                    operator_prompt_mode = excluded.operator_prompt_mode,
+                    env_payload = excluded.env_payload,
+                    mailbox_payload = excluded.mailbox_payload,
+                    posture_payload = excluded.posture_payload,
+                    prompt_overlay_mode = excluded.prompt_overlay_mode,
+                    prompt_overlay_content_ref_id = excluded.prompt_overlay_content_ref_id,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    name,
+                    profile_lane,
+                    source_kind,
+                    source_name,
+                    managed_agent_name,
+                    managed_agent_id,
+                    workdir,
+                    auth_name,
+                    operator_prompt_mode,
+                    json.dumps(env_mapping or {}, sort_keys=True),
+                    json.dumps(mailbox_mapping or {}, sort_keys=True),
+                    json.dumps(posture_mapping or {}, sort_keys=True),
+                    prompt_overlay_mode,
+                    prompt_overlay_ref_id,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        return self.load_launch_profile(name)
+
+    def remove_launch_profile(self, name: str) -> Path:
+        """Delete one launch-profile definition from the catalog."""
+
+        profile = self.load_launch_profile(name)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM launch_profiles WHERE name = ? LIMIT 1",
+                (name,),
+            ).fetchone()
+            if row is None:
+                raise FileNotFoundError(
+                    f"Launch profile `{name}` was not found: {self.m_catalog_path}"
+                )
+            connection.execute("DELETE FROM launch_profiles WHERE name = ?", (name,))
+        (self.m_projection_root / "launch-profiles" / f"{profile.name}.yaml").unlink(
+            missing_ok=True
+        )
+        return self.m_catalog_path
+
     def materialize_projection(self) -> Path:
         """Materialize the non-authoritative agent tree projection from the catalog."""
 
         self.ensure_legacy_import()
         self._ensure_projection_starter_tree()
         entries = self.list_specialists()
+        launch_profiles = self.list_launch_profiles()
         for entry in entries:
             prompt_source = entry.prompt_ref.resolve_under_content_root(self.m_content_root)
             prompt_target = (
@@ -534,6 +764,17 @@ class ProjectCatalog:
                 skill_source = skill_ref.resolve_under_content_root(self.m_content_root)
                 skill_target = (self.m_projection_root / "skills" / skill_name).resolve()
                 _replace_tree(source=skill_source, destination=skill_target)
+        launch_profiles_root = (self.m_projection_root / "launch-profiles").resolve()
+        launch_profiles_root.mkdir(parents=True, exist_ok=True)
+        for entry in launch_profiles:
+            profile_target = (launch_profiles_root / f"{entry.name}.yaml").resolve()
+            profile_target.write_text(
+                _render_launch_profile_yaml(
+                    entry=entry,
+                    content_root=self.m_content_root,
+                ),
+                encoding="utf-8",
+            )
         return self.m_projection_root
 
     def validate_integrity(self) -> CatalogIntegrityReport:
@@ -557,8 +798,11 @@ class ProjectCatalog:
                     SELECT content_ref_id FROM skill_packages
                     UNION
                     SELECT content_ref_id FROM setup_profiles
+                    UNION
+                    SELECT prompt_overlay_content_ref_id FROM launch_profiles
                     """
                 ).fetchall()
+                if row[0] is not None
             }
         for row in content_rows:
             relative_path = str(row["relative_path"])
@@ -688,6 +932,37 @@ class ProjectCatalog:
             connection.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_presets_name ON presets(name)"
             )
+        if current_version <= 2:
+            connection.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS launch_profiles (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    profile_lane TEXT NOT NULL CHECK(profile_lane IN (
+                        '{_PROFILE_LANE_EASY}',
+                        '{_PROFILE_LANE_EXPLICIT}'
+                    )),
+                    source_kind TEXT NOT NULL CHECK(source_kind IN (
+                        '{_SOURCE_KIND_SPECIALIST}',
+                        '{_SOURCE_KIND_RECIPE}'
+                    )),
+                    source_name TEXT NOT NULL,
+                    managed_agent_name TEXT,
+                    managed_agent_id TEXT,
+                    workdir TEXT,
+                    auth_name TEXT,
+                    operator_prompt_mode TEXT,
+                    env_payload TEXT NOT NULL DEFAULT '{{}}',
+                    mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
+                    posture_payload TEXT NOT NULL DEFAULT '{{}}',
+                    prompt_overlay_mode TEXT,
+                    prompt_overlay_content_ref_id INTEGER
+                        REFERENCES content_refs(id) ON DELETE SET NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -737,6 +1012,24 @@ class ProjectCatalog:
         destination = (self.m_content_root / relative_path).resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(resolved_source, destination)
+        return ManagedContentRef(
+            content_kind=content_kind,
+            storage_kind=_STORAGE_KIND_FILE,
+            relative_path=relative_path,
+        )
+
+    def _snapshot_text(
+        self,
+        *,
+        text: str,
+        content_kind: str,
+        relative_path: str,
+    ) -> ManagedContentRef:
+        """Write one managed text payload into content storage."""
+
+        destination = (self.m_content_root / relative_path).resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text.rstrip() + "\n" if text.strip() else "", encoding="utf-8")
         return ManagedContentRef(
             content_kind=content_kind,
             storage_kind=_STORAGE_KIND_FILE,
@@ -1002,6 +1295,48 @@ class ProjectCatalog:
             metadata_path=self.m_catalog_path,
         )
 
+    def _launch_profile_from_row(self, row: sqlite3.Row) -> LaunchProfileCatalogEntry:
+        """Build one structured launch-profile entry from a joined row."""
+
+        prompt_overlay_ref: ManagedContentRef | None = None
+        prompt_relative_path = row["prompt_relative_path"]
+        if prompt_relative_path is not None:
+            prompt_overlay_ref = ManagedContentRef(
+                content_kind=str(row["prompt_kind"]),
+                storage_kind=str(row["prompt_storage_kind"]),
+                relative_path=str(prompt_relative_path),
+            )
+        env_payload = _load_json_mapping(str(row["env_payload"]))
+        mailbox_payload = _load_json_mapping(str(row["mailbox_payload"]))
+        posture_payload = _load_json_mapping(str(row["posture_payload"]))
+        return LaunchProfileCatalogEntry(
+            name=str(row["name"]),
+            profile_lane=str(row["profile_lane"]),
+            source_kind=str(row["source_kind"]),
+            source_name=str(row["source_name"]),
+            managed_agent_name=(
+                str(row["managed_agent_name"]) if row["managed_agent_name"] is not None else None
+            ),
+            managed_agent_id=str(row["managed_agent_id"])
+            if row["managed_agent_id"] is not None
+            else None,
+            workdir=str(row["workdir"]) if row["workdir"] is not None else None,
+            auth_name=str(row["auth_name"]) if row["auth_name"] is not None else None,
+            operator_prompt_mode=(
+                str(row["operator_prompt_mode"])
+                if row["operator_prompt_mode"] is not None
+                else None
+            ),
+            env_payload={str(key): str(value) for key, value in env_payload.items()},
+            mailbox_payload=mailbox_payload if mailbox_payload else None,
+            posture_payload=posture_payload,
+            prompt_overlay_mode=(
+                str(row["prompt_overlay_mode"]) if row["prompt_overlay_mode"] is not None else None
+            ),
+            prompt_overlay_ref=prompt_overlay_ref,
+            metadata_path=self.m_catalog_path,
+        )
+
     def _ensure_projection_starter_tree(self) -> None:
         """Bootstrap the compatibility projection tree from packaged starter assets."""
 
@@ -1102,6 +1437,26 @@ def _table_schema_sql() -> str:
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS launch_profiles (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        profile_lane TEXT NOT NULL CHECK(profile_lane IN ('easy_profile', 'launch_profile')),
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('specialist', 'recipe')),
+        source_name TEXT NOT NULL,
+        managed_agent_name TEXT,
+        managed_agent_id TEXT,
+        workdir TEXT,
+        auth_name TEXT,
+        operator_prompt_mode TEXT,
+        env_payload TEXT NOT NULL DEFAULT '{{}}',
+        mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
+        posture_payload TEXT NOT NULL DEFAULT '{{}}',
+        prompt_overlay_mode TEXT,
+        prompt_overlay_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
     """
 
 
@@ -1113,6 +1468,7 @@ def _view_sql() -> str:
     DROP VIEW IF EXISTS v_roles;
     DROP VIEW IF EXISTS v_presets;
     DROP VIEW IF EXISTS v_specialists;
+    DROP VIEW IF EXISTS v_launch_profiles;
 
     CREATE VIEW v_content_refs AS
     SELECT
@@ -1164,6 +1520,26 @@ def _view_sql() -> str:
     INNER JOIN content_refs AS prompt_refs ON prompt_refs.id = roles.prompt_content_ref_id
     INNER JOIN auth_profiles ON auth_profiles.id = presets.auth_profile_id
     INNER JOIN content_refs AS auth_refs ON auth_refs.id = auth_profiles.content_ref_id;
+
+    CREATE VIEW v_launch_profiles AS
+    SELECT
+        launch_profiles.name AS launch_profile_name,
+        launch_profiles.profile_lane AS profile_lane,
+        launch_profiles.source_kind AS source_kind,
+        launch_profiles.source_name AS source_name,
+        launch_profiles.managed_agent_name AS managed_agent_name,
+        launch_profiles.managed_agent_id AS managed_agent_id,
+        launch_profiles.workdir AS workdir,
+        launch_profiles.auth_name AS auth_name,
+        launch_profiles.operator_prompt_mode AS operator_prompt_mode,
+        launch_profiles.env_payload AS env_payload,
+        launch_profiles.mailbox_payload AS mailbox_payload,
+        launch_profiles.posture_payload AS posture_payload,
+        launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
+        prompt_refs.relative_path AS prompt_overlay_relative_path
+    FROM launch_profiles
+    LEFT JOIN content_refs AS prompt_refs
+        ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id;
     """
 
 
@@ -1252,6 +1628,53 @@ def _render_preset_yaml(entry: SpecialistCatalogEntry) -> str:
         payload["mailbox"] = entry.mailbox_payload
     if entry.extra_payload:
         payload["extra"] = entry.extra_payload
+    try:
+        import yaml
+
+        rendered = yaml.safe_dump(payload, sort_keys=False)
+    except Exception:
+        rendered = json.dumps(payload, indent=2, sort_keys=False)
+    return rendered
+
+
+def _render_launch_profile_yaml(
+    *,
+    entry: LaunchProfileCatalogEntry,
+    content_root: Path,
+) -> str:
+    """Render one compatibility projection launch-profile file."""
+
+    payload: dict[str, Any] = {
+        "profile_lane": entry.profile_lane,
+        "source": {
+            "kind": entry.source_kind,
+            "name": entry.source_name,
+        },
+        "defaults": {},
+    }
+    defaults = cast(dict[str, Any], payload["defaults"])
+    if entry.managed_agent_name is not None:
+        defaults["agent_name"] = entry.managed_agent_name
+    if entry.managed_agent_id is not None:
+        defaults["agent_id"] = entry.managed_agent_id
+    if entry.workdir is not None:
+        defaults["workdir"] = entry.workdir
+    if entry.auth_name is not None:
+        defaults["auth"] = entry.auth_name
+    if entry.operator_prompt_mode is not None:
+        defaults["prompt_mode"] = entry.operator_prompt_mode
+    if entry.env_payload:
+        defaults["env"] = dict(entry.env_payload)
+    if entry.mailbox_payload:
+        defaults["mailbox"] = entry.mailbox_payload
+    if entry.posture_payload:
+        defaults["posture"] = entry.posture_payload
+    if entry.prompt_overlay_mode is not None and entry.prompt_overlay_ref is not None:
+        overlay_path = entry.prompt_overlay_ref.resolve_under_content_root(content_root)
+        defaults["prompt_overlay"] = {
+            "mode": entry.prompt_overlay_mode,
+            "text": overlay_path.read_text(encoding="utf-8").rstrip(),
+        }
     try:
         import yaml
 

@@ -1,8 +1,24 @@
-# Create Specialist
+# Create Specialist Or Easy Profile
 
-Use this action only when the user wants to create or replace one reusable easy specialist through Houmao's supported higher-level authoring command.
+Use this action only when the user wants to create or replace one reusable easy specialist or one reusable specialist-backed easy profile through Houmao's supported higher-level authoring commands.
 
 ## Workflow
+
+1. Determine whether the target resource is `specialist` or `profile`.
+2. If that target resource kind is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
+3. Use the launcher resolved from the top-level skill.
+4. If the target resource is `profile`, follow `Profile Create Workflow` below and stop after reporting the result.
+5. Otherwise follow `Specialist Create Workflow` below.
+
+## Profile Create Workflow
+
+1. Collect the user's intended easy-profile inputs from the current prompt first.
+2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
+3. If the profile name or source specialist is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
+4. Run `project easy profile create`.
+5. Report the created profile name, source specialist, and returned defaults metadata.
+
+## Specialist Create Workflow
 
 1. Collect the user's intended specialist-create inputs from the current prompt first.
 2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
@@ -70,7 +86,52 @@ If the user did not request one of the supported discovery modes:
 - only reuse an already-existing credential bundle when you confirmed it exists for the selected tool
 - otherwise ask the user for missing auth instead of guessing
 
-## Required Inputs
+## Profile Create Command Shape
+
+Use the resolved launcher with:
+
+```text
+<resolved houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> ...
+```
+
+Required inputs:
+
+- `--name`
+- `--specialist`
+
+Common optional inputs:
+
+- `--agent-name`
+- `--agent-id`
+- `--workdir`
+- `--auth`
+- `--prompt-mode unattended|as_is`
+- repeatable `--env-set NAME=value`
+- `--mail-transport filesystem|stalwart`
+- `--mail-principal-id`
+- `--mail-address`
+- `--mail-root`
+- `--mail-base-url`
+- `--mail-jmap-url`
+- `--mail-management-url`
+- `--headless`
+- `--no-gateway`
+- `--gateway-port`
+- `--prompt-overlay-mode append|replace`
+- `--prompt-overlay-text`
+- `--prompt-overlay-file`
+
+Profile create rules:
+
+- do not mix `--prompt-overlay-text` and `--prompt-overlay-file`
+- prompt-overlay text requires `--prompt-overlay-mode append|replace`
+- `--mail-transport` is required when any declarative mailbox fields are present
+- `filesystem` mailbox defaults accept `--mail-root` and reject the Stalwart URL flags
+- `stalwart` mailbox defaults accept the Stalwart URL flags and reject `--mail-root`
+- `--no-gateway` and `--gateway-port` cannot be combined
+- `--auth` is only the stored auth-bundle name override for later launches; it does not create credentials
+
+## Specialist Required Inputs
 
 - `--name`
 - `--tool`
@@ -78,7 +139,7 @@ If the user did not request one of the supported discovery modes:
 
 `--system-prompt` and `--system-prompt-file` are both optional. Use at most one of them.
 
-## Command Shape
+## Specialist Command Shape
 
 Use the resolved launcher with:
 
@@ -111,6 +172,11 @@ Claude vendor-login file usage:
 
 ## Guardrails
 
+- Do not guess whether the user wants to create a reusable specialist or a reusable easy profile.
+- Do not guess the profile name or source specialist for easy-profile creation.
+- Do not enter credential discovery or credential import workflow for easy-profile creation.
+- Do not treat profile creation as launching or mutating a live easy instance.
+- Do not mix `--prompt-overlay-text` and `--prompt-overlay-file` for easy-profile creation.
 - Do not guess the specialist name, tool lane, or auth values.
 - Do not continue specialist creation from partially inferred required inputs when the prompt and recent chat context do not state them explicitly.
 - Do not invent API keys, org ids, auth file paths, OAuth credential files, or base URLs.

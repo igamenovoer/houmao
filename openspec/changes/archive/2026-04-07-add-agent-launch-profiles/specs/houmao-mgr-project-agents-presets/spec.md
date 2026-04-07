@@ -86,7 +86,7 @@ When a recipe already contains `mailbox` or `extra`, `recipes get` SHALL report 
 
 The compatibility `project agents presets ...` surface SHALL operate on the same named recipe resources and SHALL preserve equivalent behavior.
 
-Named recipes SHALL remain the reusable source objects that low-level launch templates and low-level launch selectors reference.
+Named recipes SHALL remain the reusable source objects that explicit launch profiles reference.
 
 The system SHALL reject creation or mutation that would make two recipes share the same `(role, tool, setup)` tuple.
 

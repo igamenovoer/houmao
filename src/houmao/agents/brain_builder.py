@@ -77,6 +77,8 @@ class BuildRequest:
     credential_profile: str | None = None
     recipe_path: Path | None = None
     recipe_launch_overrides: LaunchOverrides | None = None
+    role_prompt_override: str | None = None
+    launch_profile_provenance: dict[str, Any] | None = None
 
     def effective_setup(self) -> str:
         """Return the resolved setup identifier for the build."""
@@ -692,6 +694,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         "preset_overrides_present": resolved_preset_launch_overrides is not None,
         "direct_overrides_present": request.launch_overrides is not None,
     }
+    if request.launch_profile_provenance is not None:
+        construction_provenance["launch_profile"] = dict(request.launch_profile_provenance)
 
     manifest: dict[str, Any] = {
         "schema_version": 3,
@@ -749,6 +753,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             },
         },
     }
+    if request.role_prompt_override is not None:
+        manifest["inputs"]["role_prompt_text"] = request.role_prompt_override
     if request.extra:
         manifest["inputs"]["extra"] = dict(request.extra)
     if request.mailbox is not None:

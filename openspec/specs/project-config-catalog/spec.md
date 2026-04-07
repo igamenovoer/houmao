@@ -10,20 +10,22 @@ Project-local Houmao overlays SHALL store canonical semantic configuration in a 
 That catalog SHALL be the source of truth for project-local identities and relationships, including at minimum:
 
 - specialists,
+- launch profiles,
 - roles,
-- presets,
+- recipes projected under `.houmao/agents/presets/`,
 - setup profiles,
 - skill packages,
 - auth profiles,
 - mailbox policies,
-- references between those objects.
+- references between those objects,
+- source-lane provenance that distinguishes specialist-backed easy profiles from recipe-backed explicit launch profiles.
 
 Project-local directory structure SHALL NOT remain the primary source of those semantic relationships once the catalog is present.
 
-#### Scenario: Project-local specialist relationships are stored in the catalog
-- **WHEN** an operator creates or updates a specialist in a project-local overlay
-- **THEN** the project-local overlay persists the specialist's semantic identity and relationships in the SQLite catalog
-- **AND THEN** the system does not need directory nesting alone to infer which role, preset, auth profile, or skill package that specialist uses
+#### Scenario: Project-local launch-profile relationships are stored in the catalog
+- **WHEN** an operator creates or updates a launch profile in a project-local overlay
+- **THEN** the project-local overlay persists that profile's semantic identity and source relationships in the SQLite catalog
+- **AND THEN** the system does not need directory nesting alone to infer which specialist or recipe the profile uses
 
 ### Requirement: Project-local overlays keep large content payloads file-backed through managed content references
 
@@ -32,16 +34,17 @@ Project-local overlays SHALL keep large text blobs and tree-shaped payloads file
 At minimum, this file-backed content contract SHALL cover:
 
 - system prompt content,
+- launch-profile prompt overlay content,
 - auth files,
 - setup bundles,
 - skill packages.
 
 The SQLite catalog SHALL reference those file-backed payloads through explicit managed content references rather than by treating path nesting as the semantic graph.
 
-#### Scenario: Prompt and auth payloads remain file-backed while relationships live in SQLite
-- **WHEN** a project-local role uses one system prompt file and one auth profile uses one auth file
-- **THEN** the project-local overlay keeps those payloads as managed files under overlay-owned content roots
-- **AND THEN** the catalog stores the semantic references linking roles and auth profiles to those payload files
+#### Scenario: Launch-profile prompt overlay remains file-backed while relationships live in SQLite
+- **WHEN** one launch profile stores prompt overlay text for profile `alice`
+- **THEN** the project-local overlay keeps that prompt-overlay payload as managed file-backed content under the overlay-owned content roots
+- **AND THEN** the catalog stores the semantic references linking profile `alice` to that prompt-overlay payload
 
 ### Requirement: Project-local catalog surfaces stable advanced inspection semantics
 
@@ -57,7 +60,7 @@ If advanced users manipulate project-local catalog state through SQL tools, the 
 
 #### Scenario: Advanced operator inspects project-local semantic objects through SQL
 - **WHEN** an advanced operator opens the project-local SQLite catalog with SQL tooling
-- **THEN** they can inspect stable semantic objects such as specialists, roles, presets, and content references directly from the catalog
+- **THEN** they can inspect stable semantic objects such as specialists, roles, recipes, launch profiles, and content references directly from the catalog
 - **AND THEN** the inspection surface does not require reconstructing relationships from directory nesting under `.houmao/agents/`
 
 ### Requirement: Legacy project-local tree-backed overlays can be imported into the catalog
@@ -76,4 +79,3 @@ The system SHALL NOT require long-term dual-authoritative sync between the impor
 - **WHEN** an operator has an existing project-local overlay whose specialist, role, preset, auth, and skill relationships are stored through `.houmao/agents/` and `.houmao/easy/`
 - **THEN** the system can import that overlay into the project-local SQLite catalog
 - **AND THEN** the imported overlay resolves future project-local semantic relationships from the catalog rather than from the legacy tree as the source of truth
-

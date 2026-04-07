@@ -14,6 +14,9 @@ import click
 
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
 from houmao.agents.native_launch_resolver import (
     infer_launch_source_directory_from_agent_def_dir,
     resolve_effective_agent_def_dir,
@@ -43,7 +46,9 @@ from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
     ensure_project_aware_local_roots,
     materialize_project_agent_catalog_projection,
+    resolve_project_aware_local_roots,
 )
+from houmao.project.launch_profiles import resolve_launch_profile
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
@@ -189,6 +194,45 @@ def _materialize_source_agent_def_dir(*, project_roots: Any) -> Path:
     return project_roots.agent_def_dir.resolve()
 
 
+def _compose_role_prompt(
+    *,
+    base_prompt: str,
+    overlay_mode: str | None,
+    overlay_text: str | None,
+) -> str:
+    """Compose one effective role prompt from optional launch-profile overlay text."""
+
+    if overlay_mode is None or overlay_text is None:
+        return base_prompt
+    if overlay_mode == "replace":
+        return overlay_text.rstrip()
+    if overlay_mode != "append":
+        raise click.ClickException(
+            f"Unsupported prompt-overlay mode {overlay_mode!r}; expected `append` or `replace`."
+        )
+    if not base_prompt:
+        return overlay_text.rstrip()
+    return f"{base_prompt.rstrip()}\n\n{overlay_text.rstrip()}".rstrip()
+
+
+def _parse_stored_launch_profile_mailbox_or_click(
+    payload: dict[str, Any] | None,
+    *,
+    profile_name: str,
+) -> MailboxDeclarativeConfig | None:
+    """Parse one stored launch-profile mailbox payload or raise one CLI-facing error."""
+
+    if payload is None:
+        return None
+    try:
+        return parse_declarative_mailbox_config(
+            payload,
+            source=f"launch profile `{profile_name}`",
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -211,6 +255,12 @@ def launch_managed_agent_locally(
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
+    declared_mailbox: MailboxDeclarativeConfig | None = None,
+    operator_prompt_mode: OperatorPromptMode | None = None,
+    persistent_env_records: dict[str, str] | None = None,
+    prompt_overlay_mode: str | None = None,
+    prompt_overlay_text: str | None = None,
+    launch_profile_provenance: dict[str, Any] | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
 
@@ -265,6 +315,14 @@ def launch_managed_agent_locally(
             working_directory=resolved_working_directory,
             agent_def_dir=effective_agent_def_dir,
         )
+        effective_persistent_env_records = dict(target.preset.launch_env_records or {})
+        if persistent_env_records is not None:
+            effective_persistent_env_records.update(dict(persistent_env_records))
+        effective_role_prompt = _compose_role_prompt(
+            base_prompt=target.role_prompt,
+            overlay_mode=prompt_overlay_mode,
+            overlay_text=prompt_overlay_text,
+        )
         build_result = build_brain_home(
             BuildRequest(
                 agent_def_dir=target.agent_def_dir,
@@ -275,12 +333,18 @@ def launch_managed_agent_locally(
                 auth=auth or target.preset.auth,
                 preset_path=target.preset_path,
                 preset_launch_overrides=target.preset.launch_overrides,
-                operator_prompt_mode=target.preset.operator_prompt_mode,
-                persistent_env_records=target.preset.launch_env_records,
-                mailbox=target.preset.mailbox,
+                operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
+                persistent_env_records=effective_persistent_env_records,
+                mailbox=declared_mailbox or target.preset.mailbox,
                 extra=target.preset.extra,
                 agent_name=agent_name,
                 agent_id=agent_id,
+                role_prompt_override=(
+                    effective_role_prompt
+                    if prompt_overlay_mode is not None and prompt_overlay_text is not None
+                    else None
+                ),
+                launch_profile_provenance=launch_profile_provenance,
             )
         )
         resolved_backend = backend_for_tool(
@@ -412,7 +476,16 @@ def agents_group() -> None:
 
 
 @agents_group.command(name="launch")
-@click.option("--agents", required=True, help="Native launch selector to resolve the preset.")
+@click.option(
+    "--agents",
+    default=None,
+    help="Native launch selector to resolve the source recipe.",
+)
+@click.option(
+    "--launch-profile",
+    default=None,
+    help="Explicit project launch-profile name to resolve before launch.",
+)
 @click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
 @click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
@@ -440,12 +513,15 @@ def agents_group() -> None:
 )
 @click.option(
     "--provider",
-    default=_DEFAULT_PROVIDER,
-    show_default=True,
-    help="Provider identifier to use for the launch.",
+    default=None,
+    help=(
+        "Provider identifier to use for the launch. Defaults to the resolved launch-profile "
+        "provider, or `claude_code` when launching directly from `--agents`."
+    ),
 )
 def launch_agents_command(
-    agents: str,
+    agents: str | None,
+    launch_profile: str | None,
     agent_name: str | None,
     agent_id: str | None,
     auth: str | None,
@@ -454,31 +530,150 @@ def launch_agents_command(
     workdir: Path | None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
-    provider: str,
+    provider: str | None,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
 
     source_working_directory = Path.cwd().resolve()
-    working_directory = (workdir or source_working_directory).resolve()
+    if agents is not None and launch_profile is not None:
+        raise click.ClickException("`--launch-profile` and `--agents` cannot be combined.")
+    if agents is None and launch_profile is None:
+        raise click.ClickException("Provide exactly one of `--agents` or `--launch-profile`.")
+
+    resolved_agents = agents
+    resolved_agent_name = agent_name
+    resolved_agent_id = agent_id
+    resolved_auth = auth
+    resolved_provider = provider
+    resolved_working_directory = (workdir or source_working_directory).resolve()
+    resolved_source_working_directory = source_working_directory
+    resolved_source_agent_def_dir: Path | None = None
+    resolved_headless = headless
+    declared_mailbox = None
+    operator_prompt_mode = None
+    persistent_env_records: dict[str, str] | None = None
+    prompt_overlay_mode = None
+    prompt_overlay_text = None
+    launch_profile_provenance = None
+    gateway_auto_attach = False
+    gateway_host = None
+    gateway_port = None
+
+    if launch_profile is not None:
+        try:
+            project_roots = resolve_project_aware_local_roots(cwd=source_working_directory)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        overlay = project_roots.project_overlay
+        if overlay is None:
+            raise click.ClickException(
+                "No project overlay is available for `agents launch --launch-profile`; "
+                "select an existing project overlay first."
+            )
+        try:
+            resolved_profile = resolve_launch_profile(
+                overlay=overlay,
+                name=launch_profile.strip(),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        if resolved_profile.entry.profile_lane != "launch_profile":
+            raise click.ClickException(
+                f"Launch profile `{resolved_profile.entry.name}` is not an explicit "
+                "recipe-backed launch profile."
+            )
+        if (
+            not resolved_profile.source_exists
+            or resolved_profile.recipe_path is None
+            or resolved_profile.provider is None
+        ):
+            raise click.ClickException(
+                f"Launch profile `{resolved_profile.entry.name}` references unavailable recipe "
+                f"`{resolved_profile.entry.source_name}`."
+            )
+
+        resolved_agents = str(resolved_profile.recipe_path)
+        resolved_agent_name = resolved_agent_name or resolved_profile.entry.managed_agent_name
+        resolved_agent_id = resolved_agent_id or resolved_profile.entry.managed_agent_id
+        resolved_auth = resolved_auth or resolved_profile.entry.auth_name
+        if workdir is None and resolved_profile.entry.workdir is not None:
+            resolved_working_directory = Path(resolved_profile.entry.workdir).expanduser().resolve()
+        operator_prompt_mode = resolved_profile.entry.operator_prompt_mode
+        persistent_env_records = dict(resolved_profile.entry.env_payload)
+        prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
+        prompt_overlay_text = resolved_profile.prompt_overlay_text
+        launch_profile_provenance = {
+            "name": resolved_profile.entry.name,
+            "lane": resolved_profile.entry.profile_lane,
+            "source_kind": resolved_profile.entry.source_kind,
+            "source_name": resolved_profile.entry.source_name,
+            "recipe_name": resolved_profile.recipe_name,
+            "prompt_overlay": {
+                "mode": resolved_profile.entry.prompt_overlay_mode,
+                "present": resolved_profile.prompt_overlay_text is not None,
+            },
+        }
+        declared_mailbox = _parse_stored_launch_profile_mailbox_or_click(
+            resolved_profile.entry.mailbox_payload,
+            profile_name=resolved_profile.entry.name,
+        )
+        posture_payload = dict(resolved_profile.entry.posture_payload)
+        resolved_headless = headless or bool(posture_payload.get("headless", False))
+        if posture_payload.get("gateway_port") is not None:
+            gateway_auto_attach = True
+            gateway_host = str(posture_payload.get("gateway_host") or "127.0.0.1")
+            gateway_port = int(posture_payload["gateway_port"])
+        elif posture_payload.get("gateway_auto_attach") is False:
+            gateway_auto_attach = False
+            gateway_host = None
+            gateway_port = None
+
+        resolved_source_working_directory = overlay.project_root
+        resolved_source_agent_def_dir = materialize_project_agent_catalog_projection(overlay)
+        if resolved_provider is None:
+            resolved_provider = resolved_profile.provider
+        elif resolved_provider != resolved_profile.provider:
+            raise click.ClickException(
+                f"`--provider {resolved_provider}` conflicts with launch profile "
+                f"`{resolved_profile.entry.name}`, which resolves provider "
+                f"`{resolved_profile.provider}`."
+            )
+    else:
+        assert resolved_agents is not None
+        if resolved_provider is None:
+            resolved_provider = _DEFAULT_PROVIDER
+
+    assert resolved_agents is not None
+    assert resolved_provider is not None
     launch_result = launch_managed_agent_locally(
-        agents=agents,
-        agent_name=agent_name,
-        agent_id=agent_id,
-        auth=auth,
+        agents=resolved_agents,
+        agent_name=resolved_agent_name,
+        agent_id=resolved_agent_id,
+        auth=resolved_auth,
         session_name=session_name,
-        headless=headless,
-        provider=provider,
-        working_directory=working_directory,
-        source_working_directory=source_working_directory,
+        headless=resolved_headless,
+        provider=resolved_provider,
+        working_directory=resolved_working_directory,
+        source_working_directory=resolved_source_working_directory,
+        source_agent_def_dir=resolved_source_agent_def_dir,
         headless_display_style=headless_display_style,
         headless_display_detail=headless_display_detail,
+        gateway_auto_attach=gateway_auto_attach,
+        gateway_host=gateway_host,
+        gateway_port=gateway_port,
+        declared_mailbox=declared_mailbox,
+        operator_prompt_mode=operator_prompt_mode,
+        persistent_env_records=persistent_env_records,
+        prompt_overlay_mode=prompt_overlay_mode,
+        prompt_overlay_text=prompt_overlay_text,
+        launch_profile_provenance=launch_profile_provenance,
     )
 
     emit_local_launch_completion(
         launch_result=launch_result,
-        agent_name=agent_name,
+        agent_name=resolved_agent_name,
         session_name=session_name,
-        headless=headless,
+        headless=resolved_headless,
     )
 
 

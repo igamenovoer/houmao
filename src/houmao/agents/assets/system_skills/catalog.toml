@@ -18,7 +18,7 @@ description = "Stalwart mailbox transport guidance skill."
 
 [skills.houmao-manage-specialist]
 asset_subpath = "houmao-manage-specialist"
-description = "Project-easy specialist management skill."
+description = "Project-easy specialist and profile management skill."
 
 [skills.houmao-manage-credentials]
 asset_subpath = "houmao-manage-credentials"

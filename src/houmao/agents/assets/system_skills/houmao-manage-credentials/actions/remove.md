@@ -22,5 +22,5 @@ Use:
 
 - Do not guess which tool or auth bundle the user meant.
 - Do not remove multiple auth bundles unless the user explicitly asks for that broader operation.
-- Do not present removal as changing specialists, live instances, or mailbox credentials automatically.
+- Do not present removal as changing specialists, easy profiles, explicit launch profiles, live instances, or mailbox credentials automatically.
 - Do not route removal through direct filesystem deletion when the CLI surface already owns the operation.

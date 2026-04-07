@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Literal, cast
+from typing import Any, Callable, Literal, cast
 
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
@@ -951,6 +951,24 @@ class RuntimeSessionController:
         _LOGGER.warning(message)
 
 
+def _effective_role_prompt_from_brain_manifest(
+    manifest: dict[str, Any],
+    *,
+    fallback: str,
+) -> str:
+    """Return the effective role prompt recorded in one brain manifest."""
+
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, dict):
+        return fallback
+    raw_value = inputs.get("role_prompt_text")
+    if raw_value is None:
+        return fallback
+    if not isinstance(raw_value, str):
+        raise SessionManifestError("Brain manifest inputs.role_prompt_text must be a string.")
+    return raw_value
+
+
 def start_runtime_session(
     *,
     agent_def_dir: Path,
@@ -1006,6 +1024,13 @@ def start_runtime_session(
         )
     else:
         role_package = load_role_package(agent_def_dir, resolved_role_name)
+    role_package = replace(
+        role_package,
+        system_prompt=_effective_role_prompt_from_brain_manifest(
+            manifest,
+            fallback=role_package.system_prompt,
+        ),
+    )
 
     try:
         effective_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
@@ -1294,6 +1319,13 @@ def resume_runtime_session(
         )
     else:
         manifest = load_brain_manifest(brain_manifest_path)
+        role_package = replace(
+            role_package,
+            system_prompt=_effective_role_prompt_from_brain_manifest(
+                manifest,
+                fallback=role_package.system_prompt,
+            ),
+        )
         launch_plan = build_launch_plan(
             LaunchPlanRequest(
                 brain_manifest=manifest,

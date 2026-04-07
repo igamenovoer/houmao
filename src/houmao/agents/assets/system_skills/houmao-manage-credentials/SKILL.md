@@ -1,6 +1,6 @@
 ---
 name: houmao-manage-credentials
-description: Use Houmao's supported project-local auth-bundle workflow to list, inspect, add, update, or remove credentials with the correct `houmao-mgr` launcher for the current environment.
+description: Use Houmao's supported project-local auth-bundle workflow to list, inspect, add, update, or remove credentials with the correct `houmao-mgr` launcher for the current environment. This skill manages auth bundles themselves, not stored profile-level auth overrides.
 license: MIT
 ---
 
@@ -23,8 +23,10 @@ This packaged skill covers exactly these `project agents tools <tool> auth` acti
 This packaged skill does not cover:
 
 - `houmao-mgr project easy specialist ...`
+- `houmao-mgr project easy profile ...`
 - `houmao-mgr project easy instance ...`
 - `houmao-mgr agents launch|join|list|stop|cleanup`
+- `houmao-mgr project agents launch-profiles ...`
 - `houmao-mgr project agents tools <tool> setups ...`
 - `houmao-mgr project agents roles ...`
 - `houmao-mgr project mailbox ...`
@@ -35,20 +37,23 @@ This packaged skill does not cover:
 ## Workflow
 
 1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, or `remove`.
-2. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-3. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
+2. If the request is really about changing which auth bundle a reusable profile stores for later launches, stop and route it before continuing:
+   - easy-profile auth override work belongs to `houmao-manage-specialist`
+   - explicit launch-profile auth override work belongs to the supported `houmao-mgr project agents launch-profiles add|set --auth ...` or `--clear-auth` surface, not to auth-bundle CRUD
+3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
+4. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
    - repo-local `.venv/bin/houmao-mgr`
    - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
    - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
    - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-4. Reuse that same resolved launcher for the selected credential-management action.
-5. Load exactly one action page:
+5. Reuse that same resolved launcher for the selected credential-management action.
+6. Load exactly one action page:
    - `actions/list.md`
    - `actions/get.md`
    - `actions/add.md`
    - `actions/set.md`
    - `actions/remove.md`
-6. Follow the selected action page and report the result from the command that ran.
+7. Follow the selected action page and report the result from the command that ran.
 
 ## Missing Input Questions
 
@@ -66,6 +71,7 @@ This packaged skill does not cover:
 - Use `actions/add.md` only when the user wants to create one new auth bundle.
 - Use `actions/set.md` only when the user wants to update one existing auth bundle.
 - Use `actions/remove.md` only when the user wants to remove one existing auth bundle.
+- When the user wants to change the stored `--auth` override on an easy profile or explicit launch profile, do not use this skill's action pages; that is profile authoring rather than auth-bundle mutation.
 
 ## Guardrails
 
@@ -73,6 +79,8 @@ This packaged skill does not cover:
 - Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
 - Do not scan env vars, tool homes, home directories, or unrelated filesystem locations to infer missing auth inputs unless the user explicitly asks for that narrower inspection.
 - Do not print raw secret values or raw auth-file contents when `auth get` already provides safe redacted inspection.
+- Do not treat changing an easy profile or explicit launch profile `--auth` override as `auth add|set|remove`.
+- Do not imply that auth-bundle CRUD automatically rewrites stored auth references on specialists, easy profiles, explicit launch profiles, or live instances.
 - Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool's `auth` surface does not actually support.
 - Do not force `pixi run houmao-mgr` when the workspace is not a development project.
 - Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.

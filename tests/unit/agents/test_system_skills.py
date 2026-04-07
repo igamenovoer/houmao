@@ -212,7 +212,14 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     list_action_path = manage_specialist_actions / "list.md"
     get_action_path = manage_specialist_actions / "get.md"
     remove_action_path = manage_specialist_actions / "remove.md"
+    launch_action_path = manage_specialist_actions / "launch.md"
+    stop_action_path = manage_specialist_actions / "stop.md"
     create_action = create_action_path.read_text(encoding="utf-8")
+    list_action = list_action_path.read_text(encoding="utf-8")
+    get_action = get_action_path.read_text(encoding="utf-8")
+    remove_action = remove_action_path.read_text(encoding="utf-8")
+    launch_action = launch_action_path.read_text(encoding="utf-8")
+    stop_action = stop_action_path.read_text(encoding="utf-8")
     credentials_list_action_path = manage_credentials_actions / "list.md"
     credentials_get_action_path = manage_credentials_actions / "get.md"
     credentials_add_action_path = manage_credentials_actions / "add.md"
@@ -236,7 +243,13 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "actions/get.md" in manage_specialist_skill
     assert "actions/remove.md" in manage_specialist_skill
     assert "actions/launch.md" in manage_specialist_skill
+    assert "create profile" in manage_specialist_skill
+    assert "list profiles" in manage_specialist_skill
+    assert "get profile" in manage_specialist_skill
+    assert "remove profile" in manage_specialist_skill
     assert "Explicit Auth Mode" in create_action
+    assert "project easy profile create" in create_action
+    assert "--prompt-overlay-mode append|replace" in create_action
     assert "Env Lookup Mode" in create_action
     assert "Directory Scan Mode" in create_action
     assert "auto credentials" in create_action
@@ -250,6 +263,12 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "not a credential-providing method" in create_action
     assert "do not scan env vars, directories, repo-local tool homes" in create_action
     assert "tests/fixtures/agents" not in create_action
+    assert "project easy profile list" in list_action
+    assert "project easy profile get --name <name>" in get_action
+    assert "project easy profile remove --name <name>" in remove_action
+    assert "project easy instance launch --profile <profile>" in launch_action
+    assert "project easy profile get --name <profile>" in launch_action
+    assert "whether it was launched from a specialist or from an easy profile" in stop_action
     assert ".venv/bin/houmao-mgr" in manage_credentials_skill
     assert "pixi run houmao-mgr" in manage_credentials_skill
     assert "uv run houmao-mgr" in manage_credentials_skill
@@ -259,6 +278,9 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
     assert "project agents tools <tool> auth ..." in manage_credentials_skill
+    assert "project easy profile ..." in manage_credentials_skill
+    assert "project agents launch-profiles ..." in manage_credentials_skill
+    assert "Do not treat changing an easy profile or explicit launch profile `--auth` override" in manage_credentials_skill
     assert "Do not print raw secret values" in manage_credentials_skill
     assert credentials_list_action_path.is_file()
     assert credentials_get_action_path.is_file()
@@ -267,7 +289,9 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert credentials_remove_action_path.is_file()
     assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
     assert "Do not bypass `auth get`" in credentials_get_action
+    assert "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
+    assert "stored easy-profile or explicit launch-profile `--auth` override change" in credentials_set_action
     assert (
         "Do not continue with set when the user has not provided any explicit supported change"
         in credentials_set_action
@@ -281,6 +305,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "actions/set.md" in manage_agent_definition_skill
     assert "actions/remove.md" in manage_agent_definition_skill
     assert "project agents roles list|get|init|set|remove" in manage_agent_definition_skill
+    assert "project agents recipes list|get|add|set|remove" in manage_agent_definition_skill
     assert "project agents presets list|get|add|set|remove" in manage_agent_definition_skill
     assert "houmao-manage-credentials" in manage_agent_definition_skill
     assert "project agents roles scaffold" in manage_agent_definition_skill
@@ -296,22 +321,22 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         encoding="utf-8"
     )
     assert (
-        "project agents presets add --name <preset> --role <role> --tool <tool>"
+        "project agents recipes add --name <recipe> --role <role> --tool <tool>"
         in definition_create_action_path.read_text(encoding="utf-8")
     )
     assert "project agents roles list" in definition_list_action_path.read_text(encoding="utf-8")
-    assert "project agents presets list" in definition_list_action_path.read_text(encoding="utf-8")
+    assert "project agents recipes list" in definition_list_action_path.read_text(encoding="utf-8")
     assert "project agents roles get --name <role> --include-prompt" in definition_get_action
-    assert "project agents presets get --name <preset>" in definition_get_action
+    assert "project agents recipes get --name <recipe>" in definition_get_action
     assert "project agents roles set --name <role>" in definition_set_action
-    assert "project agents presets set --name <preset>" in definition_set_action
+    assert "project agents recipes set --name <recipe>" in definition_set_action
     assert "--clear-auth" in definition_set_action
     assert "houmao-manage-credentials" in definition_set_action
     assert "project agents roles remove --name <role>" in definition_remove_action_path.read_text(
         encoding="utf-8"
     )
     assert (
-        "project agents presets remove --name <preset>"
+        "project agents recipes remove --name <recipe>"
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
     assert list_action_path.is_file()
@@ -429,6 +454,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_
     assert stop_action_path.is_file()
     assert cleanup_action_path.is_file()
     assert "agents launch" in launch_action
+    assert "--launch-profile" in launch_action
+    assert "launch-profile-backed" in launch_action
     assert "project easy instance launch" in launch_action
     assert "--mail-transport" in launch_action
     assert "agents cleanup session" in cleanup_action

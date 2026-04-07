@@ -1,4 +1,4 @@
 interface:
   display_name: "Houmao Manage Agent Instance"
   short_description: "Manage live Houmao agent instances."
-  default_prompt: "Use $houmao-manage-agent-instance to launch, join, list, stop, or clean up Houmao managed-agent instances in this workspace."
+  default_prompt: "Use $houmao-manage-agent-instance to launch, join, list, stop, or clean up Houmao managed-agent instances in this workspace, including launches from direct selectors or explicit launch profiles."

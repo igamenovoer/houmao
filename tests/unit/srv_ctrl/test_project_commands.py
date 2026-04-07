@@ -113,6 +113,30 @@ def test_project_agents_presets_help_mentions_verbs() -> None:
     assert "remove" in result.output
 
 
+def test_project_agents_recipes_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["project", "agents", "recipes", "--help"])
+
+    assert result.exit_code == 0
+    assert "list" in result.output
+    assert "get" in result.output
+    assert "add" in result.output
+    assert "set" in result.output
+    assert "remove" in result.output
+    assert "named recipes" in result.output
+
+
+def test_project_agents_launch_profiles_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["project", "agents", "launch-profiles", "--help"])
+
+    assert result.exit_code == 0
+    assert "list" in result.output
+    assert "get" in result.output
+    assert "add" in result.output
+    assert "set" in result.output
+    assert "remove" in result.output
+    assert ".houmao/agents/launch-profiles/" in result.output
+
+
 def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -721,7 +745,7 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     role_payload = json.loads(role_get_result.output)
     assert role_payload["system_prompt_exists"] is True
     assert "system_prompt_text" not in role_payload
-    assert len(role_payload["presets"]) == 1
+    assert len(role_payload["recipes"]) == 1
 
     role_remove_result = runner.invoke(
         cli,
@@ -2202,6 +2226,420 @@ def test_project_easy_specialist_create_fails_when_default_bundle_is_missing(
     assert "researcher-creds" in result.output
 
 
+def test_project_agents_launch_profiles_crud_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "researcher-codex-default",
+            "--agent-name",
+            "alice",
+            "--agent-id",
+            "agent-alice",
+            "--workdir",
+            "/repos/alice",
+            "--auth",
+            "alice-creds",
+            "--prompt-mode",
+            "unattended",
+            "--env-set",
+            "PROJECT_CONTEXT=alice",
+            "--mail-transport",
+            "filesystem",
+            "--mail-principal-id",
+            "alice",
+            "--mail-address",
+            "alice@agents.localhost",
+            "--mail-root",
+            "/mail-root",
+            "--gateway-port",
+            "9011",
+            "--prompt-overlay-mode",
+            "append",
+            "--prompt-overlay-text",
+            "Prefer Alice repository conventions.",
+        ],
+    )
+
+    assert add_result.exit_code == 0, add_result.output
+    add_payload = json.loads(add_result.output)
+    assert add_payload["profile_lane"] == "launch-profile"
+    assert add_payload["recipe"] == "researcher-codex-default"
+    assert add_payload["defaults"] == {
+        "agent_name": "alice",
+        "agent_id": "agent-alice",
+        "workdir": "/repos/alice",
+        "auth": "alice-creds",
+        "prompt_mode": "unattended",
+        "env": {"PROJECT_CONTEXT": "alice"},
+        "mailbox": {
+            "transport": "filesystem",
+            "principal_id": "alice",
+            "address": "alice@agents.localhost",
+            "filesystem_root": "/mail-root",
+        },
+        "posture": {
+            "gateway_auto_attach": True,
+            "gateway_host": "127.0.0.1",
+            "gateway_port": 9011,
+        },
+        "prompt_overlay": {
+            "mode": "append",
+            "present": True,
+        },
+    }
+    assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
+
+    get_result = runner.invoke(
+        cli, ["project", "agents", "launch-profiles", "get", "--name", "alice"]
+    )
+    assert get_result.exit_code == 0, get_result.output
+    get_payload = json.loads(get_result.output)
+    assert get_payload["source"] == {
+        "kind": "recipe",
+        "name": "researcher-codex-default",
+        "exists": True,
+        "path": str(
+            (
+                repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+            ).resolve()
+        ),
+        "recipe": "researcher-codex-default",
+        "recipe_path": str(
+            (
+                repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+            ).resolve()
+        ),
+        "tool": "codex",
+        "provider": "codex",
+        "role_name": "researcher",
+    }
+
+    list_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "list",
+            "--recipe",
+            "researcher-codex-default",
+            "--tool",
+            "codex",
+        ],
+    )
+    assert list_result.exit_code == 0, list_result.output
+    list_payload = json.loads(list_result.output)
+    assert [item["name"] for item in list_payload["launch_profiles"]] == ["alice"]
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--auth",
+            "reviewer-creds",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    assert set_payload["defaults"]["auth"] == "reviewer-creds"
+    assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
+    assert set_payload["defaults"]["prompt_overlay"]["present"] is True
+
+    remove_result = runner.invoke(
+        cli, ["project", "agents", "launch-profiles", "remove", "--name", "alice"]
+    )
+    assert remove_result.exit_code == 0, remove_result.output
+    remove_payload = json.loads(remove_result.output)
+    assert remove_payload["removed"] is True
+    assert not (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").exists()
+    assert (
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    ).is_file()
+
+
+def test_project_easy_profile_crud_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--agent-name",
+            "alice",
+            "--workdir",
+            "/repos/alice",
+            "--auth",
+            "alice-creds",
+            "--prompt-overlay-mode",
+            "replace",
+            "--prompt-overlay-text",
+            "Operate only on Alice-owned repositories.",
+        ],
+    )
+
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    assert create_payload["profile_lane"] == "easy-profile"
+    assert create_payload["specialist"] == "researcher"
+    assert create_payload["defaults"]["agent_name"] == "alice"
+    assert create_payload["defaults"]["prompt_overlay"] == {
+        "mode": "replace",
+        "present": True,
+    }
+
+    list_result = runner.invoke(cli, ["project", "easy", "profile", "list"])
+    assert list_result.exit_code == 0, list_result.output
+    list_payload = json.loads(list_result.output)
+    assert [item["name"] for item in list_payload["profiles"]] == ["alice"]
+
+    get_result = runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"])
+    assert get_result.exit_code == 0, get_result.output
+    get_payload = json.loads(get_result.output)
+    assert get_payload["profile_lane"] == "easy-profile"
+    assert get_payload["specialist"] == "researcher"
+    assert get_payload["defaults"]["auth"] == "alice-creds"
+
+    remove_result = runner.invoke(cli, ["project", "easy", "profile", "remove", "--name", "alice"])
+    assert remove_result.exit_code == 0, remove_result.output
+    remove_payload = json.loads(remove_result.output)
+    assert remove_payload["removed"] is True
+    assert (
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ).exit_code
+        == 0
+    )
+
+
+def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    profile_workdir = (tmp_path / "profile-workdir").resolve()
+    runtime_workdir = (tmp_path / "runtime-workdir").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    profile_workdir.mkdir(parents=True, exist_ok=True)
+    runtime_workdir.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+                "--agent-name",
+                "alice",
+                "--workdir",
+                str(profile_workdir),
+                "--auth",
+                "alice-creds",
+                "--mail-transport",
+                "filesystem",
+                "--mail-principal-id",
+                "alice",
+                "--mail-address",
+                "alice@agents.localhost",
+                "--mail-root",
+                "/shared-mail-root",
+                "--headless",
+                "--no-gateway",
+                "--prompt-overlay-mode",
+                "append",
+                "--prompt-overlay-text",
+                "Prefer Alice repository conventions.",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="HOUMAO-alice",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--profile",
+            "alice",
+            "--auth",
+            "breakglass",
+            "--workdir",
+            str(runtime_workdir),
+            "--no-headless",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["agents"] == str(
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    )
+    assert captured["agent_name"] == "alice"
+    assert captured["auth"] == "breakglass"
+    assert captured["working_directory"] == runtime_workdir
+    assert captured["provider"] == "codex"
+    assert captured["headless"] is False
+    assert captured["gateway_auto_attach"] is False
+    assert captured["prompt_overlay_mode"] == "append"
+    assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
+    assert captured["launch_profile_provenance"] == {
+        "name": "alice",
+        "lane": "easy_profile",
+        "source_kind": "specialist",
+        "source_name": "researcher",
+        "recipe_name": "researcher-codex-default",
+        "prompt_overlay": {
+            "mode": "append",
+            "present": True,
+        },
+    }
+    assert captured["declared_mailbox"].transport == "filesystem"
+    assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
+
+
 def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2836,22 +3274,56 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
     ]
 
 
-def test_project_easy_instance_launch_requires_specialist_and_name(tmp_path: Path) -> None:
+def test_project_easy_instance_launch_requires_specialist_and_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
 
     missing_specialist = runner.invoke(
         cli,
         ["project", "easy", "instance", "launch", "--name", "repo-research-1"],
     )
     assert missing_specialist.exit_code != 0
-    assert "Missing option '--specialist'" in missing_specialist.output
+    assert "Provide exactly one of `--specialist` or `--profile`." in missing_specialist.output
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
 
     missing_name = runner.invoke(
         cli,
         ["project", "easy", "instance", "launch", "--specialist", "researcher"],
     )
     assert missing_name.exit_code != 0
-    assert "Missing option '--name'" in missing_name.output
+    assert "`project easy instance launch --specialist` requires `--name`." in missing_name.output
 
 
 def test_project_easy_instance_launch_rejects_email_transport(
@@ -3206,6 +3678,23 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
         "role_name": "researcher",
         "tool": "codex",
         "launch_plan": {
+            "metadata": {
+                "launch_overrides": {
+                    "construction_provenance": {
+                        "launch_profile": {
+                            "name": "alice",
+                            "lane": "easy_profile",
+                            "source_kind": "specialist",
+                            "source_name": "researcher",
+                            "recipe_name": "researcher-codex-default",
+                            "prompt_overlay": {
+                                "mode": "append",
+                                "present": True,
+                            },
+                        }
+                    }
+                }
+            },
             "mailbox": {
                 "transport": "filesystem",
                 "principal_id": "HOUMAO-repo-research-1",
@@ -3214,7 +3703,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
                 "mailbox_kind": "symlink",
                 "mailbox_path": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
                 "bindings_version": "2026-03-29T12:00:00Z",
-            }
+            },
         },
         "runtime": {
             "agent_def_dir": str((repo_root / ".houmao" / "agents").resolve()),
@@ -3239,6 +3728,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     list_payload = json.loads(list_result.output)
     assert len(list_payload["instances"]) == 1
     assert list_payload["instances"][0]["specialist"] == "researcher"
+    assert list_payload["instances"][0]["easy_profile"] == "alice"
     assert list_payload["instances"][0]["tool"] == "codex"
     assert list_payload["instances"][0]["mailbox"] == {
         "transport": "filesystem",
@@ -3256,6 +3746,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert get_result.exit_code == 0
     get_payload = json.loads(get_result.output)
     assert get_payload["specialist"] == "researcher"
+    assert get_payload["easy_profile"] == "alice"
     assert get_payload["agent_id"] == "agent-123"
     assert get_payload["manifest_path"] == str(manifest_path)
     assert get_payload["mailbox"] == {

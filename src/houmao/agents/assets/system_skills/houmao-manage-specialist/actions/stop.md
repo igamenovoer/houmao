@@ -1,6 +1,6 @@
-# Stop Specialist-Backed Instance
+# Stop Easy Instance
 
-Use this action only when the user wants to stop one easy instance in the specialist workflow.
+Use this action only when the user wants to stop one easy instance in the easy workflow, whether it was launched from a specialist or from an easy profile.
 
 ## Workflow
 
@@ -23,6 +23,6 @@ Use:
 
 - Do not guess which easy instance the user meant.
 - Do not stop an instance from partial name inference when the prompt and recent chat context do not identify it explicitly.
-- Do not route specialist-scoped stop through `agents stop`.
+- Do not route easy-workflow stop through `agents stop`.
 - Do not combine stop with cleanup unless the user explicitly asks for cleanup after stop.
 - Do not imply that the specialist skill is the canonical surface for broader live-agent lifecycle management after stop.

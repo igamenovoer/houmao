@@ -1,6 +1,6 @@
 # Use Gateway Queue Control
 
-Use this action only when the user explicitly wants live-gateway queue semantics instead of the default synchronous prompt or interrupt path.
+Use this action only when the user explicitly wants live-gateway queue semantics, gateway-owned TUI inspection, or prompt provenance beyond the ordinary gateway-preferred prompt path.
 
 ## Workflow
 

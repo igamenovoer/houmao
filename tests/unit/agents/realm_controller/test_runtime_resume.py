@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.agent_identity import (
@@ -160,6 +161,54 @@ def _build_session_payload(
         )
     )
     return brain_manifest_path, session_payload
+
+
+def test_resume_runtime_session_uses_role_prompt_override_from_brain_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = (tmp_path / "repo").resolve()
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    brain_manifest_path, session_payload = _build_session_payload(
+        agent_def_dir,
+        tmp_path,
+        tool="codex",
+        backend="local_interactive",
+        backend_state={
+            "turn_index": 0,
+            "role_bootstrap_applied": True,
+            "working_directory": str(tmp_path),
+            "tmux_session_name": "HOUMAO-r",
+        },
+    )
+    brain_manifest = yaml.safe_load(brain_manifest_path.read_text(encoding="utf-8"))
+    brain_manifest["inputs"]["role_prompt_text"] = "Override prompt from launch profile"
+    brain_manifest_path.write_text(yaml.safe_dump(brain_manifest), encoding="utf-8")
+
+    session_path = (tmp_path / "session.json").resolve()
+    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+
+    captured: dict[str, str] = {}
+
+    class _StopResume(RuntimeError):
+        """Sentinel exception used to stop resume after prompt capture."""
+
+    def _fake_build_launch_plan(request: LaunchPlanRequest):
+        captured["prompt"] = request.role_package.system_prompt
+        raise _StopResume
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.build_launch_plan",
+        _fake_build_launch_plan,
+    )
+
+    with pytest.raises(_StopResume):
+        resume_runtime_session(
+            agent_def_dir=agent_def_dir,
+            session_manifest_path=session_path,
+        )
+
+    assert captured["prompt"] == "Override prompt from launch profile"
 
 
 def test_resume_headless_requires_session_id(tmp_path: Path) -> None:

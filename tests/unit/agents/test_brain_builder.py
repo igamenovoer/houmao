@@ -1007,6 +1007,42 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
     assert "--launch-arg --direct" in launch_script
 
 
+def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_override(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-profiled",
+            role_prompt_override="Operate only on Alice-owned repositories.",
+            launch_profile_provenance={
+                "name": "alice",
+                "lane": "launch_profile",
+                "source_kind": "recipe",
+                "source_name": "researcher-claude-default",
+            },
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["inputs"]["role_prompt_text"] == "Operate only on Alice-owned repositories."
+    assert manifest["runtime"]["launch_contract"]["construction_provenance"]["launch_profile"] == {
+        "name": "alice",
+        "lane": "launch_profile",
+        "source_kind": "recipe",
+        "source_name": "researcher-claude-default",
+    }
+
+
 def test_claude_tool_adapter_allowlist_and_file_mappings_include_vendor_auth_surfaces() -> None:
     agent_def_dir = Path(__file__).resolve().parents[2] / "fixtures" / "agents"
     adapter = _load_tool_adapter(agent_def_dir / "tools" / "claude" / "adapter.yaml")

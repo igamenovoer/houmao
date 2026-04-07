@@ -1,6 +1,6 @@
 # Managed-Agent HTTP Route Summary
 
-Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies the task. Use direct gateway `/v1/...` only when the lower-level route is genuinely required and the exact live `gateway.base_url` is already available from current context or supported discovery.
+Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies the task. For ordinary prompt turns and mailbox follow-up, discover live gateway capability first and prefer gateway-backed delivery when it is currently available. Use direct gateway `/v1/...` only when the lower-level route is genuinely required and the exact live `gateway.base_url` is already available from current context or supported discovery.
 
 ## Discovery
 
@@ -8,11 +8,19 @@ Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies th
 - `GET /houmao/agents/{agent_ref}/gateway`
 - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
 
-## Ordinary Prompt And Interrupt
+## Ordinary Prompt
+
+- `GET /houmao/agents/{agent_ref}/gateway`
+- `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
+- `POST /houmao/agents/{agent_ref}/requests`
+
+Normal prompt turns should check `/gateway` first. When a live gateway exists, prefer `/gateway/control/prompt` for gateway-backed prompt delivery. Use `/requests` when no live gateway is attached or when the task explicitly wants the transport-neutral managed-agent prompt route.
+
+## Transport-Neutral Interrupt
 
 - `POST /houmao/agents/{agent_ref}/requests`
 
-Use this route family for the normal managed-agent prompt and interrupt surface across both TUI and headless transports.
+Use this route family for the normal managed-agent interrupt surface across both TUI and headless transports.
 
 ## Explicit Gateway Queue And Direct Gateway Control
 
@@ -34,13 +42,14 @@ Use these routes when you need the exact raw gateway-owned tracker surface inste
 
 ## Mailbox Follow-Up
 
+- `GET /houmao/agents/{agent_ref}/mail/resolve-live`
 - `GET /houmao/agents/{agent_ref}/mail/status`
 - `POST /houmao/agents/{agent_ref}/mail/check`
 - `POST /houmao/agents/{agent_ref}/mail/send`
 - `POST /houmao/agents/{agent_ref}/mail/reply`
 - `POST /houmao/agents/{agent_ref}/mail/state`
 
-Use these routes for transport-neutral mailbox follow-up when mailbox capability is present.
+Resolve live bindings first. When `mail/resolve-live` returns a live `gateway.base_url`, prefer the shared gateway mailbox facade for outgoing or other shared mailbox operations. Use the `/houmao/agents/{agent_ref}/mail/*` routes as the transport-neutral fallback when no live gateway mailbox facade is available or the task explicitly stays on the managed-agent seam.
 
 ## Direct Gateway HTTP
 
