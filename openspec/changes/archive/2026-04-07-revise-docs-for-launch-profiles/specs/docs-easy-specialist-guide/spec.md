@@ -1,9 +1,4 @@
-# docs-easy-specialist-guide Specification
-
-## Purpose
-Define the documentation requirements for the easy-specialist conceptual guide in the getting-started section.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Easy-specialist conceptual guide exists
 
@@ -62,13 +57,3 @@ The page SHALL be derived from `project/easy.py`, `project/launch_profiles.py`, 
 - **WHEN** a reader wants to manage easy instances
 - **THEN** the page documents `instance list` for discovery, `instance get` for detailed state, and `instance stop` for shutdown
 - **AND THEN** the page explains that instances are tracked in the shared registry like any other managed agent
-
-### Requirement: Easy-specialist guide distinguishes Claude credentials from the optional state template
-The easy-specialist guide at `docs/getting-started/easy-specialists.md` SHALL describe Claude credential-providing methods separately from the optional `--claude-state-template-file` input.
-
-When the guide describes Claude specialist authoring, it SHALL make clear that `claude_state.template.json` is optional runtime bootstrap state and not itself a credential-providing method.
-
-#### Scenario: Reader sees Claude state template documented as optional bootstrap input
-- **WHEN** a reader follows the easy-specialist guide for a Claude specialist
-- **THEN** the page distinguishes Claude credential inputs from `--claude-state-template-file`
-- **AND THEN** it describes the state-template file as optional bootstrap state rather than as Claude credentials

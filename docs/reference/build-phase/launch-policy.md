@@ -88,7 +88,7 @@ Each file enforces `schema_version: 1` and contains one or more strategy definit
 
 During `BrainBuilder.build()`, the launch policy is resolved and included in the `BrainManifest`. The resolution flow:
 
-1. The build request specifies an `operator_prompt_mode` (from the preset or direct input).
+1. The build request specifies an `operator_prompt_mode` (from the recipe, the resolved launch profile, or direct input).
 2. The policy engine detects the tool version and finds the matching strategy from the registry.
 3. The strategy's actions are applied to the launch environment (environment variables, config file mutations, provider hooks).
 4. The resolved strategy provenance is recorded in the manifest for diagnostic traceability.

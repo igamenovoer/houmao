@@ -4,7 +4,7 @@ When an agent has a mailbox binding, the build phase automatically projects a se
 
 ## When Skills Are Projected
 
-Mailbox skill projection happens during `BrainBuilder.build()` after standard user-defined skills are projected. The trigger is the presence of a resolved mailbox configuration in the build request — no explicit configuration is needed beyond having a mailbox binding in the preset or build request.
+Mailbox skill projection happens during `BrainBuilder.build()` after standard user-defined skills are projected. The trigger is the presence of a resolved mailbox configuration in the build request — no explicit configuration is needed beyond having a mailbox binding in the source recipe, the resolved launch profile, or the build request.
 
 ## Projected Skills
 

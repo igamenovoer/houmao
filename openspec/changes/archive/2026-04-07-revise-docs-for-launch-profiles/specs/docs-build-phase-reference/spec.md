@@ -1,9 +1,4 @@
-# docs-build-phase-reference Specification
-
-## Purpose
-Define the documentation requirements for Houmao build-phase reference content.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Launch overrides system documented
 

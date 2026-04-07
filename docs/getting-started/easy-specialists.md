@@ -1,43 +1,39 @@
 # Easy Specialists
 
-Easy specialists are lightweight, project-local agent definitions that bundle everything needed to launch an agent — role, tool, credentials, skills, and launch configuration — into a single named configuration.
+The easy lane is the higher-level, opinionated path for project-local agents. It is built on three project-local objects: the **specialist** (the source definition), the optional **easy profile** (reusable birth-time launch configuration over one specialist), and the **instance** (the running managed agent). Specialists alone are enough for one-off setups; easy profiles add persistent launch context when the same specialist needs the same recurring `--name`, `--workdir`, mailbox, or auth lane each time.
 
-## When to Use Easy Specialists vs Full Presets
+For the shared semantic model that ties easy profiles to explicit recipe-backed launch profiles — including the precedence chain, prompt overlays, and how provenance flows into runtime metadata — see [Launch Profiles](launch-profiles.md).
 
-| Approach | Best For |
-|---|---|
-| **Easy specialist** | Quick setup, single-tool agents, operators who want an opinionated default path. One command creates a complete launchable agent definition. |
-| **Full role/preset** | Fine-grained control, multi-tool roles, shared preset libraries, custom adapter configurations. Requires manual setup of `roles/`, `tools/`, and `skills/` directories. |
+## When to Use Each Easy-Lane Object
 
-An easy specialist is a convenience layer over the full preset system. Under the hood, `specialist create` generates the same directory structure (`roles/<name>/`, `tools/<tool>/auth/<creds>/`, preset YAML) that the low-level `project agents` commands produce — it just does it in one step.
+Houmao keeps the easy lane intentionally separate from the explicit `recipe + launch-profile` lane so that operators who want a smaller authoring surface do not have to answer every low-level launch question.
 
-## Specialist → Instance → Managed Agent
+| Approach | Best for | What you author |
+|---|---|---|
+| **Easy specialist alone** | One-off setups, fast iteration, single-tool agents where the launch context changes every time. | One specialist plus repeated `--specialist`, `--name`, `--workdir`, `--auth` on each launch. |
+| **Easy specialist + easy profile** | The same specialist relaunched with the same managed-agent name, working directory, credential lane, mailbox, and launch posture. | One specialist plus one or more easy profiles authored over that specialist. |
+| **Explicit recipe + launch-profile** | Teams that need precise control over the underlying recipe (skills list, setup bundle, prompt-mode default, mailbox-source declaration) and over the full birth-time launch contract. | A recipe authored through `project agents recipes ...` plus a launch profile authored through `project agents launch-profiles ...`. |
 
-```
-┌────────────────────────┐
-│  SPECIALIST (template)  │
-│  name, tool, creds,     │
-│  skills, launch config  │
-└──────────┬─────────────┘
-           │ instance launch
-           ▼
-┌────────────────────────┐
-│  INSTANCE (runtime)     │
-│  tmux session, brain    │
-│  home, registry entry   │
-└──────────┬─────────────┘
-           │ = managed agent
-           ▼
-┌────────────────────────┐
-│  MANAGED AGENT          │
-│  controllable via       │
-│  agents prompt/stop/    │
-│  gateway/mail/...       │
-└────────────────────────┘
+An easy specialist is still a convenience layer over the full recipe system. Under the hood, `specialist create` generates the same projection structure (`roles/<name>/`, `tools/<tool>/auth/<creds>/`, the recipe under `.houmao/agents/presets/<name>.yaml`) that the low-level `project agents recipes ...` commands produce — it just does it in one step.
+
+## Specialist → Easy Profile → Instance → Managed Agent
+
+```mermaid
+flowchart TD
+    S["specialist<br/>(stored in catalog)<br/>role, tool, creds, skills,<br/>durable launch config"]
+    P["easy profile<br/>(stored in catalog)<br/>--agent-name, --workdir,<br/>--auth, mailbox, prompt overlay"]
+    I["instance<br/>(runtime)<br/>tmux session, brain home,<br/>registry entry"]
+    M["managed agent<br/>controllable via<br/>agents prompt/stop/<br/>gateway/mail/..."]
+
+    S -->|"instance launch --specialist"| I
+    S -->|"profile create --specialist"| P
+    P -->|"instance launch --profile"| I
+    I --> M
 ```
 
-- A **specialist** is a stored definition (template). It lives in the project catalog at `.houmao/catalog.sqlite` with content under `.houmao/content/`.
-- An **instance** is a running agent launched from a specialist. It gets its own tmux session, brain home, and registry entry.
+- A **specialist** is a stored source definition. It lives in the project catalog at `.houmao/catalog.sqlite` with content under `.houmao/content/`. The compatibility projection lands under `.houmao/agents/roles/<name>/` and `.houmao/agents/presets/<name>-<tool>-default.yaml`.
+- An **easy profile** is an optional reusable birth-time launch configuration that targets exactly one specialist. It lives in the same shared launch-profile catalog family that backs explicit recipe-backed launch profiles, with `profile_lane=easy_profile`. The compatibility projection lands under `.houmao/agents/launch-profiles/<name>.yaml`.
+- An **instance** is a running managed agent launched from either a specialist directly or from an easy profile. It gets its own tmux session, brain home, and registry entry.
 - An instance IS a managed agent — it appears in `agents list`, can be targeted by `agents prompt`, `agents gateway`, `agents mail`, and all other managed-agent commands.
 
 ## Creating a Specialist
@@ -105,14 +101,74 @@ houmao-mgr project easy specialist create \
   --gemini-oauth-creds ./secrets/oauth_creds.json
 ```
 
-## Launching an Instance
+## Easy Profiles
+
+An easy profile is reusable, specialist-backed birth-time launch configuration. It targets exactly one specialist and stores the launch context that the same specialist would otherwise need to be re-typed for: managed-agent identity, working directory, auth override, prompt-mode override, durable env records, declarative mailbox config, launch posture, and an optional prompt overlay.
 
 ```bash
+houmao-mgr project easy profile create \
+  --name reviewer-default \
+  --specialist my-reviewer \
+  --agent-name reviewer-1 \
+  --workdir /repos/review-target \
+  --auth my-reviewer-creds \
+  --prompt-mode unattended \
+  --no-gateway
+```
+
+Key options:
+
+| Option | Default | Description |
+|---|---|---|
+| `--name` | Required | Easy profile name. |
+| `--specialist` | Required | Source specialist name. The profile targets exactly one specialist. |
+| `--agent-name` | None | Optional default managed-agent name; lets later `instance launch --profile` omit `--name`. |
+| `--agent-id` | None | Optional default managed-agent id. |
+| `--workdir` | None | Optional default working directory. |
+| `--auth` | None | Optional default auth bundle override. |
+| `--prompt-mode` | None | Optional `unattended` or `as_is` operator prompt-mode override. |
+| `--env-set` | None | Repeatable durable launch env record (`NAME=value`). |
+| `--mail-transport` | None | Optional declarative mailbox transport (`filesystem` or `stalwart`). |
+| `--mail-root`, `--mail-principal-id`, `--mail-address`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url` | None | Optional declarative mailbox identity and endpoints (Stalwart-only fields apply only when `--mail-transport stalwart`). |
+| `--headless` | False | Persist headless launch as the default posture. |
+| `--no-gateway` | False | Persist gateway auto-attach disabled. |
+| `--gateway-port` | None | Persist one fixed loopback gateway port for launches from this profile. |
+| `--prompt-overlay-mode` | None | Optional `append` or `replace` prompt overlay. |
+| `--prompt-overlay-text` | None | Inline prompt-overlay text. |
+| `--prompt-overlay-file` | None | Path to a prompt-overlay text file (stored as managed file-backed content). |
+
+Easy profiles are stored as the same kind of catalog object that backs explicit recipe-backed launch profiles, but the easy lane keeps the authoring surface smaller and intentionally specialist-backed. The persisted profile lives in the catalog with `profile_lane=easy_profile` and `source_kind=specialist`, and projects into `.houmao/agents/launch-profiles/<name>.yaml` for low-level inspection.
+
+Manage existing easy profiles with:
+
+```bash
+houmao-mgr project easy profile list
+houmao-mgr project easy profile get --name reviewer-default
+houmao-mgr project easy profile remove --name reviewer-default
+```
+
+`profile remove` deletes only the easy profile definition. It does not remove the specialist that the profile targeted.
+
+When no active project overlay exists, `project easy profile create` ensures `<cwd>/.houmao` exists before persisting the profile, matching the bootstrap behavior of `project easy specialist create`.
+
+## Launching an Instance
+
+You can launch from a specialist directly, or from a stored easy profile. Exactly one of `--specialist` and `--profile` is required, and the two selectors are mutually exclusive.
+
+```bash
+# Direct specialist launch — supply launch context every time.
 houmao-mgr project easy instance launch \
   --specialist my-reviewer \
   --name reviewer-1 \
   --workdir ../review-target
+
+# Easy-profile launch — defaults come from the stored profile.
+houmao-mgr project easy instance launch --profile reviewer-default
 ```
+
+When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
+
+Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, and `--mail-account-dir` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 
 By default, easy instance launch also auto-attaches a live loopback gateway for the new session on `127.0.0.1` with a system-assigned port. Use `--no-gateway` to skip that default for one launch, or `--gateway-port <port>` when you want one fixed loopback listener port on the current launch. If the managed session starts but gateway attachment fails afterward, Houmao keeps the session running and reports the attach error together with the manifest/session identity so you can retry or stop it explicitly.
 
@@ -120,14 +176,15 @@ Key options:
 
 | Option | Default | Description |
 |---|---|---|
-| `--specialist` | Required | Specialist name to launch from. |
-| `--name` | Required | Managed-agent instance name. |
+| `--specialist` | One of these required | Specialist name to launch from. Mutually exclusive with `--profile`. |
+| `--profile` | One of these required | Easy profile name to launch from. Mutually exclusive with `--specialist`. |
+| `--name` | Required (or supplied by profile) | Managed-agent instance name. Optional only when `--profile` is used and the selected profile stores a default managed-agent name. |
 | `--workdir` | None | Optional runtime working directory override for the launched agent session. |
 | `--headless` | False | Launch in detached/background mode. |
 | `--no-gateway` | False | Skip the default launch-time gateway attach for this instance. |
 | `--gateway-port` | Auto | Request one fixed loopback gateway listener port for this launch. |
 | `--session-name` | None | Optional tmux session name override. |
-| `--auth` | Specialist's credential | Optional auth bundle override. |
+| `--auth` | Specialist's credential or profile default | Optional auth bundle override. |
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
 | `--mail-transport` | None | Mailbox transport: `filesystem`. |
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
@@ -135,48 +192,50 @@ Key options:
 
 Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project easy instance launch`.
 
-`--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for preset resolution plus overlay-local runtime, jobs, and mailbox defaults.
+`--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, jobs, and mailbox defaults.
 
 `--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port.
 
-There is no separate easy-launch `--yolo` override. Startup autonomy is owned by the stored specialist `launch.prompt_mode`: `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
+There is no separate easy-launch `--yolo` override. Startup autonomy is owned by the stored specialist `launch.prompt_mode` (or, when launching from an easy profile that overrides it, by the profile's stored prompt-mode override): `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 
-## Managing Specialists and Instances
+## Managing Specialists, Easy Profiles, and Instances
 
 ```bash
-# List all specialists in the project
+# Specialists
 houmao-mgr project easy specialist list
-
-# Inspect one specialist's configuration
 houmao-mgr project easy specialist get --name my-reviewer
-
-# Remove a specialist definition
 houmao-mgr project easy specialist remove --name my-reviewer
 
-# List active instances
+# Easy profiles
+houmao-mgr project easy profile list
+houmao-mgr project easy profile get --name reviewer-default
+houmao-mgr project easy profile remove --name reviewer-default
+
+# Instances
 houmao-mgr project easy instance list
-
-# Inspect one instance's state
 houmao-mgr project easy instance get --name reviewer-1
-
-# Stop an instance
 houmao-mgr project easy instance stop --name reviewer-1
 ```
 
+`project easy instance list` and `project easy instance get` report the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable. Inspection output never includes secret credential values inline; auth is reported by bundle name only.
+
 ## Storage Layout
 
-Specialist data is stored across two locations within the project overlay:
+Easy-lane data is stored across the project overlay as follows:
 
 | Location | Content |
 |---|---|
-| `.houmao/catalog.sqlite` | Specialist metadata: name, tool, provider, credentials, skills, launch config. |
-| `.houmao/content/prompts/<name>.md` | System prompt file. |
+| `.houmao/catalog.sqlite` | Specialist metadata, easy-profile metadata, and references to managed content. Both easy profiles and explicit launch profiles share the same catalog launch-profile family. |
+| `.houmao/content/prompts/<name>.md` | System prompt file (and prompt-overlay text files when an easy profile uses `--prompt-overlay-file`). |
 | `.houmao/content/auth/<tool>/<credential>/` | Auth bundle directory tree. |
 | `.houmao/content/skills/<skill>/` | Skill directory copies. |
-| `.houmao/agents/roles/<name>/` | Generated role projection with `system-prompt.md` and `presets/` subdirectory. |
+| `.houmao/agents/roles/<name>/` | Generated role projection with `system-prompt.md`. |
+| `.houmao/agents/presets/<recipe>.yaml` | Generated recipe projection (also addressable through the `presets` compatibility-alias CLI). |
+| `.houmao/agents/launch-profiles/<profile>.yaml` | Easy-profile and explicit launch-profile compatibility projection. |
 
 ## See Also
 
-- [houmao-mgr project easy](../reference/cli/houmao-mgr.md) — CLI reference for project easy commands
-- [Agent Definition Directory](agent-definitions.md) — full directory structure reference
-- [Project-Aware Operations](../reference/agents/operations/project-aware-operations.md) — how commands resolve project context
+- [Launch Profiles](launch-profiles.md) — shared conceptual model for easy profiles and explicit recipe-backed launch profiles, including the precedence chain and prompt overlays.
+- [houmao-mgr project easy](../reference/cli/houmao-mgr.md) — CLI reference for `project easy specialist`, `project easy profile`, and `project easy instance` commands.
+- [Agent Definition Directory](agent-definitions.md) — full directory structure reference, including `.houmao/agents/launch-profiles/`.
+- [Project-Aware Operations](../reference/agents/operations/project-aware-operations.md) — how commands resolve project context.

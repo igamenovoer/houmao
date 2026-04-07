@@ -35,7 +35,7 @@ When a project overlay is discovered, commands receive `ProjectAwareLocalRoots` 
 | Root | Default Location | Description |
 |---|---|---|
 | `overlay_root` | `.houmao/` | The project overlay directory. |
-| `agent_def_dir` | `.houmao/agents/` | Agent definitions (tools, roles, skills, presets). |
+| `agent_def_dir` | `.houmao/agents/` | Agent definitions (tools, roles, skills, recipes, launch profiles). |
 | `runtime_root` | `.houmao/runtime/` | Session runtime state and build artifacts. |
 | `jobs_root` | `.houmao/jobs/` | Job tracking directories. |
 | `mailbox_root` | `.houmao/mailbox/` | Project-local filesystem mailbox root. |
@@ -54,8 +54,9 @@ Each root can be overridden independently by its global environment variable:
 The project overlay includes a SQLite catalog at `.houmao/catalog.sqlite` (managed by `ProjectCatalog`) that stores:
 
 - **Specialist definitions**: Easy-specialist metadata including tool, credentials, skills, and launch configuration.
-- **Managed content references**: Pointers to prompt files, auth bundles, skill trees, and setup trees stored under `.houmao/content/`.
-- **Role and preset projections**: Generated agent tree entries used during build and launch.
+- **Launch profiles**: Reusable birth-time launch configuration shared by easy `project easy profile ...` and explicit `project agents launch-profiles ...` (catalog field `profile_lane` distinguishes the two).
+- **Managed content references**: Pointers to prompt files, auth bundles, skill trees, setup trees, and prompt-overlay files stored under `.houmao/content/`.
+- **Role, recipe, and launch-profile projections**: Generated agent tree entries used during build and launch (`.houmao/agents/roles/`, `.houmao/agents/presets/`, `.houmao/agents/launch-profiles/`).
 
 The catalog is initialized automatically during `project init` and is the authoritative source for `project easy specialist` operations.
 
