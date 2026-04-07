@@ -15,8 +15,10 @@ from .project import project_group
 from .server import server_group
 from .system_skills import system_skills_group
 
+_HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
+_ROOT_HELP_EPILOG = f"More detailed docs: {_HOUMAO_DOCS_URL}"
 
-@click.group(name="houmao-mgr", invoke_without_command=True)
+@click.group(name="houmao-mgr", invoke_without_command=True, epilog=_ROOT_HELP_EPILOG)
 @click.version_option(version=get_version())
 @output_options
 @click.pass_context

@@ -7,6 +7,7 @@ import pytest
 
 import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
+    SYSTEM_SKILL_SET_AGENT_GATEWAY,
     SYSTEM_SKILL_SET_AGENT_MESSAGING,
     SYSTEM_SKILL_SET_AGENT_INSTANCE,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
@@ -54,6 +55,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
         "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
     assert tuple(catalog.sets.keys()) == (
         "mailbox-core",
@@ -61,22 +63,26 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "user-control",
         "agent-instance",
         "agent-messaging",
+        "agent-gateway",
     )
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
+        SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
     assert catalog.auto_install.managed_join_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
+        SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_INSTANCE,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
+        SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
 
 
@@ -85,7 +91,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
 
     resolved = resolve_system_skill_selection(
         catalog,
-        set_names=("mailbox-core", "mailbox-full", "user-control", "agent-messaging"),
+        set_names=("mailbox-core", "mailbox-full", "user-control", "agent-messaging", "agent-gateway"),
         skill_names=("houmao-agent-email-comms", "houmao-manage-specialist"),
     )
 
@@ -96,11 +102,12 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
         "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
 
-def test_resolve_system_skill_selection_cli_default_includes_agent_instance_and_messaging_skills() -> (
+def test_resolve_system_skill_selection_cli_default_includes_agent_instance_messaging_and_gateway_skills() -> (
     None
 ):
     catalog = load_system_skill_catalog()
@@ -115,6 +122,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_and_
         "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
         "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
 
 
@@ -372,7 +380,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "tests/fixtures/agents" not in gemini_reference
 
 
-def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_messaging_skills(
+def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
@@ -388,12 +396,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_
     agent_messaging_path = home_path / "skills/houmao-agent-messaging/SKILL.md"
     agent_messaging_actions = home_path / "skills/houmao-agent-messaging/actions"
     agent_messaging_references = home_path / "skills/houmao-agent-messaging/references"
+    agent_gateway_path = home_path / "skills/houmao-agent-gateway/SKILL.md"
+    agent_gateway_actions = home_path / "skills/houmao-agent-gateway/actions"
+    agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
 
     assert result.selected_set_names == (
         "mailbox-full",
         "user-control",
         "agent-instance",
         "agent-messaging",
+        "agent-gateway",
     )
     assert result.projection_mode == "copy"
     assert result.resolved_skill_names == (
@@ -404,13 +416,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_
         "houmao-manage-agent-definition",
         "houmao-manage-agent-instance",
         "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
     assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
+    assert agent_gateway_path.is_file()
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
+    agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
@@ -427,8 +442,18 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_
     reset_context_action_path = agent_messaging_actions / "reset-context.md"
     intent_matrix_reference_path = agent_messaging_references / "intent-matrix.md"
     managed_agent_http_reference_path = agent_messaging_references / "managed-agent-http.md"
+    gateway_lifecycle_action_path = agent_gateway_actions / "lifecycle.md"
+    gateway_discover_action_path = agent_gateway_actions / "discover.md"
+    gateway_services_action_path = agent_gateway_actions / "gateway-services.md"
+    gateway_wakeups_action_path = agent_gateway_actions / "wakeups.md"
+    gateway_mail_notifier_action_path = agent_gateway_actions / "mail-notifier.md"
+    gateway_scope_reference_path = agent_gateway_references / "scope-and-routing.md"
+    gateway_http_reference_path = agent_gateway_references / "http-surface.md"
     reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
     mail_action = mail_action_path.read_text(encoding="utf-8")
+    gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
+    gateway_wakeups_action = gateway_wakeups_action_path.read_text(encoding="utf-8")
+    gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
 
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
@@ -468,6 +493,28 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_
     assert reset_context_action_path.is_file()
     assert intent_matrix_reference_path.is_file()
     assert managed_agent_http_reference_path.is_file()
+    assert "actions/lifecycle.md" in agent_gateway_skill
+    assert "actions/discover.md" in agent_gateway_skill
+    assert "actions/gateway-services.md" in agent_gateway_skill
+    assert "actions/wakeups.md" in agent_gateway_skill
+    assert "actions/mail-notifier.md" in agent_gateway_skill
+    assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
+    assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
+    assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
+    assert "globally installed `houmao-mgr` from uv tools" in agent_gateway_skill
+    assert gateway_lifecycle_action_path.is_file()
+    assert gateway_discover_action_path.is_file()
+    assert gateway_services_action_path.is_file()
+    assert gateway_wakeups_action_path.is_file()
+    assert gateway_mail_notifier_action_path.is_file()
+    assert gateway_scope_reference_path.is_file()
+    assert gateway_http_reference_path.is_file()
+    assert "HOUMAO_AGENT_ID" in gateway_discover_action
+    assert "agents mail resolve-live" in gateway_discover_action
+    assert "/v1/wakeups" in gateway_wakeups_action
+    assert "gateway stop or restart" in gateway_wakeups_action
+    assert "process-local in-memory state" in gateway_wakeups_action
+    assert "/houmao/agents/{agent_ref}/gateway/wakeups" in gateway_http_reference
     assert "POST /houmao/agents/{agent_ref}/gateway/control/prompt" in reset_context_action
     assert 'chat_session.mode = "new"' in reset_context_action
     assert "houmao-process-emails-via-gateway" in mail_action

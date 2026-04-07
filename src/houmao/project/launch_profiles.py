@@ -138,6 +138,13 @@ def launch_profile_defaults_payload(
         payload["workdir"] = entry.workdir
     if entry.auth_name is not None:
         payload["auth"] = entry.auth_name
+    if entry.model_name is not None or entry.reasoning_level is not None:
+        model_payload: dict[str, Any] = {}
+        if entry.model_name is not None:
+            model_payload["name"] = entry.model_name
+        if entry.reasoning_level is not None:
+            model_payload["reasoning"] = {"level": entry.reasoning_level}
+        payload["model"] = model_payload
     if entry.operator_prompt_mode is not None:
         payload["prompt_mode"] = entry.operator_prompt_mode
     if entry.env_payload:

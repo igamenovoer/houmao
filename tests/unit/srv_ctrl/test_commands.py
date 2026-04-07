@@ -29,6 +29,8 @@ from houmao.srv_ctrl.server_startup import (
 )
 from houmao.version import get_version
 
+_HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
+
 
 class _FakeSession:
     def __init__(self, session_id: str) -> None:
@@ -136,6 +138,8 @@ def test_bare_invocation_prints_help() -> None:
     assert "agents" in result.output
     assert "mailbox" in result.output
     assert "system-skills" in result.output
+    assert "More detailed docs:" in result.output
+    assert _HOUMAO_DOCS_URL in result.output
     assert "cao" not in result.output
     assert "\nTraceback" not in result.output
 
@@ -145,6 +149,8 @@ def test_root_help_lists_version_flag() -> None:
 
     assert result.exit_code == 0
     assert "--version" in result.output
+    assert "More detailed docs:" in result.output
+    assert _HOUMAO_DOCS_URL in result.output
 
 
 def test_root_version_reports_packaged_version() -> None:

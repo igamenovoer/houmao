@@ -26,11 +26,13 @@ SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
 SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
 SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
 SYSTEM_SKILL_SET_AGENT_MESSAGING = "agent-messaging"
+SYSTEM_SKILL_SET_AGENT_GATEWAY = "agent-gateway"
 SYSTEM_SKILL_MANAGE_SPECIALIST = "houmao-manage-specialist"
 SYSTEM_SKILL_MANAGE_CREDENTIALS = "houmao-manage-credentials"
 SYSTEM_SKILL_MANAGE_AGENT_DEFINITION = "houmao-manage-agent-definition"
 SYSTEM_SKILL_MANAGE_AGENT_INSTANCE = "houmao-manage-agent-instance"
 SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
+SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",

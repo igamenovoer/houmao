@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any
+from typing import Any, cast
 
 import click
 
@@ -17,6 +17,7 @@ from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
+from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.native_launch_resolver import (
     infer_launch_source_directory_from_agent_def_dir,
     resolve_effective_agent_def_dir,
@@ -44,6 +45,7 @@ from houmao.agents.realm_controller.errors import (
 from houmao.agents.realm_controller.models import HeadlessResumeSelection, JoinedLaunchEnvBinding
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
+    ProjectAwareLocalRoots,
     ensure_project_aware_local_roots,
     materialize_project_agent_catalog_projection,
     resolve_project_aware_local_roots,
@@ -186,7 +188,7 @@ def _pinned_launch_source_env() -> dict[str, str]:
     return env
 
 
-def _materialize_source_agent_def_dir(*, project_roots: Any) -> Path:
+def _materialize_source_agent_def_dir(*, project_roots: ProjectAwareLocalRoots) -> Path:
     """Resolve the effective agent-definition tree for one source context."""
 
     if project_roots.project_overlay is not None:
@@ -233,6 +235,34 @@ def _parse_stored_launch_profile_mailbox_or_click(
         raise click.ClickException(str(exc)) from exc
 
 
+def _normalize_model_name_or_click(value: str | None) -> str | None:
+    """Return one optional non-empty model name."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise click.ClickException("`--model` must not be empty.")
+    return stripped
+
+
+def _resolve_operator_prompt_mode_or_click(
+    value: str | None,
+    *,
+    source: str,
+) -> OperatorPromptMode | None:
+    """Return one validated operator prompt mode from stored launch-profile state."""
+
+    if value is None:
+        return None
+    if value not in {"as_is", "unattended"}:
+        raise click.ClickException(
+            f"{source} stores invalid launch.prompt_mode {value!r}; expected `as_is` or "
+            "`unattended`."
+        )
+    return cast(OperatorPromptMode, value)
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -258,6 +288,8 @@ def launch_managed_agent_locally(
     declared_mailbox: MailboxDeclarativeConfig | None = None,
     operator_prompt_mode: OperatorPromptMode | None = None,
     persistent_env_records: dict[str, str] | None = None,
+    launch_profile_model_config: ModelConfig | None = None,
+    direct_model_config: ModelConfig | None = None,
     prompt_overlay_mode: str | None = None,
     prompt_overlay_text: str | None = None,
     launch_profile_provenance: dict[str, Any] | None = None,
@@ -333,6 +365,9 @@ def launch_managed_agent_locally(
                 auth=auth or target.preset.auth,
                 preset_path=target.preset_path,
                 preset_launch_overrides=target.preset.launch_overrides,
+                preset_model_config=getattr(target.preset, "launch_model_config", None),
+                launch_profile_model_config=launch_profile_model_config,
+                direct_model_config=direct_model_config,
                 operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
                 persistent_env_records=effective_persistent_env_records,
                 mailbox=declared_mailbox or target.preset.mailbox,
@@ -489,6 +524,13 @@ def agents_group() -> None:
 @click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
 @click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
+@click.option("--model", default=None, help="Optional one-off launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional one-off Houmao-defined reasoning override (1..10).",
+)
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option(
@@ -525,6 +567,8 @@ def launch_agents_command(
     agent_name: str | None,
     agent_id: str | None,
     auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     session_name: str | None,
     headless: bool,
     workdir: Path | None,
@@ -550,14 +594,19 @@ def launch_agents_command(
     resolved_source_agent_def_dir: Path | None = None
     resolved_headless = headless
     declared_mailbox = None
-    operator_prompt_mode = None
+    operator_prompt_mode: OperatorPromptMode | None = None
     persistent_env_records: dict[str, str] | None = None
+    launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
     launch_profile_provenance = None
     gateway_auto_attach = False
     gateway_host = None
     gateway_port = None
+    direct_model_config = normalize_model_config(
+        name=_normalize_model_name_or_click(model),
+        reasoning_level=reasoning_level,
+    )
 
     if launch_profile is not None:
         try:
@@ -598,8 +647,15 @@ def launch_agents_command(
         resolved_auth = resolved_auth or resolved_profile.entry.auth_name
         if workdir is None and resolved_profile.entry.workdir is not None:
             resolved_working_directory = Path(resolved_profile.entry.workdir).expanduser().resolve()
-        operator_prompt_mode = resolved_profile.entry.operator_prompt_mode
+        operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
+            resolved_profile.entry.operator_prompt_mode,
+            source=f"launch profile `{resolved_profile.entry.name}`",
+        )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
+        launch_profile_model_config = normalize_model_config(
+            name=resolved_profile.entry.model_name,
+            reasoning_level=resolved_profile.entry.reasoning_level,
+        )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
         launch_profile_provenance = {
@@ -664,6 +720,8 @@ def launch_agents_command(
         declared_mailbox=declared_mailbox,
         operator_prompt_mode=operator_prompt_mode,
         persistent_env_records=persistent_env_records,
+        launch_profile_model_config=launch_profile_model_config,
+        direct_model_config=direct_model_config,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
         launch_profile_provenance=launch_profile_provenance,

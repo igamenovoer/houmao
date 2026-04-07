@@ -195,6 +195,56 @@ launch:
     }
 
 
+def test_parse_agent_preset_accepts_unified_model_config(tmp_path: Path) -> None:
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
+    _write(
+        preset_path,
+        """
+role: gpu-kernel-coder
+tool: claude
+setup: default
+skills:
+  - skill-a
+launch:
+  prompt_mode: unattended
+  model:
+    name: claude-sonnet-4-5
+    reasoning:
+      level: 7
+""".strip()
+        + "\n",
+    )
+
+    preset = parse_agent_preset(preset_path)
+
+    assert preset.launch_model_config is not None
+    assert preset.launch_model_config.name == "claude-sonnet-4-5"
+    assert preset.launch_model_config.reasoning is not None
+    assert preset.launch_model_config.reasoning.level == 7
+
+
+def test_parse_agent_preset_rejects_out_of_range_reasoning_level(tmp_path: Path) -> None:
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
+    _write(
+        preset_path,
+        """
+role: gpu-kernel-coder
+tool: claude
+setup: default
+skills:
+  - skill-a
+launch:
+  model:
+    reasoning:
+      level: 11
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match="1 through 10"):
+        parse_agent_preset(preset_path)
+
+
 def test_parse_agent_preset_rejects_invalid_gateway_defaults_under_extra(tmp_path: Path) -> None:
     preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
     _write(

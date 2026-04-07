@@ -322,6 +322,7 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     assert (codex_home / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
     processing_skill = processing_skill_path.read_text(encoding="utf-8")
     gateway_skill = gateway_skill_path.read_text(encoding="utf-8")
@@ -341,6 +342,7 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
         "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
 
 
@@ -395,6 +397,7 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert (claude_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (claude_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
     assert not (claude_home / "skills/mailbox").exists()
     assert not (tmp_path / ".claude").exists()
@@ -453,6 +456,7 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert (gemini_home / ".gemini/skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (gemini_home / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
     assert not (gemini_home / ".gemini/skills/mailbox").exists()
 

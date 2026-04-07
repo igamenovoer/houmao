@@ -15,12 +15,13 @@ import sqlite3
 import tomllib
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
+from houmao.agents.model_selection import parse_reasoning_level
 from houmao.agents.definition_parser import parse_agent_preset
 
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 3
+CATALOG_SCHEMA_VERSION = 4
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -121,6 +122,8 @@ class LaunchProfileCatalogEntry:
     managed_agent_id: str | None
     workdir: str | None
     auth_name: str | None
+    model_name: str | None
+    reasoning_level: int | None
     operator_prompt_mode: str | None
     env_payload: dict[str, str]
     mailbox_payload: dict[str, Any] | None
@@ -549,6 +552,8 @@ class ProjectCatalog:
                     launch_profiles.managed_agent_id,
                     launch_profiles.workdir,
                     launch_profiles.auth_name,
+                    launch_profiles.model_name,
+                    launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
@@ -581,6 +586,8 @@ class ProjectCatalog:
                     launch_profiles.managed_agent_id,
                     launch_profiles.workdir,
                     launch_profiles.auth_name,
+                    launch_profiles.model_name,
+                    launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
@@ -618,6 +625,8 @@ class ProjectCatalog:
         posture_mapping: dict[str, Any] | None,
         prompt_overlay_mode: str | None,
         prompt_overlay_text: str | None,
+        model_name: str | None = None,
+        reasoning_level: int | None = None,
     ) -> LaunchProfileCatalogEntry:
         """Insert or update one shared launch-profile record."""
 
@@ -638,6 +647,14 @@ class ProjectCatalog:
             raise ValueError("Prompt-overlay mode must be `append` or `replace` when provided.")
         if prompt_overlay_mode is not None and prompt_overlay_text is None:
             raise ValueError("Prompt-overlay mode requires prompt-overlay text.")
+        resolved_model_name = (
+            model_name.strip() if model_name is not None and model_name.strip() else None
+        )
+        resolved_reasoning_level = (
+            parse_reasoning_level(reasoning_level, source="launch_profiles.reasoning_level")
+            if reasoning_level is not None
+            else None
+        )
 
         prompt_overlay_ref: ManagedContentRef | None = None
         if prompt_overlay_text is not None:
@@ -665,6 +682,8 @@ class ProjectCatalog:
                     managed_agent_id,
                     workdir,
                     auth_name,
+                    model_name,
+                    reasoning_level,
                     operator_prompt_mode,
                     env_payload,
                     mailbox_payload,
@@ -673,7 +692,7 @@ class ProjectCatalog:
                     prompt_overlay_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -682,6 +701,8 @@ class ProjectCatalog:
                     managed_agent_id = excluded.managed_agent_id,
                     workdir = excluded.workdir,
                     auth_name = excluded.auth_name,
+                    model_name = excluded.model_name,
+                    reasoning_level = excluded.reasoning_level,
                     operator_prompt_mode = excluded.operator_prompt_mode,
                     env_payload = excluded.env_payload,
                     mailbox_payload = excluded.mailbox_payload,
@@ -699,6 +720,8 @@ class ProjectCatalog:
                     managed_agent_id,
                     workdir,
                     auth_name,
+                    resolved_model_name,
+                    resolved_reasoning_level,
                     operator_prompt_mode,
                     json.dumps(env_mapping or {}, sort_keys=True),
                     json.dumps(mailbox_mapping or {}, sort_keys=True),
@@ -766,11 +789,11 @@ class ProjectCatalog:
                 _replace_tree(source=skill_source, destination=skill_target)
         launch_profiles_root = (self.m_projection_root / "launch-profiles").resolve()
         launch_profiles_root.mkdir(parents=True, exist_ok=True)
-        for entry in launch_profiles:
-            profile_target = (launch_profiles_root / f"{entry.name}.yaml").resolve()
+        for launch_profile in launch_profiles:
+            profile_target = (launch_profiles_root / f"{launch_profile.name}.yaml").resolve()
             profile_target.write_text(
                 _render_launch_profile_yaml(
-                    entry=entry,
+                    entry=launch_profile,
                     content_root=self.m_content_root,
                 ),
                 encoding="utf-8",
@@ -951,6 +974,8 @@ class ProjectCatalog:
                     managed_agent_id TEXT,
                     workdir TEXT,
                     auth_name TEXT,
+                    model_name TEXT,
+                    reasoning_level INTEGER,
                     operator_prompt_mode TEXT,
                     env_payload TEXT NOT NULL DEFAULT '{{}}',
                     mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
@@ -963,6 +988,15 @@ class ProjectCatalog:
                 )
                 """
             )
+        if current_version <= 3:
+            if not _table_has_column(
+                connection, table_name="launch_profiles", column_name="model_name"
+            ):
+                connection.execute("ALTER TABLE launch_profiles ADD COLUMN model_name TEXT")
+            if not _table_has_column(
+                connection, table_name="launch_profiles", column_name="reasoning_level"
+            ):
+                connection.execute("ALTER TABLE launch_profiles ADD COLUMN reasoning_level INTEGER")
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -1322,6 +1356,15 @@ class ProjectCatalog:
             else None,
             workdir=str(row["workdir"]) if row["workdir"] is not None else None,
             auth_name=str(row["auth_name"]) if row["auth_name"] is not None else None,
+            model_name=str(row["model_name"]) if row["model_name"] is not None else None,
+            reasoning_level=(
+                parse_reasoning_level(
+                    int(row["reasoning_level"]),
+                    source=f"launch profile `{row['name']}` reasoning_level",
+                )
+                if row["reasoning_level"] is not None
+                else None
+            ),
             operator_prompt_mode=(
                 str(row["operator_prompt_mode"])
                 if row["operator_prompt_mode"] is not None
@@ -1448,6 +1491,8 @@ def _table_schema_sql() -> str:
         managed_agent_id TEXT,
         workdir TEXT,
         auth_name TEXT,
+        model_name TEXT,
+        reasoning_level INTEGER,
         operator_prompt_mode TEXT,
         env_payload TEXT NOT NULL DEFAULT '{{}}',
         mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
@@ -1531,6 +1576,8 @@ def _view_sql() -> str:
         launch_profiles.managed_agent_id AS managed_agent_id,
         launch_profiles.workdir AS workdir,
         launch_profiles.auth_name AS auth_name,
+        launch_profiles.model_name AS model_name,
+        launch_profiles.reasoning_level AS reasoning_level,
         launch_profiles.operator_prompt_mode AS operator_prompt_mode,
         launch_profiles.env_payload AS env_payload,
         launch_profiles.mailbox_payload AS mailbox_payload,
@@ -1661,6 +1708,12 @@ def _render_launch_profile_yaml(
         defaults["workdir"] = entry.workdir
     if entry.auth_name is not None:
         defaults["auth"] = entry.auth_name
+    if entry.model_name is not None or entry.reasoning_level is not None:
+        defaults["model"] = {}
+        if entry.model_name is not None:
+            defaults["model"]["name"] = entry.model_name
+        if entry.reasoning_level is not None:
+            defaults["model"]["reasoning"] = {"level": entry.reasoning_level}
     if entry.operator_prompt_mode is not None:
         defaults["prompt_mode"] = entry.operator_prompt_mode
     if entry.env_payload:

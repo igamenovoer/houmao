@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 import yaml
@@ -21,9 +21,15 @@ from houmao.agents.launch_env import (
     resolve_runtime_env_set_specs,
     validate_persistent_env_records,
 )
+from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
     serialize_declarative_mailbox_config,
+)
+from houmao.agents.model_selection import (
+    ModelConfig,
+    model_config_to_payload,
+    normalize_model_config,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.project.catalog import ProjectCatalog
@@ -1162,6 +1168,13 @@ def get_project_preset_command(name: str) -> None:
     default=None,
     help="Optional launch.prompt_mode value; defaults to `unattended`.",
 )
+@click.option("--model", default=None, help="Optional launch-owned model name.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
+)
 def add_project_preset_command(
     name: str,
     role: str,
@@ -1170,6 +1183,8 @@ def add_project_preset_command(
     skill_names: tuple[str, ...],
     auth: str | None,
     prompt_mode: str | None,
+    model: str | None,
+    reasoning_level: int | None,
 ) -> None:
     """Create one minimal project-local named recipe."""
 
@@ -1194,6 +1209,10 @@ def add_project_preset_command(
         skills=[_require_non_empty_name(value, field_name="--skill") for value in skill_names],
         auth=_optional_non_empty_value(auth),
         prompt_mode=_optional_non_empty_value(prompt_mode),
+        model_config=_build_model_config_or_click(
+            model_name=_resolve_model_name_or_click(model),
+            reasoning_level=reasoning_level,
+        ),
     )
     emit(
         {
@@ -1233,6 +1252,19 @@ def add_project_preset_command(
     help="Optional launch.prompt_mode override.",
 )
 @click.option("--clear-prompt-mode", is_flag=True, help="Clear launch.prompt_mode.")
+@click.option("--model", default=None, help="Optional launch-owned model name override.")
+@click.option("--clear-model", is_flag=True, help="Clear launch.model.name.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning level override (1..10).",
+)
+@click.option(
+    "--clear-reasoning-level",
+    is_flag=True,
+    help="Clear launch.model.reasoning.level.",
+)
 def set_project_preset_command(
     name: str,
     role: str | None,
@@ -1245,6 +1277,10 @@ def set_project_preset_command(
     clear_skills: bool,
     prompt_mode: str | None,
     clear_prompt_mode: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
 ) -> None:
     """Update one existing project-local named recipe."""
 
@@ -1257,6 +1293,12 @@ def set_project_preset_command(
         raise click.ClickException("`--auth` cannot be combined with `--clear-auth`.")
     if clear_prompt_mode and prompt_mode is not None:
         raise click.ClickException("`--prompt-mode` cannot be combined with `--clear-prompt-mode`.")
+    if clear_model and model is not None:
+        raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
+    if clear_reasoning_level and reasoning_level is not None:
+        raise click.ClickException(
+            "`--reasoning-level` cannot be combined with `--clear-reasoning-level`."
+        )
     if (
         role is None
         and tool_name is None
@@ -1268,6 +1310,10 @@ def set_project_preset_command(
         and not clear_skills
         and prompt_mode is None
         and not clear_prompt_mode
+        and model is None
+        and not clear_model
+        and reasoning_level is None
+        and not clear_reasoning_level
     ):
         raise click.ClickException("No recipe updates were requested.")
 
@@ -1335,6 +1381,32 @@ def set_project_preset_command(
         launch_mapping["prompt_mode"] = prompt_mode
     elif clear_prompt_mode:
         launch_mapping.pop("prompt_mode", None)
+    current_model_payload = _build_model_config_or_click(
+        model_name=parsed_preset.launch.model_config.name
+        if parsed_preset.launch.model_config is not None
+        else None,
+        reasoning_level=parsed_preset.launch.model_config.reasoning.level
+        if parsed_preset.launch.model_config is not None
+        and parsed_preset.launch.model_config.reasoning is not None
+        else None,
+    )
+    updated_model_config = _merge_model_config_for_storage(
+        current_name=current_model_payload.name if current_model_payload is not None else None,
+        current_reasoning_level=(
+            current_model_payload.reasoning.level
+            if current_model_payload is not None and current_model_payload.reasoning is not None
+            else None
+        ),
+        model_name=_resolve_model_name_or_click(model) if model is not None else None,
+        reasoning_level=reasoning_level,
+        clear_model=clear_model,
+        clear_reasoning_level=clear_reasoning_level,
+    )
+    model_payload = _model_mapping_payload(updated_model_config)
+    if model_payload is None:
+        launch_mapping.pop("model", None)
+    else:
+        launch_mapping["model"] = model_payload
     if launch_mapping:
         raw_payload["launch"] = launch_mapping
     else:
@@ -1424,6 +1496,13 @@ def get_project_launch_profile_command(name: str) -> None:
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option("--model", default=None, help="Optional launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+)
 @click.option(
     "--prompt-mode",
     type=click.Choice(("unattended", "as_is")),
@@ -1482,6 +1561,8 @@ def add_project_launch_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
     mail_transport: str | None,
@@ -1511,6 +1592,8 @@ def add_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        model=model,
+        reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
         mail_transport=mail_transport,
@@ -1534,6 +1617,8 @@ def add_project_launch_profile_command(
         clear_agent_id=False,
         clear_workdir=False,
         clear_auth=False,
+        clear_model=False,
+        clear_reasoning_level=False,
         clear_prompt_mode=False,
         existing_name=None,
     )
@@ -1552,6 +1637,19 @@ def add_project_launch_profile_command(
 @click.option("--clear-workdir", is_flag=True, help="Clear the stored default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
 @click.option("--clear-auth", is_flag=True, help="Clear the stored auth override.")
+@click.option("--model", default=None, help="Optional launch-owned model override.")
+@click.option("--clear-model", is_flag=True, help="Clear the stored launch-owned model.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+)
+@click.option(
+    "--clear-reasoning-level",
+    is_flag=True,
+    help="Clear the stored launch-owned reasoning level.",
+)
 @click.option(
     "--prompt-mode",
     type=click.Choice(("unattended", "as_is")),
@@ -1620,6 +1718,10 @@ def set_project_launch_profile_command(
     clear_workdir: bool,
     auth: str | None,
     clear_auth: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
     prompt_mode: str | None,
     clear_prompt_mode: bool,
     env_set: tuple[str, ...],
@@ -1659,6 +1761,8 @@ def set_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        model=model,
+        reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
         mail_transport=mail_transport,
@@ -1682,6 +1786,8 @@ def set_project_launch_profile_command(
         clear_agent_id=clear_agent_id,
         clear_workdir=clear_workdir,
         clear_auth=clear_auth,
+        clear_model=clear_model,
+        clear_reasoning_level=clear_reasoning_level,
         clear_prompt_mode=clear_prompt_mode,
         existing_name=profile_name,
     )
@@ -1729,6 +1835,13 @@ def easy_profile_group() -> None:
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option("--model", default=None, help="Optional launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+)
 @click.option(
     "--prompt-mode",
     type=click.Choice(("unattended", "as_is")),
@@ -1787,6 +1900,8 @@ def create_easy_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
     mail_transport: str | None,
@@ -1816,6 +1931,8 @@ def create_easy_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        model=model,
+        reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
         mail_transport=mail_transport,
@@ -1839,6 +1956,8 @@ def create_easy_profile_command(
         clear_agent_id=False,
         clear_workdir=False,
         clear_auth=False,
+        clear_model=False,
+        clear_reasoning_level=False,
         clear_prompt_mode=False,
         existing_name=None,
     )
@@ -1926,7 +2045,18 @@ def easy_specialist_group() -> None:
 )
 @click.option("--claude-auth-token", default=None, help="Optional Claude auth token input.")
 @click.option("--claude-oauth-token", default=None, help="Optional Claude OAuth token input.")
-@click.option("--claude-model", default=None, help="Optional Claude model input.")
+@click.option("--model", default=None, help="Optional launch-owned default model name.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
+)
+@click.option(
+    "--claude-model",
+    default=None,
+    help="Compatibility alias for `--model` on Claude specialists.",
+)
 @click.option(
     "--claude-state-template-file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
@@ -1987,6 +2117,8 @@ def create_easy_specialist_command(
     base_url: str | None,
     claude_auth_token: str | None,
     claude_oauth_token: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     claude_model: str | None,
     claude_state_template_file: Path | None,
     claude_config_dir: Path | None,
@@ -2049,6 +2181,15 @@ def create_easy_specialist_command(
         adapter=adapter,
         env_set=env_set,
     )
+    if model is not None and claude_model is not None:
+        raise click.ClickException("`--model` cannot be combined with `--claude-model`.")
+    if claude_model is not None and tool_name != "claude":
+        raise click.ClickException("`--claude-model` is only supported with `--tool claude`.")
+    resolved_model_name = _resolve_model_name_or_click(model or claude_model)
+    resolved_model_config = _build_model_config_or_click(
+        model_name=resolved_model_name,
+        reasoning_level=reasoning_level,
+    )
     auth_result = _ensure_specialist_auth_bundle(
         overlay=overlay,
         tool=tool_name,
@@ -2057,7 +2198,6 @@ def create_easy_specialist_command(
         base_url=base_url,
         claude_auth_token=claude_auth_token,
         claude_oauth_token=claude_oauth_token,
-        claude_model=claude_model,
         claude_state_template_file=claude_state_template_file,
         claude_config_dir=claude_config_dir,
         codex_org_id=codex_org_id,
@@ -2070,6 +2210,9 @@ def create_easy_specialist_command(
         "as_is" if no_unattended or tool_name not in {"claude", "codex", "gemini"} else "unattended"
     )
     launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}
+    model_payload = _model_mapping_payload(resolved_model_config)
+    if model_payload is not None:
+        launch_mapping["model"] = model_payload
     if persistent_env_records:
         launch_mapping["env_records"] = dict(persistent_env_records)
 
@@ -2102,6 +2245,7 @@ def create_easy_specialist_command(
         skills=[skill_path.name for skill_path in imported_skills],
         auth=credential_name,
         prompt_mode=prompt_mode,
+        model_config=resolved_model_config,
         env_records=persistent_env_records,
         overwrite=replace_conflict is not None,
     )
@@ -2203,6 +2347,13 @@ def easy_instance_group() -> None:
 @click.option("--profile", default=None, help="Easy profile name.")
 @click.option("--name", default=None, help="Managed-agent instance name.")
 @click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
+@click.option("--model", default=None, help="Optional one-off launch-owned model override.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Optional one-off Houmao-defined reasoning override (1..10).",
+)
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option(
     "--headless/--no-headless",
@@ -2255,6 +2406,8 @@ def launch_easy_instance_command(
     profile: str | None,
     name: str | None,
     auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     session_name: str | None,
     headless: bool | None,
     no_gateway: bool,
@@ -2275,13 +2428,18 @@ def launch_easy_instance_command(
 
     resolved_profile = None
     declared_mailbox = None
-    operator_prompt_mode = None
+    operator_prompt_mode: OperatorPromptMode | None = None
     persistent_env_records: dict[str, str] | None = None
+    launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
     launch_profile_provenance = None
+    direct_model_config = _build_model_config_or_click(
+        model_name=_resolve_model_name_or_click(model),
+        reasoning_level=reasoning_level,
+    )
     default_gateway_auto_attach = True
-    default_gateway_host = "127.0.0.1"
+    default_gateway_host: str | None = "127.0.0.1"
     default_gateway_port: int | None = 0
     if profile is not None:
         resolved_profile = _load_launch_profile_or_click(
@@ -2299,8 +2457,15 @@ def launch_easy_instance_command(
             resolved_profile.entry.mailbox_payload,
             source=f"easy profile `{resolved_profile.entry.name}`",
         )
-        operator_prompt_mode = resolved_profile.entry.operator_prompt_mode
+        operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
+            resolved_profile.entry.operator_prompt_mode,
+            source=f"easy profile `{resolved_profile.entry.name}`",
+        )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
+        launch_profile_model_config = _build_model_config_or_click(
+            model_name=resolved_profile.entry.model_name,
+            reasoning_level=resolved_profile.entry.reasoning_level,
+        )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
@@ -2329,6 +2494,7 @@ def launch_easy_instance_command(
             else (workdir or Path.cwd()).resolve()
         )
     else:
+        assert specialist is not None
         specialist_metadata = _load_specialist_or_click(
             overlay=overlay,
             name=_require_non_empty_name(specialist, field_name="--specialist"),
@@ -2406,6 +2572,8 @@ def launch_easy_instance_command(
         declared_mailbox=declared_mailbox,
         operator_prompt_mode=operator_prompt_mode,
         persistent_env_records=persistent_env_records,
+        launch_profile_model_config=launch_profile_model_config,
+        direct_model_config=direct_model_config,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
         launch_profile_provenance=launch_profile_provenance,
@@ -3099,6 +3267,7 @@ def _write_named_preset(
     skills: list[str],
     auth: str | None,
     prompt_mode: str | None,
+    model_config: ModelConfig | None = None,
     env_records: dict[str, str] | None = None,
     overwrite: bool = False,
 ) -> Path:
@@ -3125,6 +3294,9 @@ def _write_named_preset(
     if auth is not None:
         payload["auth"] = auth
     payload["launch"] = {"prompt_mode": resolved_prompt_mode}
+    model_payload = _model_mapping_payload(model_config)
+    if model_payload is not None:
+        payload["launch"]["model"] = model_payload
     if env_records:
         payload["launch"]["env_records"] = dict(env_records)
     _write_yaml_mapping(preset_file, payload)
@@ -3505,7 +3677,6 @@ def _ensure_specialist_auth_bundle(
     base_url: str | None,
     claude_auth_token: str | None,
     claude_oauth_token: str | None,
-    claude_model: str | None,
     claude_state_template_file: Path | None,
     claude_config_dir: Path | None,
     codex_org_id: str | None,
@@ -3524,7 +3695,6 @@ def _ensure_specialist_auth_bundle(
                 "ANTHROPIC_AUTH_TOKEN": claude_auth_token,
                 "CLAUDE_CODE_OAUTH_TOKEN": claude_oauth_token,
                 "ANTHROPIC_BASE_URL": base_url,
-                "ANTHROPIC_MODEL": claude_model,
             }
         )
         file_sources = _claude_auth_file_sources(
@@ -4024,6 +4194,8 @@ def _store_launch_profile_from_cli(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
     mail_transport: str | None,
@@ -4047,6 +4219,8 @@ def _store_launch_profile_from_cli(
     clear_agent_id: bool,
     clear_workdir: bool,
     clear_auth: bool,
+    clear_model: bool,
+    clear_reasoning_level: bool,
     clear_prompt_mode: bool,
     existing_name: str | None,
 ) -> dict[str, object]:
@@ -4115,12 +4289,17 @@ def _store_launch_profile_from_cli(
             else None
         )
     )
+    resolved_model_input = _resolve_model_name_or_click(model) if model is not None else None
 
     if current is None:
         resolved_agent_name = _optional_non_empty_value(agent_name)
         resolved_agent_id = _optional_non_empty_value(agent_id)
         resolved_workdir = _optional_non_empty_value(workdir)
         resolved_auth = _optional_non_empty_value(auth)
+        resolved_model_config = _build_model_config_or_click(
+            model_name=resolved_model_input,
+            reasoning_level=reasoning_level,
+        )
         resolved_prompt_mode = _optional_non_empty_value(prompt_mode)
         resolved_mailbox = mailbox_mapping
         resolved_env = env_mapping if env_mapping is not None else {}
@@ -4164,6 +4343,20 @@ def _store_launch_profile_from_cli(
             None
             if clear_auth
             else (_optional_non_empty_value(auth) if auth is not None else current.entry.auth_name)
+        )
+        if clear_model and model is not None:
+            raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
+        if clear_reasoning_level and reasoning_level is not None:
+            raise click.ClickException(
+                "`--reasoning-level` cannot be combined with `--clear-reasoning-level`."
+            )
+        resolved_model_config = _merge_model_config_for_storage(
+            current_name=current.entry.model_name,
+            current_reasoning_level=current.entry.reasoning_level,
+            model_name=resolved_model_input,
+            reasoning_level=reasoning_level,
+            clear_model=clear_model,
+            clear_reasoning_level=clear_reasoning_level,
         )
         if clear_prompt_mode and prompt_mode is not None:
             raise click.ClickException(
@@ -4215,6 +4408,10 @@ def _store_launch_profile_from_cli(
             clear_workdir,
             auth is not None,
             clear_auth,
+            model is not None,
+            clear_model,
+            reasoning_level is not None,
+            clear_reasoning_level,
             prompt_mode is not None,
             clear_prompt_mode,
             bool(env_set),
@@ -4243,6 +4440,12 @@ def _store_launch_profile_from_cli(
         managed_agent_id=resolved_agent_id,
         workdir=resolved_workdir,
         auth_name=resolved_auth,
+        model_name=resolved_model_config.name if resolved_model_config is not None else None,
+        reasoning_level=(
+            resolved_model_config.reasoning.level
+            if resolved_model_config is not None and resolved_model_config.reasoning is not None
+            else None
+        ),
         operator_prompt_mode=resolved_prompt_mode,
         env_mapping=resolved_env,
         mailbox_mapping=resolved_mailbox,
@@ -4646,6 +4849,85 @@ def _write_yaml_mapping(path: Path, payload: dict[str, object]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+
+def _resolve_model_name_or_click(
+    value: str | None,
+    *,
+    field_name: str = "--model",
+) -> str | None:
+    """Return one optional non-empty model name."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise click.ClickException(f"{field_name} must not be empty.")
+    return stripped
+
+
+def _build_model_config_or_click(
+    *,
+    model_name: str | None,
+    reasoning_level: int | None,
+) -> ModelConfig | None:
+    """Build one normalized model config from CLI inputs."""
+
+    try:
+        return normalize_model_config(name=model_name, reasoning_level=reasoning_level)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_operator_prompt_mode_or_click(
+    value: str | None,
+    *,
+    source: str,
+) -> OperatorPromptMode | None:
+    """Return one validated operator prompt mode from stored project state."""
+
+    if value is None:
+        return None
+    if value not in {"as_is", "unattended"}:
+        raise click.ClickException(
+            f"{source} stores invalid launch.prompt_mode {value!r}; expected `as_is` or "
+            "`unattended`."
+        )
+    return cast(OperatorPromptMode, value)
+
+
+def _model_mapping_payload(model_config: ModelConfig | None) -> dict[str, object] | None:
+    """Return one YAML/JSON-ready payload for optional model config."""
+
+    payload = model_config_to_payload(model_config)
+    if payload is None:
+        return None
+    return payload
+
+
+def _merge_model_config_for_storage(
+    *,
+    current_name: str | None,
+    current_reasoning_level: int | None,
+    model_name: str | None,
+    reasoning_level: int | None,
+    clear_model: bool,
+    clear_reasoning_level: bool,
+) -> ModelConfig | None:
+    """Resolve one stored model-config mutation on a per-subfield basis."""
+
+    resolved_name = (
+        None if clear_model else (model_name if model_name is not None else current_name)
+    )
+    resolved_reasoning_level = (
+        None
+        if clear_reasoning_level
+        else (reasoning_level if reasoning_level is not None else current_reasoning_level)
+    )
+    return _build_model_config_or_click(
+        model_name=resolved_name,
+        reasoning_level=resolved_reasoning_level,
+    )
 
 
 def _resolve_required_prompt_text(

@@ -912,6 +912,96 @@ def test_project_agents_presets_set_preserves_advanced_blocks(
     assert payload["extra"] == {"gateway": {"host": "127.0.0.1", "port": 43123}}
 
 
+def test_project_agents_recipes_add_and_set_support_unified_model_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            ["project", "agents", "roles", "init", "--name", "researcher"],
+        ).exit_code
+        == 0
+    )
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "recipes",
+            "add",
+            "--name",
+            "researcher-codex-default",
+            "--role",
+            "researcher",
+            "--tool",
+            "codex",
+            "--model",
+            "gpt-5.4",
+            "--reasoning-level",
+            "6",
+        ],
+    )
+
+    assert add_result.exit_code == 0, add_result.output
+    get_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "agents", "recipes", "get", "--name", "researcher-codex-default"],
+        ).output
+    )
+    assert get_payload["launch"] == {
+        "prompt_mode": "unattended",
+        "model": {"name": "gpt-5.4", "reasoning": {"level": 6}},
+    }
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "recipes",
+            "set",
+            "--name",
+            "researcher-codex-default",
+            "--clear-model",
+            "--reasoning-level",
+            "4",
+        ],
+    )
+
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    assert set_payload["launch"] == {
+        "prompt_mode": "unattended",
+        "model": {"reasoning": {"level": 4}},
+    }
+
+    clear_reasoning_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "recipes",
+            "set",
+            "--name",
+            "researcher-codex-default",
+            "--clear-reasoning-level",
+        ],
+    )
+
+    assert clear_reasoning_result.exit_code == 0, clear_reasoning_result.output
+    clear_payload = json.loads(clear_reasoning_result.output)
+    assert clear_payload["launch"] == {"prompt_mode": "unattended"}
+
+
 def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1518,9 +1608,7 @@ def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_
         "numStartups": 5,
     }
     assert not (auth_root / "files" / "claude_state.template.json").exists()
-    assert (auth_root / "env" / "vars.env").read_text(encoding="utf-8").splitlines() == [
-        "ANTHROPIC_MODEL=claude-sonnet-4-5"
-    ]
+    assert (auth_root / "env" / "vars.env").read_text(encoding="utf-8").strip() == ""
 
     specialist_payload = json.loads(
         runner.invoke(
@@ -1530,6 +1618,65 @@ def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_
     )
     assert specialist_payload["tool"] == "claude"
     assert specialist_payload["credential"] == "claude-imported-creds"
+    assert specialist_payload["launch"] == {
+        "prompt_mode": "unattended",
+        "model": {"name": "claude-sonnet-4-5"},
+    }
+
+
+def test_project_easy_specialist_create_persists_unified_model_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "reviewer",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "You review code precisely.",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--model",
+            "gpt-5.4",
+            "--reasoning-level",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "reviewer-codex-default.yaml"
+    assert yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == {
+        "prompt_mode": "unattended",
+        "model": {"name": "gpt-5.4", "reasoning": {"level": 6}},
+    }
+    specialist_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "easy", "specialist", "get", "--name", "reviewer"],
+        ).output
+    )
+    assert specialist_payload["launch"] == {
+        "prompt_mode": "unattended",
+        "model": {"name": "gpt-5.4", "reasoning": {"level": 6}},
+    }
 
 
 def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
@@ -2282,6 +2429,10 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "/repos/alice",
             "--auth",
             "alice-creds",
+            "--model",
+            "gpt-5.4-mini",
+            "--reasoning-level",
+            "4",
             "--prompt-mode",
             "unattended",
             "--env-set",
@@ -2312,6 +2463,7 @@ def test_project_agents_launch_profiles_crud_round_trip(
         "agent_id": "agent-alice",
         "workdir": "/repos/alice",
         "auth": "alice-creds",
+        "model": {"name": "gpt-5.4-mini", "reasoning": {"level": 4}},
         "prompt_mode": "unattended",
         "env": {"PROJECT_CONTEXT": "alice"},
         "mailbox": {
@@ -2385,11 +2537,13 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "alice",
             "--auth",
             "reviewer-creds",
+            "--clear-model",
         ],
     )
     assert set_result.exit_code == 0, set_result.output
     set_payload = json.loads(set_result.output)
     assert set_payload["defaults"]["auth"] == "reviewer-creds"
+    assert set_payload["defaults"]["model"] == {"reasoning": {"level": 4}}
     assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
     assert set_payload["defaults"]["prompt_overlay"]["present"] is True
 
@@ -2459,6 +2613,10 @@ def test_project_easy_profile_crud_round_trip(
             "/repos/alice",
             "--auth",
             "alice-creds",
+            "--model",
+            "gpt-5.4-mini",
+            "--reasoning-level",
+            "4",
             "--prompt-overlay-mode",
             "replace",
             "--prompt-overlay-text",
@@ -2471,6 +2629,10 @@ def test_project_easy_profile_crud_round_trip(
     assert create_payload["profile_lane"] == "easy-profile"
     assert create_payload["specialist"] == "researcher"
     assert create_payload["defaults"]["agent_name"] == "alice"
+    assert create_payload["defaults"]["model"] == {
+        "name": "gpt-5.4-mini",
+        "reasoning": {"level": 4},
+    }
     assert create_payload["defaults"]["prompt_overlay"] == {
         "mode": "replace",
         "present": True,
@@ -2559,6 +2721,10 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
                 str(profile_workdir),
                 "--auth",
                 "alice-creds",
+                "--model",
+                "gpt-5.4-mini",
+                "--reasoning-level",
+                "4",
                 "--mail-transport",
                 "filesystem",
                 "--mail-principal-id",
@@ -2609,6 +2775,10 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
             "breakglass",
             "--workdir",
             str(runtime_workdir),
+            "--model",
+            "gpt-5.4-nano",
+            "--reasoning-level",
+            "9",
             "--no-headless",
         ],
     )
@@ -2623,6 +2793,10 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["provider"] == "codex"
     assert captured["headless"] is False
     assert captured["gateway_auto_attach"] is False
+    assert captured["launch_profile_model_config"].name == "gpt-5.4-mini"
+    assert captured["launch_profile_model_config"].reasoning.level == 4
+    assert captured["direct_model_config"].name == "gpt-5.4-nano"
+    assert captured["direct_model_config"].reasoning.level == 9
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
     assert captured["launch_profile_provenance"] == {

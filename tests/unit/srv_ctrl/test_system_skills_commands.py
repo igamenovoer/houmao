@@ -7,7 +7,13 @@ from click.testing import CliRunner
 
 from houmao.srv_ctrl.commands.main import cli
 
-_DEFAULT_SET_NAMES = ["mailbox-full", "user-control", "agent-instance", "agent-messaging"]
+_DEFAULT_SET_NAMES = [
+    "mailbox-full",
+    "user-control",
+    "agent-instance",
+    "agent-messaging",
+    "agent-gateway",
+]
 _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
@@ -16,6 +22,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-manage-agent-definition",
     "houmao-manage-agent-instance",
     "houmao-agent-messaging",
+    "houmao-agent-gateway",
 ]
 
 
@@ -47,17 +54,20 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "user-control",
         "agent-instance",
         "agent-messaging",
+        "agent-gateway",
     ]
     assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
     assert payload["auto_install"]["managed_launch_sets"] == [
         "mailbox-full",
         "user-control",
         "agent-messaging",
+        "agent-gateway",
     ]
     assert payload["auto_install"]["managed_join_sets"] == [
         "mailbox-full",
         "user-control",
         "agent-messaging",
+        "agent-gateway",
     ]
     user_control_record = next(
         record for record in payload["sets"] if record["name"] == "user-control"
@@ -71,6 +81,10 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         record for record in payload["sets"] if record["name"] == "agent-messaging"
     )
     assert agent_messaging_record["skills"] == ["houmao-agent-messaging"]
+    agent_gateway_record = next(
+        record for record in payload["sets"] if record["name"] == "agent-gateway"
+    )
+    assert agent_gateway_record["skills"] == ["houmao-agent-gateway"]
 
 
 def test_system_skills_install_uses_cli_default_selection_when_selection_is_omitted(
@@ -104,6 +118,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-agent-instance/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
 
     status_result = CliRunner().invoke(
         cli,
@@ -210,6 +225,7 @@ def test_system_skills_install_uses_project_scoped_codex_default_home(
     assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
     assert (expected_home / "skills/houmao-manage-agent-instance/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
 
 
 def test_system_skills_install_uses_project_root_for_gemini_default_home(

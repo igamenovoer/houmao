@@ -59,6 +59,8 @@ Key options:
 | `--with-skill` | None | Repeatable. Path to a skill directory (must contain `SKILL.md`). |
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
+| `--model` | None | Optional launch-owned default model name. |
+| `--reasoning-level` | None | Optional Houmao-defined launch-owned reasoning level on the normalized `1..10` scale. |
 
 Claude-specific auth inputs now support four maintained credential lanes plus separate optional bootstrap state:
 
@@ -68,7 +70,9 @@ Claude-specific auth inputs now support four maintained credential lanes plus se
 - Vendor login-state lane: `--claude-config-dir /path/to/claude-config-root`, which imports `.credentials.json` and companion `.claude.json` when present
 - Optional bootstrap-only state: `--claude-state-template-file /path/to/claude_state.template.json`
 
-`--claude-state-template-file` is not itself a credential-providing method. It only carries reusable Claude runtime bootstrap state. Optional `--base-url` and `--claude-model` can be layered onto any supported Claude credential lane.
+`--claude-state-template-file` is not itself a credential-providing method. It only carries reusable Claude runtime bootstrap state. Optional `--base-url`, `--model`, and `--reasoning-level` can be layered onto any supported Claude credential lane. `--claude-model` remains available only as a temporary compatibility alias for `--model` on Claude specialists.
+
+Use `--reasoning-level` as Houmao's portable `1..10` reasoning scale. If you need vendor-native tuning beyond that portable surface, keep it in tool-specific skills or credential/bootstrap content instead of the core easy-specialist CLI.
 
 For the file-level handling rules, including what `.credentials.json` vs `.claude.json` means and how to validate the lane locally, see [Claude Vendor Login Files](../reference/claude-vendor-login-files.md).
 

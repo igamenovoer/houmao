@@ -67,6 +67,8 @@ At minimum, recipe add SHALL support authoring:
 - `skills` through repeated `--skill`
 - optional `auth` through `--auth`
 - optional `launch.prompt_mode` through `--prompt-mode`
+- optional `launch.model` through `--model`
+- optional `launch.model.reasoning.level` through `--reasoning-level`
 
 Allowed `--prompt-mode` values SHALL be `unattended` and `as_is`.
 
@@ -86,6 +88,12 @@ Recipe add SHALL fail if the target recipe file already exists.
 - `auth`
 - `skills`
 - `launch.prompt_mode`
+- `launch.model`
+- `launch.model.reasoning.level`
+
+`recipes set` SHALL support clearing the stored model through `--clear-model`.
+
+`recipes set` SHALL support clearing the stored reasoning level through `--clear-reasoning-level`.
 
 When a recipe already contains `mailbox` or `extra`, `recipes get` SHALL report those blocks and `recipes set` SHALL preserve them unless a future dedicated flag edits them explicitly.
 
@@ -97,16 +105,28 @@ Named recipes SHALL remain the reusable source objects that explicit launch prof
 
 The system SHALL reject creation or mutation that would make two recipes share the same `(role, tool, setup)` tuple.
 
-#### Scenario: Add creates a named default unattended recipe when prompt mode is omitted
-- **WHEN** an operator runs `houmao-mgr project agents recipes add --name researcher-claude-default --role researcher --tool claude --auth default --skill notes`
-- **THEN** the command creates `.houmao/agents/presets/researcher-claude-default.yaml`
-- **AND THEN** the written recipe stores `role: researcher`, `tool: claude`, `setup: default`, `skills`, `auth`, and `launch.prompt_mode: unattended`
+#### Scenario: Add creates a named recipe with stored model when requested
+- **WHEN** an operator runs `houmao-mgr project agents recipes add --name researcher-codex-default --role researcher --tool codex --auth default --skill notes --model gpt-5.4 --reasoning-level 6`
+- **THEN** the command creates `.houmao/agents/presets/researcher-codex-default.yaml`
+- **AND THEN** the written recipe stores `role: researcher`, `tool: codex`, `setup: default`, `skills`, `auth`, `launch.prompt_mode: unattended`, model `gpt-5.4`, and reasoning level `6`
 
-#### Scenario: Set patches one named recipe without dropping advanced blocks
+#### Scenario: Set patches one named recipe model without dropping advanced blocks
 - **WHEN** `.houmao/agents/presets/researcher-codex-default.yaml` exists with `mailbox` and `extra` blocks
-- **AND WHEN** an operator runs `houmao-mgr project agents recipes set --name researcher-codex-default --auth reviewer-creds --add-skill notes`
+- **AND WHEN** an operator runs `houmao-mgr project agents recipes set --name researcher-codex-default --model gpt-5.4-mini --add-skill notes`
 - **THEN** the command updates only the edited recipe fields
 - **AND THEN** the recipe still retains its pre-existing `mailbox` and `extra` blocks
+
+#### Scenario: Set can clear the stored recipe model
+- **WHEN** `.houmao/agents/presets/researcher-codex-default.yaml` exists with `launch.model: gpt-5.4`
+- **AND WHEN** an operator runs `houmao-mgr project agents recipes set --name researcher-codex-default --clear-model`
+- **THEN** the command removes the stored recipe model selection
+- **AND THEN** other `launch` fields remain intact unless edited explicitly
+
+#### Scenario: Set can clear the stored recipe reasoning level
+- **WHEN** `.houmao/agents/presets/researcher-codex-default.yaml` exists with stored reasoning level `6`
+- **AND WHEN** an operator runs `houmao-mgr project agents recipes set --name researcher-codex-default --clear-reasoning-level`
+- **THEN** the command removes the stored recipe reasoning selection
+- **AND THEN** other `launch` fields remain intact unless edited explicitly
 
 #### Scenario: Duplicate role-tool-setup tuple is rejected
 - **WHEN** `.houmao/agents/presets/researcher-codex-default.yaml` already declares `role: researcher`, `tool: codex`, and `setup: default`

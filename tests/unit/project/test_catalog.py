@@ -191,6 +191,8 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         managed_agent_id="agent-alice",
         workdir="/repos/alice",
         auth_name="alice-creds",
+        model_name="gpt-5.4-mini",
+        reasoning_level=4,
         operator_prompt_mode="unattended",
         env_mapping={"OPENAI_BASE_URL": "https://api.example.test/v1"},
         mailbox_mapping={
@@ -220,6 +222,10 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "agent_id": "agent-alice",
             "workdir": "/repos/alice",
             "auth": "alice-creds",
+            "model": {
+                "name": "gpt-5.4-mini",
+                "reasoning": {"level": 4},
+            },
             "prompt_mode": "unattended",
             "env": {"OPENAI_BASE_URL": "https://api.example.test/v1"},
             "mailbox": {
@@ -247,6 +253,8 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 source_name,
                 managed_agent_name,
                 auth_name,
+                model_name,
+                reasoning_level,
                 prompt_overlay_mode
             FROM v_launch_profiles
             """
@@ -258,6 +266,8 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "researcher-codex-default",
             "alice",
             "alice-creds",
+            "gpt-5.4-mini",
+            4,
             "append",
         )
     finally:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tomllib
 
 import pytest
 import yaml
@@ -15,6 +16,7 @@ from houmao.agents.brain_builder import (
 )
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.system_skills import load_system_skill_install_state
 
 
@@ -252,6 +254,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
@@ -263,6 +266,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
         "houmao-agent-messaging",
+        "houmao-agent-gateway",
     )
 
     # Credential file projection and env contract setup.
@@ -847,6 +851,7 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
     assert (
         result.home_path / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
+    assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
@@ -1037,6 +1042,132 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
         "lane": "launch_profile",
         "source_kind": "recipe",
         "source_name": "researcher-claude-default",
+    }
+
+
+def test_build_brain_home_resolves_model_selection_precedence_for_codex(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="codex-home-model-selection",
+            preset_model_config=ModelConfig(
+                name="gpt-5.4",
+                reasoning=ModelReasoningConfig(level=7),
+            ),
+            launch_profile_model_config=ModelConfig(
+                reasoning=ModelReasoningConfig(level=3),
+            ),
+            direct_model_config=ModelConfig(
+                name="gpt-5.4-nano",
+                reasoning=ModelReasoningConfig(level=10),
+            ),
+        )
+    )
+
+    payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["model"] == "gpt-5.4-nano"
+    assert payload["model_reasoning_effort"] == "xhigh"
+    assert manifest["runtime"]["launch_contract"]["model_selection"]["resolved"] == {
+        "effective": {"name": "gpt-5.4-nano", "reasoning": {"level": 10}},
+        "sources": {
+            "name": "direct_launch",
+            "reasoning_level": "direct_launch",
+        },
+    }
+
+
+def test_build_brain_home_projects_claude_model_selection(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_claude_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="claude",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="claude-home-model-selection",
+            operator_prompt_mode="as_is",
+            preset_model_config=ModelConfig(
+                name="claude-sonnet-4-5",
+                reasoning=ModelReasoningConfig(level=10),
+            ),
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    settings_payload = json.loads((result.home_path / "settings.json").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert "export ANTHROPIC_MODEL=claude-sonnet-4-5" in launch_script
+    assert settings_payload["effortLevel"] == "high"
+    assert manifest["runtime"]["launch_contract"]["model_selection"]["native_projection"][
+        "reasoning"
+    ] == {
+        "tool": "claude",
+        "tool_version": None,
+        "requested_level": 10,
+        "model_name": "claude-sonnet-4-5",
+        "native_scale": "effortLevel",
+        "native_value": "high",
+        "clamped": True,
+        "projection_target": {
+            "surface": "json",
+            "path": "settings.json",
+            "key_path": ["effortLevel"],
+        },
+    }
+
+
+def test_build_brain_home_projects_gemini_model_selection(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            home_id="gemini-home-model-selection",
+            preset_model_config=ModelConfig(
+                name="gemini-2.5-flash",
+                reasoning=ModelReasoningConfig(level=10),
+            ),
+        )
+    )
+
+    settings_payload = json.loads(
+        (result.home_path / ".gemini" / "settings.json").read_text(encoding="utf-8")
+    )
+
+    assert settings_payload["model"]["name"] == "gemini-2.5-flash"
+    assert settings_payload["modelConfigs"]["customOverrides"][0] == {
+        "match": {"model": "gemini-2.5-flash"},
+        "modelConfig": {
+            "generateContentConfig": {
+                "thinkingConfig": {
+                    "thinkingBudget": 16384,
+                }
+            }
+        },
     }
 
 

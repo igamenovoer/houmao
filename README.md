@@ -226,8 +226,9 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-manage-agent-definition` | List, inspect, initialize, update, and remove roles and recipes |
 | `houmao-manage-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, follow up by mailbox, and reset context for already-running managed agents |
+| `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule wakeups, and manage gateway mail-notifier behavior |
 
-`agents join` and `agents launch` auto-install the packaged `user-control` and `agent-messaging` skills into managed homes by default. To prepare an external tool home with the broader CLI-default selection, including the separate lifecycle-only `houmao-manage-agent-instance` skill, run:
+`agents join` and `agents launch` auto-install the packaged mailbox skills plus `user-control`, `agent-messaging`, and `agent-gateway` into managed homes by default. To prepare an external tool home with the broader CLI-default selection, which also adds the separate lifecycle-only `houmao-manage-agent-instance` skill, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude

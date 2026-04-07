@@ -29,12 +29,24 @@ from houmao.agents.launch_overrides import (
     helper_launch_args,
     parse_launch_overrides,
 )
+from houmao.agents.launch_policy.provider_hooks import (
+    load_json_state,
+    load_toml_state,
+    set_json_key,
+    set_toml_key,
+)
 from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
     serialize_declarative_mailbox_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.model_mapping_policy import project_reasoning_level
+from houmao.agents.model_selection import (
+    ModelConfig,
+    model_config_to_payload,
+    resolve_model_config_layers,
+)
 from houmao.agents.system_skills import install_system_skills_for_home
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
@@ -63,6 +75,7 @@ class BuildRequest:
     auth: str | None = None
     preset_path: Path | None = None
     preset_launch_overrides: LaunchOverrides | None = None
+    preset_model_config: ModelConfig | None = None
     runtime_root: Path | None = None
     mailbox: MailboxDeclarativeConfig | None = None
     agent_name: str | None = None
@@ -77,6 +90,8 @@ class BuildRequest:
     credential_profile: str | None = None
     recipe_path: Path | None = None
     recipe_launch_overrides: LaunchOverrides | None = None
+    launch_profile_model_config: ModelConfig | None = None
+    direct_model_config: ModelConfig | None = None
     role_prompt_override: str | None = None
     launch_profile_provenance: dict[str, Any] | None = None
 
@@ -663,6 +678,45 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         **derived_launch_env_records,
         **persistent_env_records,
     }
+    baseline_model_config = _extract_native_model_config_baseline(
+        tool=request.tool,
+        home_path=home_path,
+        auth_env_values=env_values,
+    )
+    resolved_model_config = resolve_model_config_layers(
+        (
+            ("baseline_native", baseline_model_config),
+            ("source_launch", request.preset_model_config),
+            ("launch_profile", request.launch_profile_model_config),
+            ("direct_launch", request.direct_model_config),
+        )
+    )
+    projected_model_env_exports: dict[str, str] = {}
+    model_projection = _project_model_name(
+        tool=request.tool,
+        home_path=home_path,
+        model_name=(
+            resolved_model_config.config.name
+            if (
+                resolved_model_config.config is not None
+                and resolved_model_config.name_source is not None
+                and resolved_model_config.name_source != "baseline_native"
+            )
+            else None
+        ),
+        launch_env_exports=projected_model_env_exports,
+    )
+    reasoning_projection = None
+    if (
+        resolved_model_config.config is not None
+        and resolved_model_config.config.reasoning is not None
+    ):
+        reasoning_projection = project_reasoning_level(
+            home_path=home_path,
+            tool=request.tool,
+            requested_level=resolved_model_config.config.reasoning.level,
+            model_name=resolved_model_config.config.name,
+        )
 
     if adapter.env_injection_mode == "home_dotenv":
         env_file_in_home = adapter.env_file_in_home or ".env"
@@ -682,6 +736,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         env_exports={
             **{key: env_values[key] for key in selected_env_names},
             **effective_launch_env_records,
+            **projected_model_env_exports,
         },
         operator_prompt_mode=resolved_operator_prompt_mode,
     )
@@ -739,6 +794,21 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 },
                 "tool_metadata": adapter.launch_metadata.to_payload(),
                 "env_records": dict(effective_launch_env_records),
+                "model_selection": {
+                    "requested_layers": {
+                        "baseline_native": model_config_to_payload(baseline_model_config),
+                        "source_launch": model_config_to_payload(request.preset_model_config),
+                        "launch_profile": model_config_to_payload(
+                            request.launch_profile_model_config
+                        ),
+                        "direct_launch": model_config_to_payload(request.direct_model_config),
+                    },
+                    "resolved": resolved_model_config.to_payload(),
+                    "native_projection": {
+                        "model": model_projection,
+                        "reasoning": reasoning_projection,
+                    },
+                },
                 "construction_provenance": construction_provenance,
             },
         },
@@ -826,6 +896,98 @@ def _derive_gemini_launch_env_records(
     ):
         return {}
     return {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def _extract_native_model_config_baseline(
+    *,
+    tool: str,
+    home_path: Path,
+    auth_env_values: dict[str, str],
+) -> ModelConfig | None:
+    """Extract one launch-time baseline model config from copied native state."""
+
+    if tool == "claude":
+        model_name = _non_empty_str(auth_env_values.get("ANTHROPIC_MODEL"))
+        return ModelConfig(name=model_name) if model_name is not None else None
+
+    if tool == "codex":
+        config_path = home_path / "config.toml"
+        try:
+            payload = load_toml_state(config_path, repair_invalid=True)
+        except Exception:
+            payload = {}
+        model_name = _non_empty_str(payload.get("model"))
+        return ModelConfig(name=model_name) if model_name is not None else None
+
+    if tool == "gemini":
+        settings_path = home_path / ".gemini" / "settings.json"
+        try:
+            payload = load_json_state(settings_path)
+        except Exception:
+            payload = {}
+        model_payload = payload.get("model")
+        model_name = None
+        if isinstance(model_payload, dict):
+            model_name = _non_empty_str(model_payload.get("name"))
+        return ModelConfig(name=model_name) if model_name is not None else None
+
+    return None
+
+
+def _project_model_name(
+    *,
+    tool: str,
+    home_path: Path,
+    model_name: str | None,
+    launch_env_exports: dict[str, str],
+) -> dict[str, Any] | None:
+    """Project one resolved model name into the runtime home or launch env."""
+
+    if model_name is None:
+        return None
+    if tool == "claude":
+        launch_env_exports["ANTHROPIC_MODEL"] = model_name
+        return {
+            "surface": "env",
+            "env_name": "ANTHROPIC_MODEL",
+            "value": model_name,
+        }
+    if tool == "codex":
+        set_toml_key(
+            path=home_path / "config.toml",
+            key_path=("model",),
+            value=model_name,
+            repair_invalid=True,
+        )
+        return {
+            "surface": "toml",
+            "path": "config.toml",
+            "key_path": ["model"],
+            "value": model_name,
+        }
+    if tool == "gemini":
+        set_json_key(
+            path=home_path / ".gemini" / "settings.json",
+            key_path=("model", "name"),
+            value=model_name,
+            repair_invalid=True,
+        )
+        return {
+            "surface": "json",
+            "path": ".gemini/settings.json",
+            "key_path": ["model", "name"],
+            "value": model_name,
+        }
+    raise BuildError(f"Unsupported model projection tool `{tool}`.")
+
+
+def _non_empty_str(value: object) -> str | None:
+    """Return one stripped string when present and non-empty."""
+
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped if stripped else None
 
 
 def _has_non_empty_env_value(env_values: dict[str, str], key: str) -> bool:
@@ -983,6 +1145,7 @@ def main(argv: list[str] | None = None) -> int:
         auth=auth_raw,
         preset_path=preset_path,
         preset_launch_overrides=recipe.launch_overrides if recipe else None,
+        preset_model_config=recipe.launch_model_config if recipe else None,
         mailbox=recipe.mailbox if recipe else None,
         agent_name=recipe.default_agent_name if recipe else None,
         home_id=namespace.home_id,

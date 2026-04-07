@@ -7,13 +7,14 @@ This is the same packaged skill system used internally by:
 - `houmao-mgr brains build` when it creates a managed home,
 - `houmao-mgr agents join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
 
-The current implementation is still intentionally narrow. It currently covers the mailbox-oriented Houmao-owned skills plus five packaged non-mailbox Houmao skills:
+The current implementation is still intentionally narrow. It currently covers the mailbox-oriented Houmao-owned skills plus six packaged non-mailbox Houmao skills:
 
 - `houmao-manage-specialist` for reusable specialist and easy-profile authoring plus easy-workflow launch and stop entry
 - `houmao-manage-credentials` for project-local credential management
 - `houmao-manage-agent-definition` for low-level role and recipe definition management (canonical `project agents recipes ...` plus the compatibility `project agents presets ...` alias)
 - `houmao-manage-agent-instance` for live managed-agent instance lifecycle
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox, and reset-context workflows
+- `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, wakeups, and gateway mail-notifier behavior
 
 It does not yet generalize to non-skill asset kinds.
 
@@ -70,12 +71,13 @@ Current sets:
 - `user-control`
 - `agent-instance`
 - `agent-messaging`
+- `agent-gateway`
 
 Current fixed auto-install selections:
 
-- managed launch: `mailbox-full`, `user-control`, `agent-messaging`
-- managed join: `mailbox-full`, `user-control`, `agent-messaging`
-- CLI default: `mailbox-full`, `user-control`, `agent-instance`, `agent-messaging`
+- managed launch: `mailbox-full`, `user-control`, `agent-messaging`, `agent-gateway`
+- managed join: `mailbox-full`, `user-control`, `agent-messaging`, `agent-gateway`
+- CLI default: `mailbox-full`, `user-control`, `agent-instance`, `agent-messaging`, `agent-gateway`
 
 ## Current Skill Inventory
 
@@ -90,6 +92,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-manage-agent-definition`
 - `houmao-manage-agent-instance`
 - `houmao-agent-messaging`
+- `houmao-agent-gateway`
 
 These skill trees live directly under:
 
@@ -180,6 +183,7 @@ pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mai
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-instance
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-messaging
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-gateway
 pixi run houmao-mgr system-skills install --tool gemini --set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-manage-specialist --symlink
 ```
@@ -225,7 +229,9 @@ For the `agent-instance` set, the packaged skill is `houmao-manage-agent-instanc
 
 For the `agent-messaging` set, the packaged skill is `houmao-agent-messaging`. Its top-level `SKILL.md` is the Houmao-owned router for communication with already-running managed agents across `agents prompt`, `agents interrupt`, `agents gateway prompt|interrupt`, `agents gateway send-keys`, `agents gateway tui state|history|note-prompt`, `agents mail resolve-live|status|check|send|reply|mark-read`, and the matching `/houmao/agents/*` HTTP routes. It routes by communication intent rather than by one hardcoded transport path, prefers the managed-agent seam for ordinary prompt and interrupt work, documents direct gateway HTTP only for lower-level gateway-only control such as the current reset-context APIs, and keeps transport-specific mailbox detail in the mailbox skill family rather than in the generic messaging skill.
 
-CLI-default installation now includes all five packaged non-mailbox Houmao skills. Managed launch and managed join auto-install the full `user-control` set plus `agent-messaging`, but they still do not automatically add the separate `agent-instance` lifecycle set.
+For the `agent-gateway` set, the packaged skill is `houmao-agent-gateway`. Its top-level `SKILL.md` is the Houmao-owned router for live gateway lifecycle and gateway-only services across `agents gateway attach|detach|status`, current-session manifest-first discovery, explicit gateway control, direct `/v1/wakeups`, and `agents gateway mail-notifier ...`. It is explicit about the supported discovery boundary: current-session targeting resolves through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` second, shared mailbox work should still obtain the exact current `gateway.base_url` through `agents mail resolve-live`, and `/v1/wakeups` remains non-durable live gateway state rather than a persisted recovery queue.
+
+CLI-default installation now includes all six packaged non-mailbox Houmao skills. Managed launch and managed join auto-install the full `user-control` set plus `agent-messaging` and `agent-gateway`, but they still do not automatically add the separate `agent-instance` lifecycle set.
 
 ## When To Use This Surface
 
@@ -233,7 +239,7 @@ Use `system-skills` when:
 
 - you want to prepare an external Claude, Codex, or Gemini home before using `houmao-mgr`
 - you want to inspect whether Houmao already installed its own skill set into a home
-- you want the same Houmao-owned mailbox, low-level definition-management, specialist-management, credential-management, messaging/control, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
+- you want the same Houmao-owned mailbox, low-level definition-management, specialist-management, credential-management, messaging/control, gateway-management, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
 
 Do not use it for:
 
