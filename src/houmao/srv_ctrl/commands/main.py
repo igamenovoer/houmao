@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import click
 
+from houmao.version import get_version
+
 from .admin import admin_group
 from .agents import agents_group
 from .brains import brains_group
@@ -15,6 +17,7 @@ from .system_skills import system_skills_group
 
 
 @click.group(name="houmao-mgr", invoke_without_command=True)
+@click.version_option(version=get_version())
 @output_options
 @click.pass_context
 def cli(ctx: click.Context, print_style: str | None) -> None:

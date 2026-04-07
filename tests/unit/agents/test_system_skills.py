@@ -586,6 +586,75 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
     assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
 
 
+def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_recorded_skills(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "gemini-home").resolve()
+    _write(
+        home_path / ".agents/skills/houmao-manage-specialist/SKILL.md",
+        "old specialist path\n",
+    )
+    _write(
+        home_path / ".agents/skills/houmao-manage-agent-instance/SKILL.md",
+        "old agent-instance path\n",
+    )
+    state_path = system_skill_state_path_for_home(home_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "tool": "gemini",
+                "installed_at": "2026-04-05T00:00:00Z",
+                "installed_skills": [
+                    {
+                        "name": "houmao-manage-specialist",
+                        "asset_subpath": "houmao-manage-specialist",
+                        "projected_relative_dir": ".agents/skills/houmao-manage-specialist",
+                        "projection_mode": "copy",
+                        "content_digest": "old-specialist",
+                    },
+                    {
+                        "name": "houmao-manage-agent-instance",
+                        "asset_subpath": "houmao-manage-agent-instance",
+                        "projected_relative_dir": ".agents/skills/houmao-manage-agent-instance",
+                        "projection_mode": "copy",
+                        "content_digest": "old-agent-instance",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = install_system_skills_for_home(
+        tool="gemini",
+        home_path=home_path,
+        skill_names=("houmao-manage-specialist",),
+    )
+
+    assert result.projected_relative_dirs == (".gemini/skills/houmao-manage-specialist",)
+    assert (home_path / ".gemini/skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (home_path / ".gemini/skills/houmao-manage-agent-instance/SKILL.md").is_file()
+    assert not (home_path / ".agents/skills/houmao-manage-specialist").exists()
+    assert not (home_path / ".agents/skills/houmao-manage-agent-instance").exists()
+    assert not (home_path / ".agents/skills").exists()
+
+    state = load_system_skill_install_state(tool="gemini", home_path=home_path)
+    assert state is not None
+    assert tuple(record.name for record in state.installed_skills) == (
+        "houmao-manage-specialist",
+        "houmao-manage-agent-instance",
+    )
+    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+        ".gemini/skills/houmao-manage-specialist",
+        ".gemini/skills/houmao-manage-agent-instance",
+    )
+    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
+
+
 def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
     tmp_path: Path,
 ) -> None:

@@ -369,6 +369,20 @@ def _copy_directory_contents(source_dir: Path, destination_dir: Path) -> None:
         _project_path(child, destination_dir / child.name, mode="copy")
 
 
+def _remove_legacy_gemini_skill_root(home_path: Path) -> None:
+    """Remove the legacy Houmao-managed Gemini alias root from one managed home."""
+
+    legacy_root = (home_path.resolve() / ".agents/skills").resolve()
+    _ensure_clean_target(legacy_root)
+    parent = legacy_root.parent
+    resolved_home_path = home_path.resolve()
+    while parent != resolved_home_path and parent.exists() and parent.is_dir():
+        if any(parent.iterdir()):
+            break
+        parent.rmdir()
+        parent = parent.parent
+
+
 def _validate_skill_names(skills_root: Path, selected_skills: list[str]) -> None:
     for skill in selected_skills:
         skill_dir = skills_root / skill
@@ -577,6 +591,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
     setup_destination = home_path / adapter.setup_destination
     _copy_directory_contents(setup_dir, setup_destination)
+
+    if request.tool == "gemini":
+        _remove_legacy_gemini_skill_root(home_path)
 
     _validate_relative_path(adapter.skills_destination, field="skills_projection.destination")
     skill_destination_dir = home_path / adapter.skills_destination

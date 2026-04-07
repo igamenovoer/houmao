@@ -7,8 +7,19 @@ Houmao pair CLI with native server and managed-agent command families.
 ## Synopsis
 
 ```
-houmao-mgr [--print-plain | --print-json | --print-fancy] COMMAND [ARGS]...
+houmao-mgr [--version] [--print-plain | --print-json | --print-fancy] COMMAND [ARGS]...
 ```
+
+## Root Options
+
+| Option | Description |
+|---|---|
+| `--version` | Print the packaged Houmao version and exit successfully without requiring a subcommand. |
+| `--print-plain` | Human-readable aligned text (default). |
+| `--print-json` | Machine-readable JSON with stable formatting (`indent=2`, `sort_keys=True`). |
+| `--print-fancy` | Rich-formatted output with tables, panels, and colors (requires a terminal that supports ANSI escape codes). |
+
+`--version` is a root CLI reporting option. It prints the packaged Houmao version for the current `houmao-mgr` binary and exits successfully without running a subcommand.
 
 ## Output Style
 
@@ -206,7 +217,7 @@ Operational notes:
 - omitting both `--set` and `--skill` selects the packaged CLI-default set list
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
 - repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.agents/skills/houmao-...`
+- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
 - each target home records Houmao-owned install state under `.houmao/system-skills/install-state.json`
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 

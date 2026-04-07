@@ -176,7 +176,7 @@ launch:
 setup_projection:
   destination: .gemini
 skills_projection:
-  destination: .agents/skills
+  destination: .gemini/skills
   mode: symlink
 auth_projection:
   files_dir: files
@@ -821,7 +821,7 @@ def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_
     assert "--backend raw_launch" in launch_script
 
 
-def test_build_brain_home_projects_gemini_skills_under_agents_root_and_injects_oauth_selector(
+def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_oauth_selector(
     tmp_path: Path,
 ) -> None:
     agent_def_dir = tmp_path / "repo"
@@ -843,17 +843,59 @@ def test_build_brain_home_projects_gemini_skills_under_agents_root_and_injects_o
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
 
-    assert (result.home_path / ".agents/skills/skill-a").is_symlink()
-    assert (result.home_path / ".agents/skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (result.home_path / ".gemini/skills/skill-a").is_symlink()
+    assert (result.home_path / ".gemini/skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
     assert (
-        result.home_path / ".agents/skills/houmao-process-emails-via-gateway/SKILL.md"
+        result.home_path / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
-    assert not (result.home_path / ".agents/skills/mailbox").exists()
-    assert not (result.home_path / ".gemini/skills").exists()
+    assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
     assert "export GEMINI_API_KEY=" not in launch_script
     assert manifest["runtime"]["launch_contract"]["env_records"] == {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def test_build_brain_home_reuse_removes_legacy_gemini_agents_skill_root(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            home_id="gemini-home-reuse",
+        )
+    )
+
+    home_path = agent_def_dir / "tmp/agents-runtime/homes/gemini-home-reuse"
+    legacy_skill = home_path / ".agents/skills/skill-a/SKILL.md"
+    legacy_note = home_path / ".agents/README.md"
+    legacy_skill.parent.mkdir(parents=True, exist_ok=True)
+    legacy_skill.write_text("legacy skill\n", encoding="utf-8")
+    legacy_note.parent.mkdir(parents=True, exist_ok=True)
+    legacy_note.write_text("keep parent if it has other content\n", encoding="utf-8")
+
+    build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            home_id="gemini-home-reuse",
+            reuse_home=True,
+        )
+    )
+
+    assert not (home_path / ".agents/skills").exists()
+    assert (home_path / ".agents/README.md").is_file()
+    assert (home_path / ".gemini/skills/skill-a").is_symlink()
 
 
 def test_build_brain_home_gemini_preserves_explicit_api_key_and_base_url_with_oauth_file(

@@ -45,7 +45,7 @@ Project-scoped default homes:
 - Codex: `<cwd>/.codex`
 - Gemini: `<cwd>`
 
-Gemini is intentionally different from Claude and Codex. The effective Gemini home root is the project root, which means omitted-home Gemini installs land under `<cwd>/.agents/skills/` while Gemini provider state remains under `<cwd>/.gemini/`.
+Gemini is intentionally different from Claude and Codex. The effective Gemini home root is the project root, which means omitted-home Gemini installs land under `<cwd>/.gemini/skills/` while Gemini provider state remains under `<cwd>/.gemini/`.
 
 ## Packaged Catalog
 
@@ -100,7 +100,7 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 | --- | --- | --- |
 | `claude` | `skills/` | `skills/houmao-email-via-agent-gateway/SKILL.md` |
 | `codex` | `skills/` | `skills/houmao-manage-agent-instance/SKILL.md` |
-| `gemini` | `.agents/skills/` | `.agents/skills/houmao-email-via-agent-gateway/SKILL.md` |
+| `gemini` | `.gemini/skills/` | `.gemini/skills/houmao-email-via-agent-gateway/SKILL.md` |
 
 That means Houmao-owned mailbox and user-control skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
 
@@ -193,7 +193,7 @@ Home-resolution rules:
 
 - `--home` is optional
 - when omitted, the command resolves the effective home using explicit tool-native env redirection first and project-scoped defaults second
-- omitted-home Gemini installs use the project root as the effective home, so Houmao-owned skills land under `.agents/skills/`
+- omitted-home Gemini installs use the project root as the effective home, so Houmao-owned skills land under `.gemini/skills/`
 
 Projection rules:
 

@@ -224,6 +224,23 @@ When the reference documents Claude-specific flags, it SHALL make clear that `cl
 - **THEN** the page distinguishes credential-providing Claude inputs from the optional state-template input
 - **AND THEN** it does not present the state-template input as one of the ways to authenticate Claude
 
+### Requirement: CLI reference documents the root `houmao-mgr --version` option
+The CLI reference page `docs/reference/cli/houmao-mgr.md` SHALL document `--version` as a root option on `houmao-mgr`.
+
+That page SHALL include `--version` in the root synopsis or root option coverage alongside the existing root options.
+
+That page SHALL explain that `houmao-mgr --version` prints the packaged Houmao version and exits successfully without requiring a subcommand.
+
+#### Scenario: Reader sees `--version` in the houmao-mgr root option coverage
+- **WHEN** a reader opens `docs/reference/cli/houmao-mgr.md`
+- **THEN** the page documents `--version` as a root `houmao-mgr` option
+- **AND THEN** the page does not imply that version reporting requires a subcommand
+
+#### Scenario: Reader understands what the version option returns
+- **WHEN** a reader looks up `houmao-mgr --version` in `docs/reference/cli/houmao-mgr.md`
+- **THEN** the page explains that the command prints the packaged Houmao version
+- **AND THEN** it explains that the command exits successfully after reporting that version
+
 ### Requirement: System-skills reference documents the renamed specialist-management skill
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe the current project-easy packaged skill as `houmao-manage-specialist`.
 
@@ -329,7 +346,7 @@ That coverage SHALL state that omitting both `--set` and `--skill` resolves the 
 
 That coverage SHALL NOT present `--default` as part of the current public `system-skills install` surface.
 
-That coverage SHALL explain that the default Gemini home root is `<cwd>`, which yields Houmao-owned skill projection under `<cwd>/.agents/skills/`.
+That coverage SHALL explain that the default Gemini home root is `<cwd>`, which yields Houmao-owned skill projection under `<cwd>/.gemini/skills/`.
 
 #### Scenario: Reader sees the effective-home precedence in the system-skills reference
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
@@ -339,7 +356,7 @@ That coverage SHALL explain that the default Gemini home root is `<cwd>`, which 
 #### Scenario: Reader sees the Gemini project-root default home clearly
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that Gemini defaults to `<cwd>` rather than `<cwd>/.gemini`
-- **AND THEN** it explains that omitted-home Gemini installs project skills under `<cwd>/.agents/skills/`
+- **AND THEN** it explains that omitted-home Gemini installs project skills under `<cwd>/.gemini/skills/`
 
 #### Scenario: Reader does not see the removed default flag in current reference docs
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md` or `docs/reference/cli/houmao-mgr.md`

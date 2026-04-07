@@ -221,10 +221,10 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
     assert install_result.exit_code == 0, install_result.output
     install_payload = json.loads(install_result.output)
     assert install_payload["home_path"] == str(workspace)
-    assert (workspace / ".agents/skills/houmao-manage-specialist/SKILL.md").is_file()
-    assert (workspace / ".agents/skills/houmao-manage-credentials/SKILL.md").is_file()
-    assert (workspace / ".agents/skills/houmao-manage-agent-definition/SKILL.md").is_file()
-    assert not (workspace / ".gemini/.agents/skills").exists()
+    assert (workspace / ".gemini/skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (workspace / ".gemini/skills/houmao-manage-credentials/SKILL.md").is_file()
+    assert (workspace / ".gemini/skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert not (workspace / ".agents/skills").exists()
 
 
 def test_system_skills_status_reports_missing_state_for_project_default_home(

@@ -123,7 +123,7 @@ Gemini note:
 
 - `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini` both support `--api-key`, optional `--base-url`, and optional OAuth credentials via `--oauth-creds` or `--gemini-oauth-creds`.
 - OAuth-backed managed Gemini homes inject the supported Google-login selector automatically, so fresh runtime homes do not depend on a user-global Gemini `settings.json`.
-- Houmao-owned Gemini skills now project into `.agents/skills/`; treat `.gemini/skills/` as a compatibility path rather than the primary managed location.
+- Houmao-owned Gemini skills now project into `.gemini/skills/`; `.agents/skills/` is only Gemini's upstream alias surface and is not the Houmao-managed root.
 - `project easy specialist create --tool gemini` now persists unattended launch posture by default; keep `--no-unattended` for explicit `as_is`.
 
 ### Step 3: Inspect The Generated Role And Preset

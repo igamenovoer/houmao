@@ -22,7 +22,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 3. `houmao-mgr agents mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
 4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into resolved Claude, Codex, or Gemini homes when you need those skills outside a Houmao-managed launch or join flow.
 
-Managed launch and managed join now resolve their default Houmao-owned mailbox skill installation from the packaged system-skill catalog before runtime prompts rely on those skills. The visible mailbox skill surface stays tool-native and flat: Claude and Codex use top-level `skills/houmao-.../` directories, while Gemini uses top-level `.agents/skills/houmao-.../` directories. `agents mail resolve-live` remains the supported current-mailbox discovery path for later work.
+Managed launch and managed join now resolve their default Houmao-owned mailbox skill installation from the packaged system-skill catalog before runtime prompts rely on those skills. The visible mailbox skill surface stays tool-native and flat: Claude and Codex use top-level `skills/houmao-.../` directories, while Gemini uses top-level `.gemini/skills/houmao-.../` directories. `agents mail resolve-live` remains the supported current-mailbox discovery path for later work.
 
 When you need the same Houmao-owned skill surface in a tool home that Houmao did not launch, install it with `houmao-mgr system-skills install`. Omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home, so `pixi run houmao-mgr system-skills install --tool codex` installs into the resolved Codex home. Add `--home ~/.codex` only when you need to override that target.
 
@@ -199,7 +199,7 @@ Important details:
 
 - Claude runtime homes use top-level Houmao skills under the isolated `CLAUDE_CONFIG_DIR`, such as `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`.
 - Codex runtime homes also use top-level Houmao skills, such as `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`.
-- Gemini runtime homes use top-level Houmao-owned skills under `.agents/skills/`, such as `.agents/skills/houmao-email-via-agent-gateway/SKILL.md`, `.agents/skills/houmao-email-via-filesystem/SKILL.md`, and `.agents/skills/houmao-email-via-stalwart/SKILL.md`.
+- Gemini runtime homes use top-level Houmao-owned skills under `.gemini/skills/`, such as `.gemini/skills/houmao-email-via-agent-gateway/SKILL.md`, `.gemini/skills/houmao-email-via-filesystem/SKILL.md`, and `.gemini/skills/houmao-email-via-stalwart/SKILL.md`.
 - Houmao does not use the launched repo's `.claude/` tree as the runtime Claude config directory.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.

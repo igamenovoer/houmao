@@ -1,8 +1,6 @@
 ## Purpose
 Define packaged catalog, selection, projection, and install-state behavior for the current Houmao-owned system-skill set.
-
 ## Requirements
-
 ### Requirement: Current Houmao-owned system skills are packaged as maintained runtime assets
 The system SHALL package the current Houmao-owned `houmao-*` skills under one maintained Houmao-owned runtime asset root that is separate from project starter assets.
 
@@ -51,7 +49,7 @@ For the current skill set, the visible projected paths SHALL remain tool-native:
 
 - Claude: `skills/<houmao-skill>/`
 - Codex: `skills/<houmao-skill>/`
-- Gemini: `.agents/skills/<houmao-skill>/`
+- Gemini: `.gemini/skills/<houmao-skill>/`
 
 The shared installer SHALL support these projection modes:
 
@@ -80,9 +78,9 @@ The shared installer SHALL NOT require a project-local copied skill mirror or wo
 
 #### Scenario: Managed home installation preserves the current Gemini skill root with copied projection
 - **WHEN** Houmao installs selected current Houmao-owned skills into a managed Gemini home
-- **THEN** the installer projects those skills under `.agents/skills/`
+- **THEN** the installer projects those skills under `.gemini/skills/`
 - **AND THEN** it uses copied projection rather than symlink projection in this change
-- **AND THEN** it does not require `.gemini/skills` as the primary visible projection root for those installed skills
+- **AND THEN** it does not require `.agents/skills` as the primary visible projection root for those installed skills
 
 #### Scenario: Explicit symlink installation fails when the packaged skill root is not filesystem-backed
 - **WHEN** an operator explicitly requests symlink installation for one selected current Houmao-owned skill
@@ -247,3 +245,4 @@ This change SHALL NOT require adding the new agent-instance lifecycle set to `ma
 - **WHEN** a maintainer inspects the packaged `managed_launch_sets` and `managed_join_sets`
 - **THEN** those fixed auto-install selections use `user-control` instead of `project-easy`
 - **AND THEN** they resolve the packaged user-control skills without adding the separate agent-instance lifecycle set
+

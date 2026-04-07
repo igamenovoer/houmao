@@ -27,6 +27,7 @@ from houmao.srv_ctrl.server_startup import (
     HoumaoDetachedServerStartResult,
     HoumaoServerStartLogPaths,
 )
+from houmao.version import get_version
 
 
 class _FakeSession:
@@ -136,6 +137,21 @@ def test_bare_invocation_prints_help() -> None:
     assert "system-skills" in result.output
     assert "cao" not in result.output
     assert "\nTraceback" not in result.output
+
+
+def test_root_help_lists_version_flag() -> None:
+    result = CliRunner().invoke(cli, ["--help"])
+
+    assert result.exit_code == 0
+    assert "--version" in result.output
+
+
+def test_root_version_reports_packaged_version() -> None:
+    result = CliRunner().invoke(cli, ["--version"])
+
+    assert result.exit_code == 0
+    assert get_version() in result.output
+    assert "Error:" not in result.output
 
 
 def test_main_renders_mailbox_click_exception_without_traceback(

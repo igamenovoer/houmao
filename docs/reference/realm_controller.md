@@ -58,7 +58,7 @@ Runs `claude -p` for non-interactive prompt–response cycles. Supports session 
 
 ### `gemini_headless`
 
-Runs `gemini -p` for non-interactive prompt–response cycles. Managed Gemini homes support either `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via `oauth_creds.json`; OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present. Houmao-owned Gemini skills project into `.agents/skills`, while `.gemini/skills` remains a compatibility path only. Follow-up turns resume with `--resume <persisted-session-id>` and must stay in the same recorded working directory.
+Runs `gemini -p` for non-interactive prompt–response cycles. Managed Gemini homes support either `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via `oauth_creds.json`; OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present. Houmao-owned Gemini skills project into `.gemini/skills`, while `.agents/skills` remains only Gemini's upstream alias surface. Follow-up turns resume with `--resume <persisted-session-id>` and must stay in the same recorded working directory.
 
 ### Legacy Backends
 

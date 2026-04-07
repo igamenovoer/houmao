@@ -407,7 +407,7 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gemini_home = (tmp_path / "gemini-home").resolve()
-    user_skill = gemini_home / ".agents/skills/custom-user-skill/SKILL.md"
+    user_skill = gemini_home / ".gemini/skills/custom-user-skill/SKILL.md"
     user_skill.parent.mkdir(parents=True, exist_ok=True)
     user_skill.write_text("user skill\n", encoding="utf-8")
 
@@ -430,7 +430,7 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
         runtime_artifacts_module,
         "read_tmux_session_environment_value",
         lambda *, session_name, variable_name: (
-            str(gemini_home) if variable_name == "GEMINI_HOME" else None
+            str(gemini_home) if variable_name == "GEMINI_CLI_HOME" else None
         ),
     )
 
@@ -449,14 +449,14 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
     )
 
     processing_skill_path = (
-        gemini_home / ".agents/skills/houmao-process-emails-via-gateway/SKILL.md"
+        gemini_home / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     )
-    gateway_skill_path = gemini_home / ".agents/skills/houmao-email-via-agent-gateway/SKILL.md"
+    gateway_skill_path = gemini_home / ".gemini/skills/houmao-email-via-agent-gateway/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
-    assert (gemini_home / ".agents/skills/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (gemini_home / ".gemini/skills/houmao-email-via-filesystem/SKILL.md").is_file()
     assert user_skill.is_file()
-    assert not (gemini_home / ".agents/skills/mailbox").exists()
+    assert not (gemini_home / ".gemini/skills/mailbox").exists()
 
 
 def test_materialize_joined_launch_skips_houmao_skill_install_when_opted_out(

@@ -1,8 +1,6 @@
 ## Purpose
 Define the operator-facing `houmao-mgr system-skills` CLI for listing, installing, and inspecting Houmao-owned system skills.
-
 ## Requirements
-
 ### Requirement: `houmao-mgr system-skills` exposes the current Houmao-owned skill installation surface
 `houmao-mgr` SHALL expose a top-level `system-skills` command family for the current Houmao-owned system-skill set.
 
@@ -49,6 +47,8 @@ The project-scoped default homes SHALL be:
 - Codex: `<cwd>/.codex`
 - Gemini: `<cwd>`
 
+For Gemini, the resolved effective home SHALL remain the home root itself, and Houmao-owned installed skills SHALL project under `<effective-home>/.gemini/skills/`.
+
 The command SHALL support these selection inputs:
 
 - repeatable `--set <name>` for named set selection,
@@ -90,7 +90,7 @@ The command SHALL use the shared Houmao system-skill installer for projection an
 - **AND WHEN** no `GEMINI_CLI_HOME` is set
 - **AND WHEN** no `--home` is supplied
 - **THEN** the command uses `/workspace/repo` as the effective Gemini home
-- **AND THEN** the selected skills are installed under `/workspace/repo/.agents/skills/`
+- **AND THEN** the selected skills are installed under `/workspace/repo/.gemini/skills/`
 
 #### Scenario: Install combines named sets and explicit skills
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --set mailbox-core --skill houmao-email-via-filesystem`
@@ -249,3 +249,4 @@ Omitting both `--set` and `--skill` SHALL be one supported path that resolves th
 - **AND WHEN** no `--set` or `--skill` is supplied
 - **THEN** the install result reports `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition`, and `houmao-manage-agent-instance` in the resolved current skill list
 - **AND THEN** a later `houmao-mgr system-skills status` for that home reports those skills as installed when the CLI-default install completed successfully
+

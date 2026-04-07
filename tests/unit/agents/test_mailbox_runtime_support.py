@@ -438,7 +438,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
 
     references = install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=home_path)
 
-    assert mailbox_skills_destination_for_tool("gemini") == ".agents/skills"
+    assert mailbox_skills_destination_for_tool("gemini") == ".gemini/skills"
     assert set(references) == {
         "houmao-process-emails-via-gateway",
         "houmao-email-via-agent-gateway",

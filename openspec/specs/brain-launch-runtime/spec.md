@@ -155,17 +155,22 @@ When the runtime constructs a Gemini headless home from OAuth-backed credential 
 - **THEN** the runtime does not override that selection only because an OAuth credential file is present
 
 ### Requirement: Gemini managed skill projection uses the generic `.agents/skills` root
-When Houmao projects Gemini skills into a managed Gemini home or performs default Houmao-owned Gemini skill installation for an adopted session, the system SHALL use `.agents/skills` as the discoverable Gemini skill root.
+When Houmao projects Gemini skills into a managed Gemini home or performs default Houmao-owned Gemini skill installation for an adopted session, the system SHALL use `.gemini/skills` as the discoverable Gemini skill root.
 
 #### Scenario: Constructed Gemini home projects selected skills into `.agents/skills`
 - **WHEN** the runtime builds a Gemini managed home with one or more selected skills
-- **THEN** the projected Gemini skills are created under `.agents/skills` in that managed home
-- **AND THEN** the runtime does not target `.gemini/skills` as the primary Gemini skills destination for that managed home
+- **THEN** the projected Gemini skills are created under `.gemini/skills` in that managed home
+- **AND THEN** the runtime does not target `.agents/skills` as the primary Gemini skills destination for that managed home
 
 #### Scenario: Default Gemini join-time skill installation uses `.agents/skills`
 - **WHEN** Houmao adopts a Gemini session and performs the default Houmao-owned skill projection for that session
-- **THEN** the installed Gemini skills are created under the adopted session's `.agents/skills` root
-- **AND THEN** the default projection contract does not require a parallel mirror under `.gemini/skills`
+- **THEN** the installed Gemini skills are created under the adopted session's `.gemini/skills` root
+- **AND THEN** the default projection contract does not require a parallel mirror under `.agents/skills`
+
+#### Scenario: Reused Gemini managed home removes the legacy alias root
+- **WHEN** the runtime rebuilds or refreshes a Houmao-managed Gemini home that still contains Houmao-managed Gemini skill content under `.agents/skills`
+- **THEN** the runtime removes the legacy Houmao-managed `.agents/skills` entries before or during projection into `.gemini/skills`
+- **AND THEN** `.agents/skills` is not left behind as the maintained Houmao-managed Gemini skill root
 
 ### Requirement: Role prompt applied before first user turn
 The system SHALL apply the selected role package as the initial tool instructions before the first user prompt is processed when the role package contains prompt content.
@@ -290,7 +295,7 @@ For Claude sessions, the isolated Claude skill root SHALL remain part of the run
 
 For Codex and other non-Claude sessions whose active skill destination remains `skills`, the discoverable tool-native mailbox skill surface MAY continue to use the existing visible mailbox namespace subtree when that remains the active contract for that tool.
 
-For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL use top-level Houmao-owned skill directories under `.agents/skills/` rather than `.agents/skills/mailbox/...`.
+For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL use top-level Houmao-owned skill directories under `.gemini/skills/` rather than `.gemini/skills/mailbox/...`.
 
 #### Scenario: Start Claude session projects mailbox system skills with a filesystem mailbox binding
 - **WHEN** a developer starts a Claude session with filesystem mailbox support enabled
@@ -317,8 +322,8 @@ For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL us
 
 #### Scenario: Start Gemini session projects mailbox system skills through native top-level Houmao skill directories
 - **WHEN** a developer starts a Gemini session with mailbox support enabled
-- **THEN** the runtime projects the mailbox system skills for that session into `.agents/skills/` through top-level Houmao-owned skill directories
-- **AND THEN** the runtime does not rely on a `.agents/skills/mailbox/...` namespace subtree for the maintained Gemini contract
+- **THEN** the runtime projects the mailbox system skills for that session into `.gemini/skills/` through top-level Houmao-owned skill directories
+- **AND THEN** the runtime does not rely on a `.gemini/skills/mailbox/...` namespace subtree for the maintained Gemini contract
 - **AND THEN** the runtime persists the transport-appropriate mailbox binding for that session in the session manifest
 
 #### Scenario: Start session defaults the filesystem mailbox root from the Houmao mailbox root
@@ -330,13 +335,13 @@ For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL us
 - **WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
 - **AND WHEN** a developer starts an agent session with filesystem mailbox support enabled and no explicit filesystem mailbox content root override
 - **THEN** the runtime derives the effective filesystem mailbox content root from `/tmp/houmao-mailbox`
-- **AND THEN** the persisted session mailbox binding reflects that derived path
+- **AND THEN** the persisted session mailbox binding reflects that env-var-derived mailbox root
 
-#### Scenario: Second mailbox-enabled session joins an initialized shared mailbox root without manual pre-registration
-- **WHEN** one mailbox-enabled session has already initialized and registered itself into a shared filesystem mailbox root
-- **AND WHEN** a second mailbox-enabled session starts against that same shared mailbox root with its own mailbox address
-- **THEN** the runtime bootstraps or confirms the second session's mailbox registration before persisting registration-dependent filesystem mailbox state for that session
-- **AND THEN** the second `start-session` succeeds without requiring manual mailbox pre-registration outside the runtime startup path
+#### Scenario: Start session bootstraps registration instead of synthesizing missing filesystem state
+- **WHEN** a developer starts an agent session with filesystem mailbox support enabled
+- **AND WHEN** current mailbox resolution would otherwise fail because the session address lacks an active mailbox registration
+- **THEN** the runtime bootstraps or confirms the active mailbox registration before persisting the durable mailbox binding
+- **AND THEN** it does not synthesize fallback mailbox paths just to satisfy later current-mailbox resolution
 
 ### Requirement: Runtime CLI exposes top-level agent-mediated mailbox operations for resumed sessions
 The runtime CLI SHALL expose a top-level `mail` command surface for resumed mailbox-enabled sessions.
@@ -2539,3 +2544,4 @@ When a maintained build or launch flow implicitly bootstraps the selected overla
 - **WHEN** an operator runs a maintained build or launch command with an explicit runtime-root override
 - **THEN** the operator-facing result describes that root as an explicit runtime-root override
 - **AND THEN** it does not describe that path as though it were the active project runtime root selected from overlay-local defaults
+

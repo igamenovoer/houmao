@@ -1,7 +1,6 @@
 ## Purpose
 Define the runtime-owned mailbox system-skill contract, including env bindings, projection behavior, and shared-mailbox guidance across mailbox transports.
 ## Requirements
-
 ### Requirement: Runtime-owned mailbox system skills are available to launched agents
 The system SHALL provide implemented mailbox access to agents through runtime-owned mailbox system skills projected from platform-owned templates rather than requiring role-authored mailbox skill content.
 
@@ -11,7 +10,7 @@ For Claude sessions whose active skill destination root is `skills` under `CLAUD
 
 For Codex sessions whose active skill destination root remains `skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `skills/mailbox/...`.
 
-For Gemini sessions whose active skill destination root is `.agents/skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `.agents/skills/mailbox/...`.
+For Gemini sessions whose active skill destination root is `.gemini/skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `.gemini/skills/mailbox/...`.
 
 The projected mailbox skill set MAY vary by the selected mailbox transport, including filesystem-backed and real-mail-backed transports.
 
@@ -35,8 +34,8 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 
 #### Scenario: Gemini mailbox-enabled agent receives top-level Houmao-owned skills
 - **WHEN** the runtime starts a Gemini mailbox-enabled session
-- **THEN** the runtime projects the mailbox system skill set for that session from platform-owned templates into `.agents/skills/`
-- **AND THEN** the mailbox skills are available through top-level Houmao-owned Gemini skill directories rather than through `.agents/skills/mailbox/...`
+- **THEN** the runtime projects the mailbox system skill set for that session from platform-owned templates into `.gemini/skills/`
+- **AND THEN** the mailbox skills are available through top-level Houmao-owned Gemini skill directories rather than through `.gemini/skills/mailbox/...`
 - **AND THEN** those mailbox system skills are available to the agent without requiring the role or recipe to select or author a mailbox-specific skill manually
 
 #### Scenario: Runtime-owned mailbox skills stay separate from role-authored skills
@@ -48,7 +47,7 @@ The projected mailbox skill set MAY vary by the selected mailbox transport, incl
 - **WHEN** the runtime projects mailbox system skills for a mailbox-enabled session
 - **THEN** the runtime does not create a parallel hidden `.system/mailbox/...` mailbox skill tree for that session
 - **AND THEN** Claude and Codex sessions do not rely on a parallel `skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
-- **AND THEN** Gemini sessions do not rely on a parallel `.agents/skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
+- **AND THEN** Gemini sessions do not rely on a parallel `.gemini/skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
 - **AND THEN** ordinary mailbox-skill discovery and prompting depend only on the visible tool-native mailbox skill surface
 
 ### Requirement: Runtime-owned mailbox system skills are never copied into launched project content
@@ -84,11 +83,11 @@ For Codex sessions whose active skill destination root remains `skills`, the rou
 
 For Codex sessions whose active skill destination root remains `skills`, the lower-level common gateway mailbox skill SHALL be available at `skills/houmao-email-via-agent-gateway/`.
 
-For Gemini sessions whose active skill destination root is `.agents/skills`, the round-oriented workflow skill SHALL be available at `.agents/skills/houmao-process-emails-via-gateway/`.
+For Gemini sessions whose active skill destination root is `.gemini/skills`, the round-oriented workflow skill SHALL be available at `.gemini/skills/houmao-process-emails-via-gateway/`.
 
-For Gemini sessions whose active skill destination root is `.agents/skills`, the lower-level common gateway mailbox skill SHALL be available at `.agents/skills/houmao-email-via-agent-gateway/`.
+For Gemini sessions whose active skill destination root is `.gemini/skills`, the lower-level common gateway mailbox skill SHALL be available at `.gemini/skills/houmao-email-via-agent-gateway/`.
 
-For Gemini sessions, ordinary runtime-owned mailbox prompts SHALL invoke installed Houmao mailbox skills by skill name and SHALL NOT require the agent to open `.agents/skills/.../SKILL.md` paths for ordinary mailbox rounds when those skills are already installed.
+For Gemini sessions, ordinary runtime-owned mailbox prompts SHALL invoke installed Houmao mailbox skills by skill name and SHALL NOT require the agent to open `.gemini/skills/.../SKILL.md` paths for ordinary mailbox rounds when those skills are already installed.
 
 The round-oriented workflow skill SHALL:
 - act as the default installed runtime-owned procedure for notifier-triggered shared mailbox processing rounds when a live gateway facade is available,
@@ -117,7 +116,7 @@ Transport-specific mailbox skills such as `houmao-email-via-filesystem` and `hou
 
 #### Scenario: Gemini mailbox-enabled session receives native top-level runtime-owned skills
 - **WHEN** the runtime starts a mailbox-enabled Gemini session
-- **THEN** it projects `.agents/skills/houmao-process-emails-via-gateway/`, `.agents/skills/houmao-email-via-agent-gateway/`, and the runtime-owned mailbox skill for the active transport into the active skill destination
+- **THEN** it projects `.gemini/skills/houmao-process-emails-via-gateway/`, `.gemini/skills/houmao-email-via-agent-gateway/`, and the runtime-owned mailbox skill for the active transport into the active skill destination
 - **AND THEN** Gemini can discover all of those skills through native skill discovery without relying on a `mailbox/` namespace subtree
 
 #### Scenario: Houmao-owned mailbox skill naming requires explicit `houmao` invocation
@@ -135,7 +134,7 @@ Transport-specific mailbox skills such as `houmao-email-via-filesystem` and `hou
 - **WHEN** a mailbox-enabled Gemini session has the shared gateway mailbox facade available
 - **AND WHEN** the runtime submits a notifier-driven mailbox round prompt
 - **THEN** that prompt tells Gemini to use the installed `houmao-process-emails-via-gateway` skill by name
-- **AND THEN** the prompt does not require Gemini to open `.agents/skills/.../SKILL.md` for that ordinary mailbox round
+- **AND THEN** the prompt does not require Gemini to open `.gemini/skills/.../SKILL.md` for that ordinary mailbox round
 
 #### Scenario: Gateway mailbox skill remains the lower-level protocol reference
 - **WHEN** an agent opens the installed `houmao-email-via-agent-gateway` skill document from the visible mailbox skill surface for its tool
@@ -411,3 +410,4 @@ The skill SHALL NOT instruct agents to mark a message read merely because unread
 - **AND WHEN** that command returns `authoritative: false`
 - **THEN** the projected mailbox system skill treats the result as submission-only rather than verified read-state mutation
 - **AND THEN** the agent verifies read state through a follow-up mailbox check or transport-owned state before assuming the message is now read
+
