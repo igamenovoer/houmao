@@ -11,13 +11,16 @@ The `README.md` usage section SHALL include a subsection introducing the system-
 
 The subsection SHALL explain that Houmao installs packaged skills into agent tool homes so that agents can drive management tasks through their native skill interface without requiring the operator to invoke `houmao-mgr` manually.
 
-The subsection SHALL list the four non-mailbox packaged skill families:
+The subsection SHALL list the five non-mailbox packaged skill families:
 - `houmao-manage-specialist` — specialist authoring plus specialist-scoped launch and stop entry
 - `houmao-manage-credentials` — project-local credential management
 - `houmao-manage-agent-definition` — low-level role and preset definition management
 - `houmao-manage-agent-instance` — managed agent instance lifecycle
+- `houmao-agent-messaging` — prompt, gateway, raw-input, mailbox, and reset-context guidance for already-running managed agents
 
-The subsection SHALL note that `agents join` and `agents launch` auto-install these skills by default, and SHALL show a brief `system-skills install --default` example for explicit external tool homes.
+The subsection SHALL explain that `agents join` and `agents launch` auto-install the packaged user-control and agent-messaging skills into managed homes by default, while explicit `houmao-mgr system-skills install` into an external tool home can add the broader CLI-default skill selection that also includes `houmao-manage-agent-instance`.
+
+The subsection SHALL show a brief current `houmao-mgr system-skills install` example for explicit external tool homes that relies on the CLI-default selection by omitting both `--set` and `--skill`.
 
 The subsection SHALL link to `docs/reference/cli/system-skills.md` for the full reference.
 
@@ -25,13 +28,19 @@ The subsection SHALL link to `docs/reference/cli/system-skills.md` for the full 
 
 - **WHEN** a reader scans the README usage section
 - **THEN** they find a subsection describing the system-skills surface
-- **AND THEN** they see the four non-mailbox skill families listed with brief descriptions
-- **AND THEN** they see that `houmao-manage-specialist` is not described as CRUD-only
+- **AND THEN** they see the five non-mailbox packaged skill families listed with brief descriptions
+- **AND THEN** they see that `houmao-agent-messaging` is presented as the communication/control skill for already-running managed agents
 
-#### Scenario: Reader can install system skills into an external tool home
+#### Scenario: Reader can distinguish managed auto-install from external CLI-default install
+
+- **WHEN** a reader wants to understand which Houmao skills appear inside managed homes versus an explicit external tool home
+- **THEN** the README explains that managed launch and join auto-install the user-control and messaging skills
+- **AND THEN** it explains that external `system-skills install` can add the broader CLI-default selection that also includes `houmao-manage-agent-instance`
+
+#### Scenario: Reader can install system skills into an external tool home with current CLI syntax
 
 - **WHEN** a reader wants to prepare an external tool home with Houmao skills
-- **THEN** the README shows a `houmao-mgr system-skills install --default` example with `--tool` and `--home` flags
+- **THEN** the README shows a `houmao-mgr system-skills install` example with `--tool` and `--home` flags and no stale `--default` flag
 - **AND THEN** the example links to the full reference for additional options
 
 ### Requirement: README accuracy pass for recent refactors
