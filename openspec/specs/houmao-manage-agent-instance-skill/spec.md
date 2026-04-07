@@ -24,6 +24,8 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `stop`
 - `cleanup`
 
+That packaged skill SHALL remain the canonical Houmao-owned skill for general live managed-agent lifecycle guidance even when `houmao-manage-specialist` also offers specialist-scoped `launch` and `stop` entry points with post-action handoff into this skill.
+
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `project easy specialist create|list|get|remove`
@@ -46,6 +48,11 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **WHEN** an agent reads the installed `houmao-manage-agent-instance` skill
 - **THEN** the skill marks mailbox operations and specialist CRUD as outside the packaged skill scope
 - **AND THEN** it does not present those actions as part of managed-agent instance lifecycle guidance
+
+#### Scenario: Installed skill remains the follow-up lifecycle surface after specialist-scoped entry
+- **WHEN** an agent or user reaches `houmao-manage-agent-instance` after using specialist-scoped `launch` or `stop` guidance
+- **THEN** the skill remains the canonical packaged Houmao-owned entry point for further live managed-agent lifecycle work
+- **AND THEN** it does not require `houmao-manage-specialist` to become a general-purpose instance-management skill
 
 ### Requirement: `houmao-manage-agent-instance` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-manage-agent-instance` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace in this order:

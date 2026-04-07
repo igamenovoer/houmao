@@ -1,6 +1,6 @@
 # Launch Agent Instance
 
-Use this action only when the user wants to create one new managed-agent instance from a predefined source.
+Use this action only when the user wants to create one new managed-agent instance from a predefined source. This remains the canonical general lifecycle launch action even though `houmao-manage-specialist` may also front specialist-scoped launch requests.
 
 ## Workflow
 

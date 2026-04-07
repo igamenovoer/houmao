@@ -1,7 +1,4 @@
-## Purpose
-Define the packaged specialist-management system skill contract for routed specialist actions, launcher selection, and explicit input recovery.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Houmao provides a packaged `houmao-create-specialist` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-manage-specialist` under the maintained system-skill asset root.
@@ -45,43 +42,6 @@ The create action within that packaged skill SHALL describe the documented proje
 - **THEN** the skill tells the user that further agent management should go through `houmao-manage-agent-instance`
 - **AND THEN** it does not imply that `houmao-manage-specialist` is the canonical surface for generic live managed-agent lifecycle
 
-### Requirement: `houmao-create-specialist` resolves the `houmao-mgr` launcher in the required precedence order
-The packaged `houmao-manage-specialist` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace in this order:
-
-1. repo-local `.venv` executable,
-2. Pixi-managed project invocation,
-3. project-local `uv run`,
-4. globally installed `houmao-mgr` from uv tools.
-
-The skill SHALL treat global uv-tools installation as the default end-user case when no development-project hints justify a repo-local launcher.
-
-The skill SHALL tell the agent to look for development-project hints such as `.venv`, Pixi files, `pyproject.toml`, or `uv.lock` before choosing a repo-local launcher.
-
-The resolved launcher SHALL be reused for any routed `project easy specialist` action selected through the packaged skill.
-
-#### Scenario: Repo-local `.venv` takes precedence over other launchers
-- **WHEN** the current workspace provides `.venv/bin/houmao-mgr`
-- **THEN** the skill tells the agent to use that repo-local executable first
-- **AND THEN** it does not prefer Pixi, project-local `uv run`, or the global uv-tools install for that workspace
-
-#### Scenario: Pixi-managed project takes precedence when no `.venv` launcher exists
-- **WHEN** the current workspace has no repo-local `.venv` launcher
-- **AND WHEN** the current workspace has Pixi development-project hints
-- **THEN** the skill tells the agent to use `pixi run houmao-mgr`
-- **AND THEN** it does not skip directly to project-local `uv run` or the global uv-tools install
-
-#### Scenario: Project-local uv run is used when Pixi is absent
-- **WHEN** the current workspace has no repo-local `.venv` launcher
-- **AND WHEN** no Pixi-managed project hints are present
-- **AND WHEN** the current workspace has project-local uv hints such as `uv.lock`
-- **THEN** the skill tells the agent to use `uv run houmao-mgr`
-- **AND THEN** it does not skip directly to the global uv-tools install
-
-#### Scenario: Global uv-tools install remains the end-user default
-- **WHEN** the current workspace does not provide repo-local `.venv`, Pixi, or project-local uv hints
-- **THEN** the skill tells the agent to use the globally installed `houmao-mgr` command from uv tools
-- **AND THEN** it treats that path as the ordinary end-user launcher
-
 ### Requirement: `houmao-create-specialist` recovers explicit inputs from conversation context and asks before guessing
 The packaged `houmao-manage-specialist` skill SHALL tell the agent to recover omitted specialist-management inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
@@ -102,7 +62,7 @@ When required inputs remain unresolved after checking prompt and recent conversa
 
 When the user explicitly requests `auto credentials`, the skill SHALL treat that as a create-action opt-in auth-discovery mode rather than as a literal CLI flag or replacement credential-bundle name.
 
-The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remove`.
+The skill SHALL NOT apply credential discovery rules to `list`, `get`, `remove`, `launch`, or `stop`.
 
 #### Scenario: List action does not require a specialist name
 - **WHEN** the current prompt asks the agent to list specialists
@@ -137,18 +97,3 @@ The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remov
 - **WHEN** the user asks for `list`, `get`, `remove`, `launch`, or `stop`
 - **THEN** the skill does not enter credential discovery or auth-bundle creation flow
 - **AND THEN** it keeps create-only auth logic scoped to the create action
-
-### Requirement: `houmao-create-specialist` describes Claude credential lanes separately from optional state templates
-The create action within the packaged `houmao-manage-specialist` skill SHALL describe Claude credential-providing methods separately from optional Claude runtime-state template inputs.
-
-When the create action lists Claude-specific create inputs or discovery outcomes, it SHALL treat:
-
-- supported Claude credential or login-state lanes as Claude auth methods,
-- `claude_state.template.json` only as optional reusable bootstrap state for runtime preparation.
-
-The create action SHALL NOT present `claude_state.template.json` as one of the ways to provide Claude credentials.
-
-#### Scenario: Installed skill does not present the Claude state template as credentials
-- **WHEN** an agent reads the create guidance inside the installed `houmao-manage-specialist` skill
-- **THEN** the skill distinguishes Claude credential-providing methods from the optional Claude state-template input
-- **AND THEN** it does not describe `claude_state.template.json` as a Claude credential lane

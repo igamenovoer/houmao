@@ -217,7 +217,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 
 | Skill | What it enables |
 |---|---|
-| `houmao-manage-specialist` | Create, list, inspect, and remove project-local specialist definitions |
+| `houmao-manage-specialist` | Create, list, inspect, remove, launch, and stop specialist-backed project-local workflows |
 | `houmao-manage-credentials` | Add, update, inspect, and remove project-local tool auth bundles |
 | `houmao-manage-agent-definition` | List, inspect, initialize, update, and remove roles and presets |
 | `houmao-manage-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |

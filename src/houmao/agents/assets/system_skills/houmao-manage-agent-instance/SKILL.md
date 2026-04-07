@@ -6,7 +6,7 @@ license: MIT
 
 # Houmao Manage Agent Instance
 
-Use this Houmao skill when you need to create, adopt, inspect, stop, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files.
+Use this Houmao skill when you need to create, adopt, inspect, stop, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. This is the canonical Houmao-owned skill for general live-agent lifecycle work after any specialist-scoped launch or stop entry.
 
 The trigger word `houmao` is intentional. Use the `houmao-manage-agent-instance` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -19,6 +19,8 @@ This packaged skill covers exactly these managed-agent instance lifecycle action
 - `list`
 - `stop`
 - `cleanup`
+
+`houmao-manage-specialist` may also front specialist-scoped `launch` and `stop`, but this skill remains the canonical follow-up lifecycle surface for broader live-agent management.
 
 This packaged skill does not cover:
 
@@ -77,6 +79,7 @@ This packaged skill does not cover:
 - Use `actions/list.md` only when the user wants to list current live managed agents.
 - Use `actions/stop.md` only when the user wants to stop one live managed agent.
 - Use `actions/cleanup.md` only when the user wants to remove stopped-session envelope artifacts or session-local logs.
+- Treat this skill as the canonical follow-up lifecycle surface after any specialist-scoped `launch` or `stop` handled through `houmao-manage-specialist`.
 
 ## Guardrails
 
