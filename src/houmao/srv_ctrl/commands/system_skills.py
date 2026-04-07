@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +17,21 @@ from houmao.agents.system_skills import (
 
 from .output import emit
 
+_SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL: dict[str, str] = {
+    "claude": "CLAUDE_CONFIG_DIR",
+    "codex": "CODEX_HOME",
+    "gemini": "GEMINI_CLI_HOME",
+}
+_SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL: dict[str, Path] = {
+    "claude": Path(".claude"),
+    "codex": Path(".codex"),
+    "gemini": Path("."),
+}
+
 
 @click.group(name="system-skills")
 def system_skills_group() -> None:
-    """Install and inspect Houmao-owned system skills in explicit tool homes."""
+    """Install and inspect Houmao-owned system skills in resolved tool homes."""
 
 
 @system_skills_group.command(name="list")
@@ -60,18 +72,18 @@ def list_system_skills_command() -> None:
 )
 @click.option(
     "--home",
-    required=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Explicit tool home path to inspect.",
+    help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
 )
-def status_system_skills_command(tool: str, home: Path) -> None:
-    """Show Houmao-owned system-skill install state for one explicit tool home."""
+def status_system_skills_command(tool: str, home: Path | None) -> None:
+    """Show Houmao-owned system-skill install state for one resolved tool home."""
 
-    state = load_system_skill_install_state(tool=tool, home_path=home)
-    state_path = system_skill_state_path_for_home(home)
+    resolved_home = _resolve_effective_system_skills_home(tool=tool, home=home)
+    state = load_system_skill_install_state(tool=tool, home_path=resolved_home)
+    state_path = system_skill_state_path_for_home(resolved_home)
     payload = {
         "tool": tool,
-        "home_path": str(home.resolve()),
+        "home_path": str(resolved_home),
         "state_path": str(state_path),
         "state_exists": state is not None,
         "state_schema_version": state.schema_version if state is not None else None,
@@ -105,21 +117,14 @@ def status_system_skills_command(tool: str, home: Path) -> None:
 )
 @click.option(
     "--home",
-    required=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Explicit tool home path to update.",
+    help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
 )
 @click.option(
     "--set", "set_names", multiple=True, help="Repeatable named system-skill set to install."
 )
 @click.option(
     "--skill", "skill_names", multiple=True, help="Repeatable explicit skill name to install."
-)
-@click.option(
-    "--default",
-    "use_default",
-    is_flag=True,
-    help="Install the packaged CLI-default system-skill set list.",
 )
 @click.option(
     "--symlink",
@@ -129,26 +134,23 @@ def status_system_skills_command(tool: str, home: Path) -> None:
 )
 def install_system_skills_command(
     tool: str,
-    home: Path,
+    home: Path | None,
     set_names: tuple[str, ...],
     skill_names: tuple[str, ...],
-    use_default: bool,
     use_symlink: bool,
 ) -> None:
-    """Install selected Houmao-owned system skills into one explicit tool home."""
+    """Install selected Houmao-owned system skills into one resolved tool home."""
 
-    if not use_default and not set_names and not skill_names:
-        raise click.ClickException(
-            "Select at least one system skill via `--default`, `--set`, or `--skill`."
-        )
+    resolved_home = _resolve_effective_system_skills_home(tool=tool, home=home)
+    use_cli_default = not set_names and not skill_names
 
     try:
         result = install_system_skills_for_home(
             tool=tool,
-            home_path=home,
+            home_path=resolved_home,
             set_names=set_names,
             skill_names=skill_names,
-            use_cli_default=use_default,
+            use_cli_default=use_cli_default,
             projection_mode="symlink" if use_symlink else "copy",
         )
         payload = {
@@ -167,6 +169,33 @@ def install_system_skills_command(
         raise click.ClickException(str(exc)) from exc
 
     emit(payload, plain_renderer=_render_system_skills_install_plain)
+
+
+def _resolve_effective_system_skills_home(*, tool: str, home: Path | None) -> Path:
+    """Resolve the effective target home for one system-skills CLI invocation."""
+
+    _validate_supported_system_skills_tool(tool)
+    if home is not None:
+        return home.expanduser().resolve()
+
+    env_var_name = _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL[tool]
+    env_value = os.environ.get(env_var_name)
+    if env_value is not None and env_value.strip():
+        return Path(env_value.strip()).expanduser().resolve()
+
+    project_default = _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL[tool]
+    return (Path.cwd().resolve() / project_default).resolve()
+
+
+def _validate_supported_system_skills_tool(tool: str) -> None:
+    """Fail fast when the operator selects an unsupported tool."""
+
+    if tool in _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL:
+        return
+    supported = ", ".join(f"`{name}`" for name in sorted(_SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL))
+    raise click.ClickException(
+        f"Unsupported tool `{tool}`. Expected one of: {supported}."
+    )
 
 
 def _render_system_skills_list_plain(payload: object) -> None:

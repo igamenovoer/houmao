@@ -225,7 +225,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 `agents join` and `agents launch` auto-install these skills by default. To install them into an external tool home manually:
 
 ```bash
-houmao-mgr system-skills install --tool claude --home ~/.claude --default
+houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
 See the [System Skills reference](docs/reference/cli/system-skills.md) for the full catalog, named sets, and install options.

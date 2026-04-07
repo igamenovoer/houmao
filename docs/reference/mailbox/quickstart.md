@@ -20,11 +20,11 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 1. `houmao-mgr mailbox ...` manages the filesystem mailbox root and address lifecycle.
 2. `houmao-mgr agents mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
-4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into explicit Claude, Codex, or Gemini homes when you need those skills outside a Houmao-managed launch or join flow.
+4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into resolved Claude, Codex, or Gemini homes when you need those skills outside a Houmao-managed launch or join flow.
 
 Managed launch and managed join now resolve their default Houmao-owned mailbox skill installation from the packaged system-skill catalog before runtime prompts rely on those skills. The visible mailbox skill surface stays tool-native and flat: Claude and Codex use top-level `skills/houmao-.../` directories, while Gemini uses top-level `.agents/skills/houmao-.../` directories. `agents mail resolve-live` remains the supported current-mailbox discovery path for later work.
 
-When you need the same Houmao-owned skill surface in an external tool home that Houmao did not launch, install it explicitly with `houmao-mgr system-skills install`, for example `pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --default`.
+When you need the same Houmao-owned skill surface in a tool home that Houmao did not launch, install it with `houmao-mgr system-skills install`. Omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home, so `pixi run houmao-mgr system-skills install --tool codex` installs into the resolved Codex home. Add `--home ~/.codex` only when you need to override that target.
 
 When attached mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run houmao-mgr agents mail resolve-live` and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc. Inside the owning managed tmux session, selectors may be omitted; outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
 

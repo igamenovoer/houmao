@@ -1,6 +1,6 @@
 # system-skills
 
-`houmao-mgr system-skills` is the operator-facing surface for installing the current Houmao-owned `houmao-*` skills into explicit Claude, Codex, or Gemini homes.
+`houmao-mgr system-skills` is the operator-facing surface for installing the current Houmao-owned `houmao-*` skills into resolved Claude, Codex, or Gemini homes.
 
 This is the same packaged skill system used internally by:
 
@@ -21,9 +21,31 @@ It does not yet generalize to non-skill asset kinds.
 ```text
 houmao-mgr system-skills
 ├── list
-├── status --tool <tool> --home <path>
-└── install --tool <tool> --home <path> [--default] [--set <name> ...] [--skill <name> ...] [--symlink]
+├── status --tool <tool> [--home <path>]
+└── install --tool <tool> [--home <path>] [--set <name> ...] [--skill <name> ...] [--symlink]
 ```
+
+## Effective Home Resolution
+
+When `--home` is omitted, both `status` and `install` resolve the effective tool home with this precedence:
+
+1. explicit `--home`
+2. tool-native home env var
+3. project-scoped default home
+
+Supported tool-native home env vars:
+
+- Claude: `CLAUDE_CONFIG_DIR`
+- Codex: `CODEX_HOME`
+- Gemini: `GEMINI_CLI_HOME`
+
+Project-scoped default homes:
+
+- Claude: `<cwd>/.claude`
+- Codex: `<cwd>/.codex`
+- Gemini: `<cwd>`
+
+Gemini is intentionally different from Claude and Codex. The effective Gemini home root is the project root, which means omitted-home Gemini installs land under `<cwd>/.agents/skills/` while Gemini provider state remains under `<cwd>/.gemini/`.
 
 ## Packaged Catalog
 
@@ -126,9 +148,10 @@ This reports:
 
 ## `status`
 
-Use `status` to inspect one explicit tool home:
+Use `status` to inspect one resolved tool home:
 
 ```bash
+pixi run houmao-mgr system-skills status --tool codex
 pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 ```
 
@@ -144,26 +167,33 @@ If the home has never been touched by the shared installer, `status` reports tha
 
 ## `install`
 
-Use `install` when you want the current Houmao-owned skill surface in an explicit external tool home:
+Use `install` when you want the current Houmao-owned skill surface in a resolved external or project-scoped tool home:
 
 ```bash
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --default
+pixi run houmao-mgr system-skills install --tool codex
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core --skill houmao-email-via-filesystem
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-instance
+pixi run houmao-mgr system-skills install --tool gemini --set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-manage-specialist --symlink
 ```
 
 Selection rules:
 
-- `--default` expands the catalog's CLI-default set list
+- omitting both `--set` and `--skill` expands the catalog's CLI-default set list
 - repeatable `--set` expands named sets in the order given
 - repeatable `--skill` appends explicit skill names after the expanded sets
 - `--symlink` switches the install from copied projection to directory symlink projection
 - the final skill list is deduplicated by first occurrence
-- omitting `--default`, `--set`, and `--skill` is an error
 - unknown set names or skill names are errors
+
+Home-resolution rules:
+
+- `--home` is optional
+- when omitted, the command resolves the effective home using explicit tool-native env redirection first and project-scoped defaults second
+- omitted-home Gemini installs use the project root as the effective home, so Houmao-owned skills land under `.agents/skills/`
 
 Projection rules:
 

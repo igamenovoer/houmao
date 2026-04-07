@@ -7,6 +7,18 @@ from click.testing import CliRunner
 
 from houmao.srv_ctrl.commands.main import cli
 
+_DEFAULT_SET_NAMES = ["mailbox-full", "user-control", "agent-instance"]
+_DEFAULT_RESOLVED_SKILLS = [
+    "houmao-process-emails-via-gateway",
+    "houmao-email-via-agent-gateway",
+    "houmao-email-via-filesystem",
+    "houmao-email-via-stalwart",
+    "houmao-manage-specialist",
+    "houmao-manage-credentials",
+    "houmao-manage-agent-definition",
+    "houmao-manage-agent-instance",
+]
+
 
 def test_system_skills_help_lists_commands() -> None:
     result = CliRunner().invoke(cli, ["system-skills", "--help"])
@@ -17,32 +29,26 @@ def test_system_skills_help_lists_commands() -> None:
     assert "status" in result.output
 
 
+def test_system_skills_install_help_omits_removed_default_flag() -> None:
+    result = CliRunner().invoke(cli, ["system-skills", "install", "--help"])
+
+    assert result.exit_code == 0
+    assert "--default" not in result.output
+
+
 def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     result = CliRunner().invoke(cli, ["--print-json", "system-skills", "list"])
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert [record["name"] for record in payload["skills"]] == [
-        "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
-        "houmao-manage-agent-instance",
-    ]
+    assert [record["name"] for record in payload["skills"]] == _DEFAULT_RESOLVED_SKILLS
     assert [record["name"] for record in payload["sets"]] == [
         "mailbox-core",
         "mailbox-full",
         "user-control",
         "agent-instance",
     ]
-    assert payload["auto_install"]["cli_default_sets"] == [
-        "mailbox-full",
-        "user-control",
-        "agent-instance",
-    ]
+    assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
     assert payload["auto_install"]["managed_launch_sets"] == ["mailbox-full", "user-control"]
     assert payload["auto_install"]["managed_join_sets"] == ["mailbox-full", "user-control"]
     user_control_record = next(
@@ -55,31 +61,9 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     ]
 
 
-def test_system_skills_status_reports_missing_state_for_untouched_home(tmp_path: Path) -> None:
-    home_path = tmp_path / "codex-home"
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["tool"] == "codex"
-    assert payload["state_exists"] is False
-    assert payload["installed_skills"] == []
-    assert payload["installed_skill_records"] == []
-
-
-def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> None:
+def test_system_skills_install_uses_cli_default_selection_when_selection_is_omitted(
+    tmp_path: Path,
+) -> None:
     home_path = (tmp_path / "codex-home").resolve()
 
     install_result = CliRunner().invoke(
@@ -92,24 +76,15 @@ def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> No
             "codex",
             "--home",
             str(home_path),
-            "--default",
         ],
     )
 
     assert install_result.exit_code == 0, install_result.output
     install_payload = json.loads(install_result.output)
-    assert install_payload["selected_sets"] == ["mailbox-full", "user-control", "agent-instance"]
+    assert install_payload["home_path"] == str(home_path)
+    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
     assert install_payload["projection_mode"] == "copy"
-    assert install_payload["resolved_skills"] == [
-        "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
-        "houmao-manage-agent-instance",
-    ]
+    assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
@@ -132,6 +107,7 @@ def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> No
 
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
+    assert status_payload["home_path"] == str(home_path)
     assert status_payload["state_exists"] is True
     assert status_payload["installed_skills"] == install_payload["resolved_skills"]
     assert status_payload["installed_skill_records"] == [
@@ -146,6 +122,173 @@ def test_system_skills_install_supports_default_and_status(tmp_path: Path) -> No
             strict=True,
         )
     ]
+
+
+def test_system_skills_install_uses_explicit_home_over_env_redirect(tmp_path: Path) -> None:
+    env_home = (tmp_path / "env-codex-home").resolve()
+    explicit_home = (tmp_path / "explicit-codex-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+            "--home",
+            str(explicit_home),
+            "--skill",
+            "houmao-manage-specialist",
+        ],
+        env={"CODEX_HOME": str(env_home)},
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["home_path"] == str(explicit_home)
+    assert (explicit_home / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert not (env_home / "skills/houmao-manage-specialist").exists()
+
+
+def test_system_skills_install_uses_env_redirect_when_home_is_omitted(tmp_path: Path) -> None:
+    home_path = (tmp_path / "claude-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "claude",
+        ],
+        env={"CLAUDE_CONFIG_DIR": str(home_path)},
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["home_path"] == str(home_path)
+    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
+    assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
+
+
+def test_system_skills_install_uses_project_scoped_codex_default_home(
+    tmp_path: Path, monkeypatch
+) -> None:
+    expected_home = (tmp_path / ".codex").resolve()
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["home_path"] == str(expected_home)
+    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
+    assert (expected_home / "skills/houmao-manage-agent-instance/SKILL.md").is_file()
+
+
+def test_system_skills_install_uses_project_root_for_gemini_default_home(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
+    monkeypatch.chdir(workspace)
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "gemini",
+            "--set",
+            "user-control",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["home_path"] == str(workspace)
+    assert (workspace / ".agents/skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (workspace / ".agents/skills/houmao-manage-credentials/SKILL.md").is_file()
+    assert (workspace / ".agents/skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert not (workspace / ".gemini/.agents/skills").exists()
+
+
+def test_system_skills_status_reports_missing_state_for_project_default_home(
+    tmp_path: Path, monkeypatch
+) -> None:
+    expected_home = (tmp_path / ".codex").resolve()
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "codex",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["tool"] == "codex"
+    assert payload["home_path"] == str(expected_home)
+    assert payload["state_exists"] is False
+    assert payload["installed_skills"] == []
+    assert payload["installed_skill_records"] == []
+
+
+def test_system_skills_status_reports_env_redirect_home_when_omitted(tmp_path: Path) -> None:
+    home_path = (tmp_path / "claude-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "claude",
+            "--skill",
+            "houmao-manage-specialist",
+        ],
+        env={"CLAUDE_CONFIG_DIR": str(home_path)},
+    )
+    assert install_result.exit_code == 0, install_result.output
+
+    status_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "claude",
+        ],
+        env={"CLAUDE_CONFIG_DIR": str(home_path)},
+    )
+
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["home_path"] == str(home_path)
+    assert status_payload["state_exists"] is True
+    assert status_payload["installed_skills"] == ["houmao-manage-specialist"]
 
 
 def test_system_skills_install_supports_symlink_mode_and_status_reports_it(tmp_path: Path) -> None:
@@ -198,9 +341,7 @@ def test_system_skills_install_supports_symlink_mode_and_status_reports_it(tmp_p
     ]
 
 
-def test_system_skills_install_fails_when_selection_is_omitted(tmp_path: Path) -> None:
-    home_path = tmp_path / "gemini-home"
-
+def test_system_skills_install_rejects_removed_default_flag() -> None:
     result = CliRunner().invoke(
         cli,
         [
@@ -208,10 +349,9 @@ def test_system_skills_install_fails_when_selection_is_omitted(tmp_path: Path) -
             "install",
             "--tool",
             "gemini",
-            "--home",
-            str(home_path),
+            "--default",
         ],
     )
 
     assert result.exit_code != 0
-    assert "Select at least one system skill" in result.output
+    assert "No such option: --default" in result.output
