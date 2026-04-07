@@ -430,8 +430,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
     stop_action_path = manage_agent_instance_actions / "stop.md"
+    relaunch_action_path = manage_agent_instance_actions / "relaunch.md"
     cleanup_action_path = manage_agent_instance_actions / "cleanup.md"
     launch_action = launch_action_path.read_text(encoding="utf-8")
+    relaunch_action = relaunch_action_path.read_text(encoding="utf-8")
     cleanup_action = cleanup_action_path.read_text(encoding="utf-8")
     discover_action_path = agent_messaging_actions / "discover.md"
     prompt_action_path = agent_messaging_actions / "prompt.md"
@@ -459,19 +461,25 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill
     assert "actions/stop.md" in manage_agent_instance_skill
+    assert "actions/relaunch.md" in manage_agent_instance_skill
     assert "actions/cleanup.md" in manage_agent_instance_skill
     assert "project easy specialist create" in manage_agent_instance_skill
     assert "agents cleanup mailbox" in manage_agent_instance_skill
+    assert "agents relaunch" in manage_agent_instance_skill
     assert launch_action_path.is_file()
     assert join_action_path.is_file()
     assert list_action_path.is_file()
     assert stop_action_path.is_file()
+    assert relaunch_action_path.is_file()
     assert cleanup_action_path.is_file()
     assert "agents launch" in launch_action
     assert "--launch-profile" in launch_action
     assert "launch-profile-backed" in launch_action
     assert "project easy instance launch" in launch_action
     assert "--mail-transport" in launch_action
+    assert "agents relaunch --agent-name" in relaunch_action
+    assert "current-session relaunch" in relaunch_action
+    assert "Do not reinterpret a relaunch request as `agents launch`" in relaunch_action
     assert "agents cleanup session" in cleanup_action
     assert "agents cleanup logs" in cleanup_action
     assert "admin cleanup runtime" in cleanup_action

@@ -2477,6 +2477,7 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "gateway_host": "127.0.0.1",
             "gateway_port": 9011,
         },
+        "managed_header": "inherit",
         "prompt_overlay": {
             "mode": "append",
             "present": True,
@@ -2633,6 +2634,7 @@ def test_project_easy_profile_crud_round_trip(
         "name": "gpt-5.4-mini",
         "reasoning": {"level": 4},
     }
+    assert create_payload["defaults"]["managed_header"] == "inherit"
     assert create_payload["defaults"]["prompt_overlay"] == {
         "mode": "replace",
         "present": True,
@@ -2812,6 +2814,168 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     }
     assert captured["declared_mailbox"].transport == "filesystem"
     assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
+
+
+def test_project_launch_profile_set_can_clear_managed_header_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "researcher-codex-default",
+            "--no-managed-header",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+    assert json.loads(add_result.output)["defaults"]["managed_header"] == "disabled"
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--clear-managed-header",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+    assert json.loads(set_result.output)["defaults"]["managed_header"] == "inherit"
+
+
+def test_project_easy_instance_launch_forwards_managed_header_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+                "--managed-header",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity="alice",
+                agent_id="agent-123",
+                tmux_session_name="HOUMAO-alice",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--profile",
+            "alice",
+            "--name",
+            "alice",
+            "--no-managed-header",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["managed_header_override"] is False
+    assert captured["launch_profile_managed_header_policy"] == "enabled"
 
 
 def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(

@@ -22,6 +22,7 @@ from houmao.agents.launch_env import (
     validate_persistent_env_records,
 )
 from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.managed_prompt_header import ManagedHeaderPolicy
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
     serialize_declarative_mailbox_config,
@@ -1536,6 +1537,12 @@ def get_project_launch_profile_command(name: str) -> None:
 @click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Persist managed prompt header policy for launches from this profile.",
+)
+@click.option(
     "--gateway-port",
     type=click.IntRange(1, 65535),
     default=None,
@@ -1574,6 +1581,7 @@ def add_project_launch_profile_command(
     mail_management_url: str | None,
     headless: bool,
     no_gateway: bool,
+    managed_header: bool | None,
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -1606,6 +1614,8 @@ def add_project_launch_profile_command(
         headless=headless,
         clear_headless=False,
         no_gateway=no_gateway,
+        managed_header=managed_header,
+        clear_managed_header=False,
         gateway_port=gateway_port,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
@@ -1689,6 +1699,17 @@ def add_project_launch_profile_command(
 @click.option("--clear-headless", is_flag=True, help="Clear the stored headless launch posture.")
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Persist managed prompt header policy for launches from this profile.",
+)
+@click.option(
+    "--clear-managed-header",
+    is_flag=True,
+    help="Clear the stored managed prompt header policy back to inherit.",
+)
+@click.option(
     "--gateway-port",
     type=click.IntRange(1, 65535),
     default=None,
@@ -1737,6 +1758,8 @@ def set_project_launch_profile_command(
     headless: bool,
     clear_headless: bool,
     no_gateway: bool,
+    managed_header: bool | None,
+    clear_managed_header: bool,
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -1775,6 +1798,8 @@ def set_project_launch_profile_command(
         headless=headless,
         clear_headless=clear_headless,
         no_gateway=no_gateway,
+        managed_header=managed_header,
+        clear_managed_header=clear_managed_header,
         gateway_port=gateway_port,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
@@ -1875,6 +1900,12 @@ def easy_profile_group() -> None:
 @click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Persist managed prompt header policy for launches from this easy profile.",
+)
+@click.option(
     "--gateway-port",
     type=click.IntRange(1, 65535),
     default=None,
@@ -1913,6 +1944,7 @@ def create_easy_profile_command(
     mail_management_url: str | None,
     headless: bool,
     no_gateway: bool,
+    managed_header: bool | None,
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -1945,6 +1977,8 @@ def create_easy_profile_command(
         headless=headless,
         clear_headless=False,
         no_gateway=no_gateway,
+        managed_header=managed_header,
+        clear_managed_header=False,
         gateway_port=gateway_port,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
@@ -2401,6 +2435,12 @@ def easy_instance_group() -> None:
     default=None,
     help="Optional private filesystem mailbox directory to symlink into the shared root.",
 )
+@click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Force-enable or disable the Houmao-managed prompt header for this launch.",
+)
 def launch_easy_instance_command(
     specialist: str | None,
     profile: str | None,
@@ -2417,6 +2457,7 @@ def launch_easy_instance_command(
     mail_transport: str | None,
     mail_root: Path | None,
     mail_account_dir: Path | None,
+    managed_header: bool | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2433,6 +2474,7 @@ def launch_easy_instance_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
+    launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_provenance = None
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
@@ -2466,6 +2508,7 @@ def launch_easy_instance_command(
             model_name=resolved_profile.entry.model_name,
             reasoning_level=resolved_profile.entry.reasoning_level,
         )
+        launch_profile_managed_header_policy = resolved_profile.entry.managed_header_policy
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
@@ -2576,6 +2619,8 @@ def launch_easy_instance_command(
         direct_model_config=direct_model_config,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
+        managed_header_override=managed_header,
+        launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,
     )
     emit_local_launch_completion(
@@ -4067,8 +4112,16 @@ def _resolve_prompt_overlay_text_or_click(
     if prompt_overlay_mode is not None and resolved_text is None:
         raise click.ClickException(
             "Prompt-overlay mode requires `--prompt-overlay-text` or `--prompt-overlay-file`."
-        )
+    )
     return prompt_overlay_mode, resolved_text
+
+
+def _managed_header_policy_from_override(value: bool | None) -> ManagedHeaderPolicy | None:
+    """Return one stored managed-header policy from a tri-state CLI override."""
+
+    if value is None:
+        return None
+    return "enabled" if value else "disabled"
 
 
 def _build_profile_mailbox_mapping_or_click(
@@ -4208,6 +4261,8 @@ def _store_launch_profile_from_cli(
     headless: bool,
     clear_headless: bool,
     no_gateway: bool,
+    managed_header: bool | None,
+    clear_managed_header: bool,
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -4310,6 +4365,9 @@ def _store_launch_profile_from_cli(
             no_gateway=no_gateway,
             gateway_port=gateway_port,
         )
+        resolved_managed_header_policy = (
+            _managed_header_policy_from_override(managed_header) or "inherit"
+        )
         resolved_prompt_overlay_mode, resolved_prompt_overlay_text = prompt_overlay
     else:
         resolved_agent_name = (
@@ -4388,6 +4446,17 @@ def _store_launch_profile_from_cli(
             no_gateway=no_gateway,
             gateway_port=gateway_port,
         )
+        if clear_managed_header and managed_header is not None:
+            raise click.ClickException(
+                "`--managed-header` or `--no-managed-header` cannot be combined with "
+                "`--clear-managed-header`."
+            )
+        if clear_managed_header:
+            resolved_managed_header_policy = "inherit"
+        elif managed_header is not None:
+            resolved_managed_header_policy = _managed_header_policy_from_override(managed_header)
+        else:
+            resolved_managed_header_policy = current.entry.managed_header_policy
         if clear_prompt_overlay:
             resolved_prompt_overlay_mode = None
             resolved_prompt_overlay_text = None
@@ -4421,6 +4490,8 @@ def _store_launch_profile_from_cli(
             headless,
             clear_headless,
             no_gateway,
+            managed_header is not None,
+            clear_managed_header,
             gateway_port is not None,
             prompt_overlay_mode is not None,
             prompt_overlay_text is not None,
@@ -4450,6 +4521,7 @@ def _store_launch_profile_from_cli(
         env_mapping=resolved_env,
         mailbox_mapping=resolved_mailbox,
         posture_mapping=resolved_posture,
+        managed_header_policy=resolved_managed_header_policy,
         prompt_overlay_mode=resolved_prompt_overlay_mode,
         prompt_overlay_text=resolved_prompt_overlay_text,
     )

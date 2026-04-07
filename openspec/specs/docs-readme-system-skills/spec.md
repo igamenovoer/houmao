@@ -4,7 +4,6 @@
 Define README requirements for documenting Houmao system skills and keeping top-level usage examples accurate.
 ## Requirements
 ### Requirement: README usage section introduces system skills
-
 The `README.md` usage section SHALL include a subsection introducing the system-skills surface. The subsection SHALL appear after the "Subsystems at a Glance" table and before the "Full Documentation" section.
 
 The subsection SHALL explain that Houmao installs packaged skills into agent tool homes so that agents can drive management tasks through their native skill interface without requiring the operator to invoke `houmao-mgr` manually.
@@ -14,7 +13,7 @@ The subsection SHALL list the six non-mailbox packaged skill families:
 - `houmao-manage-credentials` — project-local credential management
 - `houmao-manage-agent-definition` — low-level role and preset definition management
 - `houmao-manage-agent-instance` — managed agent instance lifecycle
-- `houmao-agent-messaging` — prompt, queue, raw-input, mailbox, and reset-context guidance for already-running managed agents
+- `houmao-agent-messaging` — prompt, queue, raw-input, mailbox routing, and reset-context guidance for already-running managed agents
 - `houmao-agent-gateway` — gateway lifecycle, gateway discovery, wakeups, and notifier guidance for attached managed agents
 
 The subsection SHALL explain that `agents join` and `agents launch` auto-install the packaged user-control, agent-messaging, and agent-gateway skills into managed homes by default, while explicit `houmao-mgr system-skills install` into an external tool home can add the broader CLI-default skill selection that also includes `houmao-manage-agent-instance`.

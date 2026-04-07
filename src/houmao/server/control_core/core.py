@@ -14,6 +14,12 @@ from pathlib import Path
 from urllib import parse
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.managed_prompt_header import (
+    compose_managed_launch_prompt,
+    managed_prompt_header_metadata,
+    resolve_managed_launch_identity,
+    resolve_managed_prompt_header_decision,
+)
 from houmao.agents.native_launch_resolver import resolve_native_launch_target
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import RolePackage, load_brain_manifest
@@ -545,6 +551,24 @@ class CompatibilityControlCore:
                 provider=provider,
                 working_directory=working_directory,
             )
+            managed_header_decision = resolve_managed_prompt_header_decision(
+                launch_override=None,
+                stored_policy=None,
+            )
+            managed_launch_identity = resolve_managed_launch_identity(
+                tool=resolved_target.preset.tool,
+                role_name=resolved_target.role_name,
+                requested_agent_name=None,
+                requested_agent_id=None,
+            )
+            effective_role_prompt = compose_managed_launch_prompt(
+                base_prompt=resolved_target.role_prompt,
+                overlay_mode=None,
+                overlay_text=None,
+                managed_header_enabled=managed_header_decision.enabled,
+                agent_name=managed_launch_identity.agent_name,
+                agent_id=managed_launch_identity.agent_id,
+            )
             build_result = build_brain_home(
                 BuildRequest(
                     agent_def_dir=resolved_target.agent_def_dir,
@@ -559,6 +583,13 @@ class CompatibilityControlCore:
                     persistent_env_records=resolved_target.preset.launch_env_records,
                     mailbox=resolved_target.preset.mailbox,
                     extra=resolved_target.preset.extra,
+                    agent_name=managed_launch_identity.agent_name,
+                    agent_id=managed_launch_identity.agent_id,
+                    role_prompt_override=effective_role_prompt,
+                    managed_prompt_header=managed_prompt_header_metadata(
+                        decision=managed_header_decision,
+                        identity=managed_launch_identity,
+                    ),
                 )
             )
             manifest = load_brain_manifest(build_result.manifest_path)
@@ -577,7 +608,7 @@ class CompatibilityControlCore:
                     brain_manifest=manifest,
                     role_package=RolePackage(
                         role_name=role_name,
-                        system_prompt=resolved_target.role_prompt,
+                        system_prompt=effective_role_prompt,
                         path=role_path,
                     ),
                     backend="houmao_server_rest",
@@ -593,7 +624,7 @@ class CompatibilityControlCore:
                 name=resolved_target.selector,
                 description=f"Launch-time projection for selector `{resolved_target.selector}`.",
                 provider=resolved_target.provider,
-                system_prompt=resolved_target.role_prompt,
+                system_prompt=effective_role_prompt,
             ),
             resolved_provider=resolved_target.provider,
             launch_plan=launch_plan,

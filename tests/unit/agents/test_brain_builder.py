@@ -1026,6 +1026,14 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
             credential_profile="personal-a",
             home_id="claude-home-profiled",
             role_prompt_override="Operate only on Alice-owned repositories.",
+            managed_prompt_header={
+                "version": 1,
+                "enabled": True,
+                "resolution_source": "default",
+                "stored_policy": None,
+                "agent_name": "alice",
+                "agent_id": "agent-alice",
+            },
             launch_profile_provenance={
                 "name": "alice",
                 "lane": "launch_profile",
@@ -1037,6 +1045,14 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["inputs"]["role_prompt_text"] == "Operate only on Alice-owned repositories."
+    assert manifest["inputs"]["managed_prompt_header"] == {
+        "version": 1,
+        "enabled": True,
+        "resolution_source": "default",
+        "stored_policy": None,
+        "agent_name": "alice",
+        "agent_id": "agent-alice",
+    }
     assert manifest["runtime"]["launch_contract"]["construction_provenance"]["launch_profile"] == {
         "name": "alice",
         "lane": "launch_profile",

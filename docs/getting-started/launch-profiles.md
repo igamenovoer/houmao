@@ -69,6 +69,7 @@ A launch profile may store, with no inline secrets:
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
+- a managed prompt-header policy (`inherit`, `enabled`, or `disabled`),
 - a prompt overlay (mode plus inline text or a referenced file).
 
 Inline prompt-overlay text is stored inline. File-referenced overlays are kept as managed file-backed content under the overlay-owned content roots, and the catalog stores only the reference. This keeps long prompt overlays out of the catalog database itself.
@@ -105,6 +106,27 @@ A launch profile may declare a prompt overlay. The supported modes are:
 The effective role prompt is composed once, **before** backend-specific role injection planning begins. Resumed turns do not replay the overlay as a separate second bootstrap step. From the backend's perspective, the prompt overlay is part of the role prompt that role injection plans against.
 
 Prompt overlays are inline text or a referenced file. File-backed overlays remain managed content under the overlay-owned content roots, and the catalog stores only the reference; the catalog does not duplicate large overlay payloads inside the SQLite store itself.
+
+## Managed Prompt Header
+
+Managed launches prepend one short Houmao-owned prompt header by default. The header tells the agent that it is Houmao-managed, includes the resolved managed-agent name and id, points the agent toward `houmao-mgr` and other supported Houmao system interfaces for Houmao-related work, and tells it to avoid unsupported ad hoc probing when a supported Houmao interface exists. The header stays general-purpose and does not name individual packaged guidance entries.
+
+Prompt composition order is:
+
+1. source role prompt,
+2. launch-profile prompt overlay resolution,
+3. managed prompt-header prepend,
+4. backend-specific prompt injection.
+
+That means backend-specific role injection sees one already-composed effective launch prompt. The runtime does not replay the managed header later as a separate bootstrap turn.
+
+The managed header is controlled by the same precedence model as other birth-time launch defaults:
+
+- direct launch-time override via `--managed-header` or `--no-managed-header`,
+- stored launch-profile policy (`inherit`, `enabled`, `disabled`),
+- default enabled behavior when neither of the above forces a result.
+
+`inherit` means "use the default enabled behavior." If you need a role to stay effectively promptless or you want one launch to skip the Houmao-owned prelude, use `--no-managed-header` for that launch or store `disabled` on the relevant launch profile.
 
 ## Launch-Profile Provenance In Inspection Output
 

@@ -85,9 +85,9 @@ The repo-local `project` tree is intentionally split by user view:
 - `project easy ...` is the higher-level specialist, easy-profile, and instance surface. It includes `project easy specialist ...`, `project easy profile ...` (specialist-backed reusable birth-time profiles), and `project easy instance ...` (the runtime lifecycle surface that accepts `--specialist` or `--profile` on `instance launch`).
 - `project mailbox ...` is the project-scoped wrapper over the generic mailbox-root commands.
 
-For the canonical option tables and edge cases on the new `project easy profile`, `project agents recipes`, `project agents launch-profiles`, and `agents launch --launch-profile` surfaces, see [houmao-mgr](cli/houmao-mgr.md). For the conceptual model that ties easy profiles and explicit launch profiles together, see [Launch Profiles](../getting-started/launch-profiles.md).
+For the canonical option tables and edge cases on the new `project easy profile`, `project agents recipes`, `project agents launch-profiles`, and `agents launch --launch-profile` surfaces, see [houmao-mgr](cli/houmao-mgr.md). For the conceptual model that ties easy profiles and explicit launch profiles together, including managed-header composition and opt-out rules, see [Launch Profiles](../getting-started/launch-profiles.md).
 
-`houmao-mgr agents launch` now accepts either `--agents <selector>` (the direct recipe-selector form) or `--launch-profile <name>` (the explicit-launch-profile form). The two are mutually exclusive and exactly one is required. See [houmao-mgr](cli/houmao-mgr.md) for the precedence rules and provider-derivation behavior.
+`houmao-mgr agents launch` now accepts either `--agents <selector>` (the direct recipe-selector form) or `--launch-profile <name>` (the explicit-launch-profile form). The two are mutually exclusive and exactly one is required. It also accepts one-shot `--managed-header` or `--no-managed-header` override flags for the Houmao-owned managed prompt header. See [houmao-mgr](cli/houmao-mgr.md) for the precedence rules and provider-derivation behavior.
 
 The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` are deprecated and removed from the supported command tree.
 

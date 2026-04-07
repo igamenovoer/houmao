@@ -93,6 +93,7 @@ class BuildRequest:
     launch_profile_model_config: ModelConfig | None = None
     direct_model_config: ModelConfig | None = None
     role_prompt_override: str | None = None
+    managed_prompt_header: dict[str, Any] | None = None
     launch_profile_provenance: dict[str, Any] | None = None
 
     def effective_setup(self) -> str:
@@ -825,6 +826,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     }
     if request.role_prompt_override is not None:
         manifest["inputs"]["role_prompt_text"] = request.role_prompt_override
+    if request.managed_prompt_header is not None:
+        manifest["inputs"]["managed_prompt_header"] = dict(request.managed_prompt_header)
     if request.extra:
         manifest["inputs"]["extra"] = dict(request.extra)
     if request.mailbox is not None:

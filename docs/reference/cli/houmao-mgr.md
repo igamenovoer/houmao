@@ -131,8 +131,11 @@ Cleanup targeting rules:
 - `--launch-profile` resolves the named launch profile from the active project overlay and rejects easy `project easy profile ...` selections; only explicit recipe-backed launch profiles (`profile_lane=launch_profile`) are accepted.
 - A launch-profile-backed launch derives the source recipe from the stored profile, then composes effective inputs in the precedence order: source recipe defaults → launch-profile defaults → direct CLI overrides.
 - Direct overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch and never rewrite the stored launch profile.
+- `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides for the Houmao-managed prompt header.
+- When neither managed-header flag is supplied, `agents launch` inherits managed-header policy from the selected launch profile when one is present; otherwise it falls back to the default enabled behavior.
+- Direct managed-header override wins over stored launch-profile policy for the current launch only and does not rewrite the stored profile.
 - `--provider` defaults from the resolved launch-profile recipe when one tool family is determined by that source. Supplying `--provider` together with `--launch-profile` is accepted only when it matches the resolved source; otherwise the command fails clearly before build.
-- Launch-profile-stored fields that flow through the manifest into runtime launch resolution include managed-agent identity defaults, working directory, auth override by name, prompt-mode override, durable env records, declarative mailbox config, headless and gateway posture, and the prompt overlay (composed into the effective role prompt before backend-specific role injection).
+- Launch-profile-stored fields that flow through the manifest into runtime launch resolution include managed-agent identity defaults, working directory, auth override by name, prompt-mode override, durable env records, declarative mailbox config, headless and gateway posture, the managed-header policy, and the prompt overlay. Prompt composition order is source role prompt → prompt overlay resolution → managed-header prepend → backend-specific role injection.
 - For the conceptual model that ties `agents launch --launch-profile` to easy `project easy profile` and to the broader launch-profile object family, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
 ### `mailbox` — Local filesystem mailbox administration
@@ -305,6 +308,7 @@ Low-level boundary notes:
 - `roles ...` owns the canonical low-level role prompt.
 - `recipes ...` (canonical) and `presets ...` (compatibility alias) own named recipe structure, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference. Both surfaces administer the same `.houmao/agents/presets/<name>.yaml` files.
 - `launch-profiles ...` owns reusable recipe-backed birth-time launch configuration, including managed-agent identity defaults, working directory, auth override by name, prompt-mode override, durable env records, declarative mailbox config, launch posture, and an optional prompt overlay. For the shared semantic model that ties these to easy profiles, see [Launch Profiles](../../getting-started/launch-profiles.md).
+- Managed launches prepend a short Houmao-owned prompt header by default. `houmao-mgr` is the canonical direct Houmao interface named by that header, and the stored launch-profile policy plus launch-time flags determine whether the header is enabled for a given launch.
 - `tools <tool> auth ...` owns auth-bundle contents. Use that surface when the task is changing env vars or auth files inside the bundle rather than which bundle a recipe selects.
 
 `project agents recipes` notes:
@@ -317,7 +321,9 @@ Low-level boundary notes:
 `project agents launch-profiles` notes:
 
 - `launch-profiles add` requires `--name` and `--recipe`. It accepts: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), and prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`).
-- `launch-profiles set` patches without dropping unspecified advanced blocks and exposes matching `--clear-*` flags for nullable fields (`--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-mailbox`, `--clear-headless`, `--clear-prompt-overlay`).
+- `launch-profiles add` also accepts `--managed-header` or `--no-managed-header` to store explicit managed-header policy. Omitting both stores `inherit`.
+- `launch-profiles set` patches without dropping unspecified advanced blocks and exposes matching `--clear-*` flags for nullable fields (`--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-mailbox`, `--clear-headless`, `--clear-managed-header`, `--clear-prompt-overlay`).
+- `launch-profiles set` also accepts `--managed-header` or `--no-managed-header`. Those flags are mutually exclusive, and `--clear-managed-header` returns the stored field to `inherit`.
 - `launch-profiles list` accepts optional `--recipe` and `--tool` filters when those identities are derivable from the referenced recipe.
 - `launch-profiles remove` deletes one launch-profile resource without deleting the referenced recipe.
 - Launch profiles authored here are recipe-backed and explicit. They are stored as the same kind of catalog object that backs easy `project easy profile ...`, but the explicit lane keeps the lower-level launch contract visible by intent.
@@ -367,8 +373,9 @@ Low-level boundary notes:
 `project easy profile create` notes:
 
 - `--name` and `--specialist` are required. The named profile targets exactly one existing specialist.
-- Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), and prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`).
+- Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), managed-header flags (`--managed-header`, `--no-managed-header`), and prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`).
 - The persisted easy profile lives in the shared catalog launch-profile family with `profile_lane=easy_profile` and `source_kind=specialist`. It projects into the same compatibility tree (`.houmao/agents/launch-profiles/<name>.yaml`) used by explicit launch profiles.
+- Omitting both managed-header flags on `project easy profile create` stores `inherit`, which falls back to the default enabled managed-header behavior later at launch time.
 - When no active project overlay exists for the caller, `project easy profile create` ensures `<cwd>/.houmao` exists before persisting the profile (matching the `project easy specialist create` bootstrap behavior).
 - `project easy profile remove` removes only the profile definition. It does not remove the specialist that the profile referenced.
 - For the conceptual model that ties easy profiles to explicit launch profiles, see [Launch Profiles](../../getting-started/launch-profiles.md).
@@ -379,6 +386,8 @@ Low-level boundary notes:
 - `--specialist` selects a compiled specialist definition to launch from directly. `--name` is required when launching from `--specialist`.
 - `--profile` selects a stored easy profile. The command derives the source specialist from that profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless/gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the selected profile stores a default managed-agent name; otherwise it remains required.
 - Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, and `--mail-account-dir` win over easy-profile defaults but never rewrite the stored easy profile. The next launch from the same profile will see the original stored defaults again.
+- `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides. They win over the stored easy-profile managed-header policy for the current launch only and never rewrite the stored easy profile.
+- When neither managed-header flag is supplied, easy-instance launch inherits policy from the selected profile when one is present; otherwise it falls back to the default enabled behavior.
 - Easy-instance inspection (`project easy instance list` and `project easy instance get`) reports the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
 - unless `--no-gateway` is supplied, the easy surface now requests launch-time gateway attach by default on loopback (`127.0.0.1`) with a system-assigned port.

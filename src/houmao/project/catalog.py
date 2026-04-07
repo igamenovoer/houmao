@@ -17,11 +17,12 @@ from typing import TYPE_CHECKING, Any, Iterator, cast
 
 from houmao.agents.model_selection import parse_reasoning_level
 from houmao.agents.definition_parser import parse_agent_preset
+from houmao.agents.managed_prompt_header import ManagedHeaderPolicy, normalize_managed_header_policy
 
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 4
+CATALOG_SCHEMA_VERSION = 5
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -128,6 +129,7 @@ class LaunchProfileCatalogEntry:
     env_payload: dict[str, str]
     mailbox_payload: dict[str, Any] | None
     posture_payload: dict[str, Any]
+    managed_header_policy: ManagedHeaderPolicy | None
     prompt_overlay_mode: str | None
     prompt_overlay_ref: ManagedContentRef | None
     metadata_path: Path | None = None
@@ -558,6 +560,7 @@ class ProjectCatalog:
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
+                    launch_profiles.managed_header_policy,
                     launch_profiles.prompt_overlay_mode,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
@@ -592,6 +595,7 @@ class ProjectCatalog:
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
+                    launch_profiles.managed_header_policy,
                     launch_profiles.prompt_overlay_mode,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
@@ -623,6 +627,7 @@ class ProjectCatalog:
         env_mapping: dict[str, str] | None,
         mailbox_mapping: dict[str, Any] | None,
         posture_mapping: dict[str, Any] | None,
+        managed_header_policy: ManagedHeaderPolicy | None = None,
         prompt_overlay_mode: str | None,
         prompt_overlay_text: str | None,
         model_name: str | None = None,
@@ -654,6 +659,10 @@ class ProjectCatalog:
             parse_reasoning_level(reasoning_level, source="launch_profiles.reasoning_level")
             if reasoning_level is not None
             else None
+        )
+        resolved_managed_header_policy = normalize_managed_header_policy(
+            managed_header_policy,
+            source="launch_profiles.managed_header_policy",
         )
 
         prompt_overlay_ref: ManagedContentRef | None = None
@@ -688,11 +697,12 @@ class ProjectCatalog:
                     env_payload,
                     mailbox_payload,
                     posture_payload,
+                    managed_header_policy,
                     prompt_overlay_mode,
                     prompt_overlay_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -707,6 +717,7 @@ class ProjectCatalog:
                     env_payload = excluded.env_payload,
                     mailbox_payload = excluded.mailbox_payload,
                     posture_payload = excluded.posture_payload,
+                    managed_header_policy = excluded.managed_header_policy,
                     prompt_overlay_mode = excluded.prompt_overlay_mode,
                     prompt_overlay_content_ref_id = excluded.prompt_overlay_content_ref_id,
                     updated_at = excluded.updated_at
@@ -726,6 +737,7 @@ class ProjectCatalog:
                     json.dumps(env_mapping or {}, sort_keys=True),
                     json.dumps(mailbox_mapping or {}, sort_keys=True),
                     json.dumps(posture_mapping or {}, sort_keys=True),
+                    resolved_managed_header_policy,
                     prompt_overlay_mode,
                     prompt_overlay_ref_id,
                     timestamp,
@@ -980,6 +992,7 @@ class ProjectCatalog:
                     env_payload TEXT NOT NULL DEFAULT '{{}}',
                     mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
                     posture_payload TEXT NOT NULL DEFAULT '{{}}',
+                    managed_header_policy TEXT,
                     prompt_overlay_mode TEXT,
                     prompt_overlay_content_ref_id INTEGER
                         REFERENCES content_refs(id) ON DELETE SET NULL,
@@ -997,6 +1010,10 @@ class ProjectCatalog:
                 connection, table_name="launch_profiles", column_name="reasoning_level"
             ):
                 connection.execute("ALTER TABLE launch_profiles ADD COLUMN reasoning_level INTEGER")
+        if current_version <= 4 and not _table_has_column(
+            connection, table_name="launch_profiles", column_name="managed_header_policy"
+        ):
+            connection.execute("ALTER TABLE launch_profiles ADD COLUMN managed_header_policy TEXT")
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -1373,6 +1390,12 @@ class ProjectCatalog:
             env_payload={str(key): str(value) for key, value in env_payload.items()},
             mailbox_payload=mailbox_payload if mailbox_payload else None,
             posture_payload=posture_payload,
+            managed_header_policy=normalize_managed_header_policy(
+                str(row["managed_header_policy"])
+                if row["managed_header_policy"] is not None
+                else None,
+                source=f"launch profile `{row['name']}` managed_header_policy",
+            ),
             prompt_overlay_mode=(
                 str(row["prompt_overlay_mode"]) if row["prompt_overlay_mode"] is not None else None
             ),
@@ -1497,6 +1520,7 @@ def _table_schema_sql() -> str:
         env_payload TEXT NOT NULL DEFAULT '{{}}',
         mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
         posture_payload TEXT NOT NULL DEFAULT '{{}}',
+        managed_header_policy TEXT,
         prompt_overlay_mode TEXT,
         prompt_overlay_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
@@ -1582,6 +1606,7 @@ def _view_sql() -> str:
         launch_profiles.env_payload AS env_payload,
         launch_profiles.mailbox_payload AS mailbox_payload,
         launch_profiles.posture_payload AS posture_payload,
+        launch_profiles.managed_header_policy AS managed_header_policy,
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
         prompt_refs.relative_path AS prompt_overlay_relative_path
     FROM launch_profiles
@@ -1722,6 +1747,8 @@ def _render_launch_profile_yaml(
         defaults["mailbox"] = entry.mailbox_payload
     if entry.posture_payload:
         defaults["posture"] = entry.posture_payload
+    if entry.managed_header_policy is not None:
+        defaults["managed_header"] = entry.managed_header_policy
     if entry.prompt_overlay_mode is not None and entry.prompt_overlay_ref is not None:
         overlay_path = entry.prompt_overlay_ref.resolve_under_content_root(content_root)
         defaults["prompt_overlay"] = {

@@ -1,8 +1,6 @@
 ## Purpose
 Define reusable project-local launch-profile objects that capture birth-time launch defaults separately from source recipes and live managed-agent instances.
-
 ## Requirements
-
 ### Requirement: Launch profiles are reusable operator-owned birth-time launch definitions
 The system SHALL support a shared launch-profile object family that is distinct from reusable source definitions and distinct from live managed-agent instances.
 
@@ -94,3 +92,24 @@ Live runtime mutations such as late mailbox registration or in-session model swi
 - **AND WHEN** an operator launches from that profile with direct override `--reasoning-level 9`
 - **THEN** the launched runtime uses reasoning level `9` as the effective launch-owned value
 - **AND THEN** the stored launch profile still records `4` as its reusable default
+
+### Requirement: Launch profiles may store managed-header policy
+The shared launch-profile object family SHALL support one optional managed-header policy as reusable birth-time launch configuration.
+
+That stored policy SHALL support:
+- `inherit`,
+- `enabled`,
+- `disabled`.
+
+Launch-profile inspection payloads SHALL report the stored managed-header policy when it is present, and SHALL distinguish explicit `inherit` from an absent unsupported field.
+
+#### Scenario: Explicit launch profile stores disabled managed-header policy
+- **WHEN** an operator creates one reusable launch profile with managed-header policy `disabled`
+- **THEN** the shared launch-profile object stores that policy as birth-time launch configuration
+- **AND THEN** later inspection of that launch profile reports managed-header policy `disabled`
+
+#### Scenario: Easy profile stores inherit managed-header policy
+- **WHEN** an operator creates one easy profile without forcing managed-header enabled or disabled
+- **THEN** the shared launch-profile object records managed-header policy `inherit`
+- **AND THEN** later launch resolution can still fall through to the system default for that field
+

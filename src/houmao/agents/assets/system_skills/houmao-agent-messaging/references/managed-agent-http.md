@@ -1,6 +1,6 @@
 # Managed-Agent HTTP Route Summary
 
-Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies the task. For ordinary prompt turns and mailbox follow-up, discover live gateway capability first and prefer gateway-backed delivery when it is currently available. Use direct gateway `/v1/...` only when the lower-level route is genuinely required and the exact live `gateway.base_url` is already available from current context or supported discovery.
+Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies the task. For ordinary prompt turns and mailbox handoff, discover live gateway capability first and prefer gateway-backed delivery when it is currently available. Use direct gateway `/v1/...` only when the lower-level route is genuinely required and the exact live `gateway.base_url` is already available from current context or supported discovery.
 
 ## Discovery
 
@@ -40,16 +40,11 @@ Use `/gateway/requests` for queued gateway work. Use `/gateway/control/*` for im
 
 Use these routes when you need the exact raw gateway-owned tracker surface instead of the broader managed-agent history view.
 
-## Mailbox Follow-Up
+## Mailbox Discovery Handoff
 
 - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
-- `GET /houmao/agents/{agent_ref}/mail/status`
-- `POST /houmao/agents/{agent_ref}/mail/check`
-- `POST /houmao/agents/{agent_ref}/mail/send`
-- `POST /houmao/agents/{agent_ref}/mail/reply`
-- `POST /houmao/agents/{agent_ref}/mail/state`
 
-Resolve live bindings first. When `mail/resolve-live` returns a live `gateway.base_url`, prefer the shared gateway mailbox facade for outgoing or other shared mailbox operations. Use the `/houmao/agents/{agent_ref}/mail/*` routes as the transport-neutral fallback when no live gateway mailbox facade is available or the task explicitly stays on the managed-agent seam.
+Resolve live bindings first. Then hand mailbox work to `houmao-agent-email-comms` for ordinary mailbox operations or `houmao-process-emails-via-gateway` for one unread-email round. This messaging skill does not restate the lower-level mailbox operation routes.
 
 ## Direct Gateway HTTP
 
@@ -59,6 +54,5 @@ Only use these lower-level routes when the task requires the direct gateway seam
 - `POST {gateway.base_url}/v1/control/send-keys`
 - `GET {gateway.base_url}/v1/control/headless/state`
 - `POST {gateway.base_url}/v1/control/headless/next-prompt-session`
-- `POST {gateway.base_url}/v1/mail/*`
 
 Do not guess the gateway host or port.

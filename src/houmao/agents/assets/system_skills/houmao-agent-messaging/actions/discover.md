@@ -1,6 +1,6 @@
 # Discover Managed-Agent Messaging Capability
 
-Use this action when you need to identify the correct managed agent first or discover whether current gateway and mailbox follow-up surfaces are available.
+Use this action when you need to identify the correct managed agent first or discover whether current gateway and mailbox handoff surfaces are available.
 
 ## Workflow
 
@@ -9,7 +9,7 @@ Use this action when you need to identify the correct managed agent first or dis
 3. If the target selector is still missing, ask the user in Markdown before proceeding.
 4. Run `agents state` first to confirm the managed-agent identity and current operational summary.
 5. If the current task may need ordinary prompting, live gateway control, or any other gateway-preferred prompt routing decision, run `agents gateway status` next.
-6. If the current task may need mailbox follow-up, outgoing mail, or an exact live gateway base URL, run `agents mail resolve-live` next.
+6. If the current task may need mailbox work or an exact live gateway base URL, run `agents mail resolve-live` next.
 7. When the caller is already operating through the pair-managed HTTP API instead of the CLI, use the managed-agent routes summarized in `references/managed-agent-http.md`.
 8. Report the target identity plus only the capability facts that matter for the next action: gateway availability, mailbox availability, exact `gateway.base_url` when present, and whether prompt or outgoing mailbox work should prefer a gateway-backed surface.
 

@@ -272,9 +272,9 @@ That page SHALL describe the packaged skill as the Houmao-owned entry point for 
 - `agents stop`
 - `agents cleanup session|logs`
 
-That page SHALL explain that `houmao-manage-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control skill for already-running managed agents and `houmao-agent-gateway` becomes the canonical gateway-specific skill.
+That page SHALL explain that `houmao-manage-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control and mailbox-routing skill for already-running managed agents, `houmao-agent-email-comms` remains the ordinary mailbox operations skill, and `houmao-agent-gateway` becomes the canonical gateway-specific skill.
 
-That page SHALL explain that mailbox surfaces, prompt/mail follow-up, gateway-only services, reset-context guidance, and specialist CRUD remain outside the packaged `houmao-manage-agent-instance` skill scope.
+That page SHALL explain that mailbox surfaces, prompting, mailbox routing, ordinary mailbox operations, gateway-only services, reset-context guidance, and specialist CRUD remain outside the packaged `houmao-manage-agent-instance` skill scope.
 
 That page SHALL describe the CLI-default system-skill install selection as including the packaged specialist-management, credential-management, agent-definition, agent-instance, agent-messaging, and agent-gateway skills.
 
@@ -288,7 +288,7 @@ That page SHALL explain that managed launch and managed join auto-install the me
 #### Scenario: Reader sees the boundary between lifecycle, messaging, and gateway skills
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page distinguishes `houmao-manage-agent-instance` from `houmao-agent-messaging` and `houmao-agent-gateway`
-- **AND THEN** it explains that prompt/mail follow-up belongs to messaging while gateway lifecycle, discovery, and gateway-only services belong to the gateway skill
+- **AND THEN** it explains that prompting and mailbox routing belong to messaging, ordinary mailbox operations belong to the mailbox skill family, and gateway lifecycle, discovery, and gateway-only services belong to the gateway skill
 
 #### Scenario: Reader sees the updated default install behavior
 - **WHEN** a reader checks the install-selection behavior in `docs/reference/cli/system-skills.md`
@@ -305,22 +305,24 @@ That page SHALL describe the packaged skill as the Houmao-owned entry point for 
 - `agents gateway prompt|interrupt`
 - `agents gateway send-keys`
 - `agents gateway tui state|history|note-prompt`
-- `agents mail resolve-live|status|check|send|reply|mark-read`
+- `agents mail resolve-live`
 
 That page SHALL explain that the packaged skill routes by communication intent and not by one hardcoded transport path.
 
-That page SHALL explain that ordinary prompting should prefer the managed-agent seam, while gateway lifecycle, current-session discovery, notifier control, and wakeup guidance belong to `houmao-agent-gateway`.
+That page SHALL explain that ordinary prompting should prefer the managed-agent seam, that mailbox discovery and mailbox routing begin from `agents mail resolve-live`, and that ordinary mailbox operations belong to `houmao-agent-email-comms` while notifier-round mailbox workflow belongs to `houmao-process-emails-via-gateway`.
+
+That page SHALL explain that gateway lifecycle, current-session discovery, notifier control, and wakeup guidance belong to `houmao-agent-gateway`.
 
 That page SHALL explain that transport-specific mailbox behavior remains in the mailbox skill family rather than in `houmao-agent-messaging`.
 
 #### Scenario: Reader sees the packaged messaging skill in system-skills reference
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page identifies `houmao-agent-messaging` as a packaged Houmao-owned skill
-- **AND THEN** it describes that skill as covering managed-agent communication rather than lifecycle or gateway-control-plane ownership
+- **AND THEN** it describes that skill as covering managed-agent communication and mailbox routing rather than lifecycle or gateway-control-plane ownership
 
 #### Scenario: Reader sees the communication-path boundary
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains the distinction between synchronous prompt turns, queued gateway requests, raw `send-keys`, mailbox follow-up, and the separate gateway skill's lifecycle or reminder services
+- **THEN** the page explains the distinction between synchronous prompt turns, queued gateway requests, raw `send-keys`, mailbox handoff, ordinary mailbox operations in the mailbox skills, and the separate gateway skill's lifecycle or reminder services
 - **AND THEN** it does not imply that those paths are interchangeable shortcuts
 
 ### Requirement: Managed-launch CLI reference documents `--workdir` and source-project pinning
@@ -512,4 +514,30 @@ That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-a
 - **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that current wakeup control uses direct live gateway `/v1/wakeups` routes
 - **AND THEN** it does not imply that wakeups are durable across gateway restart or already projected through `houmao-mgr agents gateway ...`
+
+### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
+The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
+
+At minimum, that coverage SHALL include:
+- `houmao-mgr agents launch --managed-header|--no-managed-header`
+- `houmao-mgr project agents launch-profiles add --managed-header|--no-managed-header`
+- `houmao-mgr project agents launch-profiles set --managed-header|--no-managed-header|--clear-managed-header`
+- `houmao-mgr project easy profile create --managed-header|--no-managed-header`
+- `houmao-mgr project easy instance launch --managed-header|--no-managed-header`
+
+The CLI reference SHALL explain that:
+- launch-time managed-header flags are mutually exclusive,
+- direct launch override wins over stored launch-profile policy,
+- clearing stored launch-profile policy returns that field to inherit behavior,
+- omitted launch-time and launch-profile policy falls back to the default enabled managed-header behavior.
+
+#### Scenario: Reader can find the managed-header flags in the CLI reference
+- **WHEN** a reader looks up `houmao-mgr agents launch`, `project agents launch-profiles`, or the relevant `project easy` commands
+- **THEN** the CLI reference documents the managed-header flags and their meaning
+- **AND THEN** the page does not require the reader to infer the new behavior from source code or changelog text
+
+#### Scenario: Reader understands precedence and clear semantics from the CLI reference
+- **WHEN** a reader checks the option notes for managed-header controls
+- **THEN** the CLI reference explains direct-override precedence over stored profile policy
+- **AND THEN** it explains that `--clear-managed-header` returns the stored profile field to inherit behavior
 

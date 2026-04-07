@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-messaging
-description: Use Houmao's supported messaging and control surfaces to communicate with already-running managed agents through prompt, interrupt, gateway, raw-input, mailbox, or reset-context workflows, preferring live gateway-backed delivery when available.
+description: Use Houmao's supported messaging and control surfaces to communicate with already-running managed agents through prompt, interrupt, gateway, raw-input, mailbox routing, or reset-context workflows, preferring live gateway-backed delivery when available.
 license: MIT
 ---
 
@@ -19,7 +19,7 @@ This packaged skill covers exactly these managed-agent communication and control
 - `interrupt`
 - `gateway-queue`
 - `send-keys`
-- `mail`
+- `mail-handoff`
 - `reset-context`
 
 Supported surfaces for this skill include:
@@ -33,7 +33,6 @@ Supported surfaces for this skill include:
 - `houmao-mgr agents gateway interrupt`
 - `houmao-mgr agents gateway send-keys`
 - `houmao-mgr agents gateway tui state|history|note-prompt`
-- `houmao-mgr agents mail status|check|send|reply|mark-read`
 - managed-agent HTTP routes under `/houmao/agents/*`
 
 This packaged skill does not cover:
@@ -41,13 +40,14 @@ This packaged skill does not cover:
 - `houmao-mgr agents launch|join|stop|relaunch|cleanup`
 - `houmao-mgr project easy specialist create|list|get|remove`
 - `houmao-mgr project easy instance launch|list|get|stop`
+- ordinary mailbox `status|check|read|send|reply|mark-read` operations
 - mailbox transport-specific filesystem or Stalwart internals
 - gateway attach or detach lifecycle work
 - direct filesystem editing under runtime or mailbox paths
 
 ## Workflow
 
-1. Identify which messaging intent the user actually wants: discovery, ordinary prompt with gateway preference, interrupt, explicit gateway queueing, raw control input, mailbox follow-up, or reset-context.
+1. Identify which messaging intent the user actually wants: discovery, ordinary prompt with gateway preference, interrupt, explicit gateway queueing, raw control input, mailbox handoff, or reset-context.
 2. Recover the target managed-agent selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the selected action still lacks a required target or explicit message input, ask the user in Markdown before proceeding.
 4. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
@@ -59,10 +59,10 @@ This packaged skill does not cover:
 6. Prefer the managed-agent seam first:
    - `houmao-mgr agents ...` for CLI-driven work
    - `/houmao/agents/*` for pair-managed HTTP control
-7. Before ordinary prompt or outgoing mailbox work, resolve current live gateway capability unless the current prompt or recent chat context already provides that fact explicitly:
+7. Before ordinary prompt or mailbox handoff work, resolve current live gateway capability unless the current prompt or recent chat context already provides that fact explicitly:
    - use `houmao-mgr agents gateway status` or `GET /houmao/agents/{agent_ref}/gateway` for prompt-lane gateway decisions
    - use `houmao-mgr agents mail resolve-live` or `GET /houmao/agents/{agent_ref}/mail/resolve-live` for mailbox bindings and the exact live `gateway.base_url`
-   - when a live gateway exists for the target, prefer the gateway-backed managed-agent surface for prompt turns and outgoing mailbox work
+   - when mailbox work is required, use that discovery result to hand off to `houmao-agent-email-comms` for ordinary mailbox actions or `houmao-process-emails-via-gateway` for one unread-email round
 8. Use direct gateway `/v1/...` HTTP only when the task genuinely needs gateway-only control behavior and the exact live `gateway.base_url` is already available from current context or supported discovery.
 9. Load exactly one action page:
    - `actions/discover.md`
@@ -92,7 +92,7 @@ This packaged skill does not cover:
 - Use `actions/interrupt.md` when the user wants the transport-neutral interrupt path for one managed agent.
 - Use `actions/gateway-queue.md` when the user explicitly wants gateway queue management, raw gateway-owned TUI inspection, or prompt-note provenance beyond the ordinary gateway-preferred prompt path.
 - Use `actions/send-keys.md` when the user needs exact key delivery such as slash-command menus, arrow navigation, `Escape`, or partial typing in a live TUI session.
-- Use `actions/mail.md` when the target has mailbox capability and the work should be expressed as mailbox follow-up; resolve live bindings first and prefer the live gateway mailbox facade for outgoing mail when it exists.
+- Use `actions/mail.md` when the target has mailbox capability and you need to route the work to the correct mailbox skill after resolving live bindings.
 - Use `actions/reset-context.md` when the user wants clear-context, reset-then-send, or next-prompt chat-session control.
 
 ## Guardrails
@@ -102,6 +102,7 @@ This packaged skill does not cover:
 - Do not treat raw `send-keys` as a substitute for ordinary prompt-turn work.
 - Do not redirect raw terminal shaping to `agents prompt` or `agents gateway prompt`.
 - Do not guess a direct gateway host or port when the exact live `gateway.base_url` is not already available.
+- Do not treat this skill as the owner of ordinary mailbox operations; hand mailbox work to `houmao-agent-email-comms` or `houmao-process-emails-via-gateway`.
 - Do not restate filesystem mailbox layout, Stalwart transport detail, or the `/v1/mail/*` contract in full here; delegate that work to the mailbox skills.
 - Do not invent unsupported `houmao-mgr` reset-context flags.
 - Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for managed-agent messaging.

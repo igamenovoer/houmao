@@ -32,7 +32,7 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `agents launch|join|stop|relaunch|cleanup`
 - `project easy specialist create|list|get|remove`
-- ordinary prompt or mailbox follow-up that is already satisfied by `houmao-agent-messaging` and the mailbox skills
+- ordinary prompt or mailbox work that is already satisfied by `houmao-agent-messaging` and the mailbox skills
 - mailbox transport-specific filesystem or Stalwart internals
 - inventing new `houmao-mgr`, managed-agent API, or direct gateway routes that the current implementation does not expose
 
@@ -123,13 +123,11 @@ The packaged `houmao-agent-gateway` skill SHALL select commands by gateway-speci
 - use direct `{gateway.base_url}/v1/wakeups...` only for wakeup registration, inspection, and cancellation because the current implementation does not project those operations through a higher-level CLI or managed-agent route,
 - use direct `{gateway.base_url}/v1/...` only when the task genuinely requires a gateway-only lower-level surface and the exact live base URL is already available from supported discovery.
 
-The packaged `houmao-agent-gateway` skill SHALL delegate ordinary prompt turns, mailbox follow-up, or transport-specific mailbox work to:
+The packaged `houmao-agent-gateway` skill SHALL delegate ordinary prompt turns, mailbox routing, ordinary mailbox work, or transport-specific mailbox work to:
 
 - `houmao-agent-messaging`
 - `houmao-process-emails-via-gateway`
-- `houmao-email-via-agent-gateway`
-- `houmao-email-via-filesystem`
-- `houmao-email-via-stalwart`
+- `houmao-agent-email-comms`
 
 The skill SHALL prefer the managed-agent seam first when it already satisfies the current task and SHALL treat direct gateway listener URLs as the lower-level gateway-only path.
 
@@ -144,8 +142,8 @@ The skill SHALL prefer the managed-agent seam first when it already satisfies th
 - **AND THEN** it does not misdescribe wakeups as a current `houmao-mgr agents gateway ...` subcommand or as a managed-agent API projection that does not exist yet
 
 #### Scenario: Ordinary prompt or mailbox work delegates away from the gateway skill
-- **WHEN** the task is one normal prompt turn, one transport-neutral interrupt, or one mailbox follow-up action rather than gateway lifecycle or gateway-only service control
-- **THEN** the skill directs the caller to `houmao-agent-messaging` and the existing mailbox skills instead of taking that work itself
+- **WHEN** the task is one normal prompt turn, one transport-neutral interrupt, or mailbox work rather than gateway lifecycle or gateway-only service control
+- **THEN** the skill directs the caller to `houmao-agent-messaging` and the current mailbox skills instead of taking that work itself
 - **AND THEN** it does not present the gateway skill as the primary ordinary communication surface
 
 ### Requirement: `houmao-agent-gateway` describes wakeups and mail-notifier honestly

@@ -1,6 +1,6 @@
 # Role Injection
 
-Role injection determines how a role's system prompt is delivered to an agent session. Because each agent tool (Codex, Claude, Gemini) accepts role-level instructions differently, the injection strategy is resolved per-backend at launch-plan composition time. If `roles/<role>/system-prompt.md` is intentionally empty, launch still remains valid and Houmao suppresses startup prompt injection instead of passing empty provider arguments.
+Role injection determines how a role's system prompt is delivered to an agent session. Because each agent tool (Codex, Claude, Gemini) accepts role-level instructions differently, the injection strategy is resolved per-backend at launch-plan composition time. The input to role injection is the already-composed effective launch prompt, not just the raw contents of `roles/<role>/system-prompt.md`. That effective prompt may include launch-profile prompt overlays and the Houmao-managed prompt header when enabled.
 
 ## Injection decision tree
 
@@ -54,26 +54,26 @@ Determines the injection strategy for the given backend and tool, and returns a 
 
 The `RoleInjectionMethod` type enumerates the available injection strategies:
 
-- **`native_developer_instructions`** — the role prompt is passed as a CLI flag that the tool natively supports for developer/system instructions when prompt content exists.
-- **`native_append_system_prompt`** — the role prompt is appended to the tool's system prompt via a native CLI flag, optionally combined with a bootstrap message, when prompt content exists.
-- **`bootstrap_message`** — the role prompt is delivered as the first user-turn message in the session when prompt content exists.
-- **`cao_profile`** — the role prompt is injected via a server-side profile mechanism (legacy backends only).
+- **`native_developer_instructions`** — the effective launch prompt is passed as a CLI flag that the tool natively supports for developer/system instructions when prompt content exists.
+- **`native_append_system_prompt`** — the effective launch prompt is appended to the tool's system prompt via a native CLI flag, optionally combined with a bootstrap message, when prompt content exists.
+- **`bootstrap_message`** — the effective launch prompt is delivered as the first user-turn message in the session when prompt content exists.
+- **`cao_profile`** — the effective launch prompt is injected via a server-side profile mechanism (legacy backends only).
 
 ## Per-backend strategies
 
 | Backend | Method | How it works |
 |---|---|---|
-| `codex_headless` | `native_developer_instructions` | When the role prompt is non-empty, Houmao passes `-c developer_instructions=<prompt>`. Empty prompts skip this startup input entirely. |
+| `codex_headless` | `native_developer_instructions` | When the effective launch prompt is non-empty, Houmao passes `-c developer_instructions=<prompt>`. Empty effective prompts skip this startup input entirely. |
 | `codex_app_server` | `native_developer_instructions` | Same semantics as `codex_headless`, but applied to the `thread/start` request payload. |
-| `claude_headless` | `native_append_system_prompt` | When the role prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty prompts skip both. |
-| `gemini_headless` | `bootstrap_message` | When the role prompt is non-empty, Houmao sends it as a first-turn bootstrap message. Empty prompts skip bootstrap entirely. |
-| `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Gemini uses bootstrap messaging. Empty prompts suppress those startup inputs regardless of tool. |
-| `cao_rest` | `cao_profile` | Legacy: role prompt is injected via the external server's profile-based mechanism. |
-| `houmao_server_rest` | `cao_profile` | Legacy: role prompt is injected via the server's profile-based mechanism. |
+| `claude_headless` | `native_append_system_prompt` | When the effective launch prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty effective prompts skip both. |
+| `gemini_headless` | `bootstrap_message` | When the effective launch prompt is non-empty, Houmao sends it as a first-turn bootstrap message. Empty effective prompts skip bootstrap entirely. |
+| `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Gemini uses bootstrap messaging. Empty effective prompts suppress those startup inputs regardless of tool. |
+| `cao_rest` | `cao_profile` | Legacy: the effective launch prompt is injected via the external server's profile-based mechanism. |
+| `houmao_server_rest` | `cao_profile` | Legacy: the effective launch prompt is injected via the server's profile-based mechanism. |
 
 ## Bootstrap message lifecycle
 
-For backends that use `bootstrap_message` or combine native injection with a bootstrap message (`claude_headless`), the bootstrap is delivered exactly once when prompt content exists — on the first turn of the session. The headless backend base class tracks this via the `role_bootstrap_applied` flag in `HeadlessSessionState`, ensuring the bootstrap message is not re-sent on resume.
+For backends that use `bootstrap_message` or combine native injection with a bootstrap message (`claude_headless`), the bootstrap is delivered exactly once when effective launch-prompt content exists — on the first turn of the session. The headless backend base class tracks this via the `role_bootstrap_applied` flag in `HeadlessSessionState`, ensuring the bootstrap message is not re-sent on resume.
 
 The bootstrap message is distinct from subsequent user prompts. It establishes the agent's role context before any user-directed work begins.
 

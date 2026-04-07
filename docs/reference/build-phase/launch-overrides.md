@@ -4,6 +4,8 @@ Module: `src/houmao/agents/launch_overrides/` — "Shared launch-override models
 
 Launch overrides control how tool launch arguments and parameters are customized beyond the adapter's built-in defaults. They flow through a layered resolution pipeline: adapter defaults → recipe overrides → launch-profile defaults → direct overrides → live runtime mutations. For the shared conceptual model that ties launch profiles to this build-phase pipeline, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
+The managed prompt header is adjacent to this pipeline but is not itself a `LaunchOverrides` field. It is a separate launch-prompt composition step that happens after prompt-overlay resolution and before backend-specific prompt injection.
+
 ### Override Precedence
 
 ```mermaid

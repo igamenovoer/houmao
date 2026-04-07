@@ -15,13 +15,11 @@ Use `houmao-agent-gateway` when the task is about the managed gateway itself or 
 - `houmao-manage-agent-instance`
   start, join, stop, relaunch, or clean up the managed agent session itself
 - `houmao-agent-messaging`
-  ordinary prompt, interrupt, or mailbox follow-up across already-running managed agents
-- `houmao-agent-email-comms`
-  the exact shared `/v1/mail/*` route contract once the exact live `gateway.base_url` is already known
+  ordinary prompt, interrupt, or mailbox routing across already-running managed agents
 - `houmao-process-emails-via-gateway`
   one notifier-driven unread-mail processing round
 - `houmao-agent-email-comms`
-  unified mailbox operations plus gateway-backed and no-gateway fallback detail
+  unified mailbox operations, the exact shared `/v1/mail/*` route contract, and gateway-backed or no-gateway fallback detail
 
 ## Discovery Boundary
 

@@ -85,7 +85,7 @@ This packaged skill does not cover:
 - Use `actions/wakeups.md` when the task is to remind the attached agent about unfinished work after some future time.
 - Use `actions/mail-notifier.md` when the user wants background unread-mail prompting through the live gateway.
 - Use `houmao-manage-agent-instance` for starting or stopping the managed agent itself.
-- Use `houmao-agent-messaging` for ordinary prompt, interrupt, or mailbox follow-up across already-running managed agents.
+- Use `houmao-agent-messaging` for ordinary prompt, interrupt, or mailbox routing across already-running managed agents.
 - Use `houmao-agent-email-comms` for the exact shared `/v1/mail/*` route contract after you already have the correct live `gateway.base_url`.
 
 ## Guardrails

@@ -257,11 +257,11 @@ def test_prepare_native_launch_projection_uses_resolved_role_package(
         working_directory=tmp_path,
     )
 
-    assert prepared.profile.system_prompt == ""
+    assert prepared.profile.system_prompt.startswith("[HOUMAO MANAGED HEADER]")
     assert prepared.profile.provider == "codex"
     request = capture["request"]
     assert getattr(request, "role_package").role_name == "gpu-kernel-coder"
-    assert getattr(request, "role_package").system_prompt == ""
+    assert getattr(request, "role_package").system_prompt == prepared.profile.system_prompt
 
 
 def _prepared_profile(provider_id: str) -> PreparedNativeCompatibilityLaunch:

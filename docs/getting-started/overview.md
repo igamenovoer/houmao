@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. For the shared conceptual model that ties easy profiles and explicit launch profiles together, see [Launch Profiles](launch-profiles.md).
+Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties easy profiles and explicit launch profiles together, see [Launch Profiles](launch-profiles.md).
 
 ## Two-Phase Lifecycle
 

@@ -17,7 +17,6 @@ That skill SHALL instruct agents to communicate with already-existing Houmao-man
 - `houmao-mgr agents gateway interrupt`
 - `houmao-mgr agents gateway send-keys`
 - `houmao-mgr agents gateway tui state|history|note-prompt`
-- `houmao-mgr agents mail status|check|send|reply|mark-read`
 - managed-agent HTTP routes under `/houmao/agents/*`
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
@@ -27,7 +26,7 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `interrupt`
 - `gateway-queue`
 - `send-keys`
-- `mail`
+- `mail-handoff`
 - `reset-context`
 
 That packaged skill SHALL remain the canonical Houmao-owned skill for communication with already-running managed agents whether the caller is another agent using an installed Houmao skill home or an external operator standing outside the managed session.
@@ -37,22 +36,23 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - `agents launch|join|stop|relaunch|cleanup`
 - `project easy specialist create|list|get|remove`
 - `project easy instance launch|list|get|stop`
+- ordinary mailbox `status|check|read|send|reply|mark-read` operations
 - mailbox transport-specific filesystem or Stalwart internals
 - gateway attach and detach lifecycle work
 
 #### Scenario: Installed skill points the agent at supported communication surfaces
 - **WHEN** an agent opens the installed `houmao-agent-messaging` skill
-- **THEN** the skill directs the agent to the supported prompt, interrupt, gateway, raw-input, mailbox, and managed-agent HTTP surfaces
+- **THEN** the skill directs the agent to the supported prompt, interrupt, gateway, mailbox-discovery, and managed-agent HTTP surfaces
 - **AND THEN** it does not redirect the agent to unrelated lifecycle or filesystem editing work
 
 #### Scenario: Installed skill routes to action-specific local guidance
 - **WHEN** an agent reads the installed `houmao-agent-messaging` skill
-- **THEN** the top-level `SKILL.md` acts as an index/router for discovery, prompt, interrupt, gateway queue control, raw input, mailbox, and reset-context guidance
+- **THEN** the top-level `SKILL.md` acts as an index/router for discovery, prompt, interrupt, gateway queue control, raw input, mailbox handoff, and reset-context guidance
 - **AND THEN** the detailed workflow lives in local action-specific documents rather than in one flattened entry page
 
-#### Scenario: Installed skill keeps lifecycle and mailbox-transport internals out of scope
+#### Scenario: Installed skill keeps lifecycle and mailbox-operation internals out of scope
 - **WHEN** an agent reads the installed `houmao-agent-messaging` skill
-- **THEN** the skill marks managed-agent lifecycle actions and mailbox transport internals as outside the packaged skill scope
+- **THEN** the skill marks managed-agent lifecycle actions, ordinary mailbox operations, and mailbox transport internals as outside the packaged skill scope
 - **AND THEN** it does not present launch, cleanup, or transport-local mailbox repair as part of messaging guidance
 
 ### Requirement: `houmao-agent-messaging` resolves the `houmao-mgr` launcher in the required precedence order
@@ -96,8 +96,8 @@ The skill SHALL select commands by communication intent:
 - use `houmao-mgr agents interrupt` for the transport-neutral interrupt path
 - use `houmao-mgr agents gateway prompt|interrupt` when live-gateway queue semantics are required
 - use `houmao-mgr agents gateway send-keys` when exact raw control input is required and the work must not be treated as a prompt turn
-- use `houmao-mgr agents mail ...` when the target has mailbox capability and the work should be expressed as mailbox follow-up
-- use `houmao-mgr agents state`, `houmao-mgr agents gateway status`, and `houmao-mgr agents mail resolve-live` as discovery surfaces before deeper gateway or mailbox follow-up
+- use `houmao-mgr agents mail resolve-live` when the task needs mailbox discovery, current mailbox capability, or the exact live `gateway.base_url` before mailbox handoff
+- use `houmao-mgr agents state`, `houmao-mgr agents gateway status`, and `houmao-mgr agents mail resolve-live` as discovery surfaces before deeper gateway or mailbox routing
 
 The skill SHALL prefer `houmao-mgr agents ...` and managed-agent `/houmao/agents/*` routes over direct gateway listener URLs when those higher-level surfaces already satisfy the current task.
 
@@ -115,6 +115,11 @@ The skill SHALL prefer `houmao-mgr agents ...` and managed-agent `/houmao/agents
 - **WHEN** the user explicitly wants live-gateway queue semantics instead of synchronous prompt completion
 - **THEN** the skill directs the agent to use `houmao-mgr agents gateway prompt` or `houmao-mgr agents gateway interrupt`
 - **AND THEN** it does not silently replace that request with the transport-neutral `agents prompt` or `agents interrupt` path
+
+#### Scenario: Mailbox work uses discovery before handoff
+- **WHEN** the user asks for mailbox-related work against a managed agent
+- **THEN** the skill directs the agent to use `houmao-mgr agents mail resolve-live` or the equivalent managed-agent discovery route first when current mailbox posture or `gateway.base_url` is needed
+- **AND THEN** it does not present `houmao-agent-messaging` as the owner of ordinary mailbox operations after that discovery
 
 #### Scenario: Missing target requires a user question
 - **WHEN** the selected messaging action still lacks a required target after checking the current prompt and recent chat context
@@ -159,15 +164,15 @@ At minimum, that delegation SHALL cover:
 - `houmao-process-emails-via-gateway`
 - `houmao-agent-email-comms`
 
-The packaged `houmao-agent-messaging` skill SHALL keep its own mailbox coverage at the communication-routing level and SHALL NOT restate filesystem layout, Stalwart credential handling, or the lower-level `/v1/mail/*` contract in full.
+The packaged `houmao-agent-messaging` skill SHALL keep its own mailbox coverage at the communication-routing and mailbox-handoff level and SHALL NOT restate filesystem layout, Stalwart credential handling, managed-agent mailbox operation routes, or the lower-level `/v1/mail/*` contract in full.
 
 #### Scenario: Gateway mailbox round work delegates to the processing skill
 - **WHEN** the messaging task becomes a notifier-driven mailbox-processing round with a live gateway mailbox facade
 - **THEN** the skill directs the agent to `houmao-process-emails-via-gateway`
 - **AND THEN** it does not duplicate that round workflow inside `houmao-agent-messaging`
 
-#### Scenario: Ordinary mailbox follow-up delegates to the unified ordinary-mailbox skill
-- **WHEN** the messaging task needs ordinary mailbox follow-up, live mailbox discovery, or transport-local mailbox guidance
+#### Scenario: Ordinary mailbox work delegates to the unified ordinary-mailbox skill
+- **WHEN** the messaging task needs ordinary mailbox work, live mailbox discovery follow-through, or transport-local mailbox guidance
 - **THEN** the skill directs the agent to `houmao-agent-email-comms`
 - **AND THEN** it does not restate that ordinary mailbox guidance as part of the generic managed-agent messaging skill
 

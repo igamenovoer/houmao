@@ -59,7 +59,7 @@ When a managed agent was launched from a reusable launch profile (either an easy
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal, Stalwart-only fields when applicable),
 - managed-agent identity defaults (`agent_name`, optionally `agent_id`),
-- the **prompt-overlay-composed effective role prompt** — when the launch profile defines a prompt overlay, the effective role prompt is composed before backend-specific role injection and the runtime does not replay the overlay as a separate second bootstrap step on resumed turns.
+- the **effective launch prompt** — prompt composition happens in this order: source role prompt, launch-profile prompt overlay resolution, managed-header prepend when enabled, then backend-specific role injection. The runtime does not replay the overlay or managed header later as separate bootstrap steps on resumed turns.
 
 The build manifest and the resulting runtime launch metadata also preserve secret-free **launch-profile provenance** sufficient for inspection and replay: the source lane (specialist or recipe), the birth-time lane (`easy_profile` or `launch_profile`), and the originating profile name when available. Inspection commands such as `houmao-mgr agents state`, `houmao-mgr agents list`, and the easy `houmao-mgr project easy instance get|list` surfaces report that provenance.
 

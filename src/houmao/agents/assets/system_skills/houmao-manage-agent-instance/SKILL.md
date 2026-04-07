@@ -1,12 +1,12 @@
 ---
 name: houmao-manage-agent-instance
-description: Use Houmao's supported managed-agent lifecycle commands to launch, join, list, stop, or clean up live agent instances created from predefined roles, presets, explicit launch profiles, or specialists.
+description: Use Houmao's supported managed-agent lifecycle commands to launch, join, list, stop, relaunch, or clean up live agent instances created from predefined roles, presets, explicit launch profiles, or specialists.
 license: MIT
 ---
 
 # Houmao Manage Agent Instance
 
-Use this Houmao skill when you need to create, adopt, inspect, stop, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. This is the canonical Houmao-owned skill for general live-agent lifecycle work after any specialist-scoped launch or stop entry.
+Use this Houmao skill when you need to create, adopt, inspect, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. This is the canonical Houmao-owned skill for general live-agent lifecycle work after any specialist-scoped launch or stop entry.
 
 The trigger word `houmao` is intentional. Use the `houmao-manage-agent-instance` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -18,6 +18,7 @@ This packaged skill covers exactly these managed-agent instance lifecycle action
 - `join`
 - `list`
 - `stop`
+- `relaunch`
 - `cleanup`
 
 `houmao-manage-specialist` may also front specialist-scoped `launch` and `stop`, but this skill remains the canonical follow-up lifecycle surface for broader live-agent management.
@@ -33,7 +34,6 @@ This packaged skill does not cover:
 - `houmao-mgr project easy instance stop`
 - `houmao-mgr agents prompt`
 - `houmao-mgr agents interrupt`
-- `houmao-mgr agents relaunch`
 - `houmao-mgr agents turn ...`
 - `houmao-mgr agents gateway ...`
 - `houmao-mgr agents mailbox ...`
@@ -44,7 +44,7 @@ This packaged skill does not cover:
 
 ## Workflow
 
-1. Identify which managed-agent lifecycle action the user wants: `launch`, `join`, `list`, `stop`, or `cleanup`.
+1. Identify which managed-agent lifecycle action the user wants: `launch`, `join`, `list`, `stop`, `relaunch`, or `cleanup`.
 2. If the requested action is `launch`, determine whether the source is:
    - a predefined role or preset for `houmao-mgr agents launch --agents`, or
    - an explicit project launch profile for `houmao-mgr agents launch --launch-profile`, or
@@ -61,6 +61,7 @@ This packaged skill does not cover:
    - `actions/join.md`
    - `actions/list.md`
    - `actions/stop.md`
+   - `actions/relaunch.md`
    - `actions/cleanup.md`
 7. Follow the selected action page and report the result from the command that ran.
 
@@ -79,6 +80,7 @@ This packaged skill does not cover:
 - Use `actions/join.md` only when the user wants Houmao to adopt one already-running supported provider session.
 - Use `actions/list.md` only when the user wants to list current live managed agents.
 - Use `actions/stop.md` only when the user wants to stop one live managed agent.
+- Use `actions/relaunch.md` only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home.
 - Use `actions/cleanup.md` only when the user wants to remove stopped-session envelope artifacts or session-local logs.
 - Treat this skill as the canonical follow-up lifecycle surface after any specialist-scoped `launch` or `stop` handled through `houmao-manage-specialist`.
 
@@ -90,6 +92,7 @@ This packaged skill does not cover:
 - Do not route manual mailbox-enabled launch flags, mailbox cleanup, or mailbox registration tasks through this skill.
 - Do not reject explicit launch-profile-backed launch just because the stored profile already carries gateway or mailbox defaults.
 - Do not route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.
+- Do not silently replace `agents relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
 - Do not force `pixi run houmao-mgr` when the workspace is not a development project.
 - Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.
 - Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for managed-agent lifecycle work.

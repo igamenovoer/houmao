@@ -15,6 +15,14 @@ import click
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.managed_prompt_header import (
+    ManagedHeaderPolicy,
+    compose_managed_launch_prompt,
+    managed_prompt_header_metadata,
+    normalize_managed_header_policy,
+    resolve_managed_launch_identity,
+    resolve_managed_prompt_header_decision,
+)
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
@@ -196,27 +204,6 @@ def _materialize_source_agent_def_dir(*, project_roots: ProjectAwareLocalRoots) 
     return project_roots.agent_def_dir.resolve()
 
 
-def _compose_role_prompt(
-    *,
-    base_prompt: str,
-    overlay_mode: str | None,
-    overlay_text: str | None,
-) -> str:
-    """Compose one effective role prompt from optional launch-profile overlay text."""
-
-    if overlay_mode is None or overlay_text is None:
-        return base_prompt
-    if overlay_mode == "replace":
-        return overlay_text.rstrip()
-    if overlay_mode != "append":
-        raise click.ClickException(
-            f"Unsupported prompt-overlay mode {overlay_mode!r}; expected `append` or `replace`."
-        )
-    if not base_prompt:
-        return overlay_text.rstrip()
-    return f"{base_prompt.rstrip()}\n\n{overlay_text.rstrip()}".rstrip()
-
-
 def _parse_stored_launch_profile_mailbox_or_click(
     payload: dict[str, Any] | None,
     *,
@@ -292,6 +279,8 @@ def launch_managed_agent_locally(
     direct_model_config: ModelConfig | None = None,
     prompt_overlay_mode: str | None = None,
     prompt_overlay_text: str | None = None,
+    managed_header_override: bool | None = None,
+    launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None,
     launch_profile_provenance: dict[str, Any] | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
@@ -350,10 +339,23 @@ def launch_managed_agent_locally(
         effective_persistent_env_records = dict(target.preset.launch_env_records or {})
         if persistent_env_records is not None:
             effective_persistent_env_records.update(dict(persistent_env_records))
-        effective_role_prompt = _compose_role_prompt(
+        managed_header_decision = resolve_managed_prompt_header_decision(
+            launch_override=managed_header_override,
+            stored_policy=launch_profile_managed_header_policy,
+        )
+        managed_launch_identity = resolve_managed_launch_identity(
+            tool=target.preset.tool,
+            role_name=target.role_name,
+            requested_agent_name=agent_name,
+            requested_agent_id=agent_id,
+        )
+        effective_role_prompt = compose_managed_launch_prompt(
             base_prompt=target.role_prompt,
             overlay_mode=prompt_overlay_mode,
             overlay_text=prompt_overlay_text,
+            managed_header_enabled=managed_header_decision.enabled,
+            agent_name=managed_launch_identity.agent_name,
+            agent_id=managed_launch_identity.agent_id,
         )
         build_result = build_brain_home(
             BuildRequest(
@@ -372,12 +374,12 @@ def launch_managed_agent_locally(
                 persistent_env_records=effective_persistent_env_records,
                 mailbox=declared_mailbox or target.preset.mailbox,
                 extra=target.preset.extra,
-                agent_name=agent_name,
-                agent_id=agent_id,
-                role_prompt_override=(
-                    effective_role_prompt
-                    if prompt_overlay_mode is not None and prompt_overlay_text is not None
-                    else None
+                agent_name=managed_launch_identity.agent_name,
+                agent_id=managed_launch_identity.agent_id,
+                role_prompt_override=effective_role_prompt,
+                managed_prompt_header=managed_prompt_header_metadata(
+                    decision=managed_header_decision,
+                    identity=managed_launch_identity,
                 ),
                 launch_profile_provenance=launch_profile_provenance,
             )
@@ -534,6 +536,12 @@ def agents_group() -> None:
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option(
+    "--managed-header/--no-managed-header",
+    "managed_header",
+    default=None,
+    help="Force-enable or disable the Houmao-managed prompt header for this launch.",
+)
+@click.option(
     "--workdir",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
     default=None,
@@ -571,6 +579,7 @@ def launch_agents_command(
     reasoning_level: int | None,
     session_name: str | None,
     headless: bool,
+    managed_header: bool | None,
     workdir: Path | None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
@@ -599,6 +608,7 @@ def launch_agents_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
+    launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_provenance = None
     gateway_auto_attach = False
     gateway_host = None
@@ -655,6 +665,10 @@ def launch_agents_command(
         launch_profile_model_config = normalize_model_config(
             name=resolved_profile.entry.model_name,
             reasoning_level=resolved_profile.entry.reasoning_level,
+        )
+        launch_profile_managed_header_policy = normalize_managed_header_policy(
+            resolved_profile.entry.managed_header_policy,
+            source=f"launch profile `{resolved_profile.entry.name}`",
         )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
@@ -724,6 +738,8 @@ def launch_agents_command(
         direct_model_config=direct_model_config,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
+        managed_header_override=managed_header,
+        launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,
     )
 

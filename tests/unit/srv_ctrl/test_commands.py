@@ -8,6 +8,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from houmao.agents.managed_prompt_header import compose_managed_launch_prompt
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
@@ -1725,20 +1726,23 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             source_kind="recipe",
             source_name="researcher-codex-default",
             managed_agent_name="alice",
-            managed_agent_id="agent-alice",
-            workdir=str(project_root / "profile-workdir"),
-            auth_name="alice-creds",
-            operator_prompt_mode="unattended",
-            env_payload={"PROJECT_CONTEXT": "alice"},
-            mailbox_payload={
+                managed_agent_id="agent-alice",
+                workdir=str(project_root / "profile-workdir"),
+                auth_name="alice-creds",
+                model_name=None,
+                reasoning_level=None,
+                operator_prompt_mode="unattended",
+                env_payload={"PROJECT_CONTEXT": "alice"},
+                mailbox_payload={
                 "transport": "filesystem",
                 "principal_id": "alice",
                 "address": "alice@agents.localhost",
                 "filesystem_root": "/shared-mail-root",
             },
-            posture_payload={"headless": True, "gateway_port": 9011},
-            prompt_overlay_mode="append",
-        ),
+                posture_payload={"headless": True, "gateway_port": 9011},
+                managed_header_policy="inherit",
+                prompt_overlay_mode="append",
+            ),
         source_exists=True,
         recipe_path=recipe_path,
         provider="codex",
@@ -1850,10 +1854,13 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
                 managed_agent_id=None,
                 workdir=None,
                 auth_name=None,
+                model_name=None,
+                reasoning_level=None,
                 operator_prompt_mode=None,
                 env_payload={},
                 mailbox_payload=None,
                 posture_payload={},
+                managed_header_policy="inherit",
                 prompt_overlay_mode=None,
             ),
             source_exists=True,
@@ -1882,6 +1889,90 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
 
     assert result.exit_code != 0
     assert "conflicts with launch profile" in result.output
+
+
+def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    invocation_directory = tmp_path.resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    recipe_path = (source_agent_def_dir / "recipe.yaml").resolve()
+    recipe_path.parent.mkdir(parents=True, exist_ok=True)
+    recipe_path.write_text("role: researcher\n", encoding="utf-8")
+    monkeypatch.chdir(invocation_directory)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
+        lambda **kwargs: SimpleNamespace(project_overlay=SimpleNamespace(project_root=tmp_path)),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
+        lambda **kwargs: SimpleNamespace(
+            entry=SimpleNamespace(
+                name="alice",
+                profile_lane="launch_profile",
+                source_kind="recipe",
+                source_name="researcher-codex-default",
+                managed_agent_name="alice",
+                managed_agent_id="agent-alice",
+                workdir=None,
+                auth_name=None,
+                model_name=None,
+                reasoning_level=None,
+                operator_prompt_mode=None,
+                env_payload={},
+                mailbox_payload=None,
+                posture_payload={},
+                managed_header_policy="disabled",
+                prompt_overlay_mode=None,
+            ),
+            source_exists=True,
+            recipe_path=recipe_path,
+            provider="codex",
+            recipe_name="researcher-codex-default",
+            prompt_overlay_text=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-1234",
+                tmux_session_name="alice-session",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--launch-profile",
+            "alice",
+            "--provider",
+            "codex",
+            "--managed-header",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["managed_header_override"] is True
+    assert captured["launch_profile_managed_header_policy"] == "disabled"
 
 
 def test_server_sessions_shutdown_all_uses_pair_client(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1987,7 +2078,15 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     ]
     assert captured["build_request"].operator_prompt_mode == "unattended"
     assert captured["build_request"].agent_name == "gpu"
-    assert captured["build_request"].agent_id is None
+    assert captured["build_request"].agent_id == "0aa0be2a866411d9ff03515227454947"
+    assert captured["build_request"].role_prompt_override == compose_managed_launch_prompt(
+        base_prompt="You are gpu-kernel-coder.",
+        overlay_mode=None,
+        overlay_text=None,
+        managed_header_enabled=True,
+        agent_name="gpu",
+        agent_id="0aa0be2a866411d9ff03515227454947",
+    )
     assert captured["start_kwargs"]["backend"] == "local_interactive"
     assert captured["start_kwargs"]["agent_name"] == "gpu"
     assert captured["start_kwargs"]["agent_id"] is None
@@ -2253,7 +2352,8 @@ def test_agents_launch_allows_missing_agent_name(
     assert result.exit_code == 0
     payloads = _decode_json_stream(result.output)
     assert payloads[0]["agent_name"] == "HOUMAO-claude-gpu-kernel-coder"
-    assert captured["build_request"].agent_name is None
+    assert captured["build_request"].agent_name == "HOUMAO-claude-gpu-kernel-coder"
+    assert captured["build_request"].agent_id == "fd4e1392c17d45c0490fc10e3cd80b49"
     assert captured["start_kwargs"]["agent_name"] is None
 
 

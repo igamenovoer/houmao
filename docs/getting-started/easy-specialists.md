@@ -137,11 +137,14 @@ Key options:
 | `--headless` | False | Persist headless launch as the default posture. |
 | `--no-gateway` | False | Persist gateway auto-attach disabled. |
 | `--gateway-port` | None | Persist one fixed loopback gateway port for launches from this profile. |
+| `--managed-header`, `--no-managed-header` | `inherit` | Store managed prompt-header policy for launches from this profile. |
 | `--prompt-overlay-mode` | None | Optional `append` or `replace` prompt overlay. |
 | `--prompt-overlay-text` | None | Inline prompt-overlay text. |
 | `--prompt-overlay-file` | None | Path to a prompt-overlay text file (stored as managed file-backed content). |
 
 Easy profiles are stored as the same kind of catalog object that backs explicit recipe-backed launch profiles, but the easy lane keeps the authoring surface smaller and intentionally specialist-backed. The persisted profile lives in the catalog with `profile_lane=easy_profile` and `source_kind=specialist`, and projects into `.houmao/agents/launch-profiles/<name>.yaml` for low-level inspection.
+
+Easy profile creation may also store managed prompt-header policy. `--managed-header` stores `enabled`, `--no-managed-header` stores `disabled`, and omitting both stores `inherit`, which falls back to Houmao's default enabled managed-header behavior later at launch time.
 
 Manage existing easy profiles with:
 
@@ -172,7 +175,7 @@ houmao-mgr project easy instance launch --profile reviewer-default
 
 When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
 
-Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, and `--mail-account-dir` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
+Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, and `--managed-header` or `--no-managed-header` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 
 By default, easy instance launch also auto-attaches a live loopback gateway for the new session on `127.0.0.1` with a system-assigned port. Use `--no-gateway` to skip that default for one launch, or `--gateway-port <port>` when you want one fixed loopback listener port on the current launch. If the managed session starts but gateway attachment fails afterward, Houmao keeps the session running and reports the attach error together with the manifest/session identity so you can retry or stop it explicitly.
 
@@ -187,6 +190,7 @@ Key options:
 | `--headless` | False | Launch in detached/background mode. |
 | `--no-gateway` | False | Skip the default launch-time gateway attach for this instance. |
 | `--gateway-port` | Auto | Request one fixed loopback gateway listener port for this launch. |
+| `--managed-header`, `--no-managed-header` | Profile policy, otherwise enabled | Force-enable or disable the Houmao-managed prompt header for one launch. |
 | `--session-name` | None | Optional tmux session name override. |
 | `--auth` | Specialist's credential or profile default | Optional auth bundle override. |
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
@@ -199,6 +203,8 @@ Gemini specialists remain headless-only here. Use `--headless` when launching a 
 `--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, jobs, and mailbox defaults.
 
 `--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port.
+
+`--managed-header` and `--no-managed-header` are mutually exclusive. When neither flag is supplied, easy-instance launch inherits managed-header policy from the selected easy profile when one is present; otherwise it falls back to the default enabled behavior.
 
 There is no separate easy-launch `--yolo` override. Startup autonomy is owned by the stored specialist `launch.prompt_mode` (or, when launching from an easy profile that overrides it, by the profile's stored prompt-mode override): `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 

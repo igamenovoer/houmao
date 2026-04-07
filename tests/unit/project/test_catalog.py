@@ -202,6 +202,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "filesystem_root": "/mail-root",
         },
         posture_mapping={"headless": True, "gateway_port": 9011},
+        managed_header_policy="inherit",
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
     )
@@ -235,6 +236,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 "filesystem_root": "/mail-root",
             },
             "posture": {"headless": True, "gateway_port": 9011},
+            "managed_header": "inherit",
             "prompt_overlay": {
                 "mode": "append",
                 "text": "Prefer Alice repository conventions.",
@@ -255,6 +257,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 auth_name,
                 model_name,
                 reasoning_level,
+                managed_header_policy,
                 prompt_overlay_mode
             FROM v_launch_profiles
             """
@@ -268,6 +271,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "alice-creds",
             "gpt-5.4-mini",
             4,
+            "inherit",
             "append",
         )
     finally:
