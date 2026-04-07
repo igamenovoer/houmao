@@ -219,6 +219,8 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 
 Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, message other managed agents, and control live runtime workflows autonomously.
 
+The packaged mailbox skill surface is currently two-part: `houmao-process-emails-via-gateway` for notifier-driven unread-mail rounds, and `houmao-agent-email-comms` for ordinary shared-mailbox operations plus no-gateway fallback guidance.
+
 | Skill | What it enables |
 |---|---|
 | `houmao-manage-specialist` | Create, list, inspect, remove, launch, and stop easy specialist/profile-backed project-local workflows |

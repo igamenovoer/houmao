@@ -197,9 +197,9 @@ Important details:
 
 `houmao-mgr agents mail ...` prefers manager-owned direct execution and gateway-backed execution. Only the local live-TUI fallback submits a mailbox prompt into the session.
 
-- Claude runtime homes use top-level Houmao skills under the isolated `CLAUDE_CONFIG_DIR`, such as `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`.
-- Codex runtime homes also use top-level Houmao skills, such as `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`.
-- Gemini runtime homes use top-level Houmao-owned skills under `.gemini/skills/`, such as `.gemini/skills/houmao-email-via-agent-gateway/SKILL.md`, `.gemini/skills/houmao-email-via-filesystem/SKILL.md`, and `.gemini/skills/houmao-email-via-stalwart/SKILL.md`.
+- Claude runtime homes use top-level Houmao skills under the isolated `CLAUDE_CONFIG_DIR`, such as `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`.
+- Codex runtime homes also use top-level Houmao skills, such as `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`.
+- Gemini runtime homes use top-level Houmao-owned skills under `.gemini/skills/`, such as `.gemini/skills/houmao-process-emails-via-gateway/SKILL.md` and `.gemini/skills/houmao-agent-email-comms/SKILL.md`.
 - Houmao does not use the launched repo's `.claude/` tree as the runtime Claude config directory.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
@@ -243,6 +243,4 @@ sequenceDiagram
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/agents/system_skills.py`](../../../src/houmao/agents/system_skills.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-agent-gateway/SKILL.md`](../../../src/houmao/agents/assets/system_skills/houmao-email-via-agent-gateway/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/SKILL.md`](../../../src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-stalwart/SKILL.md`](../../../src/houmao/agents/assets/system_skills/houmao-email-via-stalwart/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/houmao-agent-email-comms/SKILL.md`](../../../src/houmao/agents/assets/system_skills/houmao-agent-email-comms/SKILL.md)

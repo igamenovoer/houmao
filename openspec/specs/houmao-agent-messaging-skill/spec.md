@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the packaged Houmao-owned system skill that routes communication and control for already-running managed agents.
-
 ## Requirements
-
 ### Requirement: Houmao provides a packaged `houmao-agent-messaging` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-messaging` under the maintained system-skill asset root.
 
@@ -153,15 +151,13 @@ The skill SHALL state when the requested reset or chat-session behavior cannot s
 - **THEN** the skill does not guess a gateway host or port
 - **AND THEN** it instead directs the agent to a supported higher-level managed-agent surface or reports that the required lower-level gateway endpoint is unavailable
 
-### Requirement: `houmao-agent-messaging` delegates transport-specific mailbox behavior to existing Houmao mailbox skills
-When mailbox-related messaging requires transport-specific guidance or notifier-round workflow, the packaged `houmao-agent-messaging` skill SHALL direct the agent to the existing Houmao mailbox skills instead of duplicating that detail locally.
+### Requirement: `houmao-agent-messaging` delegates mailbox behavior to the current Houmao mailbox skills
+When mailbox-related messaging requires notifier-round workflow, ordinary mailbox actions, or transport-specific guidance, the packaged `houmao-agent-messaging` skill SHALL direct the agent to the current Houmao mailbox skills instead of duplicating that detail locally.
 
 At minimum, that delegation SHALL cover:
 
 - `houmao-process-emails-via-gateway`
-- `houmao-email-via-agent-gateway`
-- `houmao-email-via-filesystem`
-- `houmao-email-via-stalwart`
+- `houmao-agent-email-comms`
 
 The packaged `houmao-agent-messaging` skill SHALL keep its own mailbox coverage at the communication-routing level and SHALL NOT restate filesystem layout, Stalwart credential handling, or the lower-level `/v1/mail/*` contract in full.
 
@@ -170,7 +166,8 @@ The packaged `houmao-agent-messaging` skill SHALL keep its own mailbox coverage 
 - **THEN** the skill directs the agent to `houmao-process-emails-via-gateway`
 - **AND THEN** it does not duplicate that round workflow inside `houmao-agent-messaging`
 
-#### Scenario: Transport-specific mailbox questions delegate to the transport skill
-- **WHEN** the messaging task needs filesystem-specific or Stalwart-specific mailbox behavior
-- **THEN** the skill directs the agent to the appropriate transport-specific Houmao mailbox skill
-- **AND THEN** it does not restate that transport-local guidance as part of the generic managed-agent messaging skill
+#### Scenario: Ordinary mailbox follow-up delegates to the unified ordinary-mailbox skill
+- **WHEN** the messaging task needs ordinary mailbox follow-up, live mailbox discovery, or transport-local mailbox guidance
+- **THEN** the skill directs the agent to `houmao-agent-email-comms`
+- **AND THEN** it does not restate that ordinary mailbox guidance as part of the generic managed-agent messaging skill
+

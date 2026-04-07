@@ -104,11 +104,11 @@ The filesystem transport splits durable state between a shared catalog and mailb
 
 ## Projected Skill Contract
 
-The runtime projects one shared Houmao gateway skill plus one transport-specific mailbox skill into the brain home during brain build. The primary discoverable mailbox skill surface is tool-specific:
+The runtime projects one round-oriented workflow skill plus one unified mailbox communication skill into the brain home during brain build. The primary discoverable mailbox skill surface is tool-specific:
 
-- Claude native runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md`, `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`
-- Codex runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md`, `skills/houmao-email-via-agent-gateway/SKILL.md`, `skills/houmao-email-via-filesystem/SKILL.md`, and `skills/houmao-email-via-stalwart/SKILL.md`
-- Gemini runtime homes: `.gemini/skills/houmao-process-emails-via-gateway/SKILL.md`, `.gemini/skills/houmao-email-via-agent-gateway/SKILL.md`, `.gemini/skills/houmao-email-via-filesystem/SKILL.md`, and `.gemini/skills/houmao-email-via-stalwart/SKILL.md`
+- Claude native runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`
+- Codex runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`
+- Gemini runtime homes: `.gemini/skills/houmao-process-emails-via-gateway/SKILL.md` and `.gemini/skills/houmao-agent-email-comms/SKILL.md`
 
 For Claude, these mailbox skills live under the isolated runtime-owned `CLAUDE_CONFIG_DIR` and not under the launched workdir's `.claude/skills/` tree.
 For Gemini, Houmao-owned projection now targets `.gemini/skills/...`, and `.agents/skills/...` is only Gemini's upstream alias surface.
@@ -215,8 +215,6 @@ When the runtime does recover a preview payload, it still validates that preview
 - [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/brain_builder.py`](../../../../src/houmao/agents/brain_builder.py)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-agent-gateway/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/houmao-email-via-agent-gateway/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/references/env-vars.md`](../../../../src/houmao/agents/assets/system_skills/houmao-email-via-filesystem/references/env-vars.md)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-stalwart/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/houmao-email-via-stalwart/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/houmao-email-via-stalwart/references/env-vars.md`](../../../../src/houmao/agents/assets/system_skills/houmao-email-via-stalwart/references/env-vars.md)
+- [`src/houmao/agents/assets/system_skills/houmao-agent-email-comms/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/houmao-agent-email-comms/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/filesystem-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/filesystem-resolver-fields.md)
+- [`src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/stalwart-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/stalwart-resolver-fields.md)

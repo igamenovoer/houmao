@@ -93,7 +93,7 @@ The command SHALL use the shared Houmao system-skill installer for projection an
 - **AND THEN** the selected skills are installed under `/workspace/repo/.gemini/skills/`
 
 #### Scenario: Install combines named sets and explicit skills
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --set mailbox-core --skill houmao-email-via-filesystem`
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --set user-control --skill houmao-agent-email-comms`
 - **THEN** the command installs the resolved current Houmao-owned skill list from the named set plus the explicit skill into the explicit target home
 - **AND THEN** it does not silently replace that explicit selection with another internal default selection
 
@@ -226,9 +226,9 @@ When `system-skills install` resolves a selection that includes `user-control`, 
 ### Requirement: `houmao-mgr system-skills` surfaces the packaged agent-instance lifecycle skill and updated CLI-default selection
 `houmao-mgr system-skills` SHALL use the packaged catalog inventory and fixed set lists when reporting, installing, and inspecting Houmao-owned skills.
 
-That current inventory SHALL surface both `houmao-manage-agent-instance` and `houmao-agent-messaging` as installable packaged skills.
+That current inventory SHALL surface `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` as installable packaged skills.
 
-The reported named sets SHALL include both the dedicated agent-instance lifecycle set and the dedicated agent-messaging set.
+The reported named sets SHALL include the dedicated agent-instance lifecycle set, the dedicated agent-messaging set, and the dedicated agent-gateway set.
 
 When `system-skills install` resolves the packaged CLI-default set list, the resolved installed skill names and later `system-skills status` output SHALL include:
 
@@ -237,16 +237,47 @@ When `system-skills install` resolves the packaged CLI-default set list, the res
 - `houmao-manage-agent-definition`
 - `houmao-manage-agent-instance`
 - `houmao-agent-messaging`
+- `houmao-agent-gateway`
 
-Omitting both `--set` and `--skill` SHALL be one supported path that resolves the packaged CLI-default set list.
+Omitting both `--set` and `--skill` SHALL remain one supported path that resolves the packaged CLI-default set list.
 
-#### Scenario: List reports the packaged lifecycle and messaging skills with their sets
+#### Scenario: List reports the packaged lifecycle, messaging, and gateway skills with their sets
 - **WHEN** an operator runs `houmao-mgr system-skills list`
-- **THEN** the command reports both `houmao-manage-agent-instance` and `houmao-agent-messaging` in the current Houmao-owned skill inventory
+- **THEN** the command reports `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the current Houmao-owned skill inventory
 - **AND THEN** it reports the dedicated named sets that resolve those skills
 
 #### Scenario: Omitted-selection install reports the packaged non-mailbox Houmao skills
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home`
 - **AND WHEN** no `--set` or `--skill` is supplied
-- **THEN** the install result reports `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition`, `houmao-manage-agent-instance`, and `houmao-agent-messaging` in the resolved current skill list
+- **THEN** the install result reports `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition`, `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the resolved current skill list
 - **AND THEN** a later `houmao-mgr system-skills status` for that home reports those skills as installed when the CLI-default install completed successfully
+
+### Requirement: `houmao-mgr system-skills` surfaces the unified mailbox skill inventory
+`houmao-mgr system-skills` SHALL use the current packaged system-skill inventory and named sets when reporting, installing, and inspecting Houmao-owned mailbox skills.
+
+That current mailbox inventory SHALL surface:
+
+- `houmao-process-emails-via-gateway`
+- `houmao-agent-email-comms`
+
+That current mailbox inventory SHALL NOT surface the removed top-level mailbox skill names:
+
+- `houmao-email-via-agent-gateway`
+- `houmao-email-via-filesystem`
+- `houmao-email-via-stalwart`
+
+If the packaged catalog reports both `mailbox-core` and `mailbox-full`, each of those named sets SHALL resolve to the current mailbox skill selection built from `houmao-process-emails-via-gateway` and `houmao-agent-email-comms`.
+
+When `system-skills install` resolves a selection that includes mailbox skills, the reported installed skill names and later `system-skills status` output SHALL use only the current mailbox skill names.
+
+#### Scenario: List reports the unified mailbox skills and current mailbox sets
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the command reports `houmao-process-emails-via-gateway` and `houmao-agent-email-comms` in the current Houmao-owned skill inventory
+- **AND THEN** it does not report `houmao-email-via-agent-gateway`, `houmao-email-via-filesystem`, or `houmao-email-via-stalwart` as current installable skills
+- **AND THEN** any reported mailbox named sets resolve through the current two-skill mailbox inventory
+
+#### Scenario: Mailbox install and status report the unified mailbox skill names
+- **WHEN** an operator installs a system-skill selection that includes mailbox skills into a target tool home
+- **THEN** the install result reports `houmao-process-emails-via-gateway` and `houmao-agent-email-comms` as the current mailbox skill names for that selection
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports those same current mailbox skill names as installed when that selection completed successfully
+
