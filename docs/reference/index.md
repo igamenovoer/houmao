@@ -27,6 +27,7 @@
 - [Session Lifecycle](run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
 - [Backends](run-phase/backends.md): Backend model and per-backend notes.
 - [Role Injection](run-phase/role-injection.md): Per-backend role injection strategies.
+- [Managed Launch Prompt Header](run-phase/managed-prompt-header.md): Houmao-owned prompt header prepended to every managed launch by default — content, composition order, opt-out flags, and stored launch-profile policy.
 
 ## Subsystems
 

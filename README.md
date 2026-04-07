@@ -81,15 +81,18 @@ command -v tmux
 | Entrypoint | Purpose | Status |
 |---|---|---|
 | `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, server control | **Active** |
-| `houmao-server` | Houmao-owned REST server for multi-agent coordination | **In development — not ready for use** |
-| `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **In development — not ready for use** |
+| `houmao-server` | Houmao-owned REST server for managed-agent session lifecycle | **Stabilizing — usable for the documented surfaces** |
+| `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **Stabilizing — usable for the documented surfaces** |
 | `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
 | `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
 
 ```bash
 houmao-mgr --help
+houmao-mgr --version          # prints the packaged Houmao version and exits
 houmao-server --help
 ```
+
+`houmao-mgr --version` is a root reporting flag that prints the packaged Houmao version for the current `houmao-mgr` binary and exits successfully without requiring a subcommand. See the [`houmao-mgr` CLI reference](docs/reference/cli/houmao-mgr.md#root-options) for the full root option surface.
 
 ### 1. Quick Start: Adopt an Existing Session (`agents join`)
 
@@ -148,6 +151,8 @@ Once `agents join` completes, the adopted session has the same management capabi
 | Stop the agent | `houmao-mgr agents stop --agent-name <name>` |
 
 The only difference: a joined agent has a *placeholder* brain manifest (no skills/configs were projected), and relaunch support depends on whether you provided `--launch-args` at join time.
+
+> **Managed prompt header.** Both `agents launch` and `agents join` prepend a short Houmao-owned prompt header to the managed agent's effective prompt by default. The header identifies the agent as Houmao-managed, names `houmao-mgr` as the canonical interface, and tells the model to prefer supported Houmao workflows for managed-runtime tasks. The behavior is per-launch opt-out via `--no-managed-header` and is also persisted in stored launch profiles. See the [Managed Launch Prompt Header](docs/reference/run-phase/managed-prompt-header.md) reference for the full content, the prompt composition order, and the precedence rules.
 
 ### 2. Easy Specialists (`project easy`)
 
@@ -217,9 +222,7 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 
 ### System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, message other managed agents, and control live runtime workflows autonomously.
-
-The packaged mailbox skill surface is currently two-part: `houmao-process-emails-via-gateway` for notifier-driven unread-mail rounds, and `houmao-agent-email-comms` for ordinary shared-mailbox operations plus no-gateway fallback guidance.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
 
 | Skill | What it enables |
 |---|---|
@@ -229,14 +232,16 @@ The packaged mailbox skill surface is currently two-part: `houmao-process-emails
 | `houmao-manage-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
 | `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule wakeups, and manage gateway mail-notifier behavior |
+| `houmao-agent-email-comms` | Ordinary shared-mailbox operations and the no-gateway fallback path; the canonical mailbox-operations skill paired with `houmao-mgr agents mail` |
+| `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL |
 
-`agents join` and `agents launch` auto-install the packaged mailbox skills plus `user-control`, `agent-messaging`, and `agent-gateway` into managed homes by default. To prepare an external tool home with the broader CLI-default selection, which also adds the separate lifecycle-only `houmao-manage-agent-instance` skill, run:
+`agents join` and `agents launch` auto-install seven of these eight skills (everything except the lifecycle-only `houmao-manage-agent-instance`) into managed homes by default — that is the `mailbox-full`, `user-control`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-manage-agent-instance`, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-See the [System Skills reference](docs/reference/cli/system-skills.md) for the full catalog, named sets, managed-home versus external-home defaults, and install options.
+For the 5-minute walkthrough of all eight skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
 
 ## Full Documentation
 

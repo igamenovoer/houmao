@@ -2,6 +2,8 @@
 
 `houmao-mgr system-skills` is the operator-facing surface for installing the current Houmao-owned `houmao-*` skills into resolved Claude, Codex, or Gemini homes.
 
+> **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of all eight packaged skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
+
 This is the same packaged skill system used internally by:
 
 - `houmao-mgr brains build` when it creates a managed home,

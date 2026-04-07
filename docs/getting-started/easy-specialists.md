@@ -206,7 +206,7 @@ Gemini specialists remain headless-only here. Use `--headless` when launching a 
 
 `--managed-header` and `--no-managed-header` are mutually exclusive. When neither flag is supplied, easy-instance launch inherits managed-header policy from the selected easy profile when one is present; otherwise it falls back to the default enabled behavior.
 
-There is no separate easy-launch `--yolo` override. Startup autonomy is owned by the stored specialist `launch.prompt_mode` (or, when launching from an easy profile that overrides it, by the profile's stored prompt-mode override): `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
+The previous easy-launch `--yolo` override was removed in 0.3.x. Startup autonomy is owned by the stored specialist `launch.prompt_mode` (or, when launching from an easy profile that overrides it, by the profile's stored prompt-mode override): `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 
 ## Managing Specialists, Easy Profiles, and Instances
 

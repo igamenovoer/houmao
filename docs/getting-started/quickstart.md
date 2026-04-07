@@ -216,7 +216,7 @@ For easy launch, `--workdir` only changes the launched agent cwd. The selected p
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
 
-There is no separate `--yolo` override on this surface. If you want raw provider startup behavior, store `launch.prompt_mode: as_is`; if you want maintained no-prompt startup posture, use `unattended`.
+The previous `--yolo` flag was removed from `agents launch` and `project easy instance launch` in 0.3.x. Prompt-mode posture is now controlled exclusively through stored `launch.prompt_mode`: store `unattended` for maintained no-prompt provider startup, or `as_is` to leave provider startup behavior untouched.
 
 Gemini specialists remain headless-only on this surface. Use `--headless` when launching a Gemini easy specialist.
 

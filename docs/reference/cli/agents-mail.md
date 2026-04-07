@@ -2,6 +2,13 @@
 
 Managed-agent mailbox discovery and follow-up commands. `houmao-mgr` routes this family through pair-owned gateway-backed execution, local manager-owned direct execution when available, or local live-TUI submission fallback when direct authority is unavailable.
 
+This is the **operator-facing CLI** for ordinary mailbox follow-up. The matching **agent-facing skill surface** is now unified into two packaged Houmao skills:
+
+- `houmao-agent-email-comms` — ordinary shared-mailbox operations and the no-gateway fallback path. This is the canonical mailbox-operations skill paired with the `agents mail` family below.
+- `houmao-process-emails-via-gateway` — round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL.
+
+For the narrative tour of all eight packaged system skills, see the [System Skills Overview](../../getting-started/system-skills-overview.md).
+
 ```
 houmao-mgr agents mail [OPTIONS] COMMAND [ARGS]...
 ```
@@ -138,4 +145,5 @@ pixi run houmao-mgr agents mail mark-read \
 - [houmao-mgr](houmao-mgr.md) — parent CLI reference
 - [agents mailbox](agents-mailbox.md) — late filesystem mailbox registration
 - [Mailbox Reference](../mailbox/index.md) — mailbox subsystem details
+- [System Skills Overview](../../getting-started/system-skills-overview.md) — narrative tour of `houmao-agent-email-comms` and `houmao-process-emails-via-gateway`
 - [Managed-Agent API](../managed_agent_api.md) — HTTP mail follow-up routes
