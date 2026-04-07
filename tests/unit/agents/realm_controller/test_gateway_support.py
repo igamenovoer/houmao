@@ -4247,12 +4247,8 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
     assert "In Gemini this Houmao skill is installed natively." in prompt
     assert "Invoke `houmao-process-emails-via-gateway` by name for this round." in prompt
     assert (
-        "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway` by name"
+        "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name"
     ) in prompt
-    assert (
-        "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` by name"
-        in prompt
-    )
     assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
     assert ".agents/skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
     assert ".agents/skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
@@ -4337,15 +4333,12 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "not as a registered slash skill" not in prompt
         assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
-        assert "use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway`" in prompt
-        assert "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem`" in prompt
+        assert "use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms`" in prompt
         assert "Do not inspect the current project or runtime home for skill files." in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
-        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" not in prompt
-        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
-        assert "skills/houmao-email-via-agent-gateway/SKILL.md" not in prompt
-        assert "skills/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
@@ -4410,15 +4403,12 @@ def test_gateway_mail_notifier_renders_claude_native_skill_invocation(
         prompt = fake_client.submitted_prompts[0][1]
         assert "Claude Code the standalone slash-skill line above invokes the installed Houmao skill" in prompt
         assert "/houmao-process-emails-via-gateway" in prompt
-        assert "Use the lower-level Houmao mailbox gateway skill `houmao-email-via-agent-gateway` by name" in prompt
-        assert "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` by name" in prompt
+        assert "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name" in prompt
         assert "Do not inspect the current project or runtime home for skill files." in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
-        assert "skills/houmao-email-via-agent-gateway/SKILL.md" not in prompt
-        assert "skills/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
-        assert "skills/mailbox/houmao-email-via-agent-gateway/SKILL.md" not in prompt
-        assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt
+        assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "not as a registered slash skill" not in prompt
     finally:
         runtime.shutdown()
@@ -4467,7 +4457,7 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         assert "http://127.0.0.1:43123" in prompt
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
         assert "houmao-process-emails-via-gateway" not in prompt
-        assert "houmao-email-via-agent-gateway" not in prompt
+        assert "houmao-agent-email-comms" not in prompt
     finally:
         runtime.shutdown()
 

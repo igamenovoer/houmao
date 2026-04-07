@@ -244,25 +244,21 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
     assert (home / "skills/skill-a").is_symlink()
-    visible_gateway_skill = home / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    visible_gateway_skill = home / "skills/houmao-agent-email-comms/SKILL.md"
     visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
-    visible_mailbox_skill = home / "skills/houmao-email-via-filesystem/SKILL.md"
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
-    assert visible_mailbox_skill.is_file()
     assert (home / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
-    assert not (home / "skills/.system/mailbox/houmao-email-via-filesystem/SKILL.md").exists()
+    assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
     install_state = load_system_skill_install_state(tool="codex", home_path=home)
     assert install_state is not None
     assert tuple(record.name for record in install_state.installed_skills) == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -412,7 +408,7 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     processing_skill = (
         result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
     ).read_text(encoding="utf-8")
-    gateway_skill = (result.home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").read_text(
+    gateway_skill = (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").read_text(
         encoding="utf-8"
     )
 
@@ -424,10 +420,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "wait for the next notification" in processing_skill
     assert "Do not switch to `houmao-mgr agents mail resolve-live`" in processing_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
-    assert "houmao-email-via-agent-gateway" in gateway_skill
+    assert "houmao-agent-email-comms" in gateway_skill
     assert "houmao-process-emails-via-gateway" in gateway_skill
     assert (
-        "If the current prompt or recent mailbox context already provides the exact gateway base URL"
+        "If the current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
     assert "houmao-mgr agents mail resolve-live" in gateway_skill
@@ -464,46 +460,47 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     processing_skill = (skills_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
         encoding="utf-8"
     )
-    gateway_skill = (skills_root / "houmao-email-via-agent-gateway/SKILL.md").read_text(
+    gateway_skill = (skills_root / "houmao-agent-email-comms/SKILL.md").read_text(
         encoding="utf-8"
     )
-    filesystem_skill = (skills_root / "houmao-email-via-filesystem/SKILL.md").read_text(
+    filesystem_skill = (skills_root / "houmao-agent-email-comms/transports/filesystem.md").read_text(
         encoding="utf-8"
     )
-    stalwart_skill = (skills_root / "houmao-email-via-stalwart/SKILL.md").read_text(
+    stalwart_skill = (skills_root / "houmao-agent-email-comms/transports/stalwart.md").read_text(
         encoding="utf-8"
     )
     curl_reference = (
-        skills_root / "houmao-email-via-agent-gateway/references/curl-examples.md"
+        skills_root / "houmao-agent-email-comms/references/curl-examples.md"
     ).read_text(encoding="utf-8")
 
     assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (skills_root / "houmao-email-via-agent-gateway/SKILL.md").is_file()
-    assert (skills_root / "houmao-email-via-filesystem/SKILL.md").is_file()
-    assert (skills_root / "houmao-email-via-stalwart/SKILL.md").is_file()
+    assert (skills_root / "houmao-agent-email-comms/SKILL.md").is_file()
+    assert (skills_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
+    assert (skills_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
     assert not (skills_root / "mailbox").exists()
     assert not (agent_def_dir / ".claude").exists()
-    assert "houmao-email-via-agent-gateway" in processing_skill
-    assert "installed Houmao skill `houmao-email-via-agent-gateway`" in processing_skill
+    assert "houmao-agent-email-comms" in processing_skill
+    assert "installed Houmao skill `houmao-agent-email-comms`" in processing_skill
     assert (
-        "current prompt or recent mailbox context already provides the exact gateway base URL"
+        "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in (gateway_skill)
     )
-    assert "installed `houmao-process-emails-via-gateway` skill" in filesystem_skill
+    assert "For notifier-driven shared mailbox gateway work" in filesystem_skill
+    assert "use `houmao-process-emails-via-gateway`" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
     assert "houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
     assert "pixi run houmao-mgr agents mail resolve-live" not in curl_reference
     assert '"schema_version":1,"message_ref":"<opaque message_ref>","read":true' in curl_reference
 
     assert "houmao-process-emails-via-gateway" in filesystem_skill
-    assert "houmao-email-via-agent-gateway" in filesystem_skill
+    assert "houmao-agent-email-comms" not in filesystem_skill
     assert "gateway: null" in filesystem_skill
-    assert "houmao-email-via-filesystem" in filesystem_skill
+    assert "filesystem" in filesystem_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in filesystem_skill
     assert "houmao-process-emails-via-gateway" in stalwart_skill
-    assert "houmao-email-via-agent-gateway" in stalwart_skill
+    assert "houmao-agent-email-comms" not in stalwart_skill
     assert "gateway: null" in stalwart_skill
-    assert "houmao-email-via-stalwart" in stalwart_skill
+    assert "stalwart" in stalwart_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in stalwart_skill
 
 
@@ -846,7 +843,7 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
 
     assert (result.home_path / ".gemini/skills/skill-a").is_symlink()
-    assert (result.home_path / ".gemini/skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (result.home_path / ".gemini/skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (
         result.home_path / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()

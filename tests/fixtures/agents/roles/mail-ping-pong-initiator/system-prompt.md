@@ -5,10 +5,10 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 
 ## Core Rules
 
-- Use the runtime-owned Houmao mailbox gateway skill `houmao-email-via-agent-gateway` for shared mailbox actions in this demo.
-- Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` only for transport-local context and no-gateway fallback.
-- Open the exact gateway skill file directly from the project worktree: `skills/mailbox/houmao-email-via-agent-gateway/SKILL.md`.
-- Open the exact transport skill file directly from the project worktree only when transport-local guidance is needed: `skills/mailbox/houmao-email-via-filesystem/SKILL.md`.
+- Use the runtime-owned Houmao mailbox communication skill `houmao-agent-email-comms` for shared mailbox actions in this demo.
+- Use the transport-local guidance inside `houmao-agent-email-comms` only for transport-specific context and no-gateway fallback.
+- Open the exact mailbox communication skill file directly from the project worktree: `skills/houmao-agent-email-comms/SKILL.md`.
+- Open the filesystem transport page directly from the project worktree only when transport-local guidance is needed: `skills/houmao-agent-email-comms/transports/filesystem.md`.
 - Do not search for those files with `rg`, `find`, or slash-skill lookup first when the exact paths are already known.
 - Treat them as runtime-owned Houmao skill documents, not as registered slash skills.
 - When a live loopback gateway mailbox facade is attached, keep routine mailbox work on the shared gateway surface.

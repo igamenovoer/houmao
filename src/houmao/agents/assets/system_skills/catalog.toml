@@ -4,17 +4,9 @@ schema_version = 1
 asset_subpath = "houmao-process-emails-via-gateway"
 description = "Round-oriented gateway mailbox workflow skill."
 
-[skills.houmao-email-via-agent-gateway]
-asset_subpath = "houmao-email-via-agent-gateway"
-description = "Lower-level shared gateway mailbox operations skill."
-
-[skills.houmao-email-via-filesystem]
-asset_subpath = "houmao-email-via-filesystem"
-description = "Filesystem mailbox transport guidance skill."
-
-[skills.houmao-email-via-stalwart]
-asset_subpath = "houmao-email-via-stalwart"
-description = "Stalwart mailbox transport guidance skill."
+[skills.houmao-agent-email-comms]
+asset_subpath = "houmao-agent-email-comms"
+description = "Unified mailbox operations and fallback guidance skill."
 
 [skills.houmao-manage-specialist]
 asset_subpath = "houmao-manage-specialist"
@@ -40,16 +32,14 @@ description = "Managed agent communication and control skill."
 description = "Core shared mailbox workflow skills."
 skills = [
   "houmao-process-emails-via-gateway",
-  "houmao-email-via-agent-gateway",
+  "houmao-agent-email-comms",
 ]
 
 [sets.mailbox-full]
 description = "Full mailbox system-skill set."
 skills = [
   "houmao-process-emails-via-gateway",
-  "houmao-email-via-agent-gateway",
-  "houmao-email-via-filesystem",
-  "houmao-email-via-stalwart",
+  "houmao-agent-email-comms",
 ]
 
 [sets.user-control]

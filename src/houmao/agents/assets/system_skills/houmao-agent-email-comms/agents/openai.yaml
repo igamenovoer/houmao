@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Email Comms"
+  short_description: "Handle Houmao mailbox operations and fallback routing."
+  default_prompt: "Use $houmao-agent-email-comms to handle one Houmao mailbox task, including shared gateway operations, transport-local context, or no-gateway fallback."

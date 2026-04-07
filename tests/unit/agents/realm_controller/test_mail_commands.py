@@ -87,8 +87,8 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     )
 
     assert prompt_request.operation == "check"
-    assert "`houmao-email-via-agent-gateway`" in prompt_request.prompt
-    assert "skills/mailbox/houmao-email-via-filesystem/SKILL.md" not in prompt_request.prompt
+    assert "`houmao-agent-email-comms`" in prompt_request.prompt
+    assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt_request.prompt
     assert "skills/mailbox/email-via-filesystem/SKILL.md" not in prompt_request.prompt
     assert (
         "Do not inspect the current project, repository, or runtime home to rediscover skill "
@@ -737,9 +737,9 @@ def _build_prompt_echo_surface() -> str:
     no actual standalone sentinel-delimited result block.
     """
     return (
-        "Use the installed Houmao mailbox gateway skill `houmao-email-via-agent-gateway` for this mailbox operation.\n"
+        "Use the installed Houmao mailbox communication skill `houmao-agent-email-comms` for this mailbox operation.\n"
         "Use the installed runtime-owned Houmao mailbox skills directly from the tool's native skill surface. Do not inspect the current project, repository, or runtime home to rediscover skill files or infer install locations.\n"
-        "Use the transport-specific Houmao mailbox skill `houmao-email-via-filesystem` only for transport-local context and no-gateway fallback.\n"
+        "Use the transport-local guidance inside `houmao-agent-email-comms` only for transport-specific context and no-gateway fallback.\n"
         "Return exactly one JSON result between "
         f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"
         "\n"

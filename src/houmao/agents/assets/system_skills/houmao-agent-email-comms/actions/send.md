@@ -9,3 +9,9 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/send" \
 ```
 
 Use the exact `gateway.base_url` resolved for this turn.
+
+When no live gateway facade is available, use the supported managed fallback surface instead:
+
+```bash
+houmao-mgr agents mail send --to recipient@agents.localhost --subject "..." --body-content "..."
+```

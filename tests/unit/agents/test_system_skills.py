@@ -48,9 +48,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.schema_version == 1
     assert tuple(catalog.skills.keys()) == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -88,14 +86,12 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
     resolved = resolve_system_skill_selection(
         catalog,
         set_names=("mailbox-core", "mailbox-full", "user-control", "agent-messaging"),
-        skill_names=("houmao-email-via-filesystem", "houmao-manage-specialist"),
+        skill_names=("houmao-agent-email-comms", "houmao-manage-specialist"),
     )
 
     assert resolved == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -113,9 +109,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_and_
 
     assert resolved == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -131,11 +125,11 @@ def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) ->
         """
 schema_version = 1
 
-[skills.houmao-email-via-agent-gateway]
-asset_subpath = "houmao-email-via-agent-gateway"
+[skills.houmao-agent-email-comms]
+asset_subpath = "houmao-agent-email-comms"
 
 [sets.mailbox-core]
-skills = ["houmao-email-via-agent-gateway", "houmao-missing"]
+skills = ["houmao-agent-email-comms", "houmao-missing"]
 
 [auto_install]
 managed_launch_sets = ["mailbox-core"]
@@ -166,7 +160,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         tool="codex",
         home_path=home_path,
         set_names=("mailbox-core", "user-control"),
-        skill_names=("houmao-email-via-filesystem",),
+        skill_names=("houmao-agent-email-comms",),
     )
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
@@ -181,11 +175,10 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
-        "houmao-email-via-filesystem",
     )
     assert state is not None
     assert state.schema_version == SYSTEM_SKILL_STATE_SCHEMA_VERSION
@@ -196,12 +189,10 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "copy",
         "copy",
         "copy",
-        "copy",
     )
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-email-via-filesystem/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
@@ -407,9 +398,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_
     assert result.projection_mode == "copy"
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
-        "houmao-email-via-agent-gateway",
-        "houmao-email-via-filesystem",
-        "houmao-email-via-stalwart",
+        "houmao-agent-email-comms",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -482,9 +471,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_and_
     assert "POST /houmao/agents/{agent_ref}/gateway/control/prompt" in reset_context_action
     assert 'chat_session.mode = "new"' in reset_context_action
     assert "houmao-process-emails-via-gateway" in mail_action
-    assert "houmao-email-via-agent-gateway" in mail_action
-    assert "houmao-email-via-filesystem" in mail_action
-    assert "houmao-email-via-stalwart" in mail_action
+    assert "houmao-agent-email-comms" in mail_action
 
 
 def test_install_system_skills_for_home_supports_explicit_symlink_projection(
@@ -580,7 +567,7 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
 
 def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Path) -> None:
     home_path = (tmp_path / "codex-home").resolve()
-    conflicting_skill_path = home_path / "skills/houmao-email-via-agent-gateway/SKILL.md"
+    conflicting_skill_path = home_path / "skills/houmao-agent-email-comms/SKILL.md"
     _write(conflicting_skill_path, "user-authored collision\n")
 
     with pytest.raises(
@@ -590,7 +577,7 @@ def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Pa
         install_system_skills_for_home(
             tool="codex",
             home_path=home_path,
-            skill_names=("houmao-email-via-agent-gateway",),
+            skill_names=("houmao-agent-email-comms",),
         )
 
 

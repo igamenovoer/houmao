@@ -296,7 +296,7 @@ def _mail_prompt_instruction_lines(
     if gateway_skill_path.is_file() and transport_skill_path.is_file():
         installed_skill_lines = [
             (
-                f"Use the installed Houmao mailbox gateway skill `{gateway_skill_name}` for "
+                f"Use the installed Houmao mailbox communication skill `{gateway_skill_name}` for "
                 "this mailbox operation."
             ),
             (
@@ -305,8 +305,8 @@ def _mail_prompt_instruction_lines(
                 "or runtime home to rediscover skill files or infer install locations."
             ),
             (
-                f"Use the transport-specific Houmao mailbox skill `{skill_name}` only for "
-                "transport-local context and no-gateway fallback."
+                f"Use the transport-local guidance inside `{skill_name}` only for "
+                "transport-specific context and no-gateway fallback."
             ),
         ]
     else:

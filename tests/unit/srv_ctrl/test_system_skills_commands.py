@@ -10,9 +10,7 @@ from houmao.srv_ctrl.commands.main import cli
 _DEFAULT_SET_NAMES = ["mailbox-full", "user-control", "agent-instance", "agent-messaging"]
 _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
-    "houmao-email-via-agent-gateway",
-    "houmao-email-via-filesystem",
-    "houmao-email-via-stalwart",
+    "houmao-agent-email-comms",
     "houmao-manage-specialist",
     "houmao-manage-credentials",
     "houmao-manage-agent-definition",
@@ -100,7 +98,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert install_payload["projection_mode"] == "copy"
     assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-email-via-agent-gateway/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()

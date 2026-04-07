@@ -8,7 +8,7 @@ Use this action only when the target has mailbox capability and the work should 
 2. Recover the target selector and mailbox intent from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the target selector or mailbox intent is still missing, ask the user in Markdown before proceeding.
 4. Use `agents mail resolve-live` first when the task needs current mailbox bindings, mailbox capability confirmation, or an exact live `gateway.base_url`, and always do that before outgoing mailbox work when gateway preference matters.
-5. When `resolve-live` returns a live `gateway.base_url`, prefer the live gateway mailbox facade for shared mailbox work, especially outgoing mail operations, and hand off to `houmao-email-via-agent-gateway`.
+5. When `resolve-live` returns a live `gateway.base_url`, prefer the live gateway mailbox facade for shared mailbox work, especially outgoing mail operations, and hand off to `houmao-agent-email-comms`.
 6. Use the managed-agent mailbox commands or `/houmao/agents/{agent_ref}/mail/*` routes only when no live gateway mailbox facade is available or the task explicitly needs the transport-neutral managed-agent seam:
    - `status`
    - `check`
@@ -16,7 +16,7 @@ Use this action only when the target has mailbox capability and the work should 
    - `reply`
    - `mark-read`
 7. When the mailbox task becomes a notifier-driven round with a live gateway mailbox facade, hand off to `houmao-process-emails-via-gateway`.
-8. When the mailbox task needs filesystem-specific or Stalwart-specific behavior, hand off to `houmao-email-via-filesystem` or `houmao-email-via-stalwart`.
+8. When the mailbox task needs filesystem-specific or Stalwart-specific behavior, hand off to the transport-local guidance inside `houmao-agent-email-comms`.
 9. Report the mailbox result and call out whether it used the live gateway mailbox facade or a fallback managed-agent surface.
 
 ## Command Shapes
