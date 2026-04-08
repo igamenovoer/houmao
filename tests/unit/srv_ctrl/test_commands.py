@@ -14,13 +14,17 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
-from houmao.agents.realm_controller.gateway_models import GatewayPromptControlErrorV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayPromptControlErrorV1,
+    GatewayStatusV1,
+)
 from houmao.agents.realm_controller.errors import LaunchPolicyResolutionError
 from houmao.server.pair_client import PairAuthorityConnectionError, PairAuthorityHealthProbe
 from houmao.server.models import (
     HoumaoCurrentInstance,
     HoumaoHealthResponse,
     HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentListResponse,
 )
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
 from houmao.srv_ctrl.commands.main import cli, main
@@ -264,6 +268,76 @@ def test_agents_gateway_attach_help_mentions_foreground_mode() -> None:
     assert "Window `0` remains" in result.output
     assert "surface; inspect status" in result.output
     assert "window index" in result.output
+
+
+def test_agents_list_plain_renders_rows_from_pydantic_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-alpha",
+        transport="headless",
+        tool="claude",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="tracked-alpha",
+        tmux_session_name="HOUMAO-alpha",
+        tmux_window_name=None,
+        manifest_path="/tmp/alpha/manifest.json",
+        session_root="/tmp/alpha",
+        agent_name="alpha",
+        agent_id="agent-alpha",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.list_managed_agents",
+        lambda *, port=None: HoumaoManagedAgentListResponse(agents=[identity]),
+    )
+
+    result = CliRunner().invoke(cli, ["--print-plain", "agents", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "Managed Agents (1):" in result.output
+    assert "alpha" in result.output
+    assert "tracked-alpha" in result.output
+    assert "claude" in result.output
+
+
+def test_agents_gateway_status_plain_renders_fields_from_pydantic_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._resolve_gateway_command_target",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_status",
+        lambda target: GatewayStatusV1(
+            attach_identity="published-alpha",
+            backend="claude_headless",
+            tmux_session_name="HOUMAO-alpha",
+            gateway_health="healthy",
+            managed_agent_connectivity="connected",
+            managed_agent_recovery="idle",
+            request_admission="open",
+            terminal_surface_eligibility="ready",
+            active_execution="idle",
+            queue_depth=0,
+            gateway_host="127.0.0.1",
+            gateway_port=9901,
+            managed_agent_instance_epoch=1,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["--print-plain", "agents", "gateway", "status", "--agent-name", "alpha"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Gateway Status:" in result.output
+    assert "attach_identity" in result.output
+    assert "published-alpha" in result.output
+    assert "gateway_health" in result.output
+    assert "healthy" in result.output
 
 
 def test_agents_gateway_help_mentions_send_keys_and_mail_notifier() -> None:

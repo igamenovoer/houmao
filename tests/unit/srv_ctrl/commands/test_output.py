@@ -201,6 +201,33 @@ class TestEmitDispatch:
         assert result.exit_code == 0
         assert "PLAIN_CUSTOM" in result.output
         assert len(called) == 1
+        assert called[0] == {"x": 1}
+
+    def test_custom_plain_renderer_receives_normalized_pydantic_model(self) -> None:
+        called: list[object] = []
+
+        class _Model(BaseModel):
+            name: str
+            count: int
+
+        def _plain(payload: object) -> None:
+            called.append(payload)
+            click.echo("PLAIN_CUSTOM")
+
+        ctx = OutputContext(style="plain")
+        runner = CliRunner()
+
+        @click.command()
+        @click.pass_context
+        def _cmd(click_ctx: click.Context) -> None:
+            click_ctx.ensure_object(dict)
+            click_ctx.obj["output"] = ctx
+            emit(_Model(name="test", count=7), plain_renderer=_plain)
+
+        result = runner.invoke(_cmd)
+        assert result.exit_code == 0
+        assert "PLAIN_CUSTOM" in result.output
+        assert called == [{"name": "test", "count": 7}]
 
     def test_custom_fancy_renderer(self) -> None:
         called: list[object] = []
@@ -223,6 +250,33 @@ class TestEmitDispatch:
         assert result.exit_code == 0
         assert "FANCY_CUSTOM" in result.output
         assert len(called) == 1
+        assert called[0] == {"x": 1}
+
+    def test_custom_fancy_renderer_receives_normalized_pydantic_model(self) -> None:
+        called: list[object] = []
+
+        class _Model(BaseModel):
+            name: str
+            count: int
+
+        def _fancy(payload: object) -> None:
+            called.append(payload)
+            click.echo("FANCY_CUSTOM")
+
+        ctx = OutputContext(style="fancy")
+        runner = CliRunner()
+
+        @click.command()
+        @click.pass_context
+        def _cmd(click_ctx: click.Context) -> None:
+            click_ctx.ensure_object(dict)
+            click_ctx.obj["output"] = ctx
+            emit(_Model(name="test", count=7), fancy_renderer=_fancy)
+
+        result = runner.invoke(_cmd)
+        assert result.exit_code == 0
+        assert "FANCY_CUSTOM" in result.output
+        assert called == [{"name": "test", "count": 7}]
 
     def test_json_ignores_custom_renderers(self) -> None:
         """JSON mode always uses the standard JSON renderer."""
