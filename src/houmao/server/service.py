@@ -124,6 +124,7 @@ from houmao.server.models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentGatewayAttachRequest,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentGatewayNextPromptSessionRequest,
@@ -1122,7 +1123,11 @@ class HoumaoServerService:
                 return self._invoke_live_gateway(client.status)
         return cast(GatewayStatusV1, gateway_context["status"])
 
-    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+    def attach_managed_agent_gateway(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayAttachRequest | None = None,
+    ) -> GatewayStatusV1:
         """Attach or reuse a live gateway for one managed agent."""
 
         gateway_context = self._managed_gateway_context(agent_ref)
@@ -1146,7 +1151,13 @@ class HoumaoServerService:
                 status_code=503,
                 detail="Managed-agent gateway attach is unavailable because runtime control is not resumable.",
             )
-        attach_result = controller.attach_gateway()
+        attach_result = controller.attach_gateway(
+            execution_mode_override=(
+                request_model.execution_mode
+                if request_model is not None and request_model.execution_mode is not None
+                else "tmux_auxiliary_window"
+            )
+        )
         if attach_result.status != "ok":
             detail = attach_result.detail.lower()
             if "already in use" in detail or "reconciliation" in detail:

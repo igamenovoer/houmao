@@ -12,14 +12,16 @@ The docs site SHALL include a getting-started guide at `docs/getting-started/sys
 
 That guide SHALL list every system skill currently shipped under `src/houmao/agents/assets/system_skills/`. At minimum, that list SHALL include:
 
-- `houmao-manage-specialist` — specialist authoring and specialist-scoped launch/stop entry,
-- `houmao-manage-credentials` — project-local tool auth bundle administration,
-- `houmao-manage-agent-definition` — low-level role and recipe administration,
-- `houmao-manage-agent-instance` — managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `cleanup`),
+- `houmao-project-mgr` — project overlay lifecycle, project layout explanation, project-aware command effects, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing,
+- `houmao-specialist-mgr` — specialist authoring and specialist-scoped launch/stop entry,
+- `houmao-credential-mgr` — project-local tool auth bundle administration,
+- `houmao-agent-definition` — low-level role and recipe administration,
+- `houmao-agent-instance` — managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `cleanup`),
 - `houmao-agent-messaging` — prompt, interrupt, queue, raw input, mailbox routing, and reset-context guidance for already-running managed agents,
 - `houmao-agent-gateway` — gateway lifecycle, gateway discovery, wakeups, notifier guidance for attached managed agents,
 - `houmao-agent-email-comms` — ordinary shared-mailbox operations and no-gateway fallback guidance,
-- `houmao-process-emails-via-gateway` — notifier-driven unread-mail rounds.
+- `houmao-process-emails-via-gateway` — notifier-driven unread-mail rounds,
+- `houmao-adv-usage-pattern` — advanced supported workflow compositions layered on top of the direct-operation skills, including self-wakeup through self-mail plus notifier-driven rounds.
 
 For each skill the guide SHALL state:
 
@@ -33,8 +35,9 @@ The guide SHALL distinguish managed-home auto-install behavior from external-hom
 The guide SHALL explain that the system-skills surface is how an agent itself drives Houmao management without requiring the operator to invoke `houmao-mgr` manually, and SHALL link to:
 
 - `docs/reference/cli/system-skills.md` for the full reference,
-- `docs/getting-started/easy-specialists.md` for the user-facing flow that exercises `houmao-manage-specialist`,
+- `docs/getting-started/easy-specialists.md` for the user-facing flow that exercises `houmao-specialist-mgr`,
 - `docs/getting-started/launch-profiles.md` for the launch-side concepts the agent skills observe,
+- `docs/getting-started/agent-definitions.md` and `docs/reference/agents/operations/project-aware-operations.md` for project layout and project-aware overlay follow-up,
 - the README "System Skills" subsection for the catalog-table view.
 
 The guide SHALL NOT restate the full CLI reference content; it SHALL keep the reference page authoritative for flag tables and effective-home resolution rules.
@@ -59,9 +62,38 @@ The guide SHALL NOT restate the full CLI reference content; it SHALL keep the re
 - **AND THEN** they reach `docs/reference/cli/system-skills.md` for the full flag-level reference
 - **AND THEN** they reach the easy-specialists and launch-profiles guides for the user-facing flows the skills observe
 
+#### Scenario: Guide lists the packaged project-management skill
+
+- **WHEN** a reader checks the system-skills overview for project-oriented skills
+- **THEN** the guide lists `houmao-project-mgr` as the packaged project-management skill
+- **AND THEN** it describes overlay lifecycle, project layout, project-aware command effects, and project-scoped launch-profile or easy-instance inspection routing
+
 #### Scenario: Guide lists the unified email-comms skill
 
 - **WHEN** a reader checks the system-skills overview for mailbox-related skills
 - **THEN** the guide lists `houmao-agent-email-comms` as the ordinary mailbox operations skill
 - **AND THEN** the guide lists `houmao-process-emails-via-gateway` as the notifier-driven unread-mail rounds skill
 - **AND THEN** the guide does not list the pre-unification split mailbox skill names as current
+
+#### Scenario: Guide lists the advanced-usage skill
+
+- **WHEN** a reader checks the system-skills overview for higher-level workflow guidance
+- **THEN** the guide lists `houmao-adv-usage-pattern` as the packaged advanced-usage skill
+- **AND THEN** it describes that skill as the entrypoint for supported multi-skill usage patterns rather than as a replacement for the direct-operation skills
+
+### Requirement: System-skills overview guide includes the packaged mailbox-admin skill and mailbox set distinction
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-mailbox-mgr` as one of the currently shipped packaged Houmao-owned system skills.
+
+The guide SHALL describe `houmao-mailbox-mgr` as the mailbox-administration skill for mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late managed-agent filesystem mailbox binding.
+
+When the guide explains the named sets, it SHALL distinguish `mailbox-core` from `mailbox-full` by describing `mailbox-core` as the narrow mailbox worker pair and `mailbox-full` as the broader mailbox set that also includes `houmao-mailbox-mgr`.
+
+#### Scenario: Reader sees the packaged mailbox-admin skill in the narrative guide
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the guide lists `houmao-mailbox-mgr` among the shipped packaged system skills
+- **AND THEN** it describes that skill as the mailbox-administration entrypoint rather than as the ordinary mailbox-operations skill
+
+#### Scenario: Reader sees that `mailbox-full` is broader than `mailbox-core`
+- **WHEN** a reader checks the named-set explanation in the system-skills overview guide
+- **THEN** the guide explains that `mailbox-core` is the narrow mailbox worker pair
+- **AND THEN** it explains that `mailbox-full` also includes `houmao-mailbox-mgr`

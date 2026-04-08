@@ -1,6 +1,6 @@
 # Agent Gateway Reference
 
-This section explains the session-owned FastAPI gateway sidecar: what it adds to a runtime-managed session, how it is discovered, and how its queue, status, recovery model, and shared mailbox facade work.
+This section explains the session-owned FastAPI gateway sidecar: what it adds to a runtime-managed session, how it is discovered, and how its queue, reminder surface, status, recovery model, and shared mailbox facade work.
 
 If you are new to the subsystem, start with lifecycle. If you need exact payloads and file contracts, go to contracts. If you are debugging queue or recovery behavior, use the internals page.
 
@@ -10,7 +10,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 
 - A session can be gateway-capable without having a live gateway process attached.
 - Stable attachability is published through manifest-backed authority, tmux discovery env, and derived gateway bookkeeping even before the first live attach.
-- When a live gateway exists, it exposes a small HTTP surface, a durable queue, and optionally a shared mailbox facade for that same logical session.
+- When a live gateway exists, it exposes a small HTTP surface, a durable queue, a non-durable ranked reminder surface, and optionally a shared mailbox facade for that same logical session.
 - `houmao-server` remains the shared coordination plane and public `/houmao/agents/*` surface.
 - When a gateway is attached and healthy, `houmao-server` projects live per-agent state, history, and request admission through the gateway HTTP surface instead of reading local runtime artifacts directly.
 - When no gateway is attached, or when direct fallback is still the safe path, `houmao-server` keeps the public managed-agent routes stable and falls back locally.
@@ -32,6 +32,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 
 - [Lifecycle And Operator Flows](operations/lifecycle.md): Attach, inspect, detach, and understand offline versus live gateway states.
 - [Gateway Troubleshooting](operations/troubleshooting.md): Diagnose pair-managed current-session attach failures, stale gateway metadata, and reserved-window safety checks.
+- [Gateway Reminders](operations/reminders.md): Understand `/v1/reminders`, ranking and pause semantics, prompt versus send-keys reminder delivery, and the direct live HTTP boundary.
 - [Gateway Mailbox Facade](operations/mailbox-facade.md): Understand `/v1/mail/*`, adapter selection from the session manifest, loopback-only availability, and notifier behavior through the shared mailbox abstraction.
 - [Gateway Mail-Notifier](operations/mail-notifier.md): Background polling loop that checks for unread mail and submits notification prompts through the gateway request queue.
 
@@ -46,7 +47,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 ## Related References
 
 - [houmao-mgr agents gateway CLI](../cli/agents-gateway.md): Dedicated CLI reference for gateway lifecycle and request commands.
-- [Runtime-Managed Agents Reference](../agents/index.md): The broader runtime session model that the gateway attaches to.
+- [Session Lifecycle](../run-phase/session-lifecycle.md): The broader runtime session model that the gateway attaches to.
 - [Managed-Agent API](../managed_agent_api.md): The server-owned `/houmao/agents/*` contract that keeps one public route family while switching between direct fallback and gateway-backed projection under the hood.
 - [Realm Controller](../realm_controller.md): Overview page plus backend-specific notes.
 - [Mailbox Reference](../mailbox/index.md): Separate async message transport and runtime mailbox docs.

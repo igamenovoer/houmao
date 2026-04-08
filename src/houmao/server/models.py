@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAdmissionState,
     GatewayChatSessionSelectorV1,
     GatewayConnectivityState,
+    GatewayCurrentExecutionMode,
     GatewayExecutionState,
     GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
@@ -803,6 +804,12 @@ class HoumaoManagedAgentRequestAcceptedResponse(CaoSuccessResponse):
 
 class HoumaoManagedAgentGatewayRequestCreate(GatewayRequestCreateV1):
     """Gateway-mediated managed-agent request payload."""
+
+
+class HoumaoManagedAgentGatewayAttachRequest(_HoumaoModel):
+    """Optional execution-mode selection for managed-agent gateway attach."""
+
+    execution_mode: GatewayCurrentExecutionMode | None = None
 
 
 class HoumaoManagedAgentGatewayRequestAcceptedResponse(GatewayAcceptedRequestV1):

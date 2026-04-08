@@ -4,7 +4,7 @@ Use this action when the live gateway should poll the attached agent's mailbox a
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and notifier action from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the task still lacks a required target or interval, ask the user in Markdown before proceeding.
 4. Run `agents gateway status` first when current context does not already confirm that a live gateway is attached.
@@ -19,9 +19,9 @@ Use this action when the live gateway should poll the attached agent's mailbox a
 CLI notifier control:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway mail-notifier status --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60
-<resolved houmao-mgr launcher> agents gateway mail-notifier disable --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway mail-notifier status --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60
+<chosen houmao-mgr launcher> agents gateway mail-notifier disable --agent-name <name>
 ```
 
 Pair-managed notifier routes:
@@ -40,5 +40,5 @@ Direct live gateway routes:
 
 - Do not treat the notifier as durable work recovery; it is live gateway background behavior.
 - Do not enable the notifier without a valid attached mailbox configuration.
-- Do not describe `mail-notifier` as the same thing as `/v1/wakeups`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
+- Do not describe `mail-notifier` as the same thing as `/v1/reminders`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
 - Do not invent `houmao-mgr agents mail-notifier ...` commands outside the `agents gateway` family.

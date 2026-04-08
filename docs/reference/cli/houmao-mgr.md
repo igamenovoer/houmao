@@ -131,6 +131,10 @@ Cleanup targeting rules:
 - `--launch-profile` resolves the named launch profile from the active project overlay and rejects easy `project easy profile ...` selections; only explicit recipe-backed launch profiles (`profile_lane=launch_profile`) are accepted.
 - A launch-profile-backed launch derives the source recipe from the stored profile, then composes effective inputs in the precedence order: source recipe defaults → launch-profile defaults → direct CLI overrides.
 - Direct overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch and never rewrite the stored launch profile.
+- `--force [keep-stale|clean]` is a launch-owned takeover flag for replacing an existing live local owner of the resolved managed identity. Omitting `--force` keeps the current owner in place and fails the new launch on that conflict.
+- Bare `--force` means `keep-stale`. Houmao stops the predecessor first, reuses the predecessor managed home in place, and leaves untouched stale artifacts alone. If leftover stale files break the replacement launch, Houmao does not scrub or repair them automatically.
+- `--force clean` is the explicit destructive mode. Houmao stops the predecessor, removes predecessor-owned replaceable launch artifacts such as the managed home, session root, job dir, and safe private mailbox paths, and then rebuilds from a clean managed-home state.
+- Force takeover remains identity-scoped rather than tmux-name-scoped and never rewrites the stored launch profile.
 - `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides for the Houmao-managed prompt header. For what the header contains and the full prompt composition order, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
 - When neither managed-header flag is supplied, `agents launch` inherits managed-header policy from the selected launch profile when one is present; otherwise it falls back to the default enabled behavior.
 - Direct managed-header override wins over stored launch-profile policy for the current launch only and does not rewrite the stored profile.
@@ -388,13 +392,18 @@ Low-level boundary notes:
 - `--specialist` selects a compiled specialist definition to launch from directly. `--name` is required when launching from `--specialist`.
 - `--profile` selects a stored easy profile. The command derives the source specialist from that profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless/gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the selected profile stores a default managed-agent name; otherwise it remains required.
 - Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, and `--mail-account-dir` win over easy-profile defaults but never rewrite the stored easy profile. The next launch from the same profile will see the original stored defaults again.
+- `--force [keep-stale|clean]` is also available here and behaves the same as on `agents launch`, but only for the current easy-instance launch. Bare `--force` means `keep-stale`, which stops the predecessor and reuses the predecessor managed home while leaving untouched stale artifacts alone.
+- `--force clean` stops the predecessor and removes predecessor-owned replaceable launch artifacts before rebuilding. Shared mailbox message history and unrelated operator-owned paths are preserved.
+- Force mode never becomes part of specialist metadata or easy-profile storage.
 - `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides. They win over the stored easy-profile managed-header policy for the current launch only and never rewrite the stored easy profile.
 - When neither managed-header flag is supplied, easy-instance launch inherits policy from the selected profile when one is present; otherwise it falls back to the default enabled behavior.
 - Easy-instance inspection (`project easy instance list` and `project easy instance get`) reports the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
 - unless `--no-gateway` is supplied, the easy surface now requests launch-time gateway attach by default on loopback (`127.0.0.1`) with a system-assigned port.
+- by default, that easy auto-attach uses same-session foreground gateway execution and reports `gateway_execution_mode` plus `gateway_tmux_window_index` when foreground attach succeeds.
 - `--gateway-port <port>` keeps the default easy gateway attach enabled for that launch, but requests the specified loopback listener port instead of a system-assigned port.
-- `--no-gateway` and `--gateway-port` are mutually exclusive.
+- `--gateway-background` keeps easy auto-attach enabled for that launch, but requests detached background gateway execution instead of the default foreground auxiliary-window execution.
+- `--no-gateway` is mutually exclusive with `--gateway-port` and `--gateway-background`.
 - `--workdir` overrides only the launched agent runtime cwd; the selected project overlay, specialist source, runtime root, jobs root, and default mailbox root remain pinned to the selected project.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
 - Gemini specialists remain headless-only here and fail fast unless `--headless` is supplied.

@@ -38,9 +38,17 @@ from houmao.mailbox.filesystem import (
     unsupported_mailbox_root_reason,
 )
 from houmao.mailbox.protocol import (
+    HOUMAO_MAILBOX_DOMAIN,
+    HOUMAO_OPERATOR_ADDRESS,
+    HOUMAO_OPERATOR_DISPLAY_NAME,
+    HOUMAO_OPERATOR_PRINCIPAL_ID,
+    HOUMAO_OPERATOR_ROLE,
     MailboxAttachment,
     MailboxMessage,
     MailboxPrincipal,
+    is_houmao_reserved_mailbox_local_part,
+    mailbox_address_domain_part,
+    mailbox_address_local_part,
     mailbox_address_path_segment,
     normalize_utc_timestamp,
     parse_message_document,
@@ -401,6 +409,25 @@ class RegisterMailboxRequest(_ManagedRequestModel):
 
         return _normalize_optional_non_blank_string(value)
 
+    @model_validator(mode="after")
+    def _validate_reserved_address_policy(self) -> "RegisterMailboxRequest":
+        """Protect reserved Houmao mailbox locals from ordinary registrations."""
+
+        if (
+            mailbox_address_domain_part(self.address) == HOUMAO_MAILBOX_DOMAIN
+            and is_houmao_reserved_mailbox_local_part(mailbox_address_local_part(self.address))
+            and not (
+                self.address == HOUMAO_OPERATOR_ADDRESS
+                and self.owner_principal_id == HOUMAO_OPERATOR_PRINCIPAL_ID
+                and self.role == HOUMAO_OPERATOR_ROLE
+            )
+        ):
+            raise ValueError(
+                "mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` "
+                "are reserved for Houmao-owned system principals"
+            )
+        return self
+
 
 class DeregisterMailboxRequest(_ManagedRequestModel):
     """Structured mailbox deregistration request."""
@@ -489,6 +516,25 @@ class MailboxCleanupResult:
     removed: tuple[MailboxCleanupRecord, ...]
     preserved: tuple[MailboxCleanupRecord, ...]
     blocked: tuple[MailboxCleanupRecord, ...]
+
+
+def ensure_operator_mailbox_registration(mailbox_root: Path) -> dict[str, object]:
+    """Provision or confirm the reserved filesystem mailbox operator account."""
+
+    resolved_root = mailbox_root.resolve()
+    paths = resolve_filesystem_mailbox_paths(resolved_root)
+    return register_mailbox(
+        resolved_root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=HOUMAO_OPERATOR_ADDRESS,
+            owner_principal_id=HOUMAO_OPERATOR_PRINCIPAL_ID,
+            mailbox_kind="in_root",
+            mailbox_path=paths.mailbox_entry_path(HOUMAO_OPERATOR_ADDRESS),
+            display_name=HOUMAO_OPERATOR_DISPLAY_NAME,
+            role=HOUMAO_OPERATOR_ROLE,
+        ),
+    )
 
 
 def load_json_payload(path: Path) -> object:
@@ -897,19 +943,50 @@ def _registration_local_state_rows(
         (registration_id,),
     ).fetchall()
 
-    return [
-        {
-            "message_id": str(row[0]),
-            "thread_id": str(row[1]),
-            "created_at_utc": str(row[2]),
-            "subject": str(row[3]),
-            "is_read": _coerce_optional_bool(row[5], default=_default_read_for_folder(str(row[4]))),
-            "is_starred": _coerce_optional_bool(row[6], default=False),
-            "is_archived": _coerce_optional_bool(row[7], default=False),
-            "is_deleted": _coerce_optional_bool(row[8], default=False),
-        }
-        for row in rows
-    ]
+    materialized_rows: list[_LocalMessageStateRow] = []
+    current_message_id: str | None = None
+    current_thread_id = ""
+    current_created_at_utc = ""
+    current_subject = ""
+    current_folder_names: set[str] = set()
+    current_state_values: tuple[object, object, object, object] | None = None
+
+    def _flush_current_row() -> None:
+        nonlocal current_message_id
+        if current_message_id is None or current_state_values is None:
+            return
+        is_read_value, is_starred_value, is_archived_value, is_deleted_value = current_state_values
+        materialized_rows.append(
+            {
+                "message_id": current_message_id,
+                "thread_id": current_thread_id,
+                "created_at_utc": current_created_at_utc,
+                "subject": current_subject,
+                "is_read": _coerce_optional_bool(
+                    is_read_value,
+                    default=_default_read_for_projection_folders(current_folder_names),
+                ),
+                "is_starred": _coerce_optional_bool(is_starred_value, default=False),
+                "is_archived": _coerce_optional_bool(is_archived_value, default=False),
+                "is_deleted": _coerce_optional_bool(is_deleted_value, default=False),
+            }
+        )
+
+    for row in rows:
+        message_id = str(row[0])
+        if current_message_id is not None and message_id != current_message_id:
+            _flush_current_row()
+            current_folder_names = set()
+        if message_id != current_message_id:
+            current_message_id = message_id
+            current_thread_id = str(row[1])
+            current_created_at_utc = str(row[2])
+            current_subject = str(row[3])
+            current_state_values = (row[5], row[6], row[7], row[8])
+        current_folder_names.add(str(row[4]))
+
+    _flush_current_row()
+    return materialized_rows
 
 
 def _coerce_optional_bool(value: object, *, default: bool) -> bool:
@@ -926,10 +1003,10 @@ def _coerce_optional_bool(value: object, *, default: bool) -> bool:
     raise TypeError(f"Unsupported SQLite boolean value: {value!r}")
 
 
-def _default_read_for_folder(folder_name: str) -> bool:
-    """Return the deterministic default read state for one projection folder."""
+def _default_read_for_projection_folders(folder_names: set[str]) -> bool:
+    """Return the deterministic default read state for one mailbox-local projection set."""
 
-    return folder_name == "sent"
+    return "inbox" not in folder_names
 
 
 def _has_interactive_terminal(*streams: TextIO | None) -> bool:
@@ -1493,6 +1570,11 @@ def deregister_mailbox(
                 raise ManagedMailboxOperationError(
                     f"no active mailbox registration exists for `{request.address}`"
                 )
+            if registration.address == HOUMAO_OPERATOR_ADDRESS:
+                raise ManagedMailboxOperationError(
+                    "generic mailbox unregister does not allow removing the reserved "
+                    f"operator registration `{HOUMAO_OPERATOR_ADDRESS}`"
+                )
 
             if request.mode == "deactivate":
                 _mark_registration_inactive(connection, registration.registration_id)
@@ -1701,16 +1783,17 @@ def update_mailbox_state(
                         (request.message_id,),
                     ).fetchone()
                     if existing_state is None:
-                        projection_row = connection.execute(
+                        projection_rows = connection.execute(
                             """
                             SELECT projection.folder_name, message.thread_id, message.created_at_utc, message.subject
                             FROM mailbox_projections AS projection
                             JOIN messages AS message ON message.message_id = projection.message_id
                             WHERE projection.registration_id = ? AND projection.message_id = ?
+                            ORDER BY projection.folder_name ASC
                             """,
                             (registration.registration_id, request.message_id),
-                        ).fetchone()
-                        if projection_row is None:
+                        ).fetchall()
+                        if not projection_rows:
                             raise ManagedMailboxOperationError(
                                 f"message `{request.message_id}` is not projected into `{request.address}`"
                             )
@@ -1722,7 +1805,8 @@ def update_mailbox_state(
                             """,
                             (registration.registration_id, request.message_id),
                         ).fetchone()
-                        folder_name = str(projection_row[0])
+                        folder_names = {str(row[0]) for row in projection_rows}
+                        projection_row = projection_rows[0]
                         _insert_local_message_state_row(
                             connection=connection,
                             local_alias=local_alias,
@@ -1732,7 +1816,7 @@ def update_mailbox_state(
                             subject=str(projection_row[3]),
                             is_read=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[0],
-                                default=_default_read_for_folder(folder_name),
+                                default=_default_read_for_projection_folders(folder_names),
                             ),
                             is_starred=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[1],
@@ -1989,6 +2073,22 @@ def cleanup_mailbox_registrations(
 
                 candidates = _load_cleanup_candidate_registrations(connection)
                 for registration in candidates:
+                    if registration.address == HOUMAO_OPERATOR_ADDRESS:
+                        preserved.append(
+                            MailboxCleanupRecord(
+                                outcome="preserved",
+                                artifact_kind="mailbox_registration",
+                                path=registration.mailbox_entry_path,
+                                reason=(
+                                    "reserved operator registration is part of the filesystem "
+                                    "mailbox root contract and is outside cleanup scope"
+                                ),
+                                address=registration.address,
+                                registration_id=registration.registration_id,
+                                registration_status=registration.status,
+                            )
+                        )
+                        continue
                     threshold_seconds = (
                         inactive_older_than_seconds
                         if registration.status == "inactive"
@@ -2874,6 +2974,10 @@ def _insert_mailbox_state_records(
 ) -> None:
     """Insert deterministic default mailbox-local state rows."""
 
+    recipient_registration_ids = {
+        recipient_registrations[principal.address].registration_id
+        for principal in recipient_principals
+    }
     affected_registration_ids = {
         sender_registration.registration_id,
         *(
@@ -2889,7 +2993,7 @@ def _insert_mailbox_state_records(
             thread_id=thread_id,
             created_at_utc=created_at_utc,
             subject=subject,
-            is_read=(registration_id == sender_registration.registration_id),
+            is_read=registration_id not in recipient_registration_ids,
             is_starred=False,
             is_archived=False,
             is_deleted=False,
@@ -3562,6 +3666,11 @@ def _insert_recovered_mailbox_state_records(
 
     restored_state_count = 0
     defaulted_state_count = 0
+    delivered_recipient_ids = {
+        registration_id
+        for registration_id in recipient_registration_ids
+        if registration_id is not None
+    }
     affected_registration_ids = {
         registration_id for registration_id in recipient_registration_ids if registration_id
     }
@@ -3572,7 +3681,7 @@ def _insert_recovered_mailbox_state_records(
             continue
         prior_state = snapshot.mailbox_state.get((registration_id, message.message_id))
         if prior_state is None:
-            state_values = (int(registration_id == sender_registration_id), 0, 0, 0)
+            state_values = (int(registration_id not in delivered_recipient_ids), 0, 0, 0)
             defaulted_state_count += 1
         else:
             read_state, starred_state, archived_state, deleted_state = prior_state

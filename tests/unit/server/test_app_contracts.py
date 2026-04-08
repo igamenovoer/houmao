@@ -28,6 +28,7 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayAttachRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
@@ -141,7 +142,9 @@ class _AppServiceDouble:
         self.m_turn_artifact_calls: list[tuple[str, str, str]] = []
         self.m_interrupt_calls: list[str] = []
         self.m_gateway_status_calls: list[str] = []
-        self.m_gateway_attach_calls: list[str] = []
+        self.m_gateway_attach_calls: list[
+            tuple[str, HoumaoManagedAgentGatewayAttachRequest | None]
+        ] = []
         self.m_gateway_detach_calls: list[str] = []
         self.m_gateway_tui_state_calls: list[str] = []
         self.m_gateway_tui_history_calls: list[tuple[str, int]] = []
@@ -511,8 +514,12 @@ class _AppServiceDouble:
             managed_agent_instance_id="claude-headless-1",
         )
 
-    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
-        self.m_gateway_attach_calls.append(agent_ref)
+    def attach_managed_agent_gateway(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayAttachRequest | None = None,
+    ) -> GatewayStatusV1:
+        self.m_gateway_attach_calls.append((agent_ref, request_model))
         return self.managed_agent_gateway_status(agent_ref)
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
@@ -1237,7 +1244,13 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         gateway_status_route.endpoint(agent_ref="claude-headless-1").gateway_health
         == "not_attached"
     )
-    assert gateway_attach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
+    assert (
+        gateway_attach_route.endpoint(
+            agent_ref="claude-headless-1",
+            request_model=HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+        ).request_admission
+        == "open"
+    )
     assert gateway_detach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
     assert (
         gateway_tui_state_route.endpoint(agent_ref="claude-headless-1").terminal_id == "headless123"
@@ -1318,6 +1331,12 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert service.m_gateway_prompt_control_calls[0][1].prompt == "hello"
     assert service.m_gateway_control_calls[0][0] == "claude-headless-1"
     assert service.m_gateway_control_calls[0][1].sequence == "<[Escape]>"
+    assert service.m_gateway_attach_calls == [
+        (
+            "claude-headless-1",
+            HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+        )
+    ]
     assert service.m_gateway_tui_state_calls == ["claude-headless-1"]
     assert service.m_gateway_tui_history_calls == [("claude-headless-1", 7)]
     assert service.m_gateway_tui_note_prompt_calls == [("claude-headless-1", "hello")]

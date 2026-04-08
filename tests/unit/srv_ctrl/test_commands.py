@@ -14,13 +14,17 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
-from houmao.agents.realm_controller.gateway_models import GatewayPromptControlErrorV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayPromptControlErrorV1,
+    GatewayStatusV1,
+)
 from houmao.agents.realm_controller.errors import LaunchPolicyResolutionError
 from houmao.server.pair_client import PairAuthorityConnectionError, PairAuthorityHealthProbe
 from houmao.server.models import (
     HoumaoCurrentInstance,
     HoumaoHealthResponse,
     HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentListResponse,
 )
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
 from houmao.srv_ctrl.commands.main import cli, main
@@ -254,16 +258,93 @@ def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_agents_gateway_attach_help_mentions_foreground_mode() -> None:
+def test_agents_gateway_attach_help_mentions_foreground_default() -> None:
     result = CliRunner().invoke(cli, ["agents", "gateway", "attach", "--help"])
 
     assert result.exit_code == 0
-    assert "--foreground" in result.output
+    assert "--background" in result.output
+    assert "--foreground" not in result.output
     assert "--target-tmux-session" in result.output
     assert "--pair-port" in result.output
     assert "Window `0` remains" in result.output
-    assert "surface; inspect status" in result.output
-    assert "window index" in result.output
+    assert "foreground by default" in result.output
+
+
+def test_agents_list_plain_renders_rows_from_pydantic_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-alpha",
+        transport="headless",
+        tool="claude",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="tracked-alpha",
+        tmux_session_name="HOUMAO-alpha",
+        tmux_window_name=None,
+        manifest_path="/tmp/alpha/manifest.json",
+        session_root="/tmp/alpha",
+        agent_name="alpha",
+        agent_id="agent-alpha",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.list_managed_agents",
+        lambda *, port=None: HoumaoManagedAgentListResponse(agents=[identity]),
+    )
+
+    result = CliRunner().invoke(cli, ["--print-plain", "agents", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "Managed Agents (1):" in result.output
+    assert "alpha" in result.output
+    assert "tracked-alpha" in result.output
+    assert "claude" in result.output
+
+
+def test_agents_gateway_status_plain_renders_fields_from_pydantic_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway._resolve_gateway_command_target",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_status",
+        lambda target: GatewayStatusV1(
+            attach_identity="published-alpha",
+            backend="claude_headless",
+            tmux_session_name="HOUMAO-alpha",
+            gateway_health="healthy",
+            managed_agent_connectivity="connected",
+            managed_agent_recovery="idle",
+            request_admission="open",
+            terminal_surface_eligibility="ready",
+            active_execution="idle",
+            execution_mode="tmux_auxiliary_window",
+            queue_depth=0,
+            gateway_host="127.0.0.1",
+            gateway_port=9901,
+            gateway_tmux_window_id="@2",
+            gateway_tmux_window_index="2",
+            managed_agent_instance_epoch=1,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["--print-plain", "agents", "gateway", "status", "--agent-name", "alpha"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Gateway Status:" in result.output
+    assert "attach_identity" in result.output
+    assert "published-alpha" in result.output
+    assert "gateway_health" in result.output
+    assert "healthy" in result.output
+    assert "execution_mode" in result.output
+    assert "tmux_auxiliary_window" in result.output
+    assert "gateway_tmux_window_index" in result.output
+    assert "2" in result.output
 
 
 def test_agents_gateway_help_mentions_send_keys_and_mail_notifier() -> None:
@@ -386,7 +467,7 @@ def test_managed_agent_commands_surface_actionable_selector_errors(
     assert "Retry with `--agent-name gpu`, `--agent-id agent-1234`" in result.output
 
 
-def test_agents_gateway_attach_forwards_foreground_flag(
+def test_agents_gateway_attach_defaults_to_foreground_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -397,18 +478,49 @@ def test_agents_gateway_attach_forwards_foreground_flag(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, foreground=False: (
-            captured.update({"target": target, "foreground": foreground}) or {"status": "ok"}
+        lambda target, *, background=False: (
+            captured.update({"target": target, "background": background}) or {"status": "ok"}
         ),
     )
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "gateway", "attach", "--agent-id", "agent-123", "--foreground"],
+        ["agents", "gateway", "attach", "--agent-id", "agent-123"],
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["foreground"] is True
+    assert captured["background"] is False
+    assert captured["resolved_target"] == {
+        "agent_id": "agent-123",
+        "agent_name": None,
+        "port": None,
+    }
+    assert json.loads(result.output) == {"status": "ok"}
+
+
+def test_agents_gateway_attach_forwards_background_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: captured.setdefault("resolved_target", kwargs) or "target",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
+        lambda target, *, background=False: (
+            captured.update({"target": target, "background": background}) or {"status": "ok"}
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "gateway", "attach", "--agent-id", "agent-123", "--background"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["background"] is True
     assert captured["resolved_target"] == {
         "agent_id": "agent-123",
         "agent_name": None,
@@ -440,10 +552,15 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
     )
     client = SimpleNamespace(
         pair_authority_kind="houmao-server",
-        attach_managed_agent_gateway=lambda agent_ref: {
-            "status": "ok",
-            "agent_ref": agent_ref,
-        },
+        attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
+            captured.update(
+                {
+                    "pair_agent_ref": agent_ref,
+                    "pair_execution_mode": getattr(request_model, "execution_mode", None),
+                }
+            )
+            or {"status": "ok", "agent_ref": agent_ref}
+        ),
     )
 
     monkeypatch.setattr(
@@ -503,6 +620,8 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
 
     assert result.exit_code == 0, result.output
     assert captured["base_url"] == "http://127.0.0.1:9889"
+    assert captured["pair_agent_ref"] == "pair-session"
+    assert captured["pair_execution_mode"] == "tmux_auxiliary_window"
     assert json.loads(result.output) == {"status": "ok", "agent_ref": "pair-session"}
 
 
@@ -602,19 +721,19 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, foreground=False: (
-            captured.update({"target": target, "foreground": foreground})
+        lambda target, *, background=False: (
+            captured.update({"target": target, "background": background})
             or {"status": "local-attached"}
         ),
     )
 
-    result = CliRunner().invoke(cli, ["agents", "gateway", "attach", "--foreground"])
+    result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])
 
     assert result.exit_code == 0, result.output
     assert captured["agent_def_dir"] == agent_def_dir
     assert captured["session_manifest_path"] == manifest_path
     assert captured["target"].agent_ref == "published-alpha"
-    assert captured["foreground"] is True
+    assert captured["background"] is False
     assert json.loads(result.output) == {"status": "local-attached"}
 
 
@@ -710,8 +829,8 @@ def test_agents_gateway_attach_target_tmux_session_falls_back_to_registry_termin
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, foreground=False: (
-            captured.update({"target": target, "foreground": foreground})
+        lambda target, *, background=False: (
+            captured.update({"target": target, "background": background})
             or {"status": "local-attached"}
         ),
     )
@@ -731,7 +850,7 @@ def test_agents_gateway_attach_target_tmux_session_falls_back_to_registry_termin
     assert captured["agent_def_dir"] == agent_def_dir
     assert captured["session_manifest_path"] == manifest_path
     assert captured["target"].agent_ref == "published-alpha"
-    assert captured["foreground"] is False
+    assert captured["background"] is False
     assert json.loads(result.output) == {"status": "local-attached"}
 
 
@@ -1726,23 +1845,23 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             source_kind="recipe",
             source_name="researcher-codex-default",
             managed_agent_name="alice",
-                managed_agent_id="agent-alice",
-                workdir=str(project_root / "profile-workdir"),
-                auth_name="alice-creds",
-                model_name=None,
-                reasoning_level=None,
-                operator_prompt_mode="unattended",
-                env_payload={"PROJECT_CONTEXT": "alice"},
-                mailbox_payload={
+            managed_agent_id="agent-alice",
+            workdir=str(project_root / "profile-workdir"),
+            auth_name="alice-creds",
+            model_name=None,
+            reasoning_level=None,
+            operator_prompt_mode="unattended",
+            env_payload={"PROJECT_CONTEXT": "alice"},
+            mailbox_payload={
                 "transport": "filesystem",
                 "principal_id": "alice",
                 "address": "alice@agents.localhost",
                 "filesystem_root": "/shared-mail-root",
             },
-                posture_payload={"headless": True, "gateway_port": 9011},
-                managed_header_policy="inherit",
-                prompt_overlay_mode="append",
-            ),
+            posture_payload={"headless": True, "gateway_port": 9011},
+            managed_header_policy="inherit",
+            prompt_overlay_mode="append",
+        ),
         source_exists=True,
         recipe_path=recipe_path,
         provider="codex",
@@ -1889,6 +2008,69 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
 
     assert result.exit_code != 0
     assert "conflicts with launch profile" in result.output
+
+
+def test_agents_launch_help_mentions_force_mode() -> None:
+    result = CliRunner().invoke(cli, ["agents", "launch", "--help"])
+
+    assert result.exit_code == 0
+    assert "--force [keep-stale|clean]" in result.output
+
+
+def test_agents_launch_bare_force_forwards_keep_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    captured: dict[str, object] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity="worker-a",
+                agent_id="agent-1234",
+                tmux_session_name="worker-a",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["force_mode"] == "keep-stale"
+
+
+def test_agents_launch_rejects_invalid_force_mode() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--force",
+            "broken",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--force'" in result.output
 
 
 def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(

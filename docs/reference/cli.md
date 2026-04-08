@@ -122,7 +122,7 @@ For managed agents, the public gateway control surface lives on `houmao-mgr agen
 - `houmao-mgr agents gateway attach --agent-name <friendly-name> --pair-port <pair-port>` for explicit managed-agent targeting
 - `houmao-mgr agents gateway attach --agent-id <authoritative-id> --pair-port <pair-port>` when exact disambiguation matters
 - `houmao-mgr agents gateway attach --target-tmux-session <tmux-session-name>` for explicit outside-tmux targeting by local tmux session name
-- `houmao-mgr agents gateway attach --foreground --agent-name <friendly-name>` when you explicitly want a runtime-owned tmux-backed session to host the gateway in a same-session auxiliary tmux window
+- `houmao-mgr agents gateway attach --background --agent-name <friendly-name>` when you explicitly want detached background execution instead of the default same-session auxiliary tmux window
 - `houmao-mgr agents gateway attach` from inside the target tmux session for current-session attach
 - `houmao-mgr agents gateway status|prompt|interrupt|send-keys ...` follow the same target-resolution rules as `attach`
 - `houmao-mgr agents gateway tui state|history|watch|note-prompt ...` expose the raw gateway-owned TUI tracking surface with the same target-resolution rules
@@ -140,9 +140,9 @@ Targeting rules for `houmao-mgr agents gateway ...`:
 
 Current-session attach requires the target tmux session to publish `HOUMAO_MANIFEST_PATH` or, failing that, `HOUMAO_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`. `HOUMAO_GATEWAY_ATTACH_PATH` and `HOUMAO_GATEWAY_ROOT` are retired from the supported discovery contract. Current-session attach becomes valid only after the matching managed-agent registration exists on the persisted manifest-declared `api_base_url`.
 
-When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` report `execution_mode` plus the authoritative `gateway_tmux_window_index` for the live gateway surface. Treat that reported non-zero window index as the discovery contract; tmux window names and ordering remain non-contractual.
+By default, `houmao-mgr agents gateway attach` uses same-session foreground execution for tmux-backed managed sessions. When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` report `execution_mode` plus the authoritative `gateway_tmux_window_index` for the live gateway surface. Treat that reported non-zero window index as the discovery contract; tmux window names and ordering remain non-contractual.
 
-For pair-managed `houmao_server_rest` sessions, `--foreground` is redundant but valid because those same-session gateways already use the auxiliary-window execution model.
+For pair-managed `houmao_server_rest` sessions, the same-session auxiliary-window topology is also the default. Use `--background` only when you explicitly want detached execution for that attach.
 
 For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, use `houmao-mgr agents gateway tui state|watch ...` when you need the exact raw gateway-owned parser and tracker surface, use `houmao-mgr agents gateway tui history ...` when you need bounded in-memory snapshot history rather than coarse managed-agent `/history`, and use `houmao-mgr agents gateway tui note-prompt ...` when you need explicit prompt provenance without queue submission. `houmao-mgr agents gateway mail-notifier ...` remains the notifier lifecycle surface. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 

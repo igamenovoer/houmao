@@ -16,14 +16,14 @@ That skill SHALL instruct agents and operators to handle gateway-specific work t
 - `houmao-mgr agents gateway tui state|history|watch|note-prompt`
 - `houmao-mgr agents gateway mail-notifier status|enable|disable`
 - managed-agent HTTP routes under `/houmao/agents/{agent_ref}/gateway...`
-- direct live gateway HTTP only when the exact live `{gateway.base_url}` is already available and the task genuinely needs a gateway-only surface such as `/v1/status`, `/v1/wakeups`, or `/v1/mail-notifier`
+- direct live gateway HTTP only when the exact live `{gateway.base_url}` is already available and the task genuinely needs a gateway-only surface such as `/v1/status`, `/v1/reminders`, or `/v1/mail-notifier`
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
 
 - `lifecycle`
 - `discover`
 - `gateway-services`
-- `wakeups`
+- `reminders`
 - `mail-notifier`
 
 That packaged skill SHALL remain the canonical Houmao-owned skill for gateway-specific lifecycle, discovery, gateway-only control, and reminder work whether the caller is another agent with an installed Houmao skill home or an external operator standing outside the managed session.
@@ -43,43 +43,52 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 #### Scenario: Installed skill routes to action-specific local guidance
 - **WHEN** an agent reads the installed `houmao-agent-gateway` skill
-- **THEN** the top-level `SKILL.md` acts as an index/router for lifecycle, discovery, gateway-only services, wakeups, and notifier guidance
+- **THEN** the top-level `SKILL.md` acts as an index/router for lifecycle, discovery, gateway-only services, reminders, and notifier guidance
 - **AND THEN** the detailed workflow lives in local action-specific documents rather than in one flattened entry page
 
 #### Scenario: Installed skill keeps non-gateway concerns out of scope
 - **WHEN** an agent reads the installed `houmao-agent-gateway` skill
 - **THEN** the skill marks ordinary prompt/mail flows, transport-specific mailbox internals, and unrelated live-agent lifecycle work as outside the packaged skill scope
-- **AND THEN** it does not present `houmao-agent-gateway` as the generic replacement for `houmao-manage-agent-instance`, `houmao-agent-messaging`, or the mailbox skills
+- **AND THEN** it does not present `houmao-agent-gateway` as the generic replacement for `houmao-agent-instance`, `houmao-agent-messaging`, or the mailbox skills
 
 ### Requirement: `houmao-agent-gateway` resolves the `houmao-mgr` launcher in the required precedence order
-The packaged `houmao-agent-gateway` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace in this order:
+The packaged `houmao-agent-gateway` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
-1. repo-local `.venv` executable,
-2. Pixi-managed project invocation,
-3. project-local `uv run`,
-4. globally installed `houmao-mgr` from uv tools.
+1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
+2. if that lookup fails, use the uv-managed fallback `uv tool run --from houmao houmao-mgr`,
+3. if the PATH lookup and uv-managed fallback do not satisfy the turn, choose an appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`.
 
-The skill SHALL treat global uv-tools installation as the default end-user case when no development-project hints justify a repo-local launcher.
+The skill SHALL treat the `command -v houmao-mgr` result as the ordinary first-choice launcher for the current turn.
 
-The skill SHALL tell the agent to look for development-project hints such as `.venv`, Pixi files, `pyproject.toml`, or `uv.lock` before choosing a repo-local launcher.
+The skill SHALL treat the uv-managed fallback as the ordinary non-PATH fallback because Houmao's documented installation path uses uv tools.
+
+The skill SHALL only probe development-project hints such as `.venv`, Pixi files, `pyproject.toml`, or `uv.lock` after PATH resolution and uv fallback do not satisfy the turn, unless the user explicitly asks for a development launcher.
+
+The skill SHALL honor an explicit user instruction to use a specific launcher family even when a higher-priority default launcher is available.
 
 The resolved launcher SHALL be reused for any routed gateway action selected through the packaged skill.
 
-#### Scenario: Repo-local `.venv` takes precedence over other launchers
-- **WHEN** the current workspace provides `.venv/bin/houmao-mgr`
-- **THEN** the skill tells the agent to use that repo-local executable first
-- **AND THEN** it does not prefer Pixi, project-local `uv run`, or the global uv-tools install for that workspace
+#### Scenario: PATH launcher is preferred before development probing
+- **WHEN** `command -v houmao-mgr` succeeds in the current workspace
+- **THEN** the skill tells the agent to use that PATH-resolved `houmao-mgr` command for the turn
+- **AND THEN** it does not probe `.venv`, Pixi, or project-local uv launchers first
 
-#### Scenario: Pixi-managed project takes precedence when no `.venv` launcher exists
-- **WHEN** the current workspace has no repo-local `.venv` launcher
-- **AND WHEN** the current workspace has Pixi development-project hints
-- **THEN** the skill tells the agent to use `pixi run houmao-mgr`
-- **AND THEN** it does not skip directly to project-local `uv run` or the global uv-tools install
+#### Scenario: uv fallback is used when PATH lookup fails
+- **WHEN** `command -v houmao-mgr` fails in the current workspace
+- **THEN** the skill tells the agent to try `uv tool run --from houmao houmao-mgr`
+- **AND THEN** it treats that uv-managed launcher as the ordinary next fallback because Houmao is officially installed through uv tools
 
-#### Scenario: Global uv-tools install remains the end-user default
-- **WHEN** the current workspace does not provide repo-local `.venv`, Pixi, or project-local uv hints
-- **THEN** the skill tells the agent to use the globally installed `houmao-mgr` command from uv tools
-- **AND THEN** it treats that path as the ordinary end-user launcher
+#### Scenario: Development launchers are later defaults, not first probes
+- **WHEN** `command -v houmao-mgr` fails
+- **AND WHEN** the uv-managed fallback does not satisfy the turn
+- **AND WHEN** the current workspace provides development launchers such as Pixi, repo-local `.venv`, or project-local uv
+- **THEN** the skill tells the agent to choose an appropriate development launcher for that workspace
+- **AND THEN** it does not treat those development launchers as the default first search path
+
+#### Scenario: Explicit user launcher choice overrides the default order
+- **WHEN** the user explicitly asks to use `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, project-local `uv run houmao-mgr`, or another specific launcher
+- **THEN** the skill tells the agent to honor that requested launcher
+- **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
 ### Requirement: `houmao-agent-gateway` uses the supported discovery contract for current-session, live-binding, and mailbox-gateway work
 The packaged `houmao-agent-gateway` skill SHALL tell the caller to recover omitted target selectors from the current user prompt first and from recent chat context second when those values were stated explicitly.
@@ -120,7 +129,8 @@ The packaged `houmao-agent-gateway` skill SHALL select commands by gateway-speci
 
 - use `houmao-mgr agents gateway attach|detach|status` or `/houmao/agents/{agent_ref}/gateway...` for gateway lifecycle and summary state,
 - use `houmao-mgr agents gateway mail-notifier ...` or `/houmao/agents/{agent_ref}/gateway/mail-notifier` for unread-mail notifier control,
-- use direct `{gateway.base_url}/v1/wakeups...` only for wakeup registration, inspection, and cancellation because the current implementation does not project those operations through a higher-level CLI or managed-agent route,
+- use direct `{gateway.base_url}/v1/reminders...` only for reminder creation, inspection, update, and cancellation because the current implementation does not project those operations through a higher-level CLI or managed-agent route,
+- treat reminder delivery through direct live gateway routes as supporting both semantic `prompt` reminders and raw `send_keys` reminders,
 - use direct `{gateway.base_url}/v1/...` only when the task genuinely requires a gateway-only lower-level surface and the exact live base URL is already available from supported discovery.
 
 The packaged `houmao-agent-gateway` skill SHALL delegate ordinary prompt turns, mailbox routing, ordinary mailbox work, or transport-specific mailbox work to:
@@ -131,34 +141,54 @@ The packaged `houmao-agent-gateway` skill SHALL delegate ordinary prompt turns, 
 
 The skill SHALL prefer the managed-agent seam first when it already satisfies the current task and SHALL treat direct gateway listener URLs as the lower-level gateway-only path.
 
-#### Scenario: Lifecycle and notifier work stay on the managed-agent seam when possible
-- **WHEN** the user asks for gateway attach, detach, status, or mail-notifier control
-- **THEN** the skill directs the caller to `houmao-mgr agents gateway ...` or the managed-agent `/houmao/agents/{agent_ref}/gateway...` routes
-- **AND THEN** it does not require direct gateway listener discovery when the higher-level seam already satisfies the task
+#### Scenario: Reminders use the direct live gateway route family
+- **WHEN** the user asks to create, inspect, update, or cancel live gateway reminders
+- **THEN** the skill directs the caller to the live `{gateway.base_url}/v1/reminders...` route family
+- **AND THEN** it does not misdescribe reminders as a current `houmao-mgr agents gateway ...` subcommand or as a managed-agent API projection that does not exist yet
 
-#### Scenario: Wakeups use the direct live gateway route family
-- **WHEN** the user asks to create, inspect, or cancel one gateway wakeup job
-- **THEN** the skill directs the caller to the live `{gateway.base_url}/v1/wakeups...` route family
-- **AND THEN** it does not misdescribe wakeups as a current `houmao-mgr agents gateway ...` subcommand or as a managed-agent API projection that does not exist yet
+#### Scenario: Send-keys reminders stay on the reminder HTTP surface
+- **WHEN** the user asks for a reminder that should send exact raw keys such as `<[Escape]>` or a slash-command submission
+- **THEN** the skill describes that as a `send_keys` reminder on the direct live `/v1/reminders` surface
+- **AND THEN** it does not invent a separate reminder CLI family for that workflow
 
 #### Scenario: Ordinary prompt or mailbox work delegates away from the gateway skill
 - **WHEN** the task is one normal prompt turn, one transport-neutral interrupt, or mailbox work rather than gateway lifecycle or gateway-only service control
 - **THEN** the skill directs the caller to `houmao-agent-messaging` and the current mailbox skills instead of taking that work itself
 - **AND THEN** it does not present the gateway skill as the primary ordinary communication surface
 
-### Requirement: `houmao-agent-gateway` describes wakeups and mail-notifier honestly
-The packaged `houmao-agent-gateway` skill SHALL describe `/v1/wakeups` as the supported gateway-owned timer and self-reminder surface for one live attached gateway.
+### Requirement: `houmao-agent-gateway` describes reminders and mail-notifier honestly
+The packaged `houmao-agent-gateway` skill SHALL describe `/v1/reminders` as the supported gateway-owned live reminder surface for one attached gateway.
 
-The skill SHALL state that wakeup jobs are live-gateway in-memory state, are lost on gateway shutdown or restart, and are not a durable unfinished-job queue.
+The skill SHALL state that reminder records are live-gateway in-memory state, are lost on gateway shutdown or restart, and are not a durable unfinished-job queue.
+
+The skill SHALL state that the reminder with the smallest ranking value is the effective reminder and that a paused effective reminder still blocks lower-ranked reminders.
+
+The skill SHALL explain that reminders support two delivery forms:
+
+- semantic `prompt`
+- raw `send_keys`
+
+For `send_keys` reminders, the skill SHALL explain:
+
+- `send_keys.sequence` uses exact raw control-input `<[key-name]>` semantics,
+- `title` remains reminder metadata and is not terminal input,
+- `ensure_enter` defaults to `true`,
+- `ensure_enter=false` is the correct choice for pure special-key reminders such as `<[Escape]>`,
+- unsupported gateway backends reject `send_keys` reminders explicitly rather than silently downgrading them to prompt text.
 
 The skill SHALL describe `mail-notifier` as unread-mail reminder control for mailbox-enabled sessions and SHALL NOT present it as a general-purpose reminder service for arbitrary unfinished work.
 
-The skill SHALL NOT describe wakeups or mail-notifier as durable queued work that survives gateway restart.
+The skill SHALL NOT describe reminders or mail-notifier as durable queued work that survives gateway restart.
 
-#### Scenario: Wakeup guidance states the in-memory lifetime clearly
-- **WHEN** an attached agent or operator reads the wakeup guidance in the packaged gateway skill
-- **THEN** the skill states that wakeups are process-local live-gateway state
-- **AND THEN** it does not claim that scheduled or overdue wakeups survive gateway stop or restart
+#### Scenario: Reminder guidance states the in-memory lifetime and ranking boundary clearly
+- **WHEN** an attached agent or operator reads the reminder guidance in the packaged gateway skill
+- **THEN** the skill states that reminders are process-local live-gateway state and that the smallest ranking is effective
+- **AND THEN** it does not claim that reminder state survives gateway stop or restart
+
+#### Scenario: Send-keys reminder guidance explains ensure-enter default and opt-out
+- **WHEN** an attached agent or operator reads the send-keys reminder guidance in the packaged gateway skill
+- **THEN** the skill explains that `ensure_enter` defaults to `true`
+- **AND THEN** it also explains that pure special-key reminders should set `ensure_enter=false`
 
 #### Scenario: Mail-notifier guidance stays mail-specific
 - **WHEN** a caller reads the notifier guidance in the packaged gateway skill

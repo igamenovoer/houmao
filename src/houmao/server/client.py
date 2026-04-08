@@ -37,6 +37,7 @@ from .models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentGatewayAttachRequest,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentGatewayNextPromptSessionRequest,
@@ -360,7 +361,11 @@ class HoumaoServerClient(CaoRestClient):
             GatewayStatusV1,
         )
 
-    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+    def attach_managed_agent_gateway(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayAttachRequest | None = None,
+    ) -> GatewayStatusV1:
         """Call `POST /houmao/agents/{agent_ref}/gateway/attach`."""
 
         escaped = parse.quote(agent_ref, safe="")
@@ -368,6 +373,9 @@ class HoumaoServerClient(CaoRestClient):
             "POST",
             f"/houmao/agents/{escaped}/gateway/attach",
             GatewayStatusV1,
+            json_body=(
+                request_model.model_dump(mode="json") if request_model is not None else None
+            ),
         )
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:

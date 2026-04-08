@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import shutil
 import subprocess
 import threading
 import time
@@ -38,6 +39,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayMailCheckRequestV1,
     GatewayMailNotifierPutV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
@@ -45,7 +47,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
-    GatewayWakeupCreateV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderDefinitionV1,
+    GatewayReminderPutV1,
+    GatewayReminderSendKeysV1,
 )
 from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
@@ -91,7 +96,13 @@ from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
-from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
+from houmao.mailbox.protocol import (
+    HOUMAO_OPERATOR_ADDRESS,
+    MailboxMessage,
+    is_operator_origin_headers,
+    parse_message_document,
+    serialize_message_document,
+)
 from houmao.mailbox.stalwart import (
     StalwartError,
     build_stalwart_credential_ref,
@@ -2885,32 +2896,74 @@ def test_gateway_request_model_rejects_invalid_submit_prompt_payload() -> None:
         )
 
 
-def test_gateway_wakeup_model_validates_schedule_and_repeat_shape() -> None:
-    with pytest.raises(ValidationError, match="exactly one of after_seconds or deliver_at_utc"):
-        GatewayWakeupCreateV1(
+def test_gateway_reminder_models_validate_schedule_repeat_and_batch_shape() -> None:
+    with pytest.raises(ValidationError, match="exactly one of prompt or send_keys"):
+        GatewayReminderDefinitionV1(
             mode="one_off",
+            title="wake up",
+            ranking=0,
+            start_after_seconds=10,
+        )
+
+    with pytest.raises(ValidationError, match="exactly one of prompt or send_keys"):
+        GatewayReminderDefinitionV1(
+            mode="one_off",
+            title="wake up",
             prompt="wake up",
-            after_seconds=10,
+            send_keys=GatewayReminderSendKeysV1(sequence="<\\[Escape\\]>"),
+            ranking=0,
+            start_after_seconds=10,
+        )
+
+    with pytest.raises(
+        ValidationError, match="exactly one of start_after_seconds or deliver_at_utc"
+    ):
+        GatewayReminderDefinitionV1(
+            mode="one_off",
+            title="wake up",
+            prompt="wake up",
+            ranking=0,
+            start_after_seconds=10,
             deliver_at_utc="2026-03-31T00:00:00+00:00",
         )
 
-    with pytest.raises(ValidationError, match="repeat wakeups require interval_seconds"):
-        GatewayWakeupCreateV1(
+    with pytest.raises(ValidationError, match="repeat reminders require interval_seconds"):
+        GatewayReminderDefinitionV1(
             mode="repeat",
+            title="wake up",
             prompt="wake up",
-            after_seconds=10,
+            ranking=0,
+            start_after_seconds=10,
         )
 
-    with pytest.raises(ValidationError, match="one_off wakeups must not include interval_seconds"):
-        GatewayWakeupCreateV1(
+    with pytest.raises(
+        ValidationError, match="one_off reminders must not include interval_seconds"
+    ):
+        GatewayReminderDefinitionV1(
             mode="one_off",
+            title="wake up",
             prompt="wake up",
-            after_seconds=10,
+            ranking=0,
+            start_after_seconds=10,
             interval_seconds=30,
         )
 
+    with pytest.raises(ValidationError, match="reminders must not be empty"):
+        GatewayReminderCreateBatchV1(reminders=[])
 
-def test_gateway_wakeup_routes_register_list_and_cancel_scheduled_job(
+    send_keys_reminder = GatewayReminderDefinitionV1(
+        mode="one_off",
+        title="dismiss dialog",
+        send_keys=GatewayReminderSendKeysV1(sequence="<[Escape]>"),
+        ranking=0,
+        start_after_seconds=10,
+    )
+    assert send_keys_reminder.prompt is None
+    assert send_keys_reminder.send_keys is not None
+    assert send_keys_reminder.send_keys.ensure_enter is True
+
+
+def test_gateway_reminder_routes_batch_create_list_put_and_delete(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2927,39 +2980,181 @@ def test_gateway_wakeup_routes_register_list_and_cancel_scheduled_job(
     client = TestClient(create_app(runtime=runtime))
 
     create_response = client.post(
-        "/v1/wakeups",
-        json=GatewayWakeupCreateV1(
-            mode="one_off",
-            prompt="scheduled wakeup",
-            after_seconds=60,
+        "/v1/reminders",
+        json=GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="effective reminder",
+                    prompt="effective reminder prompt",
+                    ranking=-10,
+                    start_after_seconds=60,
+                ),
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="blocked reminder",
+                    prompt="blocked reminder prompt",
+                    ranking=5,
+                    start_after_seconds=30,
+                ),
+            ]
         ).model_dump(mode="json"),
     )
 
     assert create_response.status_code == 200
-    wakeup_payload = create_response.json()
-    assert wakeup_payload["mode"] == "one_off"
-    assert wakeup_payload["state"] == "scheduled"
-    job_id = str(wakeup_payload["job_id"])
+    create_payload = create_response.json()
+    assert create_payload["effective_reminder_id"] is not None
+    assert len(create_payload["reminders"]) == 2
+    first_reminder = create_payload["reminders"][0]
+    second_reminder = create_payload["reminders"][1]
+    first_id = str(first_reminder["reminder_id"])
+    second_id = str(second_reminder["reminder_id"])
+    assert first_reminder["selection_state"] == "effective"
+    assert first_reminder["delivery_state"] == "scheduled"
+    assert first_reminder["delivery_kind"] == "prompt"
+    assert first_reminder["send_keys"] is None
+    assert second_reminder["selection_state"] == "blocked"
+    assert second_reminder["blocked_by_reminder_id"] == first_id
 
-    list_response = client.get("/v1/wakeups")
+    list_response = client.get("/v1/reminders")
     assert list_response.status_code == 200
-    assert [job["job_id"] for job in list_response.json()["jobs"]] == [job_id]
+    list_payload = list_response.json()
+    assert list_payload["effective_reminder_id"] == first_id
+    assert [reminder["reminder_id"] for reminder in list_payload["reminders"]] == [
+        first_id,
+        second_id,
+    ]
 
-    get_response = client.get(f"/v1/wakeups/{job_id}")
+    get_response = client.get(f"/v1/reminders/{first_id}")
     assert get_response.status_code == 200
-    assert get_response.json()["prompt"] == "scheduled wakeup"
+    assert get_response.json()["prompt"] == "effective reminder prompt"
+    assert get_response.json()["delivery_kind"] == "prompt"
+    assert get_response.json()["send_keys"] is None
 
-    cancel_response = client.delete(f"/v1/wakeups/{job_id}")
-    assert cancel_response.status_code == 200
-    assert cancel_response.json()["action"] == "cancel_wakeup"
-    assert cancel_response.json()["job_id"] == job_id
+    put_response = client.put(
+        f"/v1/reminders/{first_id}",
+        json=GatewayReminderPutV1(
+            mode="one_off",
+            title="effective reminder delayed",
+            prompt="effective reminder updated",
+            ranking=10,
+            start_after_seconds=120,
+            paused=False,
+        ).model_dump(mode="json"),
+    )
+    assert put_response.status_code == 200
+    assert put_response.json()["selection_state"] == "blocked"
+    assert put_response.json()["blocked_by_reminder_id"] == second_id
 
-    assert client.get(f"/v1/wakeups/{job_id}").status_code == 404
-    assert client.delete(f"/v1/wakeups/{job_id}").status_code == 404
+    list_after_put = client.get("/v1/reminders")
+    assert list_after_put.status_code == 200
+    assert list_after_put.json()["effective_reminder_id"] == second_id
+
+    delete_response = client.delete(f"/v1/reminders/{second_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["action"] == "delete_reminder"
+    assert delete_response.json()["reminder_id"] == second_id
+
+    remaining_payload = client.get("/v1/reminders").json()
+    assert remaining_payload["effective_reminder_id"] == first_id
+    assert [reminder["reminder_id"] for reminder in remaining_payload["reminders"]] == [first_id]
+
+    assert client.get(f"/v1/reminders/{second_id}").status_code == 404
+    assert client.delete(f"/v1/reminders/{second_id}").status_code == 404
+    assert (
+        client.post("/v1/reminders", json={"schema_version": 1, "reminders": []}).status_code == 422
+    )
     assert runtime.status().queue_depth == 0
 
 
-def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
+def test_gateway_rest_backed_reminder_routes_reject_send_keys_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    create_response = client.post(
+        "/v1/reminders",
+        json=GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="dismiss dialog",
+                    send_keys=GatewayReminderSendKeysV1(sequence="<[Escape]>"),
+                    ranking=0,
+                    start_after_seconds=5,
+                )
+            ]
+        ).model_dump(mode="json"),
+    )
+
+    assert create_response.status_code == 422
+    assert "unsupported" in create_response.json()["detail"].lower()
+    assert runtime.list_reminders().reminders == []
+
+
+def test_gateway_reminder_ranking_tie_breaks_by_creation_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    first_result = runtime.create_reminders(
+        GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="first created",
+                    prompt="first created prompt",
+                    ranking=0,
+                    start_after_seconds=60,
+                )
+            ]
+        )
+    )
+    time.sleep(0.01)
+    second_result = runtime.create_reminders(
+        GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="second created",
+                    prompt="second created prompt",
+                    ranking=0,
+                    start_after_seconds=60,
+                )
+            ]
+        )
+    )
+
+    first_id = first_result.reminders[0].reminder_id
+    second_id = second_result.reminders[0].reminder_id
+    reminder_list = runtime.list_reminders()
+    assert reminder_list.effective_reminder_id == first_id
+    assert [reminder.reminder_id for reminder in reminder_list.reminders] == [first_id, second_id]
+    assert runtime.get_reminder(reminder_id=second_id).blocked_by_reminder_id == first_id
+
+
+def test_gateway_repeat_reminder_reschedules_without_catchup_burst(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2972,7 +3167,7 @@ def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
 
         def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             self.submitted_prompts.append((terminal_id, message))
-            if message == "repeat wakeup":
+            if message == "repeat reminder":
                 self.repeat_prompt_count += 1
                 if self.repeat_prompt_count == 1:
                     self.first_repeat_started.set()
@@ -2993,14 +3188,21 @@ def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
 
     runtime.start()
     try:
-        wakeup = runtime.create_wakeup(
-            GatewayWakeupCreateV1(
-                mode="repeat",
-                prompt="repeat wakeup",
-                after_seconds=0.05,
-                interval_seconds=0.05,
+        reminder = runtime.create_reminders(
+            GatewayReminderCreateBatchV1(
+                reminders=[
+                    GatewayReminderDefinitionV1(
+                        mode="repeat",
+                        title="repeat reminder",
+                        prompt="repeat reminder",
+                        ranking=0,
+                        start_after_seconds=0.05,
+                        interval_seconds=0.05,
+                    )
+                ]
             )
         )
+        reminder_id = reminder.reminders[0].reminder_id
 
         _wait_until(lambda: fake_client.first_repeat_started.is_set())
         time.sleep(0.16)
@@ -3010,39 +3212,21 @@ def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
         time.sleep(0.02)
         assert fake_client.repeat_prompt_count == 2
 
-        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
-        assert live_job.mode == "repeat"
-        assert live_job.state in {"scheduled", "overdue"}
-        assert live_job.cancel_requested is False
+        live_reminder = runtime.get_reminder(reminder_id=reminder_id)
+        assert live_reminder.mode == "repeat"
+        assert live_reminder.delivery_state in {"scheduled", "overdue"}
+        assert live_reminder.selection_state == "effective"
     finally:
-        runtime.delete_wakeup(job_id=wakeup.job_id)
+        runtime.delete_reminder(reminder_id=reminder_id)
         runtime.shutdown()
 
 
-def test_gateway_wakeup_defers_while_busy_and_cancel_records_active_boundary(
+def test_gateway_paused_effective_reminder_blocks_lower_ranked_dispatch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    class _BlockingBusyFakeCaoRestClient(_FakeCaoRestClient):
-        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
-            super().__init__(base_url=base_url, timeout_seconds=timeout_seconds)
-            self.busy_prompt_started = threading.Event()
-            self.release_busy_prompt = threading.Event()
-            self.wakeup_prompt_started = threading.Event()
-            self.release_wakeup_prompt = threading.Event()
-
-        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
-            self.submitted_prompts.append((terminal_id, message))
-            if message == "busy-work":
-                self.busy_prompt_started.set()
-                assert self.release_busy_prompt.wait(timeout=5.0)
-            if message == "repeat wakeup":
-                self.wakeup_prompt_started.set()
-                assert self.release_wakeup_prompt.wait(timeout=5.0)
-            return CaoSuccessResponse(success=True)
-
     gateway_root = _seed_cao_gateway_root(tmp_path)
-    fake_client = _BlockingBusyFakeCaoRestClient(base_url="http://localhost:9889")
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
@@ -3052,73 +3236,157 @@ def test_gateway_wakeup_defers_while_busy_and_cancel_records_active_boundary(
         host="127.0.0.1",
         port=43123,
     )
-    paths = gateway_paths_from_manifest_path(
-        default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    )
-    assert paths is not None
 
     runtime.start()
     try:
-        runtime.create_request(
-            GatewayRequestCreateV1(
-                kind="submit_prompt",
-                payload=GatewayRequestPayloadSubmitPromptV1(prompt="busy-work"),
+        create_result = runtime.create_reminders(
+            GatewayReminderCreateBatchV1(
+                reminders=[
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="paused effective",
+                        prompt="paused effective prompt",
+                        ranking=-10,
+                        paused=True,
+                        start_after_seconds=0.01,
+                    ),
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="ready reminder",
+                        prompt="ready reminder prompt",
+                        ranking=0,
+                        paused=False,
+                        start_after_seconds=0.01,
+                    ),
+                ]
             )
         )
-        _wait_until(lambda: fake_client.busy_prompt_started.is_set())
+        paused_id = create_result.reminders[0].reminder_id
+        blocked_id = create_result.reminders[1].reminder_id
 
-        wakeup = runtime.create_wakeup(
-            GatewayWakeupCreateV1(
-                mode="repeat",
-                prompt="repeat wakeup",
-                after_seconds=0.01,
-                interval_seconds=1,
-            )
+        time.sleep(0.2)
+        assert fake_client.submitted_prompts == []
+
+        paused_reminder = runtime.get_reminder(reminder_id=paused_id)
+        blocked_reminder = runtime.get_reminder(reminder_id=blocked_id)
+        assert paused_reminder.selection_state == "effective"
+        assert paused_reminder.delivery_state == "overdue"
+        assert paused_reminder.paused is True
+        assert blocked_reminder.selection_state == "blocked"
+        assert blocked_reminder.blocked_by_reminder_id == paused_id
+
+        updated_reminder = runtime.put_reminder(
+            reminder_id=paused_id,
+            request_payload=GatewayReminderPutV1(
+                mode="one_off",
+                title="paused effective delayed",
+                prompt="paused effective prompt",
+                ranking=10,
+                paused=True,
+                start_after_seconds=60,
+            ),
         )
+        assert updated_reminder.selection_state == "blocked"
+        assert updated_reminder.blocked_by_reminder_id == blocked_id
 
-        _wait_until(lambda: runtime.get_wakeup(job_id=wakeup.job_id).state == "overdue")
-        log_deadline = time.monotonic() + 5.0
-        while time.monotonic() < log_deadline:
-            if (
-                paths.log_path.is_file()
-                and "wakeup deferred because the gateway is busy"
-                in paths.log_path.read_text(encoding="utf-8")
-            ):
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError("Expected wakeup deferral log line.")
-
-        fake_client.release_busy_prompt.set()
-        _wait_until(lambda: fake_client.wakeup_prompt_started.is_set())
-
-        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
-        assert live_job.state == "executing"
-        assert live_job.cancel_requested is False
-
-        cancel_result = runtime.delete_wakeup(job_id=wakeup.job_id)
-        assert cancel_result.canceled is True
-        assert "already-started prompt delivery" in cancel_result.detail
-
-        canceled_job = runtime.get_wakeup(job_id=wakeup.job_id)
-        assert canceled_job.state == "executing"
-        assert canceled_job.cancel_requested is True
-
-        fake_client.release_wakeup_prompt.set()
         _wait_until(
-            lambda: (
-                [message for _, message in fake_client.submitted_prompts].count("repeat wakeup")
-                == 1
+            lambda: fake_client.submitted_prompts == [("term-123", "ready reminder prompt")],
+            timeout_seconds=5.0,
+        )
+        assert all(
+            message != "paused effective prompt" for _, message in fake_client.submitted_prompts
+        )
+    finally:
+        runtime.shutdown()
+
+
+def test_gateway_local_tmux_send_keys_reminders_execute_with_ensure_enter_rules(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        create_result = runtime.create_reminders(
+            GatewayReminderCreateBatchV1(
+                reminders=[
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="submit slash command",
+                        send_keys=GatewayReminderSendKeysV1(sequence="/model"),
+                        ranking=-30,
+                        start_after_seconds=0.01,
+                    ),
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="keep one trailing enter",
+                        send_keys=GatewayReminderSendKeysV1(sequence="/model<[Enter]>"),
+                        ranking=-20,
+                        start_after_seconds=0.01,
+                    ),
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="dismiss dialog",
+                        send_keys=GatewayReminderSendKeysV1(
+                            sequence="<[Escape]>",
+                            ensure_enter=False,
+                        ),
+                        ranking=-10,
+                        start_after_seconds=0.01,
+                    ),
+                ]
             )
         )
-        time.sleep(1.1)
-        assert [message for _, message in fake_client.submitted_prompts].count("repeat wakeup") == 1
 
-        with pytest.raises(HTTPException, match="Unknown wakeup job"):
-            runtime.get_wakeup(job_id=wakeup.job_id)
+        assert [reminder.delivery_kind for reminder in create_result.reminders] == [
+            "send_keys",
+            "send_keys",
+            "send_keys",
+        ]
+        assert create_result.reminders[0].send_keys is not None
+        assert create_result.reminders[0].send_keys.ensure_enter is True
+        assert create_result.reminders[2].send_keys is not None
+        assert create_result.reminders[2].send_keys.ensure_enter is False
+
+        _wait_until(lambda: len(fake_controller.send_input_calls) >= 3)
+        assert fake_controller.send_input_calls == [
+            ("/model<[Enter]>", False),
+            ("/model<[Enter]>", False),
+            ("<[Escape]>", False),
+        ]
+        assert fake_session.prompt_calls == []
+        assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
     finally:
-        fake_client.release_busy_prompt.set()
-        fake_client.release_wakeup_prompt.set()
         runtime.shutdown()
 
 
@@ -3501,6 +3769,15 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     unread_message_id = _deliver_unread_mailbox_message(tmp_path)
+    operator_mailbox_dir = tmp_path / "mailbox" / "mailboxes" / HOUMAO_OPERATOR_ADDRESS
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        connection.execute(
+            "DELETE FROM mailbox_registrations WHERE address = ?",
+            (HOUMAO_OPERATOR_ADDRESS,),
+        )
+        connection.commit()
+    if operator_mailbox_dir.exists():
+        shutil.rmtree(operator_mailbox_dir)
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
@@ -3541,6 +3818,29 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert send_payload["transport"] == "filesystem"
     assert send_payload["message"]["message_ref"].startswith("filesystem:msg-")
 
+    post_response = client.post(
+        "/v1/mail/post",
+        json=GatewayMailPostRequestV1(
+            subject="Gateway route post",
+            body_content="filesystem operator-origin body",
+        ).model_dump(mode="json"),
+    )
+    assert post_response.status_code == 200
+    post_payload = post_response.json()
+    assert post_payload["operation"] == "post"
+    assert post_payload["transport"] == "filesystem"
+    assert post_payload["message"]["unread"] is True
+    assert post_payload["message"]["sender"]["address"] == HOUMAO_OPERATOR_ADDRESS
+    assert post_payload["message"]["to"][0]["address"] == "HOUMAO-gpu@agents.localhost"
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        post_row = connection.execute(
+            "SELECT canonical_path FROM messages WHERE message_id = ?",
+            (post_payload["message"]["message_ref"].split(":", 1)[1],),
+        ).fetchone()
+    assert post_row is not None
+    post_message = parse_message_document(Path(str(post_row[0])).read_text(encoding="utf-8"))
+    assert is_operator_origin_headers(post_message.headers) is True
+
     reply_response = client.post(
         "/v1/mail/reply",
         json=GatewayMailReplyRequestV1(
@@ -3554,6 +3854,118 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert reply_payload["transport"] == "filesystem"
     assert reply_payload["message"]["subject"] == "Re: Gateway unread reminder"
     assert reply_payload["message"]["message_ref"].startswith("filesystem:msg-")
+
+    operator_reply_response = client.post(
+        "/v1/mail/reply",
+        json=GatewayMailReplyRequestV1(
+            message_ref=post_payload["message"]["message_ref"],
+            body_content="should fail",
+        ).model_dump(mode="json"),
+    )
+    assert operator_reply_response.status_code == 422
+    assert "operator-origin" in operator_reply_response.json()["detail"]
+
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        operator_count = connection.execute(
+            "SELECT COUNT(*) FROM mailbox_registrations WHERE address = ?",
+            (HOUMAO_OPERATOR_ADDRESS,),
+        ).fetchone()
+    assert operator_count == (1,)
+
+
+def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    client = TestClient(create_app(runtime=runtime))
+    try:
+        send_response = client.post(
+            "/v1/mail/send",
+            json=GatewayMailSendRequestV1(
+                to=["HOUMAO-gpu@agents.localhost"],
+                subject="Gateway self-send",
+                body_content="filesystem self-send body",
+            ).model_dump(mode="json"),
+        )
+        assert send_response.status_code == 200
+        send_payload = send_response.json()
+        self_message_ref = send_payload["message"]["message_ref"]
+        assert send_payload["message"]["unread"] is True
+
+        check_response = client.post(
+            "/v1/mail/check",
+            json=GatewayMailCheckRequestV1(unread_only=True, limit=10).model_dump(mode="json"),
+        )
+        assert check_response.status_code == 200
+        check_payload = check_response.json()
+        assert check_payload["unread_count"] == 1
+        assert [message["message_ref"] for message in check_payload["messages"]] == [
+            self_message_ref
+        ]
+
+        status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        assert status.enabled is True
+        assert status.supported is True
+
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
+        _wait_until(
+            lambda: any(
+                row.outcome == "enqueued"
+                and row.unread_summary
+                and row.unread_summary[0].message_ref == self_message_ref
+                for row in read_gateway_notifier_audit_records(paths.queue_path)
+            ),
+            timeout_seconds=5.0,
+        )
+
+        state_response = client.post(
+            "/v1/mail/state",
+            json=GatewayMailStateRequestV1(
+                message_ref=self_message_ref,
+                read=True,
+            ).model_dump(mode="json"),
+        )
+        assert state_response.status_code == 200
+        assert state_response.json()["read"] is True
+
+        post_mark_read_check = client.post(
+            "/v1/mail/check",
+            json=GatewayMailCheckRequestV1(unread_only=True, limit=10).model_dump(mode="json"),
+        )
+        assert post_mark_read_check.status_code == 200
+        assert post_mark_read_check.json()["unread_count"] == 0
+
+        _wait_until(
+            lambda: any(
+                row.outcome == "empty" and row.unread_count == 0
+                for row in read_gateway_notifier_audit_records(paths.queue_path)
+            ),
+            timeout_seconds=5.0,
+        )
+    finally:
+        runtime.shutdown()
 
 
 def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mutation(
@@ -3844,6 +4256,16 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     )
     assert send_response.status_code == 200
     assert send_response.json()["message"]["message_ref"] == "stalwart:sent-1"
+
+    post_response = client.post(
+        "/v1/mail/post",
+        json=GatewayMailPostRequestV1(
+            subject="ignored by fake client",
+            body_content="operator-origin body",
+        ).model_dump(mode="json"),
+    )
+    assert post_response.status_code == 422
+    assert "unsupported" in post_response.json()["detail"]
 
     reply_response = client.post(
         "/v1/mail/reply",
@@ -4333,7 +4755,10 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "not as a registered slash skill" not in prompt
         assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
-        assert "use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms`" in prompt
+        assert (
+            "use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms`"
+            in prompt
+        )
         assert "Do not inspect the current project or runtime home for skill files." in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
@@ -4344,6 +4769,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/check`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/send`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/post`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/reply`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/state`" in prompt
         assert "curl -sS -X POST" not in prompt
@@ -4401,9 +4827,15 @@ def test_gateway_mail_notifier_renders_claude_native_skill_invocation(
 
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
-        assert "Claude Code the standalone slash-skill line above invokes the installed Houmao skill" in prompt
+        assert (
+            "Claude Code the standalone slash-skill line above invokes the installed Houmao skill"
+            in prompt
+        )
         assert "/houmao-process-emails-via-gateway" in prompt
-        assert "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name" in prompt
+        assert (
+            "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name"
+            in prompt
+        )
         assert "Do not inspect the current project or runtime home for skill files." in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt

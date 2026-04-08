@@ -4,7 +4,7 @@ Use this action only when the user explicitly wants live-gateway queue semantics
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and the requested gateway action from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the task still lacks a required target, prompt text, or explicit gateway intent, ask the user in Markdown before proceeding.
 4. Run `agents gateway status` first when the current context does not already confirm live gateway availability.
@@ -19,21 +19,21 @@ Use this action only when the user explicitly wants live-gateway queue semantics
 Queued prompt:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway prompt --agent-name <name> --prompt "<message>"
+<chosen houmao-mgr launcher> agents gateway prompt --agent-name <name> --prompt "<message>"
 ```
 
 Queued interrupt:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway interrupt --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway interrupt --agent-name <name>
 ```
 
 Related gateway-owned TUI inspection:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway tui state --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway tui history --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway tui note-prompt --agent-name <name> --prompt "<note>"
+<chosen houmao-mgr launcher> agents gateway tui state --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway tui history --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway tui note-prompt --agent-name <name> --prompt "<note>"
 ```
 
 The gateway prompt path also accepts `--force` when the user explicitly wants to bypass prompt-readiness checks.

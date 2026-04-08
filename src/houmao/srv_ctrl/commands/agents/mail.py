@@ -14,6 +14,7 @@ from ..output import emit
 from ..managed_agents import (
     mail_check,
     mail_mark_read,
+    mail_post,
     mail_reply,
     mail_resolve_live,
     mail_send,
@@ -85,6 +86,35 @@ def send_mail_command(
             target,
             to_recipients=list(to_recipients),
             cc_recipients=list(cc_recipients),
+            subject=subject,
+            body_content=resolve_body_text(body_content=body_content, body_file=body_file),
+            attachments=_resolve_attachment_uploads(attachments),
+        )
+    )
+
+
+@mail_group.command(name="post")
+@click.option("--subject", required=True, help="Message subject.")
+@click.option("--body-content", default=None, help="Inline body content.")
+@click.option("--body-file", default=None, help="Body content file path.")
+@click.option("--attach", "attachments", multiple=True, help="Attachment file path.")
+@pair_port_option()
+@managed_agent_selector_options
+def post_mail_command(
+    port: int | None,
+    subject: str,
+    body_content: str | None,
+    body_file: str | None,
+    attachments: tuple[str, ...],
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Post one operator-origin mailbox note into a managed agent inbox."""
+
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(
+        mail_post(
+            target,
             subject=subject,
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
             attachments=_resolve_attachment_uploads(attachments),

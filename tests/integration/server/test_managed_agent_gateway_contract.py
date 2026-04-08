@@ -54,6 +54,7 @@ from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxOptions,
     HoumaoHeadlessLaunchRequest,
+    HoumaoManagedAgentGatewayAttachRequest,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
@@ -1018,17 +1019,27 @@ def test_server_managed_gateway_attach_is_idempotent_and_projects_notifier_contr
         assert paths is not None
 
         try:
-            first_status = service.attach_managed_agent_gateway(response.tracked_agent_id)
+            first_status = service.attach_managed_agent_gateway(
+                response.tracked_agent_id,
+                HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+            )
             assert first_status.gateway_health == "healthy"
             assert first_status.gateway_host == "127.0.0.1"
             assert first_status.gateway_port is not None
+            assert first_status.execution_mode == "detached_process"
+            assert first_status.gateway_tmux_window_index is None
             first_pid = read_pid_file(paths.pid_path)
             assert first_pid is not None
 
-            second_status = service.attach_managed_agent_gateway(response.tracked_agent_id)
+            second_status = service.attach_managed_agent_gateway(
+                response.tracked_agent_id,
+                HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+            )
             assert second_status.gateway_health == "healthy"
             assert second_status.gateway_host == first_status.gateway_host
             assert second_status.gateway_port == first_status.gateway_port
+            assert second_status.execution_mode == "detached_process"
+            assert second_status.gateway_tmux_window_index is None
             second_pid = read_pid_file(paths.pid_path)
             assert second_pid == first_pid
 
@@ -1051,6 +1062,72 @@ def test_server_managed_gateway_attach_is_idempotent_and_projects_notifier_contr
             )
             assert disabled_notifier.supported is True
             assert disabled_notifier.enabled is False
+        finally:
+            try:
+                service.detach_managed_agent_gateway(response.tracked_agent_id)
+            finally:
+                _best_effort_cleanup_gateway(manifest_path)
+
+
+def test_server_managed_gateway_attach_supports_explicit_background_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Pair-managed attach should honor the explicit detached-execution override."""
+
+    mailbox_root = tmp_path / "mailbox"
+    agent_def_dir = tmp_path / "agent-def"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    tmux_env = _FakeTmuxEnv()
+    _install_runtime_headless_fakes(
+        monkeypatch=monkeypatch,
+        tmux_env=tmux_env,
+        registry_root=tmp_path / "registry",
+    )
+
+    with _ManagedAgentApiServer() as managed_api:
+        service = HoumaoServerService(
+            config=HoumaoServerConfig(
+                api_base_url=managed_api.base_url,
+                runtime_root=tmp_path,
+                startup_child=False,
+            ),
+            transport=_NoopTransport(),
+            child_manager=_NoopChildManager(),
+        )
+
+        response = service.launch_headless_agent(
+            HoumaoHeadlessLaunchRequest(
+                tool="codex",
+                working_directory=str(tmp_path.resolve()),
+                agent_def_dir=str(agent_def_dir.resolve()),
+                brain_manifest_path=str(brain_manifest_path.resolve()),
+                role_name="r",
+                agent_name="HOUMAO-headless-background",
+                agent_id=None,
+                mailbox=HoumaoHeadlessLaunchMailboxOptions(
+                    transport="filesystem",
+                    filesystem_root=str(mailbox_root.resolve()),
+                    address="HOUMAO-headless-background@agents.localhost",
+                ),
+            )
+        )
+
+        manifest_path = Path(response.manifest_path)
+        paths = gateway_paths_from_manifest_path(manifest_path)
+        assert paths is not None
+
+        try:
+            status = service.attach_managed_agent_gateway(
+                response.tracked_agent_id,
+                HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+            )
+            assert status.gateway_health == "healthy"
+            assert status.gateway_host == "127.0.0.1"
+            assert status.gateway_port is not None
+            assert status.execution_mode == "detached_process"
+            assert status.gateway_tmux_window_index is None
+            assert read_pid_file(paths.pid_path) is not None
         finally:
             try:
                 service.detach_managed_agent_gateway(response.tracked_agent_id)

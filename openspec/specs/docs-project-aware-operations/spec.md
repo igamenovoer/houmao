@@ -7,7 +7,7 @@ Define the documentation requirements for the project-aware operations reference
 
 ### Requirement: Project-aware operations reference page exists
 
-The agents reference SHALL include a page at `docs/reference/agents/operations/project-aware-operations.md` documenting how managed-agent commands resolve against the active project overlay. The page SHALL explain:
+The system-files reference SHALL include a page at `docs/reference/system-files/project-aware-operations.md` documenting how managed-agent commands resolve against the active project overlay. The page SHALL explain:
 
 - What "project-aware" means: commands like `agents launch`, `agents list`, `agents state`, and others automatically discover and use the active `.houmao/` project overlay for agent definition resolution, mailbox root binding, and registry scoping.
 - Resolution order: explicit `--agent-def-dir` → `HOUMAO_AGENT_DEF_DIR` → `HOUMAO_PROJECT_OVERLAY_DIR` → nearest ancestor `.houmao/houmao-config.toml` → default `<cwd>/.houmao/agents`.
@@ -16,6 +16,8 @@ The agents reference SHALL include a page at `docs/reference/agents/operations/p
 - Which commands are project-aware and what project context they consume (agent definitions, mailbox root, registry scoping).
 
 The page SHALL be derived from `project/overlay.py`, `project/catalog.py`, and the project-aware initialization in `srv_ctrl/commands/`.
+
+The page SHALL NOT live under `docs/reference/agents/operations/` and SHALL NOT be presented as part of the retired runtime-managed agent reference subtree.
 
 #### Scenario: Reader understands project-aware resolution
 
@@ -33,3 +35,9 @@ The page SHALL be derived from `project/overlay.py`, `project/catalog.py`, and t
 
 - **WHEN** a reader wants to know which commands use project context
 - **THEN** the page lists the major project-aware command families: `agents launch`, `agents join`, `brains build`, `agents list`, `agents state`, and project-scoped mailbox operations
+
+#### Scenario: Project-aware operations page lives under system-files
+
+- **WHEN** a reader or maintainer navigates the reference tree looking for project-aware operations guidance
+- **THEN** the page is located at `docs/reference/system-files/project-aware-operations.md`
+- **AND THEN** no copy of the page remains under `docs/reference/agents/operations/`

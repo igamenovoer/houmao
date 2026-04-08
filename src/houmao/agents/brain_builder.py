@@ -29,6 +29,11 @@ from houmao.agents.launch_overrides import (
     helper_launch_args,
     parse_launch_overrides,
 )
+from houmao.agents.managed_launch_force import (
+    MANAGED_LAUNCH_FORCE_MODE_CLEAN,
+    MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE,
+    ManagedLaunchForceMode,
+)
 from houmao.agents.launch_policy.provider_hooks import (
     load_json_state,
     load_toml_state,
@@ -82,6 +87,7 @@ class BuildRequest:
     agent_id: str | None = None
     home_id: str | None = None
     reuse_home: bool = False
+    existing_home_mode: ManagedLaunchForceMode | None = None
     launch_overrides: LaunchOverrides | None = None
     operator_prompt_mode: OperatorPromptMode | None = None
     persistent_env_records: dict[str, str] | None = None
@@ -152,6 +158,19 @@ class BuildRequest:
             )
         return self.preset_launch_overrides or self.recipe_launch_overrides
 
+    def effective_existing_home_mode(self) -> str:
+        """Return the resolved existing-home policy for one build."""
+
+        if self.reuse_home and self.existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_CLEAN:
+            raise BuildError(
+                "BuildRequest.reuse_home cannot be combined with existing_home_mode='clean'."
+            )
+        if self.existing_home_mode is not None:
+            return self.existing_home_mode
+        if self.reuse_home:
+            return MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE
+        return "reject"
+
 
 @dataclass(frozen=True)
 class BuildResult:
@@ -195,6 +214,16 @@ def _write_mapping_file(path: Path, payload: dict[str, Any]) -> None:
     except Exception:
         content = json.dumps(payload, indent=2, sort_keys=False)
     path.write_text(content, encoding="utf-8")
+
+
+def _remove_existing_home_path(path: Path) -> None:
+    """Remove one pre-existing managed home path before clean rebuild."""
+
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+        return
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=False)
 
 
 def _require_mapping(payload: dict[str, Any], key: str, *, where: str) -> dict[str, Any]:
@@ -597,14 +626,21 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     homes_dir = runtime_root / "homes"
     manifests_dir = runtime_root / "manifests"
     home_path = homes_dir / home_id
+    existing_home_mode = request.effective_existing_home_mode()
 
-    if home_path.exists() and not request.reuse_home:
-        raise BuildError(
-            f"Refusing to reuse existing home (fresh-by-default): {home_path}. "
-            "Use --reuse-home to allow reuse."
-        )
+    if home_path.exists():
+        if existing_home_mode == "reject":
+            raise BuildError(
+                f"Refusing to reuse existing home (fresh-by-default): {home_path}. "
+                "Use --reuse-home to allow reuse."
+            )
+        if existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_CLEAN:
+            _remove_existing_home_path(home_path)
 
-    home_path.mkdir(parents=True, exist_ok=request.reuse_home)
+    home_path.mkdir(
+        parents=True,
+        exist_ok=existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE,
+    )
 
     _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
     setup_destination = home_path / adapter.setup_destination
@@ -726,6 +762,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     manifests_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = manifests_dir / f"{home_id}.yaml"
+    if existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_CLEAN and manifest_path.exists():
+        manifest_path.unlink(missing_ok=True)
     launch_helper_path = home_path / "launch.sh"
     resolved_operator_prompt_mode = _resolved_operator_prompt_mode(request.operator_prompt_mode)
 
@@ -749,6 +787,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         else None,
         "preset_overrides_present": resolved_preset_launch_overrides is not None,
         "direct_overrides_present": request.launch_overrides is not None,
+        "existing_home_mode": existing_home_mode,
     }
     if request.launch_profile_provenance is not None:
         construction_provenance["launch_profile"] = dict(request.launch_profile_provenance)

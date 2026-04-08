@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import click
 import json
 import sqlite3
 from pathlib import Path
@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 import houmao.srv_ctrl.commands.agents.gateway as gateway_commands
 import houmao.srv_ctrl.commands.runtime_cleanup as runtime_cleanup
+from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -95,6 +96,27 @@ def _write_runtime_manifest(
     )
     write_session_manifest(manifest_path, payload)
     return manifest_path
+
+
+def _registry_record(
+    *,
+    manifest_path: Path,
+    session_root: Path | None,
+    session_name: str = "join-sess",
+    agent_id: str = "agent-joined",
+    agent_name: str = "joined-agent",
+) -> SimpleNamespace:
+    """Build one lightweight registry-record stand-in for cleanup tests."""
+
+    return SimpleNamespace(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        runtime=SimpleNamespace(
+            manifest_path=str(manifest_path.resolve()),
+            session_root=(str(session_root.resolve()) if session_root is not None else None),
+        ),
+        terminal=SimpleNamespace(session_name=session_name),
+    )
 
 
 def test_admin_cleanup_help_mentions_grouped_registry_and_runtime_commands() -> None:
@@ -285,6 +307,91 @@ def test_current_session_cleanup_resolution_reuses_manifest_first_tmux_authority
     assert target.resolution == {"authority": "current_session", "value": "join-sess"}
 
 
+def test_current_session_cleanup_resolution_falls_back_to_registry_session_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    stale_manifest_path = (session_root / "missing-manifest.json").resolve()
+    record = _registry_record(
+        manifest_path=stale_manifest_path,
+        session_root=session_root,
+    )
+
+    monkeypatch.setattr(gateway_commands, "_try_current_tmux_session_name", lambda: "join-sess")
+    monkeypatch.setattr(
+        gateway_commands,
+        "_resolve_current_session_manifest",
+        lambda *, session_name: (
+            (_ for _ in ()).throw(click.ClickException("stale manifest"))
+            if session_name == "join-sess"
+            else (_ for _ in ()).throw(AssertionError("unexpected session name"))
+        ),
+    )
+    monkeypatch.setattr(
+        gateway_commands,
+        "_read_current_session_agent_id",
+        lambda *, session_name: (
+            "agent-joined"
+            if session_name == "join-sess"
+            else (_ for _ in ()).throw(AssertionError("unexpected session name"))
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_managed_agent_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+
+    target = runtime_cleanup.resolve_managed_session_cleanup_target(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+    )
+
+    assert target.resolution == {"authority": "current_session", "value": "join-sess"}
+    assert target.session_root == session_root
+    assert target.payload is None
+    assert target.parse_error is not None
+
+
+def test_managed_session_cleanup_uses_registry_session_root_when_manifest_pointer_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    stale_manifest_path = (tmp_path / "gone" / "manifest.json").resolve()
+    record = _registry_record(
+        manifest_path=stale_manifest_path,
+        session_root=session_root,
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_managed_agent_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+
+    target = runtime_cleanup.resolve_managed_session_cleanup_target(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+    )
+
+    assert target.resolution == {"authority": "agent_id", "value": "agent-joined"}
+    assert target.session_root == session_root
+    assert target.payload is None
+    assert target.parse_error is not None
+
+
 def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_and_job_dir(
     tmp_path: Path,
 ) -> None:
@@ -302,6 +409,59 @@ def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_and_job
     assert str(manifest_path.parent.resolve()) in planned_paths
     assert str((tmp_path / ".houmao" / "jobs" / "session-1").resolve()) in planned_paths
     assert payload["resolution"]["authority"] == "manifest_path"
+
+
+def test_managed_session_cleanup_missing_manifest_removes_session_root_and_skips_job_dir(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    job_dir = (tmp_path / ".houmao" / "jobs" / "session-1").resolve()
+    manifest_path.unlink()
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=session_root,
+        include_job_dir=True,
+        dry_run=False,
+    )
+
+    assert not session_root.exists()
+    assert job_dir.exists()
+    assert {action["artifact_kind"] for action in payload["applied_actions"]} == {"session_root"}
+    assert any(
+        action["artifact_kind"] == "job_dir"
+        and action["reason"]
+        == "job_dir cleanup was skipped because manifest metadata is unavailable"
+        for action in payload["preserved_actions"]
+    )
+
+
+def test_managed_session_cleanup_malformed_manifest_removes_session_root_and_skips_job_dir(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    manifest_path.write_text("{not-json\n", encoding="utf-8")
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=session_root,
+        include_job_dir=True,
+        dry_run=True,
+    )
+
+    assert {action["artifact_kind"] for action in payload["planned_actions"]} == {"session_root"}
+    assert any(
+        action["artifact_kind"] == "job_dir"
+        and action["reason"]
+        == "job_dir cleanup was skipped because manifest metadata is unavailable"
+        for action in payload["preserved_actions"]
+    )
 
 
 def test_managed_session_cleanup_blocks_live_session_removal(
@@ -327,6 +487,92 @@ def test_managed_session_cleanup_blocks_live_session_removal(
     assert payload["applied_actions"] == []
     blocked_kinds = {action["artifact_kind"] for action in payload["blocked_actions"]}
     assert blocked_kinds == {"session_root", "job_dir"}
+
+
+def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_registry_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    manifest_path.unlink()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+    )
+
+    monkeypatch.setattr(runtime_cleanup, "_list_registry_records", lambda: [record])
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "tmux_session_exists",
+        lambda *, session_name: session_name == "join-sess",
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=session_root,
+        include_job_dir=False,
+        dry_run=False,
+    )
+
+    assert session_root.exists()
+    assert payload["applied_actions"] == []
+    assert {action["artifact_kind"] for action in payload["blocked_actions"]} == {"session_root"}
+
+
+def test_managed_session_logs_missing_manifest_still_cleans_remaining_artifacts(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    paths = gateway_paths_from_session_root(session_root=session_root)
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = (paths.logs_dir / "gateway.log").resolve()
+    log_path.write_text("log\n", encoding="utf-8")
+    paths.pid_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.pid_path.write_text("123\n", encoding="utf-8")
+    manifest_path.unlink()
+
+    payload = runtime_cleanup.cleanup_managed_session_logs(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=session_root,
+        dry_run=False,
+    )
+
+    assert not log_path.exists()
+    assert not paths.pid_path.exists()
+    assert {action["artifact_kind"] for action in payload["applied_actions"]} == {
+        "runtime_log_file",
+        "runtime_run_artifact",
+    }
+
+
+def test_managed_session_mailbox_missing_manifest_removes_session_local_secrets(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    secret_dir = (session_root / "mailbox-secrets").resolve()
+    secret_dir.mkdir(parents=True, exist_ok=True)
+    (secret_dir / "cred.json").write_text("{}\n", encoding="utf-8")
+    manifest_path.unlink()
+
+    payload = runtime_cleanup.cleanup_managed_session_mailbox(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=session_root,
+        dry_run=False,
+    )
+
+    assert not secret_dir.exists()
+    assert {action["artifact_kind"] for action in payload["applied_actions"]} == {
+        "session_mailbox_secrets"
+    }
 
 
 def test_runtime_build_cleanup_dry_run_reports_unreferenced_manifest_home_pair(

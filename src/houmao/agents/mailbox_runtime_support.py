@@ -20,6 +20,7 @@ from houmao.mailbox.filesystem import (
     resolve_filesystem_mailbox_paths,
 )
 from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
+from houmao.mailbox.protocol import HOUMAO_MAILBOX_DOMAIN, is_houmao_reserved_mailbox_local_part
 from houmao.mailbox.stalwart import (
     STALWART_BASE_URL_ENV_VAR,
     StalwartError,
@@ -71,6 +72,7 @@ MAILBOX_TRANSPORT_STALWART = "stalwart"
 MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
 MAILBOX_PROCESSING_SKILL_NAME = "houmao-process-emails-via-gateway"
 MAILBOX_COMMS_SKILL_NAME = "houmao-agent-email-comms"
+MAILBOX_ADVANCED_USAGE_SKILL_NAME = "houmao-adv-usage-pattern"
 MAILBOX_PROCESSING_SKILL_REFERENCE = (
     f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_PROCESSING_SKILL_NAME}"
 )
@@ -393,7 +395,11 @@ def resolve_effective_mailbox_config(
 
     address = address_override or (declared_config.address if declared_config is not None else None)
     if address is None:
-        address = f"{principal_id}@agents.localhost"
+        address = default_mailbox_address(
+            tool=tool,
+            role_name=role_name,
+            agent_identity=agent_identity,
+        )
 
     if transport == MAILBOX_TRANSPORT_FILESYSTEM:
         declared_root = _resolve_declared_mailbox_root(
@@ -501,6 +507,22 @@ def default_mailbox_principal_id(
         )
     base = _derive_auto_agent_name_base(tool=tool, role_name=role_name)
     return f"{AGENT_NAMESPACE_PREFIX}{base}"
+
+
+def default_mailbox_address(
+    *,
+    tool: str,
+    role_name: str,
+    agent_identity: str | None,
+) -> str:
+    """Return the default mailbox address for one session."""
+
+    local_part = _derive_default_mailbox_local_part(
+        tool=tool,
+        role_name=role_name,
+        agent_identity=agent_identity,
+    )
+    return f"{local_part}@{HOUMAO_MAILBOX_DOMAIN}"
 
 
 def mailbox_bindings_version_now() -> str:
@@ -947,6 +969,7 @@ def install_runtime_mailbox_system_skills_for_tool(
         skill_names=(
             MAILBOX_PROCESSING_SKILL_NAME,
             MAILBOX_COMMS_SKILL_NAME,
+            MAILBOX_ADVANCED_USAGE_SKILL_NAME,
         ),
     )
     return tuple(
@@ -971,6 +994,7 @@ def project_runtime_mailbox_system_skills(
         skill_names=(
             MAILBOX_PROCESSING_SKILL_NAME,
             MAILBOX_COMMS_SKILL_NAME,
+            MAILBOX_ADVANCED_USAGE_SKILL_NAME,
         ),
     )
 
@@ -1567,6 +1591,32 @@ def _derive_auto_agent_name_base(*, tool: str, role_name: str) -> str:
     if not short[0].isalnum():
         return f"a{short}"
     return short
+
+
+def _derive_default_mailbox_local_part(
+    *,
+    tool: str,
+    role_name: str,
+    agent_identity: str | None,
+) -> str:
+    """Return the default mailbox local part for one managed agent."""
+
+    fallback = _derive_auto_agent_name_base(tool=tool, role_name=role_name)
+    if agent_identity is None or not agent_identity.strip():
+        candidate = fallback
+    elif _is_path_like_agent_identity(agent_identity):
+        candidate = fallback
+    else:
+        stripped = agent_identity.strip()
+        if stripped.startswith(AGENT_NAMESPACE_PREFIX):
+            stripped = stripped[len(AGENT_NAMESPACE_PREFIX) :]
+        candidate = _sanitize_component(stripped, fallback=fallback)
+    if is_houmao_reserved_mailbox_local_part(candidate):
+        raise ValueError(
+            "default mailbox address local parts beginning with `HOUMAO-` are reserved for "
+            "Houmao-owned system principals"
+        )
+    return candidate
 
 
 def _is_path_like_agent_identity(value: str) -> bool:

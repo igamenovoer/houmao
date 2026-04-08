@@ -97,15 +97,16 @@ Important boundary:
 - current-session attach does not guess or re-resolve a different server target
 - stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
 
-## Runtime-Owned Foreground Managed Attach
+## Runtime-Owned Managed Attach Defaults To Foreground
 
-For runtime-owned tmux-backed managed sessions, `houmao-mgr agents gateway attach --foreground` reuses the same-session auxiliary-window execution path instead of the detached-process path.
+For runtime-owned tmux-backed managed sessions, `houmao-mgr agents gateway attach` now uses the same-session auxiliary-window execution path by default. Use `--background` when you explicitly want the detached-process path instead.
 
 Example:
 
 ```bash
-houmao-mgr agents gateway attach --foreground --agent-name local
+houmao-mgr agents gateway attach --agent-name local
 houmao-mgr agents gateway status --agent-name local
+houmao-mgr agents gateway attach --background --agent-name local
 ```
 
 Foreground attach rules:

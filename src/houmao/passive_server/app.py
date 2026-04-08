@@ -19,6 +19,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailCheckResponseV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
@@ -269,6 +270,15 @@ def create_app(
         agent_ref: str, payload: GatewayMailSendRequestV1
     ) -> GatewayMailActionResponseV1:
         result = resolved_service.gateway_mail_send(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/post")
+    def gateway_mail_post(
+        agent_ref: str, payload: GatewayMailPostRequestV1
+    ) -> GatewayMailActionResponseV1:
+        result = resolved_service.gateway_mail_post(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

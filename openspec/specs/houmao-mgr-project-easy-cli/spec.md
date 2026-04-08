@@ -251,18 +251,27 @@ If the selected profile resolves to a Gemini specialist, the existing headless-o
 
 For that default attached path, the easy launch surface SHALL use an opinionated gateway listener request of loopback host plus system-assigned port rather than requiring persisted specialist gateway config.
 
+For tmux-backed managed sessions on that default attached path, the easy launch surface SHALL default the launch-time gateway execution mode to same-session foreground auxiliary-window execution.
+
 When an operator passes `--gateway-port <port>`, the easy launch surface SHALL request launch-time gateway attach for that explicit port on the current launch instead of using a system-assigned port.
+
+When an operator passes `--gateway-background`, the easy launch surface SHALL request launch-time gateway attach in detached background execution for that launch instead of the default foreground auxiliary-window execution.
 
 `--no-gateway` and `--gateway-port` SHALL be mutually exclusive on this surface.
 
+`--no-gateway` and `--gateway-background` SHALL be mutually exclusive on this surface.
+
+If launch-time gateway attach succeeds in foreground mode, the launch result SHALL report the resolved gateway host, the bound gateway port, the gateway execution mode, and the authoritative tmux window index for the live gateway surface.
+
 If launch-time gateway attach fails after the managed session has already started, `project easy instance launch` SHALL keep the session running and SHALL report the attach failure explicitly together with the launched session identity needed for retry.
 
-#### Scenario: Default easy launch attaches a loopback gateway with a system-assigned port
+#### Scenario: Default easy launch attaches a loopback foreground gateway with a system-assigned port
 - **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
 - **AND WHEN** the addressed specialist launch resolves to a gateway-capable supported backend
 - **THEN** the command requests launch-time gateway attach by default
 - **AND THEN** it requests loopback binding with a system-assigned port for that launch
-- **AND THEN** the launch result reports the resolved gateway host and bound gateway port
+- **AND THEN** it requests same-session foreground auxiliary-window execution for that launch
+- **AND THEN** the launch result reports the resolved gateway host, bound gateway port, execution mode, and authoritative tmux window index
 
 #### Scenario: Operator skips launch-time gateway attach explicitly
 - **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --no-gateway`
@@ -273,12 +282,17 @@ If launch-time gateway attach fails after the managed session has already starte
 - **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --gateway-port 43123`
 - **THEN** the command requests launch-time gateway attach for that launch
 - **AND THEN** it requests gateway listener port `43123` instead of a system-assigned port
-- **AND THEN** a successful launch reports the resolved gateway endpoint for that session
+- **AND THEN** it still requests same-session foreground auxiliary-window execution unless `--gateway-background` is also supplied
+
+#### Scenario: Operator requests background gateway execution for one easy launch
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --gateway-background`
+- **THEN** the command requests launch-time gateway attach for that launch
+- **AND THEN** it requests detached background gateway execution instead of the default foreground auxiliary-window execution
 
 #### Scenario: Conflicting gateway launch flags fail clearly
-- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --no-gateway --gateway-port 43123`
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --no-gateway --gateway-background`
 - **THEN** the command fails explicitly before launch
-- **AND THEN** the error states that `--no-gateway` and `--gateway-port` cannot be combined
+- **AND THEN** the error states that `--no-gateway` cannot be combined with other gateway-attach overrides
 
 #### Scenario: Gateway auto-attach failure preserves the launched session
 - **WHEN** `houmao-mgr project easy instance launch` starts the managed session successfully
@@ -487,3 +501,36 @@ Direct one-shot managed-header override SHALL NOT rewrite the stored easy profil
 - **THEN** the resulting managed launch prepends the managed prompt header
 - **AND THEN** easy profile `reviewer-fast` still records managed-header policy `disabled`
 
+### Requirement: `project easy instance launch` supports launch-owned managed force takeover
+
+`houmao-mgr project easy instance launch` SHALL accept optional `--force` for delegated managed takeover on the current easy-launch invocation.
+
+`--force` MAY be supplied bare or with an explicit mode value.
+
+Bare `--force` SHALL default to mode `keep-stale`.
+
+The only supported explicit force mode values SHALL be `keep-stale` and `clean`.
+
+The selected force mode SHALL be forwarded to the delegated native managed launch for the current invocation only and SHALL NOT be persisted into the stored specialist or easy profile.
+
+When no force mode is supplied and the delegated native launch resolves a fresh existing owner for the target managed identity, easy instance launch SHALL fail rather than replacing it.
+
+When `--force` is supplied, easy instance launch SHALL request the corresponding managed runtime takeover for the resolved managed identity whether that identity comes from direct `--name` or from an easy-profile default.
+
+#### Scenario: Bare `--force` defaults to `keep-stale` for specialist-backed launch
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --force`
+- **AND WHEN** a fresh live session already owns managed identity `repo-research-1`
+- **THEN** the delegated launch requests managed takeover in mode `keep-stale`
+- **AND THEN** the stored specialist remains unchanged
+
+#### Scenario: Easy-profile-backed launch can request explicit `clean` without rewriting the profile
+- **WHEN** easy profile `alice` stores default managed-agent name `alice`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile alice --force clean`
+- **AND WHEN** a fresh live session already owns managed identity `alice`
+- **THEN** the delegated launch requests managed takeover in mode `clean`
+- **AND THEN** stored easy profile `alice` remains unchanged and does not gain a persisted force mode
+
+#### Scenario: Missing `--force` preserves the existing ownership conflict failure
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
+- **AND WHEN** a fresh live session already owns managed identity `repo-research-1`
+- **THEN** the command fails rather than replacing that existing live owner

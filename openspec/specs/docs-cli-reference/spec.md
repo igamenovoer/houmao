@@ -242,26 +242,81 @@ That page SHALL explain that `houmao-mgr --version` prints the packaged Houmao v
 - **AND THEN** it explains that the command exits successfully after reporting that version
 
 ### Requirement: System-skills reference documents the renamed specialist-management skill
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe the current project-easy packaged skill as `houmao-manage-specialist`.
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe the current project-easy packaged skill as `houmao-specialist-mgr`.
 
 That page SHALL describe the packaged skill as the Houmao-owned specialist-management entry point for `project easy specialist create|list|get|remove` plus specialist-scoped `project easy instance launch|stop`.
 
-The page SHALL describe the top-level packaged skill page as an index/router and SHALL state that further agent management after those specialist-scoped runtime actions goes to `houmao-manage-agent-instance`.
+The page SHALL describe the top-level packaged skill page as an index/router and SHALL state that further agent management after those specialist-scoped runtime actions goes to `houmao-agent-instance`.
 
-The page SHALL NOT continue to describe `houmao-create-specialist` as the active packaged project-easy skill.
+The page SHALL NOT continue to describe `houmao-manage-specialist` as the active packaged project-easy skill.
 
 #### Scenario: Reader sees the renamed packaged skill in system-skills reference
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-manage-specialist` as the packaged project-easy skill
+- **THEN** the page identifies `houmao-specialist-mgr` as the packaged project-easy skill
 - **AND THEN** it describes that skill as covering `create`, `list`, `get`, `remove`, `launch`, and `stop`
 
-#### Scenario: Reader does not see the stale create-only packaged skill name
+#### Scenario: Reader does not see the superseded packaged specialist name
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page does not present `houmao-create-specialist` as the current packaged specialist-management skill
-- **AND THEN** it explains that follow-up live-agent management after specialist launch or stop belongs to `houmao-manage-agent-instance`
+- **THEN** the page does not present `houmao-manage-specialist` as the current packaged specialist-management skill
+
+### Requirement: System-skills reference documents the packaged `houmao-project-mgr` skill and its project-management boundary
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-project-mgr` as a packaged Houmao-owned system skill.
+
+That page SHALL describe the packaged skill as the Houmao-owned project-management entry point across:
+
+- `houmao-mgr project init`
+- `houmao-mgr project status`
+- `houmao-mgr project agents launch-profiles ...`
+- `houmao-mgr project easy instance list|get|stop`
+
+That page SHALL explain that `houmao-project-mgr` covers project overlay discovery and bootstrap guidance, `.houmao/` layout and compatibility-projection explanations, and the project-aware side effects that appear on other command families when a project overlay exists.
+
+That page SHALL explain that neighboring renamed packaged skills keep their current ownership boundaries:
+
+- `houmao-specialist-mgr` owns easy specialist and easy profile authoring plus easy `launch|stop`
+- `houmao-credential-mgr` owns project-local auth bundle CRUD
+- `houmao-agent-definition` owns low-level roles and recipes
+- `houmao-agent-instance` owns generic managed-agent lifecycle after project-scoped routing
+- `houmao-mailbox-mgr` owns mailbox-administration guidance
+
+#### Scenario: Reader sees the packaged project-management skill in system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page identifies `houmao-project-mgr` as a packaged Houmao-owned skill
+- **AND THEN** it describes that skill as covering project overlay lifecycle, launch-profile management, and project-scoped easy-instance inspection or stop routing
+
+#### Scenario: Reader sees the boundary between project-management and neighboring renamed skills
+- **WHEN** a reader opens the packaged project-management skill section of `docs/reference/cli/system-skills.md`
+- **THEN** the page distinguishes `houmao-project-mgr` from `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-instance`, and `houmao-mailbox-mgr`
+- **AND THEN** it does not use obsolete `houmao-manage-*` identifiers as the current routing targets
+
+### Requirement: System-skills reference documents the packaged `houmao-mailbox-mgr` skill and its mailbox-admin boundary
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-mailbox-mgr` as a packaged Houmao-owned system skill.
+
+That page SHALL describe the packaged skill as the Houmao-owned entry point for mailbox-administration guidance across:
+
+- `houmao-mgr mailbox ...`
+- `houmao-mgr project mailbox ...`
+- `houmao-mgr agents mailbox ...`
+
+That page SHALL explain that `houmao-mailbox-mgr` covers filesystem mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding for existing local managed agents.
+
+That page SHALL explain that ordinary mailbox participation remains in `houmao-agent-email-comms`, notifier-driven unread-email rounds remain in `houmao-process-emails-via-gateway`, and gateway mail-notifier control remains in `houmao-agent-gateway`.
+
+That page SHALL explain that the maintained mailbox-admin CLI remains filesystem-oriented in v1 and that Stalwart stays a transport/bootstrap boundary rather than a peer mailbox-admin CLI family.
+
+#### Scenario: Reader sees the packaged mailbox-admin skill in system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page identifies `houmao-mailbox-mgr` as a packaged Houmao-owned skill
+- **AND THEN** it describes that skill as covering mailbox administration across mailbox, project mailbox, and agents mailbox surfaces
+
+#### Scenario: Reader sees the boundary between mailbox admin and mailbox participation
+- **WHEN** a reader opens the packaged mailbox-admin skill section of `docs/reference/cli/system-skills.md`
+- **THEN** the page distinguishes mailbox root and binding administration from ordinary mailbox send/check/reply work
+- **AND THEN** it does not imply that `houmao-mailbox-mgr` replaces `houmao-agent-email-comms`, `houmao-process-emails-via-gateway`, or `houmao-agent-gateway`
+- **AND THEN** it explains that follow-up live-agent management after specialist launch or stop belongs to `houmao-agent-instance`
 
 ### Requirement: System-skills reference documents the packaged agent-instance lifecycle skill and its boundary
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-manage-agent-instance` as a packaged Houmao-owned system skill.
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-instance` as a packaged Houmao-owned system skill.
 
 That page SHALL describe the packaged skill as the Houmao-owned entry point for managed-agent instance lifecycle guidance across:
 
@@ -272,28 +327,28 @@ That page SHALL describe the packaged skill as the Houmao-owned entry point for 
 - `agents stop`
 - `agents cleanup session|logs`
 
-That page SHALL explain that `houmao-manage-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control and mailbox-routing skill for already-running managed agents, `houmao-agent-email-comms` remains the ordinary mailbox operations skill, and `houmao-agent-gateway` becomes the canonical gateway-specific skill.
+That page SHALL explain that `houmao-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control and mailbox-routing skill for already-running managed agents, `houmao-agent-email-comms` remains the ordinary mailbox operations skill, `houmao-agent-gateway` becomes the canonical gateway-specific skill, and `houmao-project-mgr` owns project-scoped `project easy instance list|get|stop` plus project launch-profile authoring guidance.
 
-That page SHALL explain that mailbox surfaces, prompting, mailbox routing, ordinary mailbox operations, gateway-only services, reset-context guidance, and specialist CRUD remain outside the packaged `houmao-manage-agent-instance` skill scope.
+That page SHALL explain that mailbox surfaces, prompting, mailbox routing, ordinary mailbox operations, gateway-only services, reset-context guidance, specialist CRUD, and project-aware `project easy instance list|get|stop` remain outside the packaged `houmao-agent-instance` skill scope.
 
-That page SHALL describe the CLI-default system-skill install selection as including the packaged specialist-management, credential-management, agent-definition, agent-instance, agent-messaging, and agent-gateway skills.
+That page SHALL describe the CLI-default system-skill install selection as including the packaged project-management, specialist-management, credential-management, agent-definition, agent-instance, agent-messaging, and agent-gateway skills.
 
-That page SHALL explain that managed launch and managed join auto-install the messaging and gateway skills but do not auto-install the separate lifecycle-only `houmao-manage-agent-instance` skill.
+That page SHALL explain that managed launch and managed join auto-install the project-management, messaging, and gateway skills through the packaged `user-control`, `agent-messaging`, and `agent-gateway` sets but do not auto-install the separate lifecycle-only `houmao-agent-instance` skill.
 
 #### Scenario: Reader sees the packaged lifecycle skill in system-skills reference
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-manage-agent-instance` as a packaged Houmao-owned skill
+- **THEN** the page identifies `houmao-agent-instance` as a packaged Houmao-owned skill
 - **AND THEN** it describes that skill as covering managed-agent instance lifecycle rather than gateway or messaging guidance
 
-#### Scenario: Reader sees the boundary between lifecycle, messaging, and gateway skills
+#### Scenario: Reader sees the boundary between project, lifecycle, messaging, and gateway skills
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page distinguishes `houmao-manage-agent-instance` from `houmao-agent-messaging` and `houmao-agent-gateway`
-- **AND THEN** it explains that prompting and mailbox routing belong to messaging, ordinary mailbox operations belong to the mailbox skill family, and gateway lifecycle, discovery, and gateway-only services belong to the gateway skill
+- **THEN** the page distinguishes `houmao-agent-instance` from `houmao-project-mgr`, `houmao-agent-messaging`, and `houmao-agent-gateway`
+- **AND THEN** it explains that prompting and mailbox routing belong to messaging, ordinary mailbox operations belong to the mailbox skill family, project-aware `project easy instance list|get|stop` belongs to `houmao-project-mgr`, and gateway lifecycle, discovery, and gateway-only services belong to the gateway skill
 
 #### Scenario: Reader sees the updated default install behavior
 - **WHEN** a reader checks the install-selection behavior in `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that CLI-default installation includes lifecycle, messaging, and gateway skills
-- **AND THEN** it explains that managed launch and managed join auto-install the messaging and gateway skills without auto-installing the lifecycle-only skill
+- **THEN** the page explains that CLI-default installation includes project-management, lifecycle, messaging, and gateway skills
+- **AND THEN** it explains that managed launch and managed join auto-install the project-management, messaging, and gateway skills without auto-installing the lifecycle-only skill
 
 ### Requirement: System-skills reference documents the packaged agent-messaging skill and its communication-path boundary
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-messaging` as a packaged Houmao-owned system skill.
@@ -311,7 +366,7 @@ That page SHALL explain that the packaged skill routes by communication intent a
 
 That page SHALL explain that ordinary prompting should prefer the managed-agent seam, that mailbox discovery and mailbox routing begin from `agents mail resolve-live`, and that ordinary mailbox operations belong to `houmao-agent-email-comms` while notifier-round mailbox workflow belongs to `houmao-process-emails-via-gateway`.
 
-That page SHALL explain that gateway lifecycle, current-session discovery, notifier control, and wakeup guidance belong to `houmao-agent-gateway`.
+That page SHALL explain that gateway lifecycle, current-session discovery, notifier control, and reminder guidance belong to `houmao-agent-gateway`.
 
 That page SHALL explain that transport-specific mailbox behavior remains in the mailbox skill family rather than in `houmao-agent-messaging`.
 
@@ -497,11 +552,11 @@ That page SHALL describe the packaged skill as the Houmao-owned entry point for 
 - `agents gateway attach|detach|status`
 - `agents gateway mail-notifier status|enable|disable`
 - current-session versus explicit managed-agent gateway targeting
-- direct live gateway route families such as `/v1/status`, `/v1/wakeups`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
+- direct live gateway route families such as `/v1/status`, `/v1/reminders`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
 
 That page SHALL explain that the packaged gateway skill prefers `houmao-mgr agents gateway ...` and managed-agent `/houmao/agents/{agent_ref}/gateway...` routes when those higher-level surfaces exist.
 
-That page SHALL explain that wakeups are direct live-gateway HTTP in the current implementation and remain in-memory state that does not survive gateway restart.
+That page SHALL explain that reminders are direct live-gateway HTTP in the current implementation, remain in-memory state that does not survive gateway restart, and are selected by smallest ranking value rather than by independent wakeup-job ownership.
 
 That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-agent-messaging` and the mailbox skill family rather than in `houmao-agent-gateway`.
 
@@ -510,10 +565,10 @@ That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-a
 - **THEN** the page identifies `houmao-agent-gateway` as a packaged Houmao-owned skill
 - **AND THEN** it describes that skill as covering gateway lifecycle, gateway discovery, and gateway-only reminder/control surfaces
 
-#### Scenario: Reader sees the wakeup boundary clearly
+#### Scenario: Reader sees the reminder boundary clearly
 - **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that current wakeup control uses direct live gateway `/v1/wakeups` routes
-- **AND THEN** it does not imply that wakeups are durable across gateway restart or already projected through `houmao-mgr agents gateway ...`
+- **THEN** the page explains that current reminder control uses direct live gateway `/v1/reminders` routes
+- **AND THEN** it does not imply that reminders are durable across gateway restart or already projected through `houmao-mgr agents gateway ...`
 
 ### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
 The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
@@ -586,7 +641,14 @@ The CLI reference page `docs/reference/cli/agents-mail.md` SHALL describe the cu
 
 That page SHALL state that ordinary shared-mailbox operations and no-gateway fallback guidance live in `houmao-agent-email-comms`, while notifier-driven unread-mail rounds live in `houmao-process-emails-via-gateway`. It SHALL NOT continue to describe the pre-unification split-mailbox skill names as current packaged skills.
 
-That page SHALL keep the documented subcommands (`resolve-live`, `status`, `check`, `send`, `reply`, `mark-read`) accurate to the current `srv_ctrl/commands/agents/mail.py` Click decorators, and SHALL preserve the existing targeting-rules and authority-aware result semantics requirements from the prior pass.
+That page SHALL keep the documented subcommands (`resolve-live`, `status`, `check`, `send`, `post`, `reply`, `mark-read`) accurate to the current `srv_ctrl/commands/agents/mail.py` Click decorators, and SHALL preserve the existing targeting-rules and authority-aware result semantics requirements from the prior pass.
+
+That page SHALL explain that:
+
+- ordinary `send` remains mailbox participation as the managed mailbox principal,
+- `post` is the distinct operator-origin one-way mailbox action,
+- operator-origin `post` uses the reserved sender `HOUMAO-operator@houmao.localhost`,
+- operator-origin `post` is supported only for filesystem-backed mailboxes in v1.
 
 #### Scenario: agents-mail page references the unified email-comms skill
 
@@ -597,8 +659,15 @@ That page SHALL keep the documented subcommands (`resolve-live`, `status`, `chec
 #### Scenario: agents-mail subcommand list still matches the live CLI
 
 - **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
-- **THEN** the page documents `resolve-live`, `status`, `check`, `send`, `reply`, and `mark-read`
+- **THEN** the page documents `resolve-live`, `status`, `check`, `send`, `post`, `reply`, and `mark-read`
 - **AND THEN** the option tables match the current `srv_ctrl/commands/agents/mail.py` Click decorators
+
+#### Scenario: agents-mail page distinguishes ordinary send from operator-origin post
+
+- **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
+- **THEN** the page explains that `send` composes mail as the managed mailbox principal while `post` delivers one-way operator-origin mail
+- **AND THEN** the page identifies `HOUMAO-operator@houmao.localhost` as the reserved sender for `post`
+- **AND THEN** the page states that `post` is filesystem-only in v1
 
 ### Requirement: CLI reference resync against current Click decorators for stale `agents` and `admin` pages
 

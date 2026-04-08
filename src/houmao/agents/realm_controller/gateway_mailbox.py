@@ -8,7 +8,7 @@ import hashlib
 import mimetypes
 from pathlib import Path
 import sqlite3
-from typing import Protocol, Sequence
+from typing import Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from houmao.agents.mailbox_runtime_models import (
@@ -32,12 +32,19 @@ from houmao.mailbox.managed import (
     ManagedPrincipal,
     StateUpdateRequest,
     deliver_message,
+    ensure_operator_mailbox_registration,
     update_mailbox_state,
 )
 from houmao.mailbox.protocol import (
+    HOUMAO_OPERATOR_ADDRESS,
+    HOUMAO_OPERATOR_DISPLAY_NAME,
+    HOUMAO_OPERATOR_PRINCIPAL_ID,
+    HOUMAO_OPERATOR_ROLE,
     MailboxAttachment,
     MailboxMessage,
     MailboxPrincipal,
+    is_operator_origin_headers,
+    operator_origin_headers,
     parse_message_document,
     serialize_message_document,
 )
@@ -46,6 +53,10 @@ from houmao.mailbox.stalwart import StalwartError, StalwartJmapClient
 
 class GatewayMailboxError(RuntimeError):
     """Raised when a gateway mailbox adapter cannot satisfy a mailbox request."""
+
+
+class GatewayMailboxUnsupportedError(GatewayMailboxError):
+    """Raised when one mailbox operation is unsupported for the active transport."""
 
 
 class GatewayMailboxAdapter(Protocol):
@@ -82,6 +93,15 @@ class GatewayMailboxAdapter(Protocol):
         attachments: Sequence[GatewayMailAttachmentUploadV1],
     ) -> GatewayMailboxMessageV1:
         """Reply to one existing message and return the normalized delivered record."""
+
+    def post(
+        self,
+        *,
+        subject: str,
+        body_content: str,
+        attachments: Sequence[GatewayMailAttachmentUploadV1],
+    ) -> GatewayMailboxMessageV1:
+        """Deliver one operator-origin mailbox note into the current mailbox."""
 
     def update_read_state(
         self,
@@ -202,7 +222,46 @@ class FilesystemGatewayMailboxAdapter:
                     message_id=message_id, created_at_utc=created_at_utc
                 ),
             ),
-            unread=False,
+            unread=self._load_local_unread_state(message_id=message_id),
+        )
+
+    def post(
+        self,
+        *,
+        subject: str,
+        body_content: str,
+        attachments: Sequence[GatewayMailAttachmentUploadV1],
+    ) -> GatewayMailboxMessageV1:
+        self._ensure_operator_registration()
+        now = datetime.now(UTC)
+        message_id = _generate_filesystem_message_id(now)
+        created_at_utc = now.isoformat(timespec="seconds").replace("+00:00", "Z")
+        request = self._build_delivery_request(
+            message_id=message_id,
+            thread_id=message_id,
+            in_reply_to=None,
+            references=(),
+            created_at_utc=created_at_utc,
+            to_addresses=[self.m_mailbox.address],
+            cc_addresses=(),
+            subject=subject,
+            body_content=body_content,
+            attachments=attachments,
+            sender=self._operator_sender(),
+            headers=operator_origin_headers(),
+        )
+        try:
+            deliver_message(self.m_mailbox.filesystem_root, request)
+        except ManagedMailboxOperationError as exc:
+            raise GatewayMailboxError(str(exc)) from exc
+        return self._message_to_model(
+            message=self._load_message_document(
+                message_id=message_id,
+                canonical_path=self._canonical_message_path(
+                    message_id=message_id, created_at_utc=created_at_utc
+                ),
+            ),
+            unread=self._load_local_unread_state(message_id=message_id),
         )
 
     def reply(
@@ -214,6 +273,10 @@ class FilesystemGatewayMailboxAdapter:
     ) -> GatewayMailboxMessageV1:
         parent_message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
         parent_message = self._load_message_by_id(parent_message_id)
+        if is_operator_origin_headers(parent_message.headers):
+            raise GatewayMailboxUnsupportedError(
+                "reply is unsupported for operator-origin mailbox messages"
+            )
         reply_targets = parent_message.reply_to or [parent_message.sender]
         now = datetime.now(UTC)
         message_id = _generate_filesystem_message_id(now)
@@ -244,7 +307,7 @@ class FilesystemGatewayMailboxAdapter:
                     message_id=message_id, created_at_utc=created_at_utc
                 ),
             ),
-            unread=False,
+            unread=self._load_local_unread_state(message_id=message_id),
         )
 
     def update_read_state(
@@ -286,6 +349,8 @@ class FilesystemGatewayMailboxAdapter:
         subject: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        sender: ManagedPrincipal | None = None,
+        headers: Mapping[str, object] | None = None,
     ) -> DeliveryRequest:
         staged_message_path = (
             self.m_mailbox.filesystem_root / "staging" / f"gateway-{uuid4().hex[:12]}.md"
@@ -308,7 +373,8 @@ class FilesystemGatewayMailboxAdapter:
             in_reply_to=in_reply_to,
             references=tuple(references),
             created_at_utc=created_at_utc,
-            sender=ManagedPrincipal(
+            sender=sender
+            or ManagedPrincipal(
                 principal_id=self.m_mailbox.principal_id,
                 address=self.m_mailbox.address,
             ),
@@ -317,7 +383,7 @@ class FilesystemGatewayMailboxAdapter:
             reply_to=(),
             subject=subject,
             attachments=tuple(_managed_attachment_from_upload(item) for item in attachments),
-            headers={},
+            headers=dict(headers or {}),
         )
         self._write_staged_message(
             staged_message_path=staged_message_path, request=request, body_content=body_content
@@ -397,6 +463,29 @@ class FilesystemGatewayMailboxAdapter:
             raise GatewayMailboxError(f"filesystem mailbox message `{message_id}` was not found")
         return self._load_message_document(message_id=message_id, canonical_path=Path(str(row[0])))
 
+    def _load_local_unread_state(self, *, message_id: str) -> bool:
+        """Return the actor-local unread state for one delivered filesystem message."""
+
+        local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+            self.m_mailbox.filesystem_root,
+            address=self.m_mailbox.address,
+        )
+        try:
+            with sqlite3.connect(local_sqlite_path) as connection:
+                row = connection.execute(
+                    "SELECT is_read FROM message_state WHERE message_id = ?",
+                    (message_id,),
+                ).fetchone()
+        except sqlite3.DatabaseError as exc:
+            raise GatewayMailboxError(
+                f"filesystem mailbox state is unreadable for `{self.m_mailbox.address}`"
+            ) from exc
+        if row is None:
+            raise GatewayMailboxError(
+                f"filesystem mailbox state is missing for `{message_id}` in `{self.m_mailbox.address}`"
+            )
+        return not bool(row[0])
+
     def _load_message_document(self, *, message_id: str, canonical_path: Path) -> MailboxMessage:
         try:
             document = canonical_path.read_text(encoding="utf-8")
@@ -410,6 +499,20 @@ class FilesystemGatewayMailboxAdapter:
             raise GatewayMailboxError(
                 f"filesystem mailbox canonical message `{message_id}` is invalid: {canonical_path}"
             ) from exc
+
+    def _ensure_operator_registration(self) -> None:
+        try:
+            ensure_operator_mailbox_registration(self.m_mailbox.filesystem_root)
+        except ManagedMailboxOperationError as exc:
+            raise GatewayMailboxError(str(exc)) from exc
+
+    def _operator_sender(self) -> ManagedPrincipal:
+        return ManagedPrincipal(
+            principal_id=HOUMAO_OPERATOR_PRINCIPAL_ID,
+            address=HOUMAO_OPERATOR_ADDRESS,
+            display_name=HOUMAO_OPERATOR_DISPLAY_NAME,
+            role=HOUMAO_OPERATOR_ROLE,
+        )
 
     def _message_to_model(
         self, *, message: MailboxMessage, unread: bool | None
@@ -497,6 +600,18 @@ class StalwartGatewayMailboxAdapter:
         except StalwartError as exc:
             raise GatewayMailboxError(str(exc)) from exc
         return _stalwart_message_to_model(row)
+
+    def post(
+        self,
+        *,
+        subject: str,
+        body_content: str,
+        attachments: Sequence[GatewayMailAttachmentUploadV1],
+    ) -> GatewayMailboxMessageV1:
+        del subject, body_content, attachments
+        raise GatewayMailboxUnsupportedError(
+            "operator-origin mailbox post is unsupported for stalwart mailbox bindings"
+        )
 
     def update_read_state(
         self,

@@ -117,12 +117,12 @@ def _gateway_pair_port_option(
 
 @gateway_group.command(name="attach")
 @click.option(
-    "--foreground",
+    "--background",
     is_flag=True,
     help=(
-        "Run the gateway in an auxiliary tmux window inside the managed session. "
-        "Window `0` remains the agent surface; inspect status for the authoritative "
-        "non-zero gateway window index."
+        "Run the gateway as a detached background process instead of the default "
+        "same-session auxiliary tmux window. Window `0` remains the agent surface "
+        "when foreground mode is active."
     ),
 )
 @_current_session_option
@@ -130,14 +130,14 @@ def _gateway_pair_port_option(
 @_gateway_pair_port_option(help_text="Houmao pair authority port override for explicit attach")
 @managed_agent_selector_options
 def attach_gateway_command(
-    foreground: bool,
+    background: bool,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
-    """Attach or reuse a live gateway for one managed agent, including serverless local TUIs."""
+    """Attach or reuse a live gateway for one managed agent, foreground by default."""
 
     target = _resolve_gateway_command_target(
         agent_id=agent_id,
@@ -147,7 +147,7 @@ def attach_gateway_command(
         target_tmux_session=target_tmux_session,
         operation_name="attach",
     )
-    emit(attach_gateway(target, foreground=foreground))
+    emit(attach_gateway(target, background=background))
 
 
 @gateway_group.command(name="detach")
@@ -187,7 +187,7 @@ def status_gateway_command(
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
-    """Show live gateway status, including foreground execution-mode metadata when present."""
+    """Show live gateway status, including foreground execution metadata when active."""
 
     target = _resolve_gateway_command_target(
         agent_id=agent_id,

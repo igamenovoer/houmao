@@ -50,6 +50,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStatusResponse,
@@ -404,6 +405,21 @@ class PassiveServerClient(HoumaoServerClient):
         return self._request_root_model(
             "POST",
             f"/houmao/agents/{escaped}/mail/send",
+            HoumaoManagedAgentMailActionResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Call passive mail post for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/post",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )

@@ -6,6 +6,19 @@ Gateway lifecycle and explicit live-gateway request commands for managed agents.
 houmao-mgr agents gateway [OPTIONS] COMMAND [ARGS]...
 ```
 
+## Scope Note
+
+This CLI covers gateway lifecycle, prompt and interrupt control, raw send-keys, TUI inspection, and mail-notifier control.
+
+It does not currently expose a `reminders` subcommand family.
+
+- gateway reminders are direct live HTTP routes at `/v1/reminders`
+- prompt reminders and send-keys reminders both stay on that HTTP-only surface
+- there is no supported `houmao-mgr agents gateway reminders ...` CLI surface
+- there is no managed-agent `/houmao/agents/{agent_ref}/gateway/reminders` projection
+
+Use [Gateway Reminders](../gateway/operations/reminders.md) for the reminder behavior model and [Protocol And State Contracts](../gateway/contracts/protocol-and-state.md) for the exact HTTP payloads.
+
 ## Commands
 
 ### `attach`
@@ -18,7 +31,7 @@ houmao-mgr agents gateway attach [OPTIONS]
 
 | Option | Description |
 |---|---|
-| `--foreground` | Run the gateway in an auxiliary tmux window inside the managed session. Window `0` remains the agent surface; inspect status for the authoritative non-zero gateway window index. |
+| `--background` | Run the gateway as a detached background process instead of the default same-session auxiliary tmux window. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. Implied when no selector is provided inside tmux. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit attach. |
@@ -43,7 +56,7 @@ houmao-mgr agents gateway detach [OPTIONS]
 
 ### `status`
 
-Show live gateway status, including foreground execution-mode metadata when present.
+Show live gateway status, including the execution mode and authoritative gateway tmux window index when foreground execution is active.
 
 ```
 houmao-mgr agents gateway status [OPTIONS]

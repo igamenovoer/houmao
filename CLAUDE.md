@@ -41,18 +41,25 @@ python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 ### Two-Phase Lifecycle
 
-1. **Build phase** (`build-brain`): An `AgentPreset` (role + tool + skills + setup/auth bundles) is resolved against an **agent definition directory** via a `ToolAdapter`. The `BrainBuilder` materializes a **runtime home** on disk with projected configs, skills, and credentials, then emits a `BrainManifest`.
+1. **Build phase** (`brains build`): A **recipe** (role + tool + skills + setup/auth bundles) is resolved against an **agent definition directory** via a `ToolAdapter`, optionally composed with a **launch profile** that carries reusable birth-time defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, mailbox config, gateway posture, managed-header policy). The `BrainBuilder` materializes a **runtime home** on disk with projected configs, skills, and credentials, then emits a `BrainManifest` that records the resolved recipe plus any launch-profile provenance.
 
-2. **Run phase** (`start-session` / `send-prompt` / `stop-session`): The session driver takes the manifest + a role (system prompt package), builds a `LaunchPlan`, and dispatches to the chosen backend.
+2. **Run phase** (`agents launch` / `agents prompt` / `agents stop`): The session driver takes the manifest + a role package, composes a `LaunchPlan` via `build_launch_plan()`, and dispatches to the chosen backend through `RuntimeSessionController`.
 
 ### Source Layout
 
 - `src/houmao/agents/brain_builder.py` — Build phase: `BuildRequest` → `BuildResult` (home + manifest)
 - `src/houmao/agents/realm_controller/` — Run phase: `LaunchPlan`, `RuntimeSessionController`, backends
 - `src/houmao/agents/realm_controller/backends/` — Per-tool/backend implementations
-- `src/houmao/cao/` — CAO REST client, server launcher, no-proxy helpers
+- `src/houmao/project/` — Project overlay: catalog, easy specialists/profiles, launch profiles, and `.houmao/` resolution helpers
+- `src/houmao/server/` — `houmao-server` REST service (TUI tracking, managed-agent supervision, `/houmao/*` routes)
+- `src/houmao/passive_server/` — Registry-driven stateless `houmao-passive-server` (no CAO compatibility layer, no child process supervision)
+- `src/houmao/mailbox/` — Unified mailbox subsystem: filesystem + Stalwart JMAP transports, managed helpers, operator-origin send
+- `src/houmao/lifecycle/` — Shared ReactiveX readiness / anchored-completion timing kernel reused by the runtime and `houmao-server`
+- `src/houmao/terminal_record/` — Tmux session recording service and replay models
+- `src/houmao/shared_tui_tracking/` — Shared TUI state tracker, detectors, and reducer used by runtime and server watch-planes
 - `src/houmao/srv_ctrl/cli.py` — `houmao-mgr` entrypoint for managed lifecycle, agent, and server control
 - `src/houmao/server/cli.py` — `houmao-server` entrypoint
+- `src/houmao/cao/` — Retained CAO REST client used only by the deprecated `cao_rest` backend escape hatch
 - `src/houmao/cli.py` and `src/houmao/cao_cli.py` — deprecated compatibility entrypoints; prefer `houmao-mgr` and `houmao-server`
 
 ### Backend Model
@@ -117,5 +124,5 @@ For UML-style diagrams in Markdown, prefer Mermaid fenced code blocks that rende
 - `openspec/` — spec-driven change tracking (proposals, designs, tasks)
 - `context/` and `magic-context/` — agent context packages (roles, skills, instructions)
 - `scripts/` — automation helpers and demo scripts
-- `config/` — project configuration assets (e.g., CAO server launcher config)
+- `config/` — legacy configuration assets retained for historical reference; not used by current Houmao workflows
 - `tmp/` — generated runtime homes and artifacts (safe to delete/rebuild; gitignored)

@@ -50,12 +50,12 @@ This packaged skill does not cover:
 1. Identify which messaging intent the user actually wants: discovery, ordinary prompt with gateway preference, interrupt, explicit gateway queueing, raw control input, mailbox handoff, or reset-context.
 2. Recover the target managed-agent selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the selected action still lacks a required target or explicit message input, ask the user in Markdown before proceeding.
-4. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
-   - repo-local `.venv/bin/houmao-mgr`
-   - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
-   - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
-   - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-5. Reuse that same resolved launcher for the selected messaging action.
+4. Choose one `houmao-mgr` launcher for the current turn:
+   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
+   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
+   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
+5. Reuse that same chosen launcher for the selected messaging action.
 6. Prefer the managed-agent seam first:
    - `houmao-mgr agents ...` for CLI-driven work
    - `/houmao/agents/*` for pair-managed HTTP control
@@ -102,6 +102,8 @@ This packaged skill does not cover:
 - Do not treat raw `send-keys` as a substitute for ordinary prompt-turn work.
 - Do not redirect raw terminal shaping to `agents prompt` or `agents gateway prompt`.
 - Do not guess a direct gateway host or port when the exact live `gateway.base_url` is not already available.
+- Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
+- Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not treat this skill as the owner of ordinary mailbox operations; hand mailbox work to `houmao-agent-email-comms` or `houmao-process-emails-via-gateway`.
 - Do not restate filesystem mailbox layout, Stalwart transport detail, or the `/v1/mail/*` contract in full here; delegate that work to the mailbox skills.
 - Do not invent unsupported `houmao-mgr` reset-context flags.

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from typing import Any, cast
@@ -15,6 +16,10 @@ import click
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.managed_launch_force import (
+    ManagedLaunchForceMode,
+    normalize_managed_launch_force_mode,
+)
 from houmao.agents.managed_prompt_header import (
     ManagedHeaderPolicy,
     compose_managed_launch_prompt,
@@ -24,7 +29,11 @@ from houmao.agents.managed_prompt_header import (
     resolve_managed_prompt_header_decision,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
-from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
+from houmao.agents.mailbox_runtime_support import (
+    parse_declarative_mailbox_config,
+    replaceable_mailbox_cleanup_paths,
+    resolved_mailbox_config_from_payload,
+)
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.native_launch_resolver import (
     infer_launch_source_directory_from_agent_def_dir,
@@ -33,6 +42,7 @@ from houmao.agents.native_launch_resolver import (
     resolve_preset_owner_agent_def_dir,
 )
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -44,6 +54,12 @@ from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessDisplayStyle,
 )
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.loaders import load_brain_manifest
+from houmao.agents.realm_controller.manifest import (
+    load_session_manifest,
+    parse_session_manifest_payload,
+    runtime_owned_session_root_from_manifest_path,
+)
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.agents.realm_controller.errors import (
     LaunchPlanError,
@@ -51,6 +67,8 @@ from houmao.agents.realm_controller.errors import (
     SessionManifestError,
 )
 from houmao.agents.realm_controller.models import HeadlessResumeSelection, JoinedLaunchEnvBinding
+from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record_by_agent_id
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
     ProjectAwareLocalRoots,
@@ -74,6 +92,7 @@ from .turn import turn_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
     managed_agent_selector_options,
+    managed_launch_force_option,
     pair_port_option,
     resolve_prompt_text,
     resolve_managed_agent_selector,
@@ -95,6 +114,7 @@ from ..renderers.agents import (
     render_launch_completion_plain,
 )
 from ..managed_agents import (
+    ManagedAgentTarget,
     interrupt_managed_agent,
     list_managed_agents,
     managed_agent_state_payload,
@@ -140,6 +160,191 @@ class LocalManagedAgentLaunchResult:
     overlay_root_detail: str
     project_overlay_bootstrapped: bool
     overlay_bootstrap_detail: str
+
+
+@dataclass(frozen=True)
+class _ManagedForceTakeoverContext:
+    """Resolved predecessor state for one forced managed-agent replacement."""
+
+    force_mode: ManagedLaunchForceMode
+    agent_name: str
+    agent_id: str
+    target: ManagedAgentTarget
+    record: LiveAgentRegistryRecordV2
+    home_id: str
+    home_path: Path
+    runtime_root: Path
+    session_root: Path | None
+    job_dir: Path | None
+    mailbox_cleanup_paths: tuple[Path, ...]
+
+
+def _resolve_job_dir_from_manifest_payload(payload: object) -> Path | None:
+    """Return one optional runtime-owned job dir from session-manifest payload state."""
+
+    if payload is None:
+        return None
+    value = getattr(payload, "job_dir", None)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError("Session manifest stores invalid `job_dir` metadata.")
+    return Path(value).expanduser().resolve()
+
+
+def _load_brain_home_identity_from_manifest(
+    brain_manifest: Mapping[str, Any],
+    *,
+    source: str,
+) -> tuple[Path, str, Path]:
+    """Return runtime-root and home identity fields from one brain manifest."""
+
+    runtime_payload = brain_manifest.get("runtime")
+    if not isinstance(runtime_payload, Mapping):
+        raise RuntimeError(f"{source} is missing runtime metadata.")
+
+    runtime_root_value = runtime_payload.get("runtime_root")
+    home_id_value = runtime_payload.get("home_id")
+    home_path_value = runtime_payload.get("home_path")
+    if not isinstance(runtime_root_value, str) or not runtime_root_value.strip():
+        raise RuntimeError(f"{source} stores invalid runtime.runtime_root.")
+    if not isinstance(home_id_value, str) or not home_id_value.strip():
+        raise RuntimeError(f"{source} stores invalid runtime.home_id.")
+    if not isinstance(home_path_value, str) or not home_path_value.strip():
+        raise RuntimeError(f"{source} stores invalid runtime.home_path.")
+    return (
+        Path(runtime_root_value).expanduser().resolve(),
+        home_id_value,
+        Path(home_path_value).expanduser().resolve(),
+    )
+
+
+def _prepare_managed_force_takeover_context(
+    *,
+    managed_launch_identity: Any,
+    resolved_runtime_root: Path,
+    force_mode: ManagedLaunchForceMode | None,
+) -> _ManagedForceTakeoverContext | None:
+    """Resolve one predecessor takeover context or fail before build/start."""
+
+    existing_record = resolve_live_agent_record_by_agent_id(managed_launch_identity.agent_id)
+    if existing_record is None:
+        return None
+    if force_mode is None:
+        raise RuntimeError(
+            "Managed agent "
+            f"`{managed_launch_identity.agent_name}` (agent_id `{managed_launch_identity.agent_id}`) "
+            "already owns a live registry record. Rerun with `--force` to replace it."
+        )
+    if existing_record.identity.backend == "houmao_server_rest":
+        raise RuntimeError(
+            "Managed launch force takeover only supports locally owned agents. "
+            f"Managed agent `{managed_launch_identity.agent_name}` is currently owned by "
+            "`houmao-server`."
+        )
+
+    manifest_path = Path(existing_record.runtime.manifest_path).expanduser().resolve()
+    handle = load_session_manifest(manifest_path)
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    session_root = runtime_owned_session_root_from_manifest_path(handle.path)
+    job_dir = _resolve_job_dir_from_manifest_payload(payload)
+    resolved_mailbox = resolved_mailbox_config_from_payload(
+        payload.launch_plan.mailbox,
+        manifest_path=handle.path,
+    )
+    brain_manifest_path = Path(payload.brain_manifest_path).expanduser().resolve()
+    predecessor_brain_manifest = load_brain_manifest(brain_manifest_path)
+    predecessor_runtime_root, predecessor_home_id, predecessor_home_path = (
+        _load_brain_home_identity_from_manifest(
+            predecessor_brain_manifest,
+            source=str(brain_manifest_path),
+        )
+    )
+    if predecessor_runtime_root != resolved_runtime_root:
+        raise RuntimeError(
+            "Managed launch force takeover requires matching runtime roots. Existing owner "
+            f"`{managed_launch_identity.agent_name}` uses runtime root "
+            f"`{predecessor_runtime_root}`, but this launch resolved `{resolved_runtime_root}`."
+        )
+
+    target = resolve_managed_agent_target(
+        agent_id=managed_launch_identity.agent_id,
+        agent_name=None,
+        port=None,
+    )
+    if target.mode != "local":
+        raise RuntimeError(
+            "Managed launch force takeover only supports locally owned agents. "
+            f"Managed agent `{managed_launch_identity.agent_name}` resolved to `{target.mode}` "
+            "control."
+        )
+
+    return _ManagedForceTakeoverContext(
+        force_mode=force_mode,
+        agent_name=managed_launch_identity.agent_name,
+        agent_id=managed_launch_identity.agent_id,
+        target=target,
+        record=existing_record,
+        home_id=predecessor_home_id,
+        home_path=predecessor_home_path,
+        runtime_root=predecessor_runtime_root,
+        session_root=session_root,
+        job_dir=job_dir,
+        mailbox_cleanup_paths=replaceable_mailbox_cleanup_paths(resolved_mailbox),
+    )
+
+
+def _remove_force_takeover_path(path: Path) -> None:
+    """Remove one predecessor-owned path during `--force clean` takeover."""
+
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+        return
+    shutil.rmtree(path)
+
+
+def _dedupe_force_takeover_paths(paths: tuple[Path | None, ...]) -> tuple[Path, ...]:
+    """Drop duplicates and descendant paths from one cleanup candidate list."""
+
+    deduped: list[Path] = []
+    for candidate in sorted(
+        (item.resolve() for item in paths if item is not None),
+        key=lambda item: (len(item.parts), str(item)),
+    ):
+        if any(candidate == existing or candidate.is_relative_to(existing) for existing in deduped):
+            continue
+        deduped.append(candidate)
+    return tuple(deduped)
+
+
+def _perform_managed_force_takeover(context: _ManagedForceTakeoverContext) -> None:
+    """Stop the predecessor owner and optionally clean predecessor-owned artifacts."""
+
+    stop_result = stop_managed_agent(context.target)
+    if not stop_result.success:
+        raise RuntimeError(
+            "Failed to stop existing managed agent "
+            f"`{context.agent_name}` before replacement: {stop_result.detail}"
+        )
+    if resolve_live_agent_record_by_agent_id(context.agent_id) is not None:
+        raise RuntimeError(
+            "Existing managed agent "
+            f"`{context.agent_name}` still owns the shared registry after stop; aborting "
+            "replacement launch."
+        )
+    if context.force_mode != "clean":
+        return
+
+    for cleanup_path in _dedupe_force_takeover_paths(
+        (
+            context.session_root,
+            context.job_dir,
+            *context.mailbox_cleanup_paths,
+        )
+    ):
+        _remove_force_takeover_path(cleanup_path)
 
 
 def _format_launch_policy_resolution_error(
@@ -269,6 +474,7 @@ def launch_managed_agent_locally(
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
+    gateway_execution_mode: GatewayCurrentExecutionMode | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
@@ -282,10 +488,15 @@ def launch_managed_agent_locally(
     managed_header_override: bool | None = None,
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None,
     launch_profile_provenance: dict[str, Any] | None = None,
+    force_mode: str | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
 
     _validate_provider(provider)
+    normalized_force_mode = normalize_managed_launch_force_mode(
+        force_mode,
+        source="managed launch force mode",
+    )
 
     resolved_working_directory = working_directory.resolve()
     resolved_source_working_directory = (
@@ -299,6 +510,8 @@ def launch_managed_agent_locally(
     effective_source_env = dict(source_env) if source_env is not None else None
 
     resolved_backend_name = "unknown"
+    takeover_context: _ManagedForceTakeoverContext | None = None
+    takeover_completed = False
     try:
         if resolved_source_agent_def_dir is None and _is_path_like_launch_selector(agents):
             invocation_agent_def_dir = resolve_effective_agent_def_dir(
@@ -349,6 +562,14 @@ def launch_managed_agent_locally(
             requested_agent_name=agent_name,
             requested_agent_id=agent_id,
         )
+        takeover_context = _prepare_managed_force_takeover_context(
+            managed_launch_identity=managed_launch_identity,
+            resolved_runtime_root=resolved_runtime_root,
+            force_mode=normalized_force_mode,
+        )
+        if takeover_context is not None:
+            _perform_managed_force_takeover(takeover_context)
+            takeover_completed = True
         effective_role_prompt = compose_managed_launch_prompt(
             base_prompt=target.role_prompt,
             overlay_mode=prompt_overlay_mode,
@@ -376,6 +597,10 @@ def launch_managed_agent_locally(
                 extra=target.preset.extra,
                 agent_name=managed_launch_identity.agent_name,
                 agent_id=managed_launch_identity.agent_id,
+                home_id=takeover_context.home_id if takeover_context is not None else None,
+                existing_home_mode=(
+                    takeover_context.force_mode if takeover_context is not None else None
+                ),
                 role_prompt_override=effective_role_prompt,
                 managed_prompt_header=managed_prompt_header_metadata(
                     decision=managed_header_decision,
@@ -404,11 +629,19 @@ def launch_managed_agent_locally(
             gateway_auto_attach=gateway_auto_attach,
             gateway_host=gateway_host,
             gateway_port=gateway_port,
+            gateway_execution_mode_override=(
+                gateway_execution_mode
+                if gateway_execution_mode is not None
+                else "tmux_auxiliary_window"
+                if gateway_auto_attach
+                else None
+            ),
             mailbox_transport=mailbox_transport,
             mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,
             headless_display_style=headless_display_style if headless else None,
             headless_display_detail=headless_display_detail if headless else None,
+            managed_force_mode=takeover_context.force_mode if takeover_context is not None else None,
         )
     except LaunchPolicyResolutionError as exc:
         raise click.ClickException(
@@ -424,7 +657,14 @@ def launch_managed_agent_locally(
         SessionManifestError,
         ValueError,
     ) as exc:
-        raise click.ClickException(str(exc)) from exc
+        detail = str(exc)
+        if takeover_completed and takeover_context is not None:
+            detail = (
+                "Replacement launch failed after predecessor "
+                f"`{takeover_context.agent_name}` stood down under "
+                f"`--force {takeover_context.force_mode}`: {detail}"
+            )
+        raise click.ClickException(detail) from exc
 
     return LocalManagedAgentLaunchResult(
         controller=controller,
@@ -479,6 +719,17 @@ def emit_local_launch_completion(
     gateway_port = getattr(controller, "gateway_port", None)
     if gateway_port is not None:
         payload["gateway_port"] = gateway_port
+    gateway_status = None
+    gateway_status_loader = getattr(controller, "gateway_status", None)
+    if gateway_host is not None and gateway_port is not None and callable(gateway_status_loader):
+        try:
+            gateway_status = gateway_status_loader()
+        except (click.ClickException, RuntimeError, SessionManifestError):
+            gateway_status = None
+    if gateway_status is not None:
+        payload["gateway_execution_mode"] = gateway_status.execution_mode
+        if gateway_status.gateway_tmux_window_index is not None:
+            payload["gateway_tmux_window_index"] = gateway_status.gateway_tmux_window_index
     gateway_auto_attach_error = getattr(controller, "gateway_auto_attach_error", None)
     if gateway_auto_attach_error is not None:
         payload["gateway_auto_attach_error"] = gateway_auto_attach_error
@@ -569,6 +820,7 @@ def agents_group() -> None:
         "provider, or `claude_code` when launching directly from `--agents`."
     ),
 )
+@managed_launch_force_option
 def launch_agents_command(
     agents: str | None,
     launch_profile: str | None,
@@ -584,6 +836,7 @@ def launch_agents_command(
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     provider: str | None,
+    force_mode: str | None,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
 
@@ -741,6 +994,7 @@ def launch_agents_command(
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,
+        force_mode=force_mode,
     )
 
     emit_local_launch_completion(

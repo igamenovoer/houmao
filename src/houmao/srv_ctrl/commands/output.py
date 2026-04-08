@@ -58,18 +58,19 @@ class OutputContext:
         fancy_renderer: Callable[[object], None] | None = None,
     ) -> None:
         """Dispatch *payload* to the active print-style renderer."""
+        normalized_payload = _normalize_payload(payload)
         if self.style == "json":
-            _render_json(payload)
+            _render_json(normalized_payload)
         elif self.style == "fancy":
             if fancy_renderer is not None:
-                fancy_renderer(payload)
+                fancy_renderer(normalized_payload)
             else:
-                _render_fancy(payload, console=self.console)
+                _render_fancy(normalized_payload, console=self.console)
         else:
             if plain_renderer is not None:
-                plain_renderer(payload)
+                plain_renderer(normalized_payload)
             else:
-                _render_plain(payload)
+                _render_plain(normalized_payload)
 
 
 # ---------------------------------------------------------------------------

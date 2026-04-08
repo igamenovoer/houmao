@@ -64,7 +64,7 @@ For maintained local-state command surfaces, `runtime/`, `jobs/`, and `mailbox/`
 
 ## Related References
 
-- [Runtime-Managed Agents Reference](../agents/index.md): Session lifecycle, targeting, and recovery behavior.
+- [Session Lifecycle](../run-phase/session-lifecycle.md): Session lifecycle, targeting, and recovery behavior.
 - [Shared Registry Reference](../registry/index.md): Registry semantics, discovery, and cleanup behavior.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol, queue behavior, and lifecycle handling.
 - [Houmao Server Pair](../houmao_server_pair.md): Supported pair boundary and backend identity.

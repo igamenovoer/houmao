@@ -4,7 +4,7 @@ Use this action when the task specifically needs the live gateway's own control,
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and the exact gateway service the user wants from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the task still lacks a required target, prompt body, sequence, or direct-gateway endpoint, ask the user in Markdown before proceeding.
 4. Run `agents gateway status` first unless current context already proves that a live gateway is attached.
@@ -20,13 +20,13 @@ Use this action when the task specifically needs the live gateway's own control,
 Gateway-mediated CLI control:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway prompt --agent-name <name> --prompt "<message>"
-<resolved houmao-mgr launcher> agents gateway interrupt --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway send-keys --agent-name <name> --sequence "<[Escape]>"
-<resolved houmao-mgr launcher> agents gateway tui state --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway tui history --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway tui watch --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway tui note-prompt --agent-name <name> --prompt "<note>"
+<chosen houmao-mgr launcher> agents gateway prompt --agent-name <name> --prompt "<message>"
+<chosen houmao-mgr launcher> agents gateway interrupt --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway send-keys --agent-name <name> --sequence "<[Escape]>"
+<chosen houmao-mgr launcher> agents gateway tui state --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway tui history --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway tui watch --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway tui note-prompt --agent-name <name> --prompt "<note>"
 ```
 
 Pair-managed gateway routes:

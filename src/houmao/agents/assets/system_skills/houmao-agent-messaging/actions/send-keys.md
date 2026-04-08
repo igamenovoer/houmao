@@ -4,7 +4,7 @@ Use this action only when the user needs exact raw control input delivered throu
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and raw key sequence from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the target selector or key sequence is still missing, ask the user in Markdown before proceeding.
 4. When the current context does not already confirm live gateway availability, run `agents gateway status` first.
@@ -18,7 +18,7 @@ Use this action only when the user needs exact raw control input delivered throu
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway send-keys --agent-name <name> --sequence "<[Escape]>"
+<chosen houmao-mgr launcher> agents gateway send-keys --agent-name <name> --sequence "<[Escape]>"
 ```
 
 Common raw-input cases:

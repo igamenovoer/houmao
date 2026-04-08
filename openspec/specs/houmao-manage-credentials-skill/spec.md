@@ -1,10 +1,10 @@
 ## Purpose
-Define the packaged Houmao-owned `houmao-manage-credentials` skill for project-local auth-bundle management guidance.
+Define the packaged Houmao-owned `houmao-credential-mgr` skill for project-local auth-bundle management guidance.
 
 ## Requirements
 
-### Requirement: Houmao provides a packaged `houmao-manage-credentials` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-manage-credentials` under the maintained system-skill asset root.
+### Requirement: Houmao provides a packaged `houmao-credential-mgr` system skill
+The system SHALL package a Houmao-owned system skill named `houmao-credential-mgr` under the maintained system-skill asset root.
 
 That skill SHALL instruct agents to manage project-local auth bundles through these supported commands:
 
@@ -39,59 +39,61 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - direct hand-editing of auth-bundle files under `.houmao/agents/tools/`
 
 #### Scenario: Installed skill points the agent at project-local auth-bundle commands
-- **WHEN** an agent opens the installed `houmao-manage-credentials` skill
+- **WHEN** an agent opens the installed `houmao-credential-mgr` skill
 - **THEN** the skill directs the agent to use the supported `project agents tools <tool> auth ...` command surface for auth-bundle work
 - **AND THEN** it does not redirect the agent to ad hoc filesystem editing or unrelated runtime-control surfaces
 
 #### Scenario: Installed skill routes to action-specific local guidance
-- **WHEN** an agent reads the installed `houmao-manage-credentials` skill
+- **WHEN** an agent reads the installed `houmao-credential-mgr` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for `list`, `get`, `add`, `set`, and `remove`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than one flattened entry page
 
 #### Scenario: Installed skill keeps non-auth project and runtime surfaces out of scope
-- **WHEN** an agent reads the installed `houmao-manage-credentials` skill
+- **WHEN** an agent reads the installed `houmao-credential-mgr` skill
 - **THEN** the skill marks specialist CRUD, managed-agent lifecycle work, mailbox cleanup, and direct file editing as outside the packaged skill scope
 - **AND THEN** it does not present those actions as part of project-local credential-management guidance
 
-### Requirement: `houmao-manage-credentials` resolves the `houmao-mgr` launcher in the required precedence order
-The packaged `houmao-manage-credentials` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace in this order:
+### Requirement: `houmao-credential-mgr` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-credential-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
-1. repo-local `.venv` executable,
-2. Pixi-managed project invocation,
-3. project-local `uv run`,
-4. globally installed `houmao-mgr` from uv tools.
+1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
+2. if that lookup fails, use the uv-managed fallback `uv tool run --from houmao houmao-mgr`,
+3. if the PATH lookup and uv-managed fallback do not satisfy the turn, choose an appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`.
 
-The skill SHALL treat global uv-tools installation as the default end-user case when no development-project hints justify a repo-local launcher.
+The skill SHALL treat the `command -v houmao-mgr` result as the ordinary first-choice launcher for the current turn.
 
-The skill SHALL tell the agent to look for development-project hints such as `.venv`, Pixi files, `pyproject.toml`, or `uv.lock` before choosing a repo-local launcher.
+The skill SHALL treat the uv-managed fallback as the ordinary non-PATH fallback because Houmao's documented installation path uses uv tools.
+
+The skill SHALL only probe development-project hints such as `.venv`, Pixi files, `pyproject.toml`, or `uv.lock` after PATH resolution and uv fallback do not satisfy the turn, unless the user explicitly asks for a development launcher.
+
+The skill SHALL honor an explicit user instruction to use a specific launcher family even when a higher-priority default launcher is available.
 
 The resolved launcher SHALL be reused for any routed auth-bundle action selected through the packaged skill.
 
-#### Scenario: Repo-local `.venv` takes precedence over other launchers
-- **WHEN** the current workspace provides `.venv/bin/houmao-mgr`
-- **THEN** the skill tells the agent to use that repo-local executable first
-- **AND THEN** it does not prefer Pixi, project-local `uv run`, or the global uv-tools install for that workspace
+#### Scenario: PATH launcher is preferred before development probing
+- **WHEN** `command -v houmao-mgr` succeeds in the current workspace
+- **THEN** the skill tells the agent to use that PATH-resolved `houmao-mgr` command for the turn
+- **AND THEN** it does not probe `.venv`, Pixi, or project-local uv launchers first
 
-#### Scenario: Pixi-managed project takes precedence when no `.venv` launcher exists
-- **WHEN** the current workspace has no repo-local `.venv` launcher
-- **AND WHEN** the current workspace has Pixi development-project hints
-- **THEN** the skill tells the agent to use `pixi run houmao-mgr`
-- **AND THEN** it does not skip directly to project-local `uv run` or the global uv-tools install
+#### Scenario: uv fallback is used when PATH lookup fails
+- **WHEN** `command -v houmao-mgr` fails in the current workspace
+- **THEN** the skill tells the agent to try `uv tool run --from houmao houmao-mgr`
+- **AND THEN** it treats that uv-managed launcher as the ordinary next fallback because Houmao is officially installed through uv tools
 
-#### Scenario: Project-local uv run is used when Pixi is absent
-- **WHEN** the current workspace has no repo-local `.venv` launcher
-- **AND WHEN** no Pixi-managed project hints are present
-- **AND WHEN** the current workspace has project-local uv hints such as `uv.lock`
-- **THEN** the skill tells the agent to use `uv run houmao-mgr`
-- **AND THEN** it does not skip directly to the global uv-tools install
+#### Scenario: Development launchers are later defaults, not first probes
+- **WHEN** `command -v houmao-mgr` fails
+- **AND WHEN** the uv-managed fallback does not satisfy the turn
+- **AND WHEN** the current workspace provides development launchers such as Pixi, repo-local `.venv`, or project-local uv
+- **THEN** the skill tells the agent to choose an appropriate development launcher for that workspace
+- **AND THEN** it does not treat those development launchers as the default first search path
 
-#### Scenario: Global uv-tools install remains the end-user default
-- **WHEN** the current workspace does not provide repo-local `.venv`, Pixi, or project-local uv hints
-- **THEN** the skill tells the agent to use the globally installed `houmao-mgr` command from uv tools
-- **AND THEN** it treats that path as the ordinary end-user launcher
+#### Scenario: Explicit user launcher choice overrides the default order
+- **WHEN** the user explicitly asks to use `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, project-local `uv run houmao-mgr`, or another specific launcher
+- **THEN** the skill tells the agent to honor that requested launcher
+- **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
-### Requirement: `houmao-manage-credentials` selects the correct auth-bundle action and asks before guessing
-The packaged `houmao-manage-credentials` skill SHALL tell the agent to recover omitted auth-bundle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
+### Requirement: `houmao-credential-mgr` selects the correct auth-bundle action and asks before guessing
+The packaged `houmao-credential-mgr` skill SHALL tell the agent to recover omitted auth-bundle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 

@@ -4,7 +4,7 @@ Use this action when you need to identify the correct managed agent first or dis
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the target selector is still missing, ask the user in Markdown before proceeding.
 4. Run `agents state` first to confirm the managed-agent identity and current operational summary.
@@ -18,9 +18,9 @@ Use this action when you need to identify the correct managed agent first or dis
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents state --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway status --agent-name <name>
-<resolved houmao-mgr launcher> agents mail resolve-live --agent-name <name>
+<chosen houmao-mgr launcher> agents state --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway status --agent-name <name>
+<chosen houmao-mgr launcher> agents mail resolve-live --agent-name <name>
 ```
 
 Authoritative selector alternatives:

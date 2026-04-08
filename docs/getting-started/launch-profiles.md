@@ -93,6 +93,9 @@ Rules:
 
 - Fields omitted by a higher-priority layer survive from the next lower-priority layer.
 - Direct CLI overrides win over launch-profile defaults but **never rewrite the stored launch profile**. Overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch and are dropped on the next launch from the same profile.
+- Launch-time force takeover is also override-only. `--force [keep-stale|clean]` applies to the current `agents launch` or `project easy instance launch` invocation, never persists into the stored profile, and never changes what the next launch from that profile will request by default.
+- Bare `--force` means `keep-stale`: Houmao resolves the live-owner conflict, reuses the predecessor managed home, and leaves untouched stale artifacts alone. If stale leftovers break the replacement launch, the operator must clean or correct them explicitly.
+- `--force clean` is the explicit destructive variant: Houmao stops the predecessor and removes only predecessor-owned replaceable launch artifacts before rebuilding, while preserving unrelated operator-owned paths and shared mailbox message stores.
 - Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite the stored launch profile.
 - For easy profiles, the easy lane compiles down through the same five layers — the specialist resolves into a recipe-backed source layer before the launch-profile layer applies.
 

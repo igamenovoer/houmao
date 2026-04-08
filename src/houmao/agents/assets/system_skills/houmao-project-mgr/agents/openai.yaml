@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Project Manager"
+  short_description: "Manage Houmao project overlays, layout, and project-scoped launch profiles or easy-instance inspection."
+  default_prompt: "Use $houmao-project-mgr to initialize or inspect the Houmao project overlay in this workspace, explain `.houmao/` layout or project-aware effects, manage explicit launch profiles, and inspect or stop project easy instances."

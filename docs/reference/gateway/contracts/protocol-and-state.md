@@ -127,10 +127,11 @@ Current v1 routes:
 - `POST /v1/control/send-keys`
 - `GET /v1/control/headless/state`
 - `POST /v1/requests`
-- `POST /v1/wakeups`
-- `GET /v1/wakeups`
-- `GET /v1/wakeups/{job_id}`
-- `DELETE /v1/wakeups/{job_id}`
+- `POST /v1/reminders`
+- `GET /v1/reminders`
+- `GET /v1/reminders/{reminder_id}`
+- `PUT /v1/reminders/{reminder_id}`
+- `DELETE /v1/reminders/{reminder_id}`
 - `GET /v1/mail/status`
 - `POST /v1/mail/check`
 - `POST /v1/mail/send`
@@ -247,7 +248,7 @@ Current public request kinds:
 - `submit_prompt`
 - `interrupt`
 
-The wakeup timer path does not add a new public request kind. Wakeup jobs are registered and inspected only through `/v1/wakeups`, and due wakeups execute as gateway-owned in-memory behavior instead of becoming another public `POST /v1/requests` kind.
+The reminder timer path does not add a new public request kind. Reminders are registered and inspected only through `/v1/reminders`, and due reminders execute as gateway-owned in-memory behavior instead of becoming another public `POST /v1/requests` kind.
 
 The notifier reminder path also does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
 
@@ -286,64 +287,116 @@ Observable current error semantics:
 
 The broader design leaves room for more policy-driven rejection states, but the current implementation should be documented as it exists today.
 
-### `/v1/wakeups`
+### `/v1/reminders`
 
-This route family manages direct gateway-owned wakeups without going through the durable request queue.
+This route family manages direct gateway-owned reminders without going through the durable request queue.
 
 Supported routes:
 
-- `POST /v1/wakeups`
-- `GET /v1/wakeups`
-- `GET /v1/wakeups/{job_id}`
-- `DELETE /v1/wakeups/{job_id}`
+- `POST /v1/reminders`
+- `GET /v1/reminders`
+- `GET /v1/reminders/{reminder_id}`
+- `PUT /v1/reminders/{reminder_id}`
+- `DELETE /v1/reminders/{reminder_id}`
 
-Wakeup jobs are process-local in-memory state:
+Reminders are process-local in-memory state:
 
-- pending wakeups are lost when the gateway stops or restarts
-- due-but-not-yet-delivered wakeups are also lost on restart
-- wakeups do not create rows in `queue.sqlite` until or unless some other gateway feature persists its own internal work
-- `GET /v1/wakeups` reports only the current live gateway process state
+- pending reminders are lost when the gateway stops or restarts
+- due-but-not-yet-delivered reminders are also lost on restart
+- reminders do not create rows in `queue.sqlite` until or unless some other gateway feature persists its own internal work
+- `GET /v1/reminders` reports only the current live gateway process state
+- this is the direct live gateway HTTP surface only; there is no supported `houmao-mgr agents gateway reminders ...` CLI family or `/houmao/agents/{agent_ref}/gateway/reminders` projection
 
 Representative create request:
 
 ```json
 {
   "schema_version": 1,
-  "mode": "repeat",
-  "prompt": "Review the inbox again.",
-  "after_seconds": 300,
-  "interval_seconds": 300
+  "reminders": [
+    {
+      "mode": "repeat",
+      "title": "Review inbox",
+      "prompt": "Review the inbox again.",
+      "ranking": -10,
+      "paused": false,
+      "start_after_seconds": 300,
+      "interval_seconds": 300
+    }
+  ]
 }
 ```
 
-Representative job response:
+Representative send-keys reminder request:
 
 ```json
 {
   "schema_version": 1,
-  "job_id": "gwakeup-deadbeefcafe",
-  "mode": "repeat",
-  "prompt": "Review the inbox again.",
-  "state": "scheduled",
-  "created_at_utc": "2026-03-31T00:00:00+00:00",
-  "next_due_at_utc": "2026-03-31T00:05:00+00:00",
-  "interval_seconds": 300.0,
-  "last_started_at_utc": null,
-  "cancel_requested": false
+  "reminders": [
+    {
+      "mode": "one_off",
+      "title": "Dismiss dialog",
+      "send_keys": {
+        "sequence": "<[Escape]>",
+        "ensure_enter": false
+      },
+      "ranking": -100,
+      "paused": false,
+      "start_after_seconds": 5
+    }
+  ]
+}
+```
+
+Representative create response:
+
+```json
+{
+  "schema_version": 1,
+  "effective_reminder_id": "greminder-deadbeefcafe",
+  "reminders": [
+    {
+      "schema_version": 1,
+      "reminder_id": "greminder-deadbeefcafe",
+      "mode": "repeat",
+      "delivery_kind": "prompt",
+      "title": "Review inbox",
+      "prompt": "Review the inbox again.",
+      "send_keys": null,
+      "ranking": -10,
+      "paused": false,
+      "selection_state": "effective",
+      "delivery_state": "scheduled",
+      "created_at_utc": "2026-03-31T00:00:00+00:00",
+      "next_due_at_utc": "2026-03-31T00:05:00+00:00",
+      "interval_seconds": 300.0,
+      "last_started_at_utc": null,
+      "blocked_by_reminder_id": null
+    }
+  ]
 }
 ```
 
 Current behavior:
 
-- wakeups support `one_off` and `repeat` modes
-- callers must set exactly one of `after_seconds` or `deliver_at_utc`
-- repeating wakeups require `interval_seconds`
-- due wakeups run only when `request_admission=open`, `active_execution=idle`, and durable queue depth is zero
-- when the gateway is busy, due wakeups stay pending and show `state = "overdue"`
-- repeating wakeups keep anchored cadence and do not backfill missed intervals as an immediate burst
-- deleting a scheduled or overdue wakeup removes it immediately
-- deleting an executing wakeup only stops future occurrences; the already-started prompt continues until completion
-- unknown wakeup ids return HTTP `404`
+- reminders support `one_off` and `repeat` modes
+- callers set `title`, `ranking`, optional `paused`, exactly one of `prompt` or `send_keys`, and exactly one of `start_after_seconds` or `deliver_at_utc`
+- `send_keys` uses `{ "sequence": "...", "ensure_enter": true }`; `ensure_enter=true` ensures one trailing `<[Enter]>`, while `ensure_enter=false` preserves the exact sequence
+- reminder send-keys intentionally do not expose `escape_special_keys`
+- smaller `ranking` values win; rankings are signed integers and may be negative
+- equal rankings break deterministically by reminder creation order and then `reminder_id`
+- only the effective reminder can dispatch; blocked reminders stay pending even if they are already due
+- a paused effective reminder still blocks lower-priority reminders and sends no reminder delivery until it is updated or deleted
+- repeating reminders require `interval_seconds`
+- due effective reminders run only when `request_admission=open`, `active_execution=idle`, and durable queue depth is zero
+- due prompt reminders submit semantic prompt text; due send-keys reminders submit raw control input through the same exact `<[key-name]>` grammar as `POST /v1/control/send-keys`
+- send-keys reminders do not submit `title` or any `prompt` text when they fire
+- rest-backed and server-managed headless gateway targets reject send-keys reminders with HTTP `422` at create or update time
+- when the gateway is busy, due effective reminders stay pending and show `delivery_state = "overdue"`
+- `PUT /v1/reminders/{reminder_id}` recomputes the effective reminder immediately after the update
+- repeating reminders keep anchored cadence and do not backfill missed intervals as an immediate burst
+- deleting a scheduled or overdue reminder removes it immediately
+- deleting an executing reminder only stops future occurrences; the already-started reminder delivery continues until completion
+- unknown reminder ids return HTTP `404`
 
 ### `POST /v1/control/prompt`
 

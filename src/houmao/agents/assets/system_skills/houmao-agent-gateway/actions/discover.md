@@ -4,7 +4,7 @@ Use this action when the caller needs to find the current managed session, confi
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target mode from the current prompt first and recent chat context second when it was stated explicitly:
    - current managed tmux session
    - explicit managed-agent selector
@@ -24,10 +24,10 @@ Use this action when the caller needs to find the current managed session, confi
 Managed-agent discovery:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway status --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway status
-<resolved houmao-mgr launcher> agents mail resolve-live --agent-name <name>
-<resolved houmao-mgr launcher> agents mail resolve-live
+<chosen houmao-mgr launcher> agents gateway status --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway status
+<chosen houmao-mgr launcher> agents mail resolve-live --agent-name <name>
+<chosen houmao-mgr launcher> agents mail resolve-live
 ```
 
 Pair-managed discovery:

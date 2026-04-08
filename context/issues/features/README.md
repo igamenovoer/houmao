@@ -1,12 +1,11 @@
 # Feature Requests
 
+## Status
+As of 2026-04-08, the previously stored feature-request notes in this directory were judged outdated and moved to [`../obsolete/`](../obsolete/).
+
 ## Purpose
-Track proposed feature requests and enhancement ideas.
+Use this directory only for current, still-relevant feature proposals.
 
 ## Naming Pattern
 `feat-[description].md`
 Example: `feat-shadow-parser-unexpected-interactive-recovery.md`
-
-## Historical Snapshots
-Some feature docs in this folder are copied snapshots referenced by archived
-OpenSpec artifacts. Preserve filenames/paths so archive links remain valid.

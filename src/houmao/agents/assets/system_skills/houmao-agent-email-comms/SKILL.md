@@ -29,6 +29,7 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 - Read [actions/check.md](actions/check.md) to inspect unread or current mailbox state.
 - Read [actions/read.md](actions/read.md) when deciding which unread message to inspect next.
 - Read [actions/send.md](actions/send.md) to send one new message.
+- Read [actions/post.md](actions/post.md) to leave one operator-origin note in the current managed agent mailbox.
 - Read [actions/reply.md](actions/reply.md) to reply to one existing message.
 - Read [actions/mark-read.md](actions/mark-read.md) to mark one processed message read.
 
@@ -44,6 +45,10 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 - Read [references/managed-agent-fallback.md](references/managed-agent-fallback.md) for the supported `houmao-mgr agents mail ...` fallback surface when no live gateway facade exists.
 - Read [references/filesystem-resolver-fields.md](references/filesystem-resolver-fields.md) or [references/stalwart-resolver-fields.md](references/stalwart-resolver-fields.md) when transport-local resolver fields matter.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) only when filesystem mailbox layout details are relevant.
+
+## Useful Patterns
+
+- For supported higher-level mailbox and gateway compositions such as self-wakeup through self-mail plus notifier-driven rounds, switch to the Houmao advanced-usage skill `houmao-adv-usage-pattern`.
 
 ## Guardrails
 

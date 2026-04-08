@@ -23,14 +23,15 @@ _SYSTEM_SKILL_LEGACY_STATE_SCHEMA_VERSION = 1
 
 SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
 SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
+SYSTEM_SKILL_SET_ADVANCED_USAGE = "advanced-usage"
 SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
 SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
 SYSTEM_SKILL_SET_AGENT_MESSAGING = "agent-messaging"
 SYSTEM_SKILL_SET_AGENT_GATEWAY = "agent-gateway"
-SYSTEM_SKILL_MANAGE_SPECIALIST = "houmao-manage-specialist"
-SYSTEM_SKILL_MANAGE_CREDENTIALS = "houmao-manage-credentials"
-SYSTEM_SKILL_MANAGE_AGENT_DEFINITION = "houmao-manage-agent-definition"
-SYSTEM_SKILL_MANAGE_AGENT_INSTANCE = "houmao-manage-agent-instance"
+SYSTEM_SKILL_SPECIALIST_MGR = "houmao-specialist-mgr"
+SYSTEM_SKILL_CREDENTIAL_MGR = "houmao-credential-mgr"
+SYSTEM_SKILL_AGENT_DEFINITION = "houmao-agent-definition"
+SYSTEM_SKILL_AGENT_INSTANCE = "houmao-agent-instance"
 SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
 SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
 
@@ -40,7 +41,10 @@ _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "gemini": ".gemini/skills",
 }
 _SYSTEM_SKILL_RENAMED_FROM: dict[str, tuple[str, ...]] = {
-    SYSTEM_SKILL_MANAGE_SPECIALIST: ("houmao-create-specialist",),
+    SYSTEM_SKILL_SPECIALIST_MGR: ("houmao-manage-specialist", "houmao-create-specialist"),
+    SYSTEM_SKILL_CREDENTIAL_MGR: ("houmao-manage-credentials",),
+    SYSTEM_SKILL_AGENT_DEFINITION: ("houmao-manage-agent-definition",),
+    SYSTEM_SKILL_AGENT_INSTANCE: ("houmao-manage-agent-instance",),
 }
 _SYSTEM_SKILL_STATE_RELATIVE_PATH = Path(".houmao/system-skills/install-state.json")
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]

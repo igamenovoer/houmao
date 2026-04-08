@@ -10,6 +10,10 @@ from typing import Any, ParamSpec, Sequence, TypeVar, cast
 
 import click
 
+from houmao.agents.managed_launch_force import (
+    MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE,
+    MANAGED_LAUNCH_FORCE_MODE_VALUES,
+)
 from houmao.agents.realm_controller.agent_identity import normalize_user_managed_agent_name
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.cao.rest_client import CaoApiError
@@ -28,6 +32,49 @@ _COMPAT_CREATE_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS"
 _FC = TypeVar("_FC", bound=Callable[..., Any])
 _ParamT = ParamSpec("_ParamT")
 _ReturnT = TypeVar("_ReturnT")
+
+
+class OptionalValueOption(click.Option):
+    """Click option that accepts either a bare flag or one explicit value."""
+
+    def __init__(self, *args: object, optional_flag_value: str, **kwargs: object) -> None:
+        self.m_optional_flag_value = optional_flag_value
+        super().__init__(*cast(Any, args), **cast(Any, kwargs))
+
+    def add_to_parser(self, parser: Any, ctx: click.Context) -> Any:
+        """Install parser behavior that fills the default flag value when omitted."""
+
+        result = super().add_to_parser(parser, ctx)
+        our_parser = None
+        for option_name in (*self.opts, *self.secondary_opts):
+            our_parser = parser._long_opt.get(option_name) or parser._short_opt.get(option_name)
+            if our_parser is not None:
+                break
+        if our_parser is None:
+            return result
+
+        previous_process = our_parser.process
+        our_parser.nargs = 0
+
+        def _parser_process(value: Any, state: Any) -> None:
+            """Consume one optional value when present, otherwise use the flag default."""
+
+            next_value: str | None
+            if isinstance(value, str):
+                next_value = value
+            elif value in (None, ()):
+                next_value = None
+            else:
+                next_value = str(value)
+            if next_value is None:
+                if state.rargs and not state.rargs[0].startswith("-"):
+                    next_value = state.rargs.pop(0)
+                else:
+                    next_value = self.m_optional_flag_value
+            previous_process(next_value, state)
+
+        our_parser.process = _parser_process
+        return result
 
 
 def require_cao_executable() -> str:
@@ -208,6 +255,24 @@ def overwrite_confirm_option(function: _FC) -> _FC:
         "--yes",
         is_flag=True,
         help="Confirm destructive overwrite non-interactively when required.",
+    )(function)
+
+
+def managed_launch_force_option(function: _FC) -> _FC:
+    """Attach the shared managed-launch force takeover option."""
+
+    return click.option(
+        "--force",
+        "force_mode",
+        cls=OptionalValueOption,
+        optional_flag_value=MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE,
+        default=None,
+        type=click.Choice(MANAGED_LAUNCH_FORCE_MODE_VALUES),
+        metavar="[keep-stale|clean]",
+        help=(
+            "Replace an existing fresh live owner of the resolved managed identity for "
+            "this launch. Bare `--force` defaults to `keep-stale`."
+        ),
     )(function)
 
 

@@ -278,6 +278,10 @@ def bootstrap_filesystem_mailbox(
     materialize_managed_rules_assets(paths)
     initialize_sqlite_schema(paths.sqlite_path)
 
+    from houmao.mailbox.managed import ensure_operator_mailbox_registration
+
+    ensure_operator_mailbox_registration(paths.root)
+
     if principal is not None:
         from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
 

@@ -248,4 +248,4 @@ Easy-lane data is stored across the project overlay as follows:
 - [Launch Profiles](launch-profiles.md) — shared conceptual model for easy profiles and explicit recipe-backed launch profiles, including the precedence chain and prompt overlays.
 - [houmao-mgr project easy](../reference/cli/houmao-mgr.md) — CLI reference for `project easy specialist`, `project easy profile`, and `project easy instance` commands.
 - [Agent Definition Directory](agent-definitions.md) — full directory structure reference, including `.houmao/agents/launch-profiles/`.
-- [Project-Aware Operations](../reference/agents/operations/project-aware-operations.md) — how commands resolve project context.
+- [Project-Aware Operations](../reference/system-files/project-aware-operations.md) — how commands resolve project context.

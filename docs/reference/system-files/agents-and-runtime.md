@@ -166,7 +166,7 @@ If the maintained command context already has an active project overlay, this sc
 
 ## Related References
 
-- [Runtime-Managed Agents Reference](../agents/index.md): Behavior, targeting, and recovery semantics layered on top of these files.
+- [Session Lifecycle](../run-phase/session-lifecycle.md): Behavior, targeting, and recovery semantics layered on top of these files.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol and queue behavior for the nested `gateway/` subtree.
 - [Stalwart Setup And First Session](../mailbox/operations/stalwart-setup-and-first-session.md): Operator-facing mailbox path for the `stalwart` transport.
 - [Operator Preparation](operator-preparation.md): Writable-path, ignore-rule, and cleanup guidance for these path families.

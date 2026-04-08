@@ -32,6 +32,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -656,13 +657,17 @@ def test_check_managed_agent_mail_posts_json_body(monkeypatch) -> None:
     }
 
 
-def test_send_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
+def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
     recorded: list[dict[str, object]] = []
     send_request = HoumaoManagedAgentMailSendRequest(
         to=["peer@agents.localhost"],
         subject="status",
         body_content="hello",
+    )
+    post_request = HoumaoManagedAgentMailPostRequest(
+        subject="operator note",
+        body_content="operator body",
     )
     reply_request = HoumaoManagedAgentMailReplyRequest(
         message_ref="msg-123",
@@ -698,6 +703,8 @@ def test_send_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
     ):
         recorded.append({"method": method, "path": path, "kwargs": kwargs})
         payload = dict(response_payload)
+        if path.endswith("/post"):
+            payload["operation"] = "post"
         if path.endswith("/reply"):
             payload["operation"] = "reply"
         return model.model_validate(payload)
@@ -705,15 +712,22 @@ def test_send_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> None:
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
     send_response = client.send_managed_agent_mail("HOUMAO gpu/1", send_request)
+    post_response = client.post_managed_agent_mail("HOUMAO gpu/1", post_request)
     reply_response = client.reply_managed_agent_mail("HOUMAO gpu/1", reply_request)
 
     assert send_response.operation == "send"
+    assert post_response.operation == "post"
     assert reply_response.operation == "reply"
     assert recorded == [
         {
             "method": "POST",
             "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/send",
             "kwargs": {"json_body": send_request.model_dump(mode="json")},
+        },
+        {
+            "method": "POST",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/post",
+            "kwargs": {"json_body": post_request.model_dump(mode="json")},
         },
         {
             "method": "POST",

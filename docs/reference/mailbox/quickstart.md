@@ -1,6 +1,6 @@
 # Mailbox Quickstart
 
-This page shows the shortest safe path to a working mailbox-enabled local managed agent and the manager-owned mailbox flow you will use first: `agents mail resolve-live`, `agents mail check`, `agents mail send`, `agents mail reply`, and `agents mail mark-read`.
+This page shows the shortest safe path to a working mailbox-enabled local managed agent and the manager-owned mailbox flow you will use first: `agents mail resolve-live`, `agents mail check`, `agents mail send`, `agents mail post`, `agents mail reply`, and `agents mail mark-read`.
 
 ## Choose Your Transport
 
@@ -11,7 +11,7 @@ Choose the transport before you copy a startup example.
 | `filesystem` | you want the fully Houmao-owned mailbox transport with local rules, SQLite state, and projections | stay on this page |
 | `stalwart` | you want Stalwart to be the mailbox authority for delivery, unread state, and reply ancestry | [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md) |
 
-The rest of this page keeps the shortest inline filesystem example. The `mail resolve-live`, `mail check`, `mail send`, `mail reply`, and `mail mark-read` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
+The rest of this page keeps the shortest inline filesystem example. The `mail resolve-live`, `mail check`, `mail send`, `mail post`, `mail reply`, and `mail mark-read` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
 
 ## Mental Model
 
@@ -68,7 +68,7 @@ Typical status output after a successful headless registration:
 ```json
 {
   "activation_state": "active",
-  "address": "HOUMAO-research@agents.localhost",
+  "address": "research@houmao.localhost",
   "mailbox_root": "/abs/path/repo/.houmao/mailbox",
   "principal_id": "HOUMAO-research",
   "registered": true,
@@ -127,7 +127,7 @@ Typical stdout is a verified manager result when Houmao owns the mailbox executi
 
 ```json
 {
-  "address": "HOUMAO-research@agents.localhost",
+  "address": "research@houmao.localhost",
   "authoritative": true,
   "execution_path": "manager_direct",
   "operation": "check",
@@ -144,7 +144,7 @@ Typical stdout is a verified manager result when Houmao owns the mailbox executi
 ```bash
 pixi run houmao-mgr agents mail send \
   --agent-name research \
-  --to HOUMAO-orchestrator@agents.localhost \
+  --to orchestrator@houmao.localhost \
   --subject "Investigate parser drift" \
   --body-file body.md \
   --attach notes.txt
@@ -154,12 +154,32 @@ Important details:
 
 - `--to` is required and may be repeated.
 - `--cc` is optional and may be repeated.
-- Recipients must be full mailbox addresses such as `HOUMAO-orchestrator@agents.localhost`.
+- Recipients must be full mailbox addresses such as `orchestrator@houmao.localhost`.
 - Exactly one of `--body-file` or `--body-content` must be supplied.
 - `--attach` paths are validated by the CLI before they are surfaced to the session.
 - When Houmao can execute through pair-owned, gateway-backed, or manager-owned direct authority, the result is authoritative.
 - When a local live TUI fallback is used, the result is submission-only and returns `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error` without claiming mailbox success from transcript parsing.
 - Use `houmao-mgr agents mail status`, `houmao-mgr agents mail check`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative fallback results.
+
+## Post Operator-Origin Mail
+
+Use `agents mail post` when the operator needs to drop a one-way note into the managed agent mailbox without sending as the managed mailbox principal.
+
+```bash
+pixi run houmao-mgr agents mail post \
+  --agent-name research \
+  --subject "Resume after sync" \
+  --body-content "Continue from the latest mailbox checkpoint."
+```
+
+Important details:
+
+- `post` is filesystem-only in v1.
+- The canonical sender is always the reserved Houmao-owned system mailbox `HOUMAO-operator@houmao.localhost`.
+- Newly derived managed-agent mailbox addresses use `<agentname>@houmao.localhost`.
+- `HOUMAO-*` local parts under `houmao.localhost` are reserved for Houmao system mailboxes.
+- `post` never falls back to live TUI submission because the operator-origin sender must stay authoritative.
+- Replies to operator-origin messages are rejected explicitly.
 
 ## Reply To Mail
 

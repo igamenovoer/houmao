@@ -32,6 +32,7 @@ from houmao.agents.model_selection import (
     model_config_to_payload,
     normalize_model_config,
 )
+from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.project.catalog import ProjectCatalog
 from houmao.project.easy import (
@@ -64,6 +65,7 @@ from .cleanup_support import emit_cleanup_payload
 from .common import (
     build_destructive_confirmation_callback,
     confirm_destructive_action,
+    managed_launch_force_option,
     overwrite_confirm_option,
 )
 from .output import emit
@@ -2406,6 +2408,11 @@ def easy_instance_group() -> None:
     help="Request one fixed loopback gateway listener port for this launch.",
 )
 @click.option(
+    "--gateway-background",
+    is_flag=True,
+    help="Run the auto-attached gateway as a detached background process for this launch.",
+)
+@click.option(
     "--workdir",
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
     default=None,
@@ -2441,6 +2448,7 @@ def easy_instance_group() -> None:
     default=None,
     help="Force-enable or disable the Houmao-managed prompt header for this launch.",
 )
+@managed_launch_force_option
 def launch_easy_instance_command(
     specialist: str | None,
     profile: str | None,
@@ -2452,12 +2460,14 @@ def launch_easy_instance_command(
     headless: bool | None,
     no_gateway: bool,
     gateway_port: int | None,
+    gateway_background: bool,
     workdir: Path | None,
     env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
     mail_account_dir: Path | None,
     managed_header: bool | None,
+    force_mode: str | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2557,6 +2567,8 @@ def launch_easy_instance_command(
         )
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
+    if no_gateway and gateway_background:
+        raise click.ClickException("`--no-gateway` and `--gateway-background` cannot be combined.")
     if mail_transport == "email":
         raise click.ClickException(
             "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
@@ -2577,17 +2589,32 @@ def launch_easy_instance_command(
     launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
     gateway_auto_attach = default_gateway_auto_attach
     requested_gateway_port = default_gateway_port if gateway_auto_attach else None
+    gateway_host = default_gateway_host if gateway_auto_attach else None
     if no_gateway:
         gateway_auto_attach = False
         requested_gateway_port = None
+        gateway_host = None
     elif gateway_port is not None:
         gateway_auto_attach = True
         requested_gateway_port = gateway_port
-    gateway_host = default_gateway_host if gateway_auto_attach else None
+        gateway_host = default_gateway_host or "127.0.0.1"
+    elif gateway_background:
+        gateway_auto_attach = True
+        if requested_gateway_port is None:
+            requested_gateway_port = 0
+        if gateway_host is None:
+            gateway_host = "127.0.0.1"
     requested_gateway_port = (
         requested_gateway_port
         if requested_gateway_port is not None
         else 0
+        if gateway_auto_attach
+        else None
+    )
+    gateway_execution_mode: GatewayCurrentExecutionMode | None = (
+        "detached_process"
+        if gateway_auto_attach and gateway_background
+        else "tmux_auxiliary_window"
         if gateway_auto_attach
         else None
     )
@@ -2609,6 +2636,7 @@ def launch_easy_instance_command(
         gateway_auto_attach=gateway_auto_attach,
         gateway_host=gateway_host,
         gateway_port=requested_gateway_port,
+        gateway_execution_mode=gateway_execution_mode,
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
         mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),
@@ -2622,6 +2650,7 @@ def launch_easy_instance_command(
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,
+        force_mode=force_mode,
     )
     emit_local_launch_completion(
         launch_result=launch_result,
@@ -4112,7 +4141,7 @@ def _resolve_prompt_overlay_text_or_click(
     if prompt_overlay_mode is not None and resolved_text is None:
         raise click.ClickException(
             "Prompt-overlay mode requires `--prompt-overlay-text` or `--prompt-overlay-file`."
-    )
+        )
     return prompt_overlay_mode, resolved_text
 
 
@@ -4345,6 +4374,7 @@ def _store_launch_profile_from_cli(
         )
     )
     resolved_model_input = _resolve_model_name_or_click(model) if model is not None else None
+    resolved_managed_header_policy: ManagedHeaderPolicy | None
 
     if current is None:
         resolved_agent_name = _optional_non_empty_value(agent_name)

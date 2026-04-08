@@ -16,8 +16,12 @@ _STATUS_ESSENTIAL = (
     "attach_identity",
     "backend",
     "gateway_health",
+    "gateway_host",
+    "gateway_port",
     "managed_agent_connectivity",
     "request_admission",
+    "execution_mode",
+    "gateway_tmux_window_index",
     "active_execution",
     "queue_depth",
 )
@@ -83,8 +87,7 @@ def render_prompt_result_fancy(payload: object) -> None:
     forced = data.get("forced", False)
     style = "green" if status == "ok" else "red"
     Console().print(
-        f"[{style}]Prompt: {status}[/{style}]  "
-        f"forced={'yes' if forced else 'no'}  {detail}"
+        f"[{style}]Prompt: {status}[/{style}]  forced={'yes' if forced else 'no'}  {detail}"
     )
 
 

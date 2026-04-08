@@ -33,7 +33,7 @@ from .errors import BackendExecutionError, MailboxCommandError, MailboxResultPar
 from .models import LaunchPlan, SessionEvent
 
 MailOperation = Literal["check", "send", "reply", "mark-read"]
-MailCommandOperation = Literal["status", "check", "send", "reply", "mark-read"]
+MailCommandOperation = Literal["status", "check", "send", "post", "reply", "mark-read"]
 MailExecutionPath = Literal["manager_direct", "gateway_backed", "tui_submission"]
 MailSubmissionStatus = Literal["submitted", "rejected", "busy", "interrupted", "tui_error"]
 

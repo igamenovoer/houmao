@@ -62,9 +62,16 @@ Runs `gemini -p` for non-interactive prompt–response cycles. Managed Gemini ho
 
 ### Legacy Backends
 
+> **Unmaintained — Deprecated Backends.** The `cao_rest` and `houmao_server_rest` backends remain in the codebase as legacy escape hatches, but their documentation is no longer actively maintained. Content below may be incorrect or stale. Prefer `local_interactive` for new work.
+
 The following backends exist for backward compatibility and are planned for removal:
 
+> **Unmaintained — Deprecated Backend.** The `cao_rest` backend remains in the codebase as an escape hatch. Its documentation is no longer actively maintained and the description below may be incorrect or stale. Prefer `local_interactive` for new work.
+
 - **`cao_rest`** — Delegates session lifecycle to an external CAO (CLI Agent Orchestrator) server over REST. This was the original orchestration path and carries significant complexity (~86 KB of integration code). New workflows should not target this backend.
+
+> **Unmaintained — Deprecated Backend.** The `houmao_server_rest` backend remains in the codebase as an escape hatch. Its documentation is no longer actively maintained and the description below may be incorrect or stale. Prefer `local_interactive` for new work.
+
 - **`houmao_server_rest`** — A thin wrapper that routes requests through `houmao-server`, which itself delegates to `cao_rest`. Shares the same deprecation trajectory.
 
 ## Launch Plan

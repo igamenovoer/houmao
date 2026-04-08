@@ -985,6 +985,73 @@ class TestGatewayMailSendEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Mail post endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayMailPostEndpoint:
+    """POST /houmao/agents/{agent_ref}/mail/post."""
+
+    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient, "post_mail", return_value=_stub_mail_action_response("post")
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/mail/post",
+                json={
+                    "schema_version": 1,
+                    "subject": "Operator note",
+                    "body_content": "Hello",
+                },
+            )
+        assert resp.status_code == 200
+
+    def test_gateway_http_status_is_preserved(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "post_mail",
+                side_effect=GatewayHttpError(
+                    method="POST",
+                    url="http://gateway/v1/mail/post",
+                    detail="unsupported for current transport",
+                    status_code=422,
+                ),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/mail/post",
+                json={
+                    "schema_version": 1,
+                    "subject": "Operator note",
+                    "body_content": "Hello",
+                },
+            )
+        assert resp.status_code == 422
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/mail/post",
+                json={
+                    "schema_version": 1,
+                    "subject": "Operator note",
+                    "body_content": "Hello",
+                },
+            )
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
 # Mail reply endpoint
 # ---------------------------------------------------------------------------
 

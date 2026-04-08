@@ -1,10 +1,10 @@
 ## Purpose
-Define the packaged Houmao-owned `houmao-manage-agent-instance` skill for managed-agent instance lifecycle guidance.
+Define the packaged Houmao-owned `houmao-agent-instance` skill for managed-agent instance lifecycle guidance.
 
 ## Requirements
 
-### Requirement: Houmao provides a packaged `houmao-manage-agent-instance` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-manage-agent-instance` under the maintained system-skill asset root.
+### Requirement: Houmao provides a packaged `houmao-agent-instance` system skill
+The system SHALL package a Houmao-owned system skill named `houmao-agent-instance` under the maintained system-skill asset root.
 
 That skill SHALL instruct agents to manage live managed-agent instances through these supported lifecycle commands:
 
@@ -26,7 +26,7 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `relaunch`
 - `cleanup`
 
-That packaged skill SHALL remain the canonical Houmao-owned skill for general live managed-agent lifecycle guidance even when `houmao-manage-specialist` also offers specialist-scoped `launch` and `stop` entry points with post-action handoff into this skill.
+That packaged skill SHALL remain the canonical Houmao-owned skill for general live managed-agent lifecycle guidance even when `houmao-specialist-mgr` also offers specialist-scoped `launch` and `stop` entry points with post-action handoff into this skill.
 
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
@@ -37,64 +37,66 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - `project mailbox ...` and `admin cleanup runtime ...`
 
 #### Scenario: Installed skill points the agent at instance lifecycle commands
-- **WHEN** an agent opens the installed `houmao-manage-agent-instance` skill
+- **WHEN** an agent opens the installed `houmao-agent-instance` skill
 - **THEN** the skill directs the agent to use the supported launch, join, list, stop, relaunch, and cleanup commands for managed-agent instances
 - **AND THEN** it does not redirect the agent to ad hoc filesystem editing or unrelated runtime-control surfaces
 
 #### Scenario: Installed skill routes to action-specific local guidance
-- **WHEN** an agent reads the installed `houmao-manage-agent-instance` skill
+- **WHEN** an agent reads the installed `houmao-agent-instance` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for `launch`, `join`, `list`, `stop`, `relaunch`, and `cleanup`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than one flattened entry page
 
 #### Scenario: Installed skill keeps mailbox and specialist CRUD out of scope
-- **WHEN** an agent reads the installed `houmao-manage-agent-instance` skill
+- **WHEN** an agent reads the installed `houmao-agent-instance` skill
 - **THEN** the skill marks mailbox operations and specialist CRUD as outside the packaged skill scope
 - **AND THEN** it does not present those actions as part of managed-agent instance lifecycle guidance
 
 #### Scenario: Installed skill remains the follow-up lifecycle surface after specialist-scoped entry
-- **WHEN** an agent or user reaches `houmao-manage-agent-instance` after using specialist-scoped `launch` or `stop` guidance
+- **WHEN** an agent or user reaches `houmao-agent-instance` after using specialist-scoped `launch` or `stop` guidance
 - **THEN** the skill remains the canonical packaged Houmao-owned entry point for further live managed-agent lifecycle work
-- **AND THEN** it does not require `houmao-manage-specialist` to become a general-purpose instance-management skill
+- **AND THEN** it does not require `houmao-specialist-mgr` to become a general-purpose instance-management skill
 
-### Requirement: `houmao-manage-agent-instance` resolves the `houmao-mgr` launcher in the required precedence order
-The packaged `houmao-manage-agent-instance` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace in this order:
+### Requirement: `houmao-agent-instance` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-agent-instance` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
-1. repo-local `.venv` executable,
-2. Pixi-managed project invocation,
-3. project-local `uv run`,
-4. globally installed `houmao-mgr` from uv tools.
+1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
+2. if that lookup fails, use the uv-managed fallback `uv tool run --from houmao houmao-mgr`,
+3. if the PATH lookup and uv-managed fallback do not satisfy the turn, choose an appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`.
 
-The skill SHALL treat global uv-tools installation as the default end-user case when no development-project hints justify a repo-local launcher.
+The skill SHALL treat the `command -v houmao-mgr` result as the ordinary first-choice launcher for the current turn.
 
-The skill SHALL tell the agent to look for development-project hints such as `.venv`, Pixi files, `pyproject.toml`, or `uv.lock` before choosing a repo-local launcher.
+The skill SHALL treat the uv-managed fallback as the ordinary non-PATH fallback because Houmao's documented installation path uses uv tools.
+
+The skill SHALL only probe development-project hints such as `.venv`, Pixi files, `pyproject.toml`, or `uv.lock` after PATH resolution and uv fallback do not satisfy the turn, unless the user explicitly asks for a development launcher.
+
+The skill SHALL honor an explicit user instruction to use a specific launcher family even when a higher-priority default launcher is available.
 
 The resolved launcher SHALL be reused for any routed managed-agent instance action selected through the packaged skill.
 
-#### Scenario: Repo-local `.venv` takes precedence over other launchers
-- **WHEN** the current workspace provides `.venv/bin/houmao-mgr`
-- **THEN** the skill tells the agent to use that repo-local executable first
-- **AND THEN** it does not prefer Pixi, project-local `uv run`, or the global uv-tools install for that workspace
+#### Scenario: PATH launcher is preferred before development probing
+- **WHEN** `command -v houmao-mgr` succeeds in the current workspace
+- **THEN** the skill tells the agent to use that PATH-resolved `houmao-mgr` command for the turn
+- **AND THEN** it does not probe `.venv`, Pixi, or project-local uv launchers first
 
-#### Scenario: Pixi-managed project takes precedence when no `.venv` launcher exists
-- **WHEN** the current workspace has no repo-local `.venv` launcher
-- **AND WHEN** the current workspace has Pixi development-project hints
-- **THEN** the skill tells the agent to use `pixi run houmao-mgr`
-- **AND THEN** it does not skip directly to project-local `uv run` or the global uv-tools install
+#### Scenario: uv fallback is used when PATH lookup fails
+- **WHEN** `command -v houmao-mgr` fails in the current workspace
+- **THEN** the skill tells the agent to try `uv tool run --from houmao houmao-mgr`
+- **AND THEN** it treats that uv-managed launcher as the ordinary next fallback because Houmao is officially installed through uv tools
 
-#### Scenario: Project-local uv run is used when Pixi is absent
-- **WHEN** the current workspace has no repo-local `.venv` launcher
-- **AND WHEN** no Pixi-managed project hints are present
-- **AND WHEN** the current workspace has project-local uv hints such as `uv.lock`
-- **THEN** the skill tells the agent to use `uv run houmao-mgr`
-- **AND THEN** it does not skip directly to the global uv-tools install
+#### Scenario: Development launchers are later defaults, not first probes
+- **WHEN** `command -v houmao-mgr` fails
+- **AND WHEN** the uv-managed fallback does not satisfy the turn
+- **AND WHEN** the current workspace provides development launchers such as Pixi, repo-local `.venv`, or project-local uv
+- **THEN** the skill tells the agent to choose an appropriate development launcher for that workspace
+- **AND THEN** it does not treat those development launchers as the default first search path
 
-#### Scenario: Global uv-tools install remains the end-user default
-- **WHEN** the current workspace does not provide repo-local `.venv`, Pixi, or project-local uv hints
-- **THEN** the skill tells the agent to use the globally installed `houmao-mgr` command from uv tools
-- **AND THEN** it treats that path as the ordinary end-user launcher
+#### Scenario: Explicit user launcher choice overrides the default order
+- **WHEN** the user explicitly asks to use `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, project-local `uv run houmao-mgr`, or another specific launcher
+- **THEN** the skill tells the agent to honor that requested launcher
+- **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
-### Requirement: `houmao-manage-agent-instance` selects the correct instance-lifecycle command and asks before guessing
-The packaged `houmao-manage-agent-instance` skill SHALL tell the agent to recover omitted lifecycle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
+### Requirement: `houmao-agent-instance` selects the correct instance-lifecycle command and asks before guessing
+The packaged `houmao-agent-instance` skill SHALL tell the agent to recover omitted lifecycle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 

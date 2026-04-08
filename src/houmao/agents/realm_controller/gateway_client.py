@@ -25,6 +25,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailCheckResponseV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
@@ -33,11 +34,13 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayStatusV1,
-    GatewayWakeupCancelResultV1,
-    GatewayWakeupCreateV1,
-    GatewayWakeupJobV1,
-    GatewayWakeupListV1,
 )
 from houmao.server.models import (
     HoumaoTerminalSnapshotHistoryResponse,
@@ -115,6 +118,16 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
+    def post_mail(self, payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
+        """Call `POST /v1/mail/post`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/post",
+            GatewayMailActionResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
     def reply_mail(self, payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
         """Call `POST /v1/mail/reply`."""
 
@@ -145,33 +158,43 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
-    def create_wakeup(self, payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
-        """Call `POST /v1/wakeups`."""
+    def create_reminders(self, payload: GatewayReminderCreateBatchV1) -> GatewayReminderCreateResultV1:
+        """Call `POST /v1/reminders`."""
 
         return self._request_model(
             "POST",
-            "/v1/wakeups",
-            GatewayWakeupJobV1,
+            "/v1/reminders",
+            GatewayReminderCreateResultV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def list_wakeups(self) -> GatewayWakeupListV1:
-        """Call `GET /v1/wakeups`."""
+    def list_reminders(self) -> GatewayReminderListV1:
+        """Call `GET /v1/reminders`."""
 
-        return self._request_model("GET", "/v1/wakeups", GatewayWakeupListV1)
+        return self._request_model("GET", "/v1/reminders", GatewayReminderListV1)
 
-    def get_wakeup(self, *, job_id: str) -> GatewayWakeupJobV1:
-        """Call `GET /v1/wakeups/{job_id}`."""
+    def get_reminder(self, *, reminder_id: str) -> GatewayReminderV1:
+        """Call `GET /v1/reminders/{reminder_id}`."""
 
-        return self._request_model("GET", f"/v1/wakeups/{job_id}", GatewayWakeupJobV1)
+        return self._request_model("GET", f"/v1/reminders/{reminder_id}", GatewayReminderV1)
 
-    def delete_wakeup(self, *, job_id: str) -> GatewayWakeupCancelResultV1:
-        """Call `DELETE /v1/wakeups/{job_id}`."""
+    def put_reminder(self, *, reminder_id: str, payload: GatewayReminderPutV1) -> GatewayReminderV1:
+        """Call `PUT /v1/reminders/{reminder_id}`."""
+
+        return self._request_model(
+            "PUT",
+            f"/v1/reminders/{reminder_id}",
+            GatewayReminderV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def delete_reminder(self, *, reminder_id: str) -> GatewayReminderDeleteResultV1:
+        """Call `DELETE /v1/reminders/{reminder_id}`."""
 
         return self._request_model(
             "DELETE",
-            f"/v1/wakeups/{job_id}",
-            GatewayWakeupCancelResultV1,
+            f"/v1/reminders/{reminder_id}",
+            GatewayReminderDeleteResultV1,
         )
 
     def control_prompt(

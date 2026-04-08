@@ -7,11 +7,18 @@ import pytest
 
 from houmao.mailbox.errors import MailboxProtocolError
 from houmao.mailbox.protocol import (
+    HOUMAO_OPERATOR_ADDRESS,
+    HOUMAO_ORIGIN_HEADER_NAME,
+    HOUMAO_REPLY_POLICY_HEADER_NAME,
+    HOUMAO_OPERATOR_ORIGIN_VALUE,
+    HOUMAO_NO_REPLY_POLICY_VALUE,
     MESSAGE_ID_PATTERN,
     MailboxAttachment,
     MailboxMessage,
     MailboxPrincipal,
     generate_message_id,
+    is_operator_origin_headers,
+    operator_origin_headers,
     parse_message_document,
     serialize_message_document,
 )
@@ -90,3 +97,18 @@ def test_reply_messages_require_references_ending_with_parent() -> None:
 def test_parse_message_document_rejects_missing_front_matter() -> None:
     with pytest.raises(MailboxProtocolError, match="YAML front matter"):
         parse_message_document("# Not a mailbox document\n")
+
+
+def test_operator_origin_header_helpers_are_stable() -> None:
+    headers = operator_origin_headers()
+
+    assert headers == {
+        HOUMAO_ORIGIN_HEADER_NAME: HOUMAO_OPERATOR_ORIGIN_VALUE,
+        HOUMAO_REPLY_POLICY_HEADER_NAME: HOUMAO_NO_REPLY_POLICY_VALUE,
+    }
+    assert is_operator_origin_headers(headers) is True
+    assert is_operator_origin_headers({"other": "value"}) is False
+
+
+def test_operator_origin_sender_address_uses_reserved_houmao_mailbox() -> None:
+    assert HOUMAO_OPERATOR_ADDRESS == "HOUMAO-operator@houmao.localhost"

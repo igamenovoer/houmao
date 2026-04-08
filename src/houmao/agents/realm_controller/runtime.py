@@ -29,6 +29,7 @@ from houmao.agents.managed_prompt_header import (
     compose_managed_launch_prompt,
     resolve_managed_prompt_header_decision,
 )
+from houmao.agents.managed_launch_force import ManagedLaunchForceMode
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
     AGENT_DEF_DIR_ENV_VAR,
@@ -1044,8 +1045,10 @@ def start_runtime_session(
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
+    gateway_execution_mode_override: GatewayCurrentExecutionMode | None = None,
     tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
+    managed_force_mode: ManagedLaunchForceMode | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
@@ -1053,6 +1056,10 @@ def start_runtime_session(
     if (gateway_host is not None or gateway_port is not None) and not gateway_auto_attach:
         raise SessionManifestError(
             "Gateway host or port overrides require launch-time gateway attach."
+        )
+    if gateway_execution_mode_override is not None and not gateway_auto_attach:
+        raise SessionManifestError(
+            "Gateway execution-mode overrides require launch-time gateway attach."
         )
 
     manifest = load_brain_manifest(brain_manifest_path)
@@ -1192,6 +1199,14 @@ def start_runtime_session(
         style=headless_display_style,
         detail=headless_display_detail,
     )
+    if managed_force_mode is not None:
+        launch_plan = replace(
+            launch_plan,
+            metadata={
+                **launch_plan.metadata,
+                "managed_force_mode": managed_force_mode,
+            },
+        )
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
@@ -1250,6 +1265,7 @@ def start_runtime_session(
         attach_result = controller.attach_gateway(
             host_override=gateway_host,
             port_override=gateway_port,
+            execution_mode_override=gateway_execution_mode_override,
         )
         if attach_result.status == "error":
             controller.gateway_auto_attach_error = attach_result.detail
@@ -2503,7 +2519,9 @@ def _build_provider_start_launch_plan_for_relaunch(
     if stored_role_prompt is not None:
         role_package = replace(role_package, system_prompt=stored_role_prompt)
     else:
-        persisted_managed_header_enabled = _managed_prompt_header_enabled_from_brain_manifest(manifest)
+        persisted_managed_header_enabled = _managed_prompt_header_enabled_from_brain_manifest(
+            manifest
+        )
         managed_header_decision = resolve_managed_prompt_header_decision(
             launch_override=None,
             stored_policy=None,
