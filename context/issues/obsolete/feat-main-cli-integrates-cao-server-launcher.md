@@ -1,5 +1,10 @@
 # Feature Request: Main CLI Integrates CAO Server Launcher and Shared Global Config
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/features/feat-main-cli-integrates-cao-server-launcher.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 

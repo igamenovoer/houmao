@@ -1,5 +1,10 @@
 # Enhancement Proposal: Houmao Server CLI Defaults Should Share Config Constants
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/enhance/enhance-houmao-server-cli-defaults-should-share-config-constants.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 

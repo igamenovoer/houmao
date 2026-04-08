@@ -1,5 +1,10 @@
 # Feature Request: Gemini Parser Architecture (Headless-Only for Now)
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/features/feat-gemini-headless-parser-architecture.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed (Deferred from `versioned-shadow-parser-superset`)
 

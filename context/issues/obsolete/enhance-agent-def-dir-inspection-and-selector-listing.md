@@ -1,5 +1,10 @@
 # Enhancement Proposal: Add Agent-Definition Directory Inspection And Launch-Selector Listing
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/enhance/enhance-agent-def-dir-inspection-and-selector-listing.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 

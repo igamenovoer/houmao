@@ -1,5 +1,10 @@
 # Feature Request: First-Class Agent Session Resume
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/features/feat-agent-session-resume.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 

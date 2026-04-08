@@ -1,5 +1,10 @@
 # Feature Request: Master Shared-Resource TOML Above Per-Agent Settings
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/features/feat-runtime-master-shared-resource-config.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 

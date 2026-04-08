@@ -1,5 +1,10 @@
 # Enhancement Proposal: Shadow Watch Should Expose A User-Visible State Stability Window
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/enhance/enhance-shadow-watch-user-visible-state-stability-window.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 

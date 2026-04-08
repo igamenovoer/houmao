@@ -1,5 +1,10 @@
 # Feature Request: Two-Agent Mail Ping-Pong And Gateway Wake-Up Demo
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/features/feat-two-agent-mail-ping-pong-gateway-wakeup-demo.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 

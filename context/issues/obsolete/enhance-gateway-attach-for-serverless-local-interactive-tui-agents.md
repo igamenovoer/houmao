@@ -1,5 +1,10 @@
 # Enhancement: Support Gateway Attach For Serverless `local_interactive` TUI Agents
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/enhance/enhance-gateway-attach-for-serverless-local-interactive-tui-agents.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P2 - This is not a core runtime correctness failure, but it blocks an expected control-plane capability for no-server TUI agents and creates a mismatch between the broader gateway design and the current local interactive implementation.
 

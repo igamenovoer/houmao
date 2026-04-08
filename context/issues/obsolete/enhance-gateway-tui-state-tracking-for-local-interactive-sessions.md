@@ -1,5 +1,10 @@
 # Enhancement: Enable Gateway-Owned TUI State Tracking For `local_interactive` Sessions
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/enhance/enhance-gateway-tui-state-tracking-for-local-interactive-sessions.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P2 - Gateway attach and request delivery already work for serverless `local_interactive` sessions, but the gateway still does not expose its TUI tracking surface for that backend. This is not a core runtime failure, but it leaves a visible capability gap in the local interactive control plane.
 

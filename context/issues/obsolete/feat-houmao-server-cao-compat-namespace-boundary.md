@@ -1,5 +1,10 @@
 # Feature Request: Move CAO-Compatible HTTP Surface Behind an Explicit `houmao-server` Compatibility Namespace
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/features/feat-houmao-server-cao-compat-namespace-boundary.md` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Proposed
 
