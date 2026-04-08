@@ -609,7 +609,7 @@ packages:
   requires_python: '>=3.8'
 - pypi: ./
   name: houmao
-  version: 0.4.0
+  version: 0.4.1
   sha256: 6b0068b2e1054657401c5ed5fe9c7655366fa335baf8e0ac6c9b514bd94a87a6
   requires_dist:
   - click>=8.3.1,<9

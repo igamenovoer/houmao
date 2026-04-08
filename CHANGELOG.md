@@ -4,6 +4,35 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.4.1] - 2026-04-08
+
+### Added
+
+- **Gateway ranked reminders**: the live gateway sidecar now exposes a ranked reminder surface at `/v1/reminders` (replacing the prior `/v1/wakeups` surface) supporting `POST`, `GET`, `GET {id}`, `PUT {id}`, and `DELETE {id}`. Reminders carry a signed `ranking`, optional `paused` state, and either a `prompt` or a raw `send_keys` payload; the gateway selects one effective reminder by ranking and only that one is eligible to dispatch. Documented end-to-end in the new [Gateway Reminders](docs/reference/gateway/operations/reminders.md) operations page and in the protocol contract.
+- **Managed launch force takeover modes**: `houmao-mgr agents launch` and `houmao-mgr project easy instance launch` now accept `--force [keep-stale|clean]` to take over an existing live local owner of the resolved managed identity. Bare `--force` means `keep-stale` (stop the predecessor and reuse the predecessor managed home in place); `--force clean` stops the predecessor and removes only predecessor-owned replaceable launch artifacts before rebuilding. Force mode is launch-owned only and is never persisted into stored launch profiles or easy profiles.
+- **`houmao-project-mgr` system skill**: a new packaged Houmao-owned system skill for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing.
+- **`houmao-mailbox-mgr` system skill**: a new packaged mailbox-admin skill covering filesystem mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents.
+- **`houmao-adv-usage-pattern` system skill**: a new packaged skill that documents supported advanced multi-skill mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds.
+- **Operator-origin filesystem mail**: the mailbox subsystem and managed helpers now support operator-origin send for filesystem mailbox transports through `houmao-mgr agents mail post`.
+
+### Changed
+
+- **Managed gateways default to foreground**: `houmao-mgr project easy instance launch` and the matching managed launch flow now default the gateway sidecar to foreground attachment instead of detached background mode.
+- **System skill identifiers renamed**: the packaged user-control skills were renamed for consistency — `houmao-create-specialist` → `houmao-specialist-mgr`, `houmao-manage-credentials` → `houmao-credential-mgr`, `houmao-manage-agent-definition` → `houmao-agent-definition`, and `houmao-manage-agent-instance` → `houmao-agent-instance`. The new `houmao-project-mgr`, `houmao-mailbox-mgr`, and `houmao-adv-usage-pattern` skills bring the catalog to **eleven** packaged Houmao-owned skills.
+- **Documentation refresh**: `CLAUDE.md`, README, the getting-started guides, and the reference index were resynced for the post-v0.4 state. The duplicative `docs/reference/agents/` subtree was retired in favor of the current `run-phase`, `system-files`, and CLI reference homes. The deprecated `cao_rest` and `houmao_server_rest` backends now carry an unmaintained-deprecation banner where they are still documented.
+
+### Fixed
+
+- **Agent cleanup skips missing artifacts**: `houmao-mgr admin cleanup` no longer fails when a referenced artifact has already been removed by an earlier sweep or by an unrelated operator action.
+- **CLI custom renderer payload normalization**: model-name normalization for the CLI custom renderer was tightened so non-standard payloads no longer break headless output rendering.
+- **System skill launcher resolution**: the launcher resolution path was tightened so packaged system skills resolve correctly under the renamed identifiers.
+- **Stale doc links and skill counts**: corrected a broken `docs/reference/agents/operations/project-aware-operations.md` link in the system-skills overview, refreshed two stale "ten packaged skills" mentions to "eleven", and updated the README `houmao-agent-gateway` row from "schedule wakeups" to "schedule ranked reminders" for consistency with the post-rename gateway surface.
+
+### Notes
+
+- This is a patch release that consolidates several feature commits (gateway reminders, force takeover, three new system skills, default-foreground gateway) plus a small docs cleanup pass on top of `v0.4.0`. The `0.4.1` label was chosen for continuity with the post-`0.4.0` numbering even though the contents include user-visible feature surfaces; future releases that add more breaking surface may bump the minor segment instead.
+- The `gh release create v0.4.1` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.4.0] - 2026-04-07
 
 ### Added
