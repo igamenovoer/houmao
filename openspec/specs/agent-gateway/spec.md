@@ -371,83 +371,12 @@ When a gateway instance starts successfully with a system-assigned port, the sys
 - **THEN** the system records that resolved host and port as the desired listener for the gateway root
 - **AND THEN** a later restart of that same gateway root reuses that listener unless a caller explicitly overrides it
 
-### Requirement: Gateway supports ephemeral one-off and repeating wakeup jobs
-The live gateway SHALL expose dedicated wakeup routes for direct timer registration without requiring mailbox participation.
-
-That wakeup surface SHALL include:
-
-- `POST /v1/wakeups`
-- `GET /v1/wakeups`
-- `GET /v1/wakeups/{job_id}`
-- `DELETE /v1/wakeups/{job_id}`
-
-Each wakeup job SHALL include a predefined prompt and SHALL use either:
-
-- one-off mode with exactly one requested due time, or
-- repeating mode with an interval and next due time.
-
-The gateway SHALL keep registered wakeup jobs entirely in the live gateway process memory. Pending wakeup jobs and due-but-not-yet-executed wakeup occurrences SHALL NOT survive gateway shutdown or restart.
-
-Deleting a wakeup job SHALL cancel that job while it remains scheduled. Deleting a repeating wakeup job SHALL stop future repetitions. If execution of one wakeup occurrence has already started, deleting the job SHALL NOT retroactively retract that already-started prompt execution.
-
-Unknown `job_id` lookups or cancellations SHALL fail explicitly rather than pretending the wakeup still exists.
-
-#### Scenario: Caller registers one one-off wakeup
-- **WHEN** a caller submits `POST /v1/wakeups` with a predefined prompt and one one-off due time
-- **THEN** the live gateway returns a wakeup job identifier for that scheduled wakeup
-- **AND THEN** the new wakeup is visible through `GET /v1/wakeups` and `GET /v1/wakeups/{job_id}` while it remains scheduled
-
-#### Scenario: Caller registers one repeating wakeup
-- **WHEN** a caller submits `POST /v1/wakeups` with mode `repeat`, a predefined prompt, and a repeat interval
-- **THEN** the live gateway schedules a repeating wakeup for that job
-- **AND THEN** later inspection shows that the job remains registered until it is canceled or the gateway stops
-
-#### Scenario: Gateway restart drops pending wakeups
-- **WHEN** the live gateway stops or restarts while one or more wakeup jobs are still scheduled
-- **THEN** those pending wakeup jobs are lost
-- **AND THEN** the restarted gateway does not recover them from gateway persistence artifacts
-
-#### Scenario: Canceling a repeating wakeup stops future occurrences
-- **WHEN** a caller deletes a repeating wakeup job that is still registered
-- **THEN** the live gateway cancels that wakeup job explicitly
-- **AND THEN** no later repeating occurrences are scheduled for that deleted job
-
-### Requirement: Due wakeups remain gateway-owned low-priority internal prompt delivery
-When a wakeup becomes due, the gateway SHALL treat delivery of that wakeup prompt as gateway-owned internal execution behavior rather than as a new externally visible public request kind.
-
-The public terminal-mutating request-kind set SHALL remain limited to `submit_prompt` and `interrupt`.
-
-Before a due wakeup prompt starts execution, the gateway SHALL require:
-
-- request admission to be open,
-- no active terminal-mutating execution,
-- zero durable public queue depth.
-
-If those conditions are not satisfied when a wakeup becomes due, the gateway SHALL keep that wakeup pending in memory and SHALL retry later instead of dropping the reminder or converting it into durable queued work.
-
-Repeating wakeups SHALL maintain at most one pending due occurrence per job. Missed intervals during a busy period SHALL NOT produce a catch-up burst of multiple immediate prompt deliveries once the gateway becomes idle again.
-
-#### Scenario: Busy gateway defers a due wakeup
-- **WHEN** a wakeup becomes due while request admission is blocked, active execution is running, or durable public queue depth is non-zero
-- **THEN** the gateway does not start that wakeup prompt immediately
-- **AND THEN** the wakeup remains pending in memory until a later safe execution opportunity
-
-#### Scenario: Due wakeup does not expand the public request-kind set
-- **WHEN** a wakeup prompt is delivered after becoming due
-- **THEN** that delivery happens through gateway-owned internal behavior rather than a new public `POST /v1/requests` kind
-- **AND THEN** the public terminal-mutating request kinds remain exactly `submit_prompt` and `interrupt`
-
-#### Scenario: Repeating wakeup does not backfill missed intervals as a burst
-- **WHEN** a repeating wakeup remains overdue across multiple interval boundaries because the gateway is busy
-- **THEN** the gateway preserves at most one pending overdue occurrence for that repeating job
-- **AND THEN** the gateway does not emit one immediate prompt for every missed interval once the gateway becomes idle
-
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
-The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, wakeup registration and inspection, gateway-owned notifier control, and, when permitted by mailbox bindings and listener policy, shared mailbox operations on the resolved listener address for that session.
+The gateway SHALL expose an HTTP API for health inspection, status inspection, gateway-managed request submission, reminder registration and inspection, gateway-owned notifier control, and, when permitted by mailbox bindings and listener policy, shared mailbox operations on the resolved listener address for that session.
 
 The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POST /v1/requests`.
 
-The wakeup HTTP API SHALL additionally expose `POST /v1/wakeups`, `GET /v1/wakeups`, `GET /v1/wakeups/{job_id}`, and `DELETE /v1/wakeups/{job_id}`.
+The reminder HTTP API SHALL additionally expose `POST /v1/reminders`, `GET /v1/reminders`, `GET /v1/reminders/{reminder_id}`, `PUT /v1/reminders/{reminder_id}`, and `DELETE /v1/reminders/{reminder_id}`.
 
 For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/post`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
 
@@ -461,7 +390,11 @@ When the gateway mail notifier capability is implemented, that HTTP API SHALL ad
 
 `POST /v1/requests` SHALL accept typed request-creation payloads and SHALL return the accepted queued request record.
 
-The wakeup routes SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to mutate gateway memory or private runtime objects directly.
+The reminder routes SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to mutate gateway memory or private runtime objects directly.
+
+The reminder request models SHALL support either semantic `prompt` delivery or raw `send_keys` delivery, but SHALL require exactly one of those delivery forms for each reminder definition.
+
+Reminder-route validation failures SHALL return HTTP `422`. Unknown reminder identifiers on `GET /v1/reminders/{reminder_id}`, `PUT /v1/reminders/{reminder_id}`, or `DELETE /v1/reminders/{reminder_id}` SHALL return HTTP `404`.
 
 The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
 
@@ -475,84 +408,26 @@ That HTTP API SHALL be served by the gateway sidecar itself and SHALL use struct
 
 Request-validation failures on `POST /v1/requests` SHALL return HTTP `422`. Explicit gateway policy rejection SHALL return HTTP `403`. Request-state conflicts such as reconciliation-required admission blocking SHALL return HTTP `409`. Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
 
-Wakeup-route validation failures SHALL return HTTP `422`. Unknown wakeup identifiers on `GET /v1/wakeups/{job_id}` or `DELETE /v1/wakeups/{job_id}` SHALL return HTTP `404`.
-
 Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifier behavior for sessions that cannot support it SHALL fail explicitly rather than pretending that notifier polling is active.
 
 Shared mailbox route validation failures SHALL return HTTP `422`. Calls to mailbox routes for sessions without mailbox bindings SHALL fail explicitly rather than pretending mailbox support exists. When the live gateway listener is bound to `0.0.0.0`, the `/v1/mail/*` routes SHALL fail explicitly as unavailable until an authentication model exists for broader listeners.
 
-Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, wakeup state, notifier status, or shared mailbox state.
+Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, reminder state, notifier status, or shared mailbox state.
 
-#### Scenario: Health inspection uses default loopback surface
-- **WHEN** a tool inspects a gateway-managed session whose resolved gateway host is `127.0.0.1`
-- **THEN** it can query `GET /health` through the loopback HTTP surface on the resolved port
-- **AND THEN** the gateway returns a structured health response without requiring direct SQLite access
-
-#### Scenario: Gateway health remains readable during upstream recovery
-- **WHEN** the gateway companion remains healthy but the managed agent is unavailable, recovering, or awaiting rebind
-- **THEN** `GET /health` still returns a structured gateway-local health response for that running gateway instance
-- **AND THEN** callers use `GET /v1/status` to inspect managed-agent connectivity, recovery, and admission state
-
-#### Scenario: Status inspection matches the stable state artifact
-- **WHEN** a tool queries `GET /v1/status` for a gateway-managed session
-- **THEN** the gateway returns the same versioned status model that it persists to `state.json`
-- **AND THEN** local readers can rely on either surface without schema drift
-
-#### Scenario: Request submission uses all-interface surface when configured
-- **WHEN** a tool submits gateway-managed terminal-mutating work for a session whose resolved gateway host is `0.0.0.0`
-- **THEN** it may submit that work through `POST /v1/requests` on any reachable host interface address on the resolved port
-- **AND THEN** the gateway validates and records the request before it can compete for execution
-
-#### Scenario: Wakeup registration uses the live gateway HTTP surface
-- **WHEN** a caller needs to register or inspect one live wakeup job for an attached gateway-managed session
-- **THEN** the caller uses the dedicated `/v1/wakeups` route family on that live gateway listener
+#### Scenario: Reminder registration uses the live gateway HTTP surface
+- **WHEN** a caller needs to register, inspect, update, or cancel live reminders for an attached gateway-managed session
+- **THEN** the caller uses the dedicated `/v1/reminders` route family on that live gateway listener
 - **AND THEN** the caller does not need to mutate private runtime state or transport queue artifacts directly
 
-#### Scenario: Unknown wakeup identifier fails explicitly
-- **WHEN** a caller requests `GET /v1/wakeups/{job_id}` or `DELETE /v1/wakeups/{job_id}` for a non-existent wakeup job
+#### Scenario: Send-keys reminder request is validated through the reminder route family
+- **WHEN** a caller submits a reminder definition with `send_keys` through `/v1/reminders`
+- **THEN** the reminder request is validated on that reminder route family
+- **AND THEN** the caller does not need to use a separate reminder-specific control-input route
+
+#### Scenario: Unknown reminder identifier fails explicitly
+- **WHEN** a caller requests `GET /v1/reminders/{reminder_id}`, `PUT /v1/reminders/{reminder_id}`, or `DELETE /v1/reminders/{reminder_id}` for a non-existent reminder
 - **THEN** the gateway rejects that call explicitly
-- **AND THEN** it does not pretend that the requested wakeup still exists
-
-#### Scenario: Filesystem-backed mailbox check uses the dedicated gateway mail surface
-- **WHEN** a caller performs mailbox `check` against a mailbox-enabled session whose resolved mailbox transport is `filesystem`
-- **THEN** the live gateway serves that operation through `POST /v1/mail/check`
-- **AND THEN** the caller receives normalized mailbox message metadata without reading mailbox-local SQLite directly
-
-#### Scenario: Filesystem-backed mailbox post uses the dedicated gateway mail surface
-- **WHEN** a caller performs operator-origin mailbox delivery against a mailbox-enabled session whose resolved mailbox transport is `filesystem`
-- **THEN** the live gateway serves that operation through `POST /v1/mail/post`
-- **AND THEN** the resulting delivery uses the reserved Houmao operator mailbox sender rather than the managed agent sender principal
-
-#### Scenario: Stalwart-backed mailbox reply uses the same dedicated gateway mail surface
-- **WHEN** a caller performs mailbox `reply` against a mailbox-enabled session whose resolved mailbox transport is `stalwart`
-- **THEN** the live gateway serves that operation through `POST /v1/mail/reply`
-- **AND THEN** the caller uses the same shared gateway mailbox contract rather than Stalwart-native transport objects directly
-
-#### Scenario: Stalwart-backed mailbox post fails explicitly
-- **WHEN** a caller performs operator-origin mailbox delivery against a mailbox-enabled session whose resolved mailbox transport is `stalwart`
-- **THEN** the live gateway rejects that operation explicitly
-- **AND THEN** it does not pretend that filesystem operator-origin semantics are available for the current transport
-
-#### Scenario: Session without mailbox binding rejects gateway mailbox routes explicitly
-- **WHEN** a caller invokes a gateway mailbox route for a managed session whose manifest has no mailbox binding
-- **THEN** the gateway rejects that mailbox route call explicitly
-- **AND THEN** it does not claim mailbox support for that session
-
-#### Scenario: Non-loopback gateway listener rejects shared mailbox routes
-- **WHEN** a live gateway listener is bound to `0.0.0.0`
-- **AND WHEN** a caller invokes one of the shared `/v1/mail/*` routes
-- **THEN** the gateway rejects that mailbox route call as unavailable for the current listener configuration
-- **AND THEN** terminal-mutating routes remain available under their existing listener rules
-
-#### Scenario: Invalid request payload is rejected with validation semantics
-- **WHEN** a caller submits a malformed `POST /v1/requests` payload
-- **THEN** the gateway returns HTTP `422`
-- **AND THEN** the malformed request is not accepted into durable queue state
-
-#### Scenario: Notifier control surface is available alongside the base gateway API
-- **WHEN** a caller needs to enable, inspect, or disable gateway mail notification for a mailbox-enabled session
-- **THEN** the gateway exposes the dedicated `/v1/mail-notifier` control routes on the same resolved listener
-- **AND THEN** callers do not need to mutate gateway queue persistence directly to manage notifier behavior
+- **AND THEN** it does not pretend that the requested reminder still exists
 
 ### Requirement: Shared gateway mailbox facade supports explicit read-state updates by opaque message reference
 For mailbox-enabled sessions whose live gateway listener is bound to loopback, the shared gateway mailbox facade SHALL expose `POST /v1/mail/state` alongside the existing shared mailbox routes.
@@ -1315,3 +1190,133 @@ The gateway SHALL only record gateway-owned prompt-submission tracking evidence 
 - **WHEN** a caller uses the dedicated gateway raw control-input endpoint to send the sequence `"hello world"` to an attached runtime-owned `local_interactive` session
 - **THEN** the gateway inserts the literal text `hello world`
 - **AND THEN** it does not auto-submit because the caller did not include an explicit `<[Enter]>`
+
+### Requirement: Gateway supports ephemeral ranked reminder records
+The live gateway SHALL expose dedicated reminder routes for direct timer-backed reminder registration without requiring mailbox participation.
+
+That reminder surface SHALL include:
+
+- `POST /v1/reminders`
+- `GET /v1/reminders`
+- `GET /v1/reminders/{reminder_id}`
+- `PUT /v1/reminders/{reminder_id}`
+- `DELETE /v1/reminders/{reminder_id}`
+
+Each reminder record SHALL include:
+
+- a non-empty `title`
+- exactly one delivery form:
+  - a non-empty semantic `prompt`, or
+  - a `send_keys` object with a non-empty `sequence`
+- a `delivery_kind` inspection value that distinguishes `prompt` from `send_keys`
+- a signed `ranking` value whose ordering is ascending and is not restricted to non-negative values
+- a `paused` flag
+- either one-off scheduling with exactly one requested due time or repeating scheduling with an interval and next due time
+
+The reminder `send_keys` object SHALL support:
+
+- `sequence`
+- `ensure_enter`, defaulting to `true`
+
+The gateway SHALL keep registered reminders entirely in the live gateway process memory. Pending reminders and due-but-not-yet-executed reminder occurrences SHALL NOT survive gateway shutdown or restart.
+
+The live gateway SHALL nominate exactly one effective reminder at a time using this deterministic order:
+
+1. smallest `ranking`
+2. earliest `created_at`
+3. smallest `reminder_id` in lexical order
+
+All non-effective reminders SHALL remain blocked behind that selected reminder even when they are already due.
+
+Deleting a reminder SHALL remove that reminder while it remains registered. If execution of one reminder occurrence has already started, deleting the reminder SHALL NOT retroactively retract that already-started reminder execution.
+
+Unknown `reminder_id` lookups, updates, or deletions SHALL fail explicitly rather than pretending the reminder still exists.
+
+When a reminder uses `send_keys`, the gateway SHALL validate support for raw control input against the current attached gateway target during create and update. If the attached target cannot preserve exact raw control-input semantics, the gateway SHALL reject that reminder definition explicitly instead of accepting it for later failure.
+
+#### Scenario: Caller registers a prompt reminder
+- **WHEN** a caller submits `POST /v1/reminders` with a reminder definition containing a non-empty `prompt` and no `send_keys`
+- **THEN** the live gateway creates that reminder successfully
+- **AND THEN** the created reminder reports `delivery_kind = "prompt"`
+
+#### Scenario: Caller registers a send-keys reminder
+- **WHEN** a caller submits `POST /v1/reminders` with a reminder definition containing `send_keys.sequence`
+- **THEN** the live gateway creates that reminder successfully when the attached target supports raw control input
+- **AND THEN** the created reminder reports `delivery_kind = "send_keys"`
+
+#### Scenario: Smallest ranking becomes the effective reminder
+- **WHEN** the live gateway holds reminder records with different ranking values
+- **THEN** the reminder with the smallest ranking value is the effective reminder
+- **AND THEN** all higher-ranking reminders remain blocked until the effective reminder is updated or removed
+
+#### Scenario: Reminder definition with both delivery forms is rejected
+- **WHEN** a caller submits a reminder definition that includes both `prompt` and `send_keys`
+- **THEN** the gateway rejects that reminder definition explicitly
+- **AND THEN** it does not accept an ambiguous delivery mode
+
+#### Scenario: Unsupported backend rejects a send-keys reminder
+- **WHEN** a caller submits or updates a reminder definition with `send_keys`
+- **AND WHEN** the current attached gateway target cannot preserve raw control-input semantics
+- **THEN** the gateway rejects that reminder definition explicitly
+- **AND THEN** it does not keep a reminder that would only fail later when due
+
+### Requirement: Due effective reminders remain gateway-owned low-priority internal prompt delivery
+When the effective reminder becomes due, the gateway SHALL treat delivery of that reminder as gateway-owned internal execution behavior rather than as a new externally visible public request kind.
+
+The public terminal-mutating request-kind set SHALL remain limited to `submit_prompt` and `interrupt`.
+
+Before a due effective reminder starts execution, the gateway SHALL require:
+
+- request admission to be open
+- no active terminal-mutating execution
+- zero durable public queue depth
+- the effective reminder not to be paused
+
+If those conditions are not satisfied when the effective reminder becomes due, the gateway SHALL keep that reminder pending in memory and SHALL retry later instead of dropping the reminder or converting it into durable queued work.
+
+A paused effective reminder SHALL keep its ranking position and SHALL continue blocking lower-ranked reminders until it is resumed, reranked, or removed.
+
+Repeating reminders SHALL maintain at most one pending due occurrence per reminder. Missed intervals during a busy or paused period SHALL NOT produce a catch-up burst of multiple immediate deliveries once the reminder becomes eligible again.
+
+When a due effective reminder uses semantic `prompt` delivery, the gateway SHALL submit exactly that reminder prompt through the existing internal prompt-delivery path.
+
+When a due effective reminder uses `send_keys` delivery, the gateway SHALL submit raw control input through the same exact control-input lane used by gateway send-keys behavior.
+
+For send-keys reminders:
+
+- the gateway SHALL interpret `<[key-name]>` tokens using the same raw control-input grammar used by the gateway send-keys path,
+- the reminder SHALL NOT expose a reminder-specific `escape_special_keys` override,
+- the gateway SHALL NOT submit `title` or `prompt` text as terminal input for that reminder,
+- `ensure_enter=true` SHALL ensure that the delivered control-input sequence ends with exactly one trailing Enter,
+- `ensure_enter=false` SHALL preserve the supplied sequence exactly.
+
+#### Scenario: Busy gateway defers a due effective reminder
+- **WHEN** the effective reminder becomes due while request admission is blocked, active execution is running, or durable public queue depth is non-zero
+- **THEN** the gateway does not start that reminder immediately
+- **AND THEN** the effective reminder remains pending in memory until a later safe execution opportunity
+
+#### Scenario: Paused effective reminder blocks lower-ranked due reminders
+- **WHEN** the effective reminder is paused and one or more lower-ranked reminders are already due
+- **THEN** the gateway does not submit the paused reminder delivery
+- **AND THEN** it also does not submit the lower-ranked reminder deliveries while the paused effective reminder still owns the ranking slot
+
+#### Scenario: Due reminder does not expand the public request-kind set
+- **WHEN** an effective reminder is delivered after becoming due
+- **THEN** that delivery happens through gateway-owned internal behavior rather than a new public `POST /v1/requests` kind
+- **AND THEN** the public terminal-mutating request kinds remain exactly `submit_prompt` and `interrupt`
+
+#### Scenario: Send-keys reminder delivers raw control input without title or prompt text
+- **WHEN** a due effective reminder uses `send_keys`
+- **THEN** the gateway submits the reminder's control-input sequence through the raw control-input lane
+- **AND THEN** it does not synthesize `title` or semantic `prompt` text into that terminal input
+
+#### Scenario: Send-keys reminder with ensure-enter true ends with one trailing Enter
+- **WHEN** a due effective reminder uses `send_keys` with `ensure_enter=true`
+- **THEN** the gateway delivers a control-input sequence that ends with one trailing Enter
+- **AND THEN** it does not deliver two trailing Enter presses when the caller already supplied `<[Enter]>`
+
+#### Scenario: Send-keys reminder with ensure-enter false preserves exact sequence
+- **WHEN** a due effective reminder uses `send_keys` with `ensure_enter=false`
+- **THEN** the gateway delivers the supplied control-input sequence exactly
+- **AND THEN** it does not append an implicit Enter
+

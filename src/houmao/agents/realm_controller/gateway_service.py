@@ -79,14 +79,21 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDefinitionV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderDeliveryKind,
+    GatewayReminderDeliveryState,
+    GatewayReminderListV1,
+    GatewayReminderMode,
+    GatewayReminderPutV1,
+    GatewayReminderSendKeysV1,
+    GatewayReminderSelectionState,
+    GatewayReminderV1,
     GatewaySurfaceEligibilityState,
     GatewayStoredRequestKind,
     GatewayStatusV1,
-    GatewayWakeupCancelResultV1,
-    GatewayWakeupCreateV1,
-    GatewayWakeupJobV1,
-    GatewayWakeupListV1,
-    GatewayWakeupMode,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayNotifierAuditUnreadMessage,
@@ -137,12 +144,13 @@ from houmao.server.pair_client import (
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 
 _QUEUE_POLL_INTERVAL_SECONDS = 0.2
-_WAKEUP_BUSY_RETRY_INTERVAL_SECONDS = 0.2
+_REMINDER_BUSY_RETRY_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _TUI_RESET_PROMPT = "/clear"
 _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
+_SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
 _GatewayRequestTerminalState = Literal["completed", "failed"]
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
@@ -186,19 +194,25 @@ class _UnreadMailboxMessage:
 
 
 @dataclass
-class _GatewayWakeupJobRecord:
-    """One in-memory wakeup job owned by the live gateway runtime."""
+class _GatewayReminderRecord:
+    """One in-memory reminder record owned by the live gateway runtime."""
 
-    job_id: str
-    mode: GatewayWakeupMode
-    prompt: str
+    reminder_id: str
+    mode: GatewayReminderMode
+    delivery_kind: GatewayReminderDeliveryKind
+    title: str
+    prompt: str | None
+    send_keys_sequence: str | None
+    send_keys_ensure_enter: bool
+    ranking: int
+    paused: bool
     created_at: datetime
     next_due_at: datetime
     anchor_due_at: datetime
     interval_seconds: float | None
     last_started_at: datetime | None = None
     executing: bool = False
-    cancel_requested: bool = False
+    delete_requested: bool = False
     deferred_signature: str | None = None
 
 
@@ -210,6 +224,14 @@ class _GatewayTargetState:
     connectivity: GatewayConnectivityState
     terminal_surface_eligibility: GatewaySurfaceEligibilityState
     prompt_admission_open: bool
+
+
+@dataclass(frozen=True)
+class _GatewayControlInputSupport:
+    """Raw control-input capability summary for the attached gateway target."""
+
+    supported: bool
+    detail: str | None = None
 
 
 def _sort_unread_messages(
@@ -289,6 +311,9 @@ class GatewayExecutionAdapter(Protocol):
 
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
         """Deliver one raw control-input sequence to the addressed managed target."""
+
+    def describe_control_input_support(self) -> _GatewayControlInputSupport:
+        """Return whether the attached target can preserve raw control-input semantics."""
 
     def interrupt(self) -> None:
         """Interrupt the addressed managed target."""
@@ -386,6 +411,17 @@ class _RestBackedGatewayAdapter:
         raise GatewayError(
             "Raw control input is unsupported for REST-backed gateway targets because the "
             "gateway cannot preserve exact tmux `<[key-name]>` semantics on that path."
+        )
+
+    def describe_control_input_support(self) -> _GatewayControlInputSupport:
+        """Return the raw control-input support summary for REST-backed targets."""
+
+        return _GatewayControlInputSupport(
+            supported=False,
+            detail=(
+                "Raw control input is unsupported for REST-backed gateway targets because the "
+                "gateway cannot preserve exact tmux `<[key-name]>` semantics on that path."
+            ),
         )
 
     def interrupt(self) -> None:
@@ -578,6 +614,11 @@ class _LocalHeadlessGatewayAdapter:
             raise GatewayError(result.detail)
         return result.detail
 
+    def describe_control_input_support(self) -> _GatewayControlInputSupport:
+        """Return the raw control-input support summary for local tmux-backed targets."""
+
+        return _GatewayControlInputSupport(supported=True)
+
     def _send_headless_prompt(
         self,
         *,
@@ -752,6 +793,14 @@ class _ServerManagedHeadlessGatewayAdapter:
             "Raw control input is unsupported for server-managed headless gateway targets."
         )
 
+    def describe_control_input_support(self) -> _GatewayControlInputSupport:
+        """Return the raw control-input support summary for server-managed headless targets."""
+
+        return _GatewayControlInputSupport(
+            supported=False,
+            detail="Raw control input is unsupported for server-managed headless gateway targets.",
+        )
+
     def _resolve_client(self) -> PairAuthorityClientProtocol:
         """Return the resolved pair-authority client for the managed target."""
 
@@ -779,7 +828,6 @@ class _ServerManagedHeadlessGatewayAdapter:
             assert session_selection.session_id is not None
             return GatewayChatSessionSelectorV1(mode="exact", id=session_selection.session_id)
         return GatewayChatSessionSelectorV1(mode=session_selection.mode)
-
 
 
 def _build_gateway_execution_adapter(
@@ -838,11 +886,11 @@ class GatewayServiceRuntime:
             attach_contract=self.m_attach_contract
         )
         self.m_lock = threading.Lock()
-        self.m_wakeup_condition = threading.Condition(self.m_lock)
+        self.m_reminder_condition = threading.Condition(self.m_lock)
         self.m_log_lock = threading.Lock()
         self.m_stop_event = threading.Event()
         self.m_worker_thread: threading.Thread | None = None
-        self.m_wakeup_thread: threading.Thread | None = None
+        self.m_reminder_thread: threading.Thread | None = None
         self.m_notifier_thread: threading.Thread | None = None
         self.m_current_epoch = 1
         self.m_current_instance_id: str | None = None
@@ -857,8 +905,8 @@ class GatewayServiceRuntime:
         self.m_direct_prompt_thread: threading.Thread | None = None
         self.m_direct_prompt_turn_id: str | None = None
         self.m_headless_next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
-        self.m_wakeup_jobs: dict[str, _GatewayWakeupJobRecord] = {}
-        self.m_active_wakeup_job_id: str | None = None
+        self.m_reminders: dict[str, _GatewayReminderRecord] = {}
+        self.m_active_reminder_id: str | None = None
 
     @classmethod
     def from_gateway_root(
@@ -916,12 +964,12 @@ class GatewayServiceRuntime:
             daemon=True,
         )
         self.m_worker_thread.start()
-        self.m_wakeup_thread = threading.Thread(
-            target=self._wakeup_loop,
-            name="gateway-wakeup-scheduler",
+        self.m_reminder_thread = threading.Thread(
+            target=self._reminder_loop,
+            name="gateway-reminder-scheduler",
             daemon=True,
         )
-        self.m_wakeup_thread.start()
+        self.m_reminder_thread.start()
         self.m_notifier_thread = threading.Thread(
             target=self._notifier_loop,
             name="gateway-mail-notifier",
@@ -941,16 +989,16 @@ class GatewayServiceRuntime:
         """Stop the queue worker and remove ephemeral run metadata."""
 
         self.m_stop_event.set()
-        with self.m_wakeup_condition:
-            self.m_wakeup_condition.notify_all()
+        with self.m_reminder_condition:
+            self.m_reminder_condition.notify_all()
         if self.m_worker_thread is not None:
             self.m_worker_thread.join(timeout=2.0)
-        if self.m_wakeup_thread is not None:
-            self.m_wakeup_thread.join(timeout=2.0)
+        if self.m_reminder_thread is not None:
+            self.m_reminder_thread.join(timeout=2.0)
         if self.m_notifier_thread is not None:
             self.m_notifier_thread.join(timeout=2.0)
         with self.m_lock:
-            self._drop_pending_wakeups_locked()
+            self._drop_pending_reminders_locked()
             if self.m_tui_tracking is not None:
                 self.m_tui_tracking.stop()
                 self.m_tui_tracking = None
@@ -1179,135 +1227,374 @@ class GatewayServiceRuntime:
                 managed_agent_instance_epoch=self.m_current_epoch,
             )
 
-    def create_wakeup(self, request_payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
-        """Register one in-memory wakeup job."""
+    def create_reminders(
+        self,
+        request_payload: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        """Register one or more in-memory reminders."""
 
-        with self.m_wakeup_condition:
-            created_at = datetime.now(UTC)
-            if request_payload.after_seconds is not None:
-                due_at = created_at + timedelta(seconds=float(request_payload.after_seconds))
-            else:
-                assert request_payload.deliver_at_utc is not None
-                due_at = _parse_gateway_timestamp(request_payload.deliver_at_utc)
-            job = _GatewayWakeupJobRecord(
-                job_id=self._generate_wakeup_job_id_locked(),
-                mode=request_payload.mode,
-                prompt=request_payload.prompt,
-                created_at=created_at,
-                next_due_at=due_at,
-                anchor_due_at=due_at,
-                interval_seconds=(
-                    float(request_payload.interval_seconds)
-                    if request_payload.interval_seconds is not None
-                    else None
-                ),
+        with self.m_reminder_condition:
+            created_reminders: list[_GatewayReminderRecord] = []
+            for definition in request_payload.reminders:
+                self._validate_reminder_delivery_supported(definition)
+            for definition in request_payload.reminders:
+                created_at = datetime.now(UTC)
+                due_at = self._due_at_from_reminder_definition(
+                    definition,
+                    reference_time=created_at,
+                )
+                send_keys = definition.send_keys
+                reminder = _GatewayReminderRecord(
+                    reminder_id=self._generate_reminder_id_locked(),
+                    mode=definition.mode,
+                    delivery_kind=self._reminder_delivery_kind_from_definition(definition),
+                    title=definition.title,
+                    prompt=definition.prompt,
+                    send_keys_sequence=send_keys.sequence if send_keys is not None else None,
+                    send_keys_ensure_enter=send_keys.ensure_enter
+                    if send_keys is not None
+                    else True,
+                    ranking=definition.ranking,
+                    paused=definition.paused,
+                    created_at=created_at,
+                    next_due_at=due_at,
+                    anchor_due_at=due_at,
+                    interval_seconds=(
+                        float(definition.interval_seconds)
+                        if definition.interval_seconds is not None
+                        else None
+                    ),
+                )
+                self.m_reminders[reminder.reminder_id] = reminder
+                created_reminders.append(reminder)
+                append_gateway_event(
+                    self.m_paths,
+                    {
+                        "kind": "reminder_registered",
+                        "reminder_id": reminder.reminder_id,
+                        "mode": reminder.mode,
+                        "delivery_kind": reminder.delivery_kind,
+                        "title": reminder.title,
+                        "ranking": reminder.ranking,
+                        "paused": reminder.paused,
+                        "prompt_preview": (
+                            reminder.prompt[:120] if reminder.prompt is not None else None
+                        ),
+                        "sequence_preview": (
+                            reminder.send_keys_sequence[:120]
+                            if reminder.send_keys_sequence is not None
+                            else None
+                        ),
+                        "ensure_enter": (
+                            reminder.send_keys_ensure_enter
+                            if reminder.delivery_kind == "send_keys"
+                            else None
+                        ),
+                        "created_at_utc": self._gateway_datetime_iso(reminder.created_at),
+                        "next_due_at_utc": self._gateway_datetime_iso(reminder.next_due_at),
+                        "interval_seconds": reminder.interval_seconds,
+                    },
+                )
+                self._log(
+                    "registered reminder "
+                    f"reminder_id={reminder.reminder_id} "
+                    f"ranking={reminder.ranking} "
+                    f"paused={reminder.paused} "
+                    f"next_due_at_utc={self._gateway_datetime_iso(reminder.next_due_at)}"
+                )
+            effective_reminder_id = self._effective_reminder_id_locked()
+            self.m_reminder_condition.notify_all()
+            return GatewayReminderCreateResultV1(
+                effective_reminder_id=effective_reminder_id,
+                reminders=[
+                    self._build_reminder_model_locked(
+                        reminder,
+                        effective_reminder_id=effective_reminder_id,
+                    )
+                    for reminder in created_reminders
+                ],
             )
-            self.m_wakeup_jobs[job.job_id] = job
+
+    def list_reminders(self) -> GatewayReminderListV1:
+        """Return live in-memory reminder inspection state."""
+
+        with self.m_lock:
+            return self._build_reminder_list_locked()
+
+    def get_reminder(self, *, reminder_id: str) -> GatewayReminderV1:
+        """Return one live reminder by identifier."""
+
+        with self.m_lock:
+            reminder = self.m_reminders.get(reminder_id)
+            if reminder is None:
+                raise HTTPException(status_code=404, detail=f"Unknown reminder `{reminder_id}`.")
+            effective_reminder_id = self._effective_reminder_id_locked()
+            return self._build_reminder_model_locked(
+                reminder,
+                effective_reminder_id=effective_reminder_id,
+            )
+
+    def put_reminder(
+        self,
+        *,
+        reminder_id: str,
+        request_payload: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        """Update one in-memory reminder."""
+
+        with self.m_reminder_condition:
+            reminder = self.m_reminders.get(reminder_id)
+            if reminder is None:
+                raise HTTPException(status_code=404, detail=f"Unknown reminder `{reminder_id}`.")
+            if reminder.executing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Reminder `{reminder_id}` is executing and cannot be updated until "
+                        "the current reminder delivery finishes."
+                    ),
+                )
+            self._validate_reminder_delivery_supported(request_payload)
+            updated_at = datetime.now(UTC)
+            due_at = self._due_at_from_reminder_definition(
+                request_payload,
+                reference_time=updated_at,
+            )
+            send_keys = request_payload.send_keys
+            reminder.mode = request_payload.mode
+            reminder.delivery_kind = self._reminder_delivery_kind_from_definition(request_payload)
+            reminder.title = request_payload.title
+            reminder.prompt = request_payload.prompt
+            reminder.send_keys_sequence = send_keys.sequence if send_keys is not None else None
+            reminder.send_keys_ensure_enter = (
+                send_keys.ensure_enter if send_keys is not None else True
+            )
+            reminder.ranking = request_payload.ranking
+            reminder.paused = request_payload.paused
+            reminder.next_due_at = due_at
+            reminder.anchor_due_at = due_at
+            reminder.interval_seconds = (
+                float(request_payload.interval_seconds)
+                if request_payload.interval_seconds is not None
+                else None
+            )
+            reminder.deferred_signature = None
             append_gateway_event(
                 self.m_paths,
                 {
-                    "kind": "wakeup_registered",
-                    "job_id": job.job_id,
-                    "mode": job.mode,
-                    "created_at_utc": self._gateway_datetime_iso(job.created_at),
-                    "next_due_at_utc": self._gateway_datetime_iso(job.next_due_at),
-                    "interval_seconds": job.interval_seconds,
+                    "kind": "reminder_updated",
+                    "reminder_id": reminder_id,
+                    "mode": reminder.mode,
+                    "delivery_kind": reminder.delivery_kind,
+                    "title": reminder.title,
+                    "ranking": reminder.ranking,
+                    "paused": reminder.paused,
+                    "prompt_preview": reminder.prompt[:120]
+                    if reminder.prompt is not None
+                    else None,
+                    "sequence_preview": (
+                        reminder.send_keys_sequence[:120]
+                        if reminder.send_keys_sequence is not None
+                        else None
+                    ),
+                    "ensure_enter": (
+                        reminder.send_keys_ensure_enter
+                        if reminder.delivery_kind == "send_keys"
+                        else None
+                    ),
+                    "next_due_at_utc": self._gateway_datetime_iso(reminder.next_due_at),
+                    "interval_seconds": reminder.interval_seconds,
                 },
             )
             self._log(
-                f"registered wakeup job_id={job.job_id} mode={job.mode} next_due_at_utc={self._gateway_datetime_iso(job.next_due_at)}"
+                "updated reminder "
+                f"reminder_id={reminder_id} "
+                f"ranking={reminder.ranking} "
+                f"paused={reminder.paused} "
+                f"next_due_at_utc={self._gateway_datetime_iso(reminder.next_due_at)}"
             )
-            self.m_wakeup_condition.notify_all()
-            return self._build_wakeup_job_model_locked(job)
-
-    def list_wakeups(self) -> GatewayWakeupListV1:
-        """Return live in-memory wakeup inspection state."""
-
-        with self.m_lock:
-            jobs = sorted(
-                self.m_wakeup_jobs.values(),
-                key=lambda job: (job.next_due_at, job.created_at, job.job_id),
-            )
-            return GatewayWakeupListV1(
-                jobs=[self._build_wakeup_job_model_locked(job) for job in jobs]
+            effective_reminder_id = self._effective_reminder_id_locked()
+            self.m_reminder_condition.notify_all()
+            return self._build_reminder_model_locked(
+                reminder,
+                effective_reminder_id=effective_reminder_id,
             )
 
-    def get_wakeup(self, *, job_id: str) -> GatewayWakeupJobV1:
-        """Return one live wakeup job by identifier."""
+    def delete_reminder(self, *, reminder_id: str) -> GatewayReminderDeleteResultV1:
+        """Delete one reminder or future repetitions for an active execution."""
 
-        with self.m_lock:
-            job = self.m_wakeup_jobs.get(job_id)
-            if job is None:
-                raise HTTPException(status_code=404, detail=f"Unknown wakeup job `{job_id}`.")
-            return self._build_wakeup_job_model_locked(job)
-
-    def delete_wakeup(self, *, job_id: str) -> GatewayWakeupCancelResultV1:
-        """Cancel one wakeup job or future repetitions for an active execution."""
-
-        with self.m_wakeup_condition:
-            job = self.m_wakeup_jobs.get(job_id)
-            if job is None:
-                raise HTTPException(status_code=404, detail=f"Unknown wakeup job `{job_id}`.")
-            if job.executing:
-                job.cancel_requested = True
+        with self.m_reminder_condition:
+            reminder = self.m_reminders.get(reminder_id)
+            if reminder is None:
+                raise HTTPException(status_code=404, detail=f"Unknown reminder `{reminder_id}`.")
+            if reminder.executing:
+                reminder.delete_requested = True
                 detail = (
-                    "Wakeup cancellation recorded; the already-started prompt delivery will "
+                    "Reminder deletion recorded; the already-started reminder delivery will "
                     "continue until completion."
                 )
             else:
-                del self.m_wakeup_jobs[job_id]
-                detail = "Wakeup canceled."
+                del self.m_reminders[reminder_id]
+                detail = "Reminder deleted."
             append_gateway_event(
                 self.m_paths,
                 {
-                    "kind": "wakeup_canceled",
-                    "job_id": job_id,
-                    "executing": job.executing,
-                    "cancel_requested": True,
+                    "kind": "reminder_deleted",
+                    "reminder_id": reminder_id,
+                    "executing": reminder.executing,
+                    "delete_requested": True,
                     "detail": detail,
                 },
             )
-            self._log(f"canceled wakeup job_id={job_id} executing={job.executing}")
-            self.m_wakeup_condition.notify_all()
-            return GatewayWakeupCancelResultV1(job_id=job_id, detail=detail)
+            self._log(f"deleted reminder reminder_id={reminder_id} executing={reminder.executing}")
+            self.m_reminder_condition.notify_all()
+            return GatewayReminderDeleteResultV1(reminder_id=reminder_id, detail=detail)
 
-    def _generate_wakeup_job_id_locked(self) -> str:
-        """Return one stable opaque identifier for a live wakeup job."""
-
-        seed = f"{self.m_attach_contract.attach_identity}:{time.time()}:{len(self.m_wakeup_jobs)}"
-        return f"gwakeup-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:12]}"
-
-    def _build_wakeup_job_model_locked(
+    def _due_at_from_reminder_definition(
         self,
-        job: _GatewayWakeupJobRecord,
-    ) -> GatewayWakeupJobV1:
-        """Build one public inspection model for an in-memory wakeup job."""
+        definition: GatewayReminderDefinitionV1,
+        *,
+        reference_time: datetime,
+    ) -> datetime:
+        """Return the next due time for one validated reminder definition."""
 
-        return GatewayWakeupJobV1(
-            job_id=job.job_id,
-            mode=job.mode,
-            prompt=job.prompt,
-            state=self._wakeup_state_locked(job),
-            created_at_utc=self._gateway_datetime_iso(job.created_at),
-            next_due_at_utc=self._gateway_datetime_iso(job.next_due_at),
-            interval_seconds=job.interval_seconds,
-            last_started_at_utc=(
-                self._gateway_datetime_iso(job.last_started_at)
-                if job.last_started_at is not None
-                else None
-            ),
-            cancel_requested=job.cancel_requested,
+        if definition.start_after_seconds is not None:
+            return reference_time + timedelta(seconds=float(definition.start_after_seconds))
+        assert definition.deliver_at_utc is not None
+        return _parse_gateway_timestamp(definition.deliver_at_utc)
+
+    def _generate_reminder_id_locked(self) -> str:
+        """Return one stable opaque identifier for a live reminder."""
+
+        seed = f"{self.m_attach_contract.attach_identity}:{time.time()}:{len(self.m_reminders)}"
+        return f"greminder-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:12]}"
+
+    def _reminder_delivery_kind_from_definition(
+        self,
+        definition: GatewayReminderDefinitionV1,
+    ) -> GatewayReminderDeliveryKind:
+        """Return the delivery kind implied by one validated reminder definition."""
+
+        return "send_keys" if definition.send_keys is not None else "prompt"
+
+    def _validate_reminder_delivery_supported(
+        self,
+        definition: GatewayReminderDefinitionV1,
+    ) -> None:
+        """Reject reminder delivery shapes unsupported by the attached gateway target."""
+
+        if definition.send_keys is None:
+            return
+        control_input_support = self.m_adapter.describe_control_input_support()
+        if control_input_support.supported:
+            return
+        detail = control_input_support.detail or (
+            "Raw control input is unsupported for the attached gateway target."
+        )
+        raise HTTPException(status_code=422, detail=detail)
+
+    def _build_reminder_send_keys_model_locked(
+        self,
+        reminder: _GatewayReminderRecord,
+    ) -> GatewayReminderSendKeysV1 | None:
+        """Build the public send-keys payload for one in-memory reminder."""
+
+        if reminder.delivery_kind != "send_keys":
+            return None
+        assert reminder.send_keys_sequence is not None
+        return GatewayReminderSendKeysV1(
+            sequence=reminder.send_keys_sequence,
+            ensure_enter=reminder.send_keys_ensure_enter,
         )
 
-    def _wakeup_state_locked(
+    def _reminder_sort_key_locked(
         self,
-        job: _GatewayWakeupJobRecord,
-    ) -> Literal["scheduled", "overdue", "executing"]:
-        """Return the public state for one live wakeup job."""
+        reminder: _GatewayReminderRecord,
+    ) -> tuple[int, datetime, str]:
+        """Return the deterministic live reminder ordering key."""
 
-        if job.executing:
+        return (reminder.ranking, reminder.created_at, reminder.reminder_id)
+
+    def _effective_reminder_locked(self) -> _GatewayReminderRecord | None:
+        """Return the current effective reminder, if any."""
+
+        if not self.m_reminders:
+            return None
+        return min(self.m_reminders.values(), key=self._reminder_sort_key_locked)
+
+    def _effective_reminder_id_locked(self) -> str | None:
+        """Return the current effective reminder identifier, if any."""
+
+        effective_reminder = self._effective_reminder_locked()
+        if effective_reminder is None:
+            return None
+        return effective_reminder.reminder_id
+
+    def _build_reminder_model_locked(
+        self,
+        reminder: _GatewayReminderRecord,
+        *,
+        effective_reminder_id: str | None = None,
+    ) -> GatewayReminderV1:
+        """Build one public inspection model for an in-memory reminder."""
+
+        if effective_reminder_id is None:
+            effective_reminder_id = self._effective_reminder_id_locked()
+        selection_state: GatewayReminderSelectionState
+        blocked_by_reminder_id: str | None
+        if reminder.reminder_id == effective_reminder_id:
+            selection_state = "effective"
+            blocked_by_reminder_id = None
+        else:
+            selection_state = "blocked"
+            blocked_by_reminder_id = effective_reminder_id
+        return GatewayReminderV1(
+            reminder_id=reminder.reminder_id,
+            mode=reminder.mode,
+            delivery_kind=reminder.delivery_kind,
+            title=reminder.title,
+            prompt=reminder.prompt,
+            send_keys=self._build_reminder_send_keys_model_locked(reminder),
+            ranking=reminder.ranking,
+            paused=reminder.paused,
+            selection_state=selection_state,
+            delivery_state=self._reminder_delivery_state_locked(reminder),
+            created_at_utc=self._gateway_datetime_iso(reminder.created_at),
+            next_due_at_utc=self._gateway_datetime_iso(reminder.next_due_at),
+            interval_seconds=reminder.interval_seconds,
+            last_started_at_utc=(
+                self._gateway_datetime_iso(reminder.last_started_at)
+                if reminder.last_started_at is not None
+                else None
+            ),
+            blocked_by_reminder_id=blocked_by_reminder_id,
+        )
+
+    def _build_reminder_list_locked(self) -> GatewayReminderListV1:
+        """Build the public inspection payload for the live reminder set."""
+
+        reminders = sorted(self.m_reminders.values(), key=self._reminder_sort_key_locked)
+        effective_reminder_id = self._effective_reminder_id_locked()
+        return GatewayReminderListV1(
+            effective_reminder_id=effective_reminder_id,
+            reminders=[
+                self._build_reminder_model_locked(
+                    reminder,
+                    effective_reminder_id=effective_reminder_id,
+                )
+                for reminder in reminders
+            ],
+        )
+
+    def _reminder_delivery_state_locked(
+        self,
+        reminder: _GatewayReminderRecord,
+    ) -> GatewayReminderDeliveryState:
+        """Return the public delivery state for one live reminder."""
+
+        if reminder.executing:
             return "executing"
-        if job.next_due_at <= datetime.now(UTC):
+        if reminder.next_due_at <= datetime.now(UTC):
             return "overdue"
         return "scheduled"
 
@@ -1316,28 +1603,51 @@ class GatewayServiceRuntime:
 
         return value.astimezone(UTC).isoformat()
 
-    def _drop_pending_wakeups_locked(self) -> None:
-        """Log and clear wakeups that vanish with gateway shutdown."""
+    def _drop_pending_reminders_locked(self) -> None:
+        """Log and clear reminders that vanish with gateway shutdown."""
 
-        if not self.m_wakeup_jobs:
+        if not self.m_reminders:
             return
-        for job in list(self.m_wakeup_jobs.values()):
+        effective_reminder_id = self._effective_reminder_id_locked()
+        for reminder in list(self.m_reminders.values()):
             append_gateway_event(
                 self.m_paths,
                 {
-                    "kind": "wakeup_lost_on_restart",
-                    "job_id": job.job_id,
-                    "mode": job.mode,
-                    "state": self._wakeup_state_locked(job),
-                    "next_due_at_utc": self._gateway_datetime_iso(job.next_due_at),
-                    "cancel_requested": job.cancel_requested,
+                    "kind": "reminder_lost_on_restart",
+                    "reminder_id": reminder.reminder_id,
+                    "mode": reminder.mode,
+                    "delivery_kind": reminder.delivery_kind,
+                    "ranking": reminder.ranking,
+                    "paused": reminder.paused,
+                    "selection_state": (
+                        "effective" if reminder.reminder_id == effective_reminder_id else "blocked"
+                    ),
+                    "delivery_state": self._reminder_delivery_state_locked(reminder),
+                    "next_due_at_utc": self._gateway_datetime_iso(reminder.next_due_at),
                 },
             )
             self._log(
-                f"lost in-memory wakeup job_id={job.job_id} state={self._wakeup_state_locked(job)}"
+                "lost in-memory reminder "
+                f"reminder_id={reminder.reminder_id} "
+                f"delivery_state={self._reminder_delivery_state_locked(reminder)}"
             )
-        self.m_wakeup_jobs.clear()
-        self.m_active_wakeup_job_id = None
+        self.m_reminders.clear()
+        self.m_active_reminder_id = None
+
+    def _normalize_reminder_send_keys_sequence(
+        self,
+        *,
+        sequence: str,
+        ensure_enter: bool,
+    ) -> str:
+        """Normalize one reminder send-keys sequence according to `ensure_enter`."""
+
+        if not ensure_enter:
+            return sequence
+        normalized = sequence
+        while normalized.endswith(_SEND_KEYS_ENTER_TOKEN):
+            normalized = normalized[: -len(_SEND_KEYS_ENTER_TOKEN)]
+        return f"{normalized}{_SEND_KEYS_ENTER_TOKEN}"
 
     def control_prompt(
         self,
@@ -1470,7 +1780,9 @@ class GatewayServiceRuntime:
 
         tracking = self.m_tui_tracking
         if tracking is None:
-            raise GatewayError("Gateway TUI tracking is unavailable for reset-based prompt control.")
+            raise GatewayError(
+                "Gateway TUI tracking is unavailable for reset-based prompt control."
+            )
         self.m_adapter.submit_prompt(prompt=_TUI_RESET_PROMPT)
         tracking.note_prompt_submission(message=_TUI_RESET_PROMPT)
         self._wait_for_tui_ready_after_reset(tracking=tracking)
@@ -1866,7 +2178,7 @@ class GatewayServiceRuntime:
                     self.m_direct_prompt_turn_id = None
                 self.m_direct_prompt_thread = None
                 self._refresh_status_snapshot(active_execution=self._active_execution_state())
-                self.m_wakeup_condition.notify_all()
+                self.m_reminder_condition.notify_all()
 
     def _raise_prompt_control_http_error(
         self,
@@ -2505,17 +2817,19 @@ class GatewayServiceRuntime:
             detail=detail,
         )
 
-    def _wakeup_loop(self) -> None:
-        """Deliver due in-memory wakeups when the gateway becomes idle."""
+    def _reminder_loop(self) -> None:
+        """Deliver due effective reminders when the gateway becomes idle."""
 
         while not self.m_stop_event.is_set():
-            wakeup_job: _GatewayWakeupJobRecord | None = None
-            with self.m_wakeup_condition:
+            reminder: _GatewayReminderRecord | None = None
+            with self.m_reminder_condition:
                 if self.m_stop_event.is_set():
                     return
-                wakeup_job = self._due_wakeup_job_locked()
-                if wakeup_job is None:
-                    self.m_wakeup_condition.wait(timeout=self._next_wakeup_wait_seconds_locked())
+                reminder = self._effective_due_reminder_locked()
+                if reminder is None:
+                    self.m_reminder_condition.wait(
+                        timeout=self._next_reminder_wait_seconds_locked()
+                    )
                     continue
                 status = self._refresh_status_snapshot(
                     active_execution=self._active_execution_state()
@@ -2525,81 +2839,110 @@ class GatewayServiceRuntime:
                     or status.active_execution != "idle"
                     or status.queue_depth > 0
                 ):
-                    self._record_wakeup_deferral_locked(wakeup_job, status=status)
-                    self.m_wakeup_condition.wait(timeout=_WAKEUP_BUSY_RETRY_INTERVAL_SECONDS)
+                    self._record_reminder_deferral_locked(reminder, status=status)
+                    self.m_reminder_condition.wait(timeout=_REMINDER_BUSY_RETRY_INTERVAL_SECONDS)
                     continue
 
-                wakeup_job.executing = True
-                wakeup_job.last_started_at = datetime.now(UTC)
-                wakeup_job.deferred_signature = None
-                self.m_active_wakeup_job_id = wakeup_job.job_id
+                reminder.executing = True
+                reminder.last_started_at = datetime.now(UTC)
+                reminder.deferred_signature = None
+                self.m_active_reminder_id = reminder.reminder_id
                 self._refresh_status_snapshot(active_execution="running")
                 append_gateway_event(
                     self.m_paths,
                     {
-                        "kind": "wakeup_started",
-                        "job_id": wakeup_job.job_id,
-                        "mode": wakeup_job.mode,
-                        "started_at_utc": self._gateway_datetime_iso(wakeup_job.last_started_at),
-                        "cancel_requested": wakeup_job.cancel_requested,
+                        "kind": "reminder_started",
+                        "reminder_id": reminder.reminder_id,
+                        "mode": reminder.mode,
+                        "delivery_kind": reminder.delivery_kind,
+                        "ranking": reminder.ranking,
+                        "paused": reminder.paused,
+                        "sequence_preview": (
+                            reminder.send_keys_sequence[:120]
+                            if reminder.send_keys_sequence is not None
+                            else None
+                        ),
+                        "ensure_enter": (
+                            reminder.send_keys_ensure_enter
+                            if reminder.delivery_kind == "send_keys"
+                            else None
+                        ),
+                        "started_at_utc": self._gateway_datetime_iso(reminder.last_started_at),
+                        "delete_requested": reminder.delete_requested,
                     },
                 )
-                self._log(f"executing wakeup job_id={wakeup_job.job_id} mode={wakeup_job.mode}")
+                self._log(
+                    "executing reminder "
+                    f"reminder_id={reminder.reminder_id} "
+                    f"ranking={reminder.ranking}"
+                )
 
             error_detail: str | None = None
-            assert wakeup_job is not None
+            assert reminder is not None
             try:
-                self._submit_prompt_via_adapter(
-                    prompt=wakeup_job.prompt,
-                    turn_id=None,
-                    session_selection=None,
-                    note_prompt_submission=False,
-                )
+                if reminder.delivery_kind == "prompt":
+                    assert reminder.prompt is not None
+                    self._submit_prompt_via_adapter(
+                        prompt=reminder.prompt,
+                        turn_id=None,
+                        session_selection=None,
+                        note_prompt_submission=False,
+                    )
+                else:
+                    assert reminder.send_keys_sequence is not None
+                    self.m_adapter.send_control_input(
+                        sequence=self._normalize_reminder_send_keys_sequence(
+                            sequence=reminder.send_keys_sequence,
+                            ensure_enter=reminder.send_keys_ensure_enter,
+                        ),
+                        escape_special_keys=False,
+                    )
             except (GatewayError, CaoApiError, ValidationError) as exc:
                 error_detail = str(exc)
-            self._finish_wakeup_execution(job_id=wakeup_job.job_id, error_detail=error_detail)
+            self._finish_reminder_execution(
+                reminder_id=reminder.reminder_id,
+                error_detail=error_detail,
+            )
 
-    def _due_wakeup_job_locked(self) -> _GatewayWakeupJobRecord | None:
-        """Return the earliest currently due wakeup job."""
+    def _effective_due_reminder_locked(self) -> _GatewayReminderRecord | None:
+        """Return the effective reminder when it is eligible to dispatch."""
 
-        now = datetime.now(UTC)
-        due_jobs = [
-            job
-            for job in self.m_wakeup_jobs.values()
-            if not job.executing and not job.cancel_requested and job.next_due_at <= now
-        ]
-        if not due_jobs:
+        reminder = self._effective_reminder_locked()
+        if reminder is None:
             return None
-        return min(due_jobs, key=lambda job: (job.next_due_at, job.created_at, job.job_id))
+        if reminder.executing or reminder.delete_requested or reminder.paused:
+            return None
+        if reminder.next_due_at > datetime.now(UTC):
+            return None
+        return reminder
 
-    def _next_wakeup_wait_seconds_locked(self) -> float | None:
-        """Return the next condition-wait timeout for the wakeup scheduler."""
+    def _next_reminder_wait_seconds_locked(self) -> float | None:
+        """Return the next condition-wait timeout for the reminder scheduler."""
 
-        future_due_times = [
-            job.next_due_at
-            for job in self.m_wakeup_jobs.values()
-            if not job.executing and not job.cancel_requested
-        ]
-        if not future_due_times:
+        reminder = self._effective_reminder_locked()
+        if reminder is None or reminder.executing:
             return None
         now = datetime.now(UTC)
-        earliest_due_at = min(future_due_times)
-        return max(0.0, (earliest_due_at - now).total_seconds())
+        if reminder.next_due_at <= now:
+            if reminder.paused:
+                return None
+            return 0.0
+        return max(0.0, (reminder.next_due_at - now).total_seconds())
 
-    def _record_wakeup_deferral_locked(
+    def _record_reminder_deferral_locked(
         self,
-        wakeup_job: _GatewayWakeupJobRecord,
+        reminder: _GatewayReminderRecord,
         *,
         status: GatewayStatusV1,
     ) -> None:
-        """Emit one deferral record when a due wakeup cannot execute yet."""
+        """Emit one deferral record when the effective reminder cannot execute yet."""
 
         signature = f"{status.request_admission}:{status.active_execution}:{status.queue_depth}"
-        if wakeup_job.deferred_signature == signature:
+        if reminder.deferred_signature == signature:
             return
-        wakeup_job.deferred_signature = signature
+        reminder.deferred_signature = signature
         detail = (
-            "wakeup deferred because the gateway is busy "
+            "effective reminder deferred because the gateway is busy "
             f"(admission={status.request_admission}, "
             f"active_execution={status.active_execution}, "
             f"queue_depth={status.queue_depth})"
@@ -2607,74 +2950,88 @@ class GatewayServiceRuntime:
         append_gateway_event(
             self.m_paths,
             {
-                "kind": "wakeup_deferred",
-                "job_id": wakeup_job.job_id,
-                "mode": wakeup_job.mode,
+                "kind": "reminder_deferred",
+                "reminder_id": reminder.reminder_id,
+                "mode": reminder.mode,
+                "delivery_kind": reminder.delivery_kind,
+                "ranking": reminder.ranking,
                 "detail": detail,
-                "next_due_at_utc": self._gateway_datetime_iso(wakeup_job.next_due_at),
+                "next_due_at_utc": self._gateway_datetime_iso(reminder.next_due_at),
             },
         )
-        self._log_rate_limited(f"wakeup_deferred:{wakeup_job.job_id}", detail)
+        self._log_rate_limited(f"reminder_deferred:{reminder.reminder_id}", detail)
 
-    def _finish_wakeup_execution(self, *, job_id: str, error_detail: str | None) -> None:
-        """Finalize one wakeup execution attempt and reschedule if needed."""
+    def _finish_reminder_execution(
+        self,
+        *,
+        reminder_id: str,
+        error_detail: str | None,
+    ) -> None:
+        """Finalize one reminder execution attempt and reschedule if needed."""
 
-        with self.m_wakeup_condition:
+        with self.m_reminder_condition:
             finished_at = datetime.now(UTC)
-            wakeup_job = self.m_wakeup_jobs.get(job_id)
+            reminder = self.m_reminders.get(reminder_id)
             next_due_at_utc: str | None = None
-            if wakeup_job is not None:
-                wakeup_job.executing = False
-                wakeup_job.deferred_signature = None
+            if reminder is not None:
+                reminder.executing = False
+                reminder.deferred_signature = None
                 if (
-                    wakeup_job.mode == "repeat"
-                    and wakeup_job.interval_seconds is not None
-                    and not wakeup_job.cancel_requested
+                    reminder.mode == "repeat"
+                    and reminder.interval_seconds is not None
+                    and not reminder.delete_requested
                 ):
-                    wakeup_job.next_due_at = self._next_repeat_due_at(
-                        anchor_due_at=wakeup_job.anchor_due_at,
-                        interval_seconds=wakeup_job.interval_seconds,
+                    reminder.next_due_at = self._next_repeat_due_at(
+                        anchor_due_at=reminder.anchor_due_at,
+                        interval_seconds=reminder.interval_seconds,
                         reference_time=finished_at,
                     )
-                    next_due_at_utc = self._gateway_datetime_iso(wakeup_job.next_due_at)
+                    next_due_at_utc = self._gateway_datetime_iso(reminder.next_due_at)
                 else:
-                    del self.m_wakeup_jobs[job_id]
-            if self.m_active_wakeup_job_id == job_id:
-                self.m_active_wakeup_job_id = None
+                    del self.m_reminders[reminder_id]
+            if self.m_active_reminder_id == reminder_id:
+                self.m_active_reminder_id = None
 
             if error_detail is None:
                 append_gateway_event(
                     self.m_paths,
                     {
-                        "kind": "wakeup_completed",
-                        "job_id": job_id,
+                        "kind": "reminder_completed",
+                        "reminder_id": reminder_id,
                         "finished_at_utc": self._gateway_datetime_iso(finished_at),
                         "next_due_at_utc": next_due_at_utc,
                     },
                 )
                 if next_due_at_utc is None:
-                    self._log(f"completed wakeup job_id={job_id}")
+                    self._log(f"completed reminder reminder_id={reminder_id}")
                 else:
-                    self._log(f"completed wakeup job_id={job_id} next_due_at_utc={next_due_at_utc}")
+                    self._log(
+                        "completed reminder "
+                        f"reminder_id={reminder_id} "
+                        f"next_due_at_utc={next_due_at_utc}"
+                    )
             else:
                 append_gateway_event(
                     self.m_paths,
                     {
-                        "kind": "wakeup_failed",
-                        "job_id": job_id,
+                        "kind": "reminder_failed",
+                        "reminder_id": reminder_id,
                         "error_detail": error_detail,
                         "finished_at_utc": self._gateway_datetime_iso(finished_at),
                         "next_due_at_utc": next_due_at_utc,
                     },
                 )
                 if next_due_at_utc is None:
-                    self._log(f"failed wakeup job_id={job_id} detail={error_detail}")
+                    self._log(f"failed reminder reminder_id={reminder_id} detail={error_detail}")
                 else:
                     self._log(
-                        f"failed wakeup job_id={job_id} detail={error_detail} next_due_at_utc={next_due_at_utc}"
+                        "failed reminder "
+                        f"reminder_id={reminder_id} "
+                        f"detail={error_detail} "
+                        f"next_due_at_utc={next_due_at_utc}"
                     )
             self._refresh_status_snapshot(active_execution=self._active_execution_state())
-            self.m_wakeup_condition.notify_all()
+            self.m_reminder_condition.notify_all()
 
     def _next_repeat_due_at(
         self,
@@ -2890,7 +3247,7 @@ class GatewayServiceRuntime:
                     f"failed gateway request request_id={request_id} detail={error_detail or 'unknown error'}"
                 )
             self._refresh_status_snapshot(active_execution=self._active_execution_state())
-            self.m_wakeup_condition.notify_all()
+            self.m_reminder_condition.notify_all()
 
     def _mark_running_requests_failed(self) -> None:
         """Mark requests left running by a prior gateway process as failed."""
@@ -3018,7 +3375,7 @@ class GatewayServiceRuntime:
         direct_prompt_thread = self.m_direct_prompt_thread
         if direct_prompt_thread is not None and direct_prompt_thread.is_alive():
             return "running"
-        if self.m_active_wakeup_job_id is not None:
+        if self.m_active_reminder_id is not None:
             return "running"
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             row = connection.execute(
@@ -3277,29 +3634,40 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.create_request(request_payload)
 
-    @app.post("/v1/wakeups", response_model=GatewayWakeupJobV1)
-    def _create_wakeup(request_payload: GatewayWakeupCreateV1) -> GatewayWakeupJobV1:
-        """Register one gateway-owned in-memory wakeup job."""
+    @app.post("/v1/reminders", response_model=GatewayReminderCreateResultV1)
+    def _create_reminders(
+        request_payload: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        """Register one or more gateway-owned in-memory reminders."""
 
-        return runtime.create_wakeup(request_payload)
+        return runtime.create_reminders(request_payload)
 
-    @app.get("/v1/wakeups", response_model=GatewayWakeupListV1)
-    def _list_wakeups() -> GatewayWakeupListV1:
-        """Serve live wakeup inspection state."""
+    @app.get("/v1/reminders", response_model=GatewayReminderListV1)
+    def _list_reminders() -> GatewayReminderListV1:
+        """Serve live reminder inspection state."""
 
-        return runtime.list_wakeups()
+        return runtime.list_reminders()
 
-    @app.get("/v1/wakeups/{job_id}", response_model=GatewayWakeupJobV1)
-    def _get_wakeup(job_id: str) -> GatewayWakeupJobV1:
-        """Serve one wakeup job by identifier."""
+    @app.get("/v1/reminders/{reminder_id}", response_model=GatewayReminderV1)
+    def _get_reminder(reminder_id: str) -> GatewayReminderV1:
+        """Serve one reminder by identifier."""
 
-        return runtime.get_wakeup(job_id=job_id)
+        return runtime.get_reminder(reminder_id=reminder_id)
 
-    @app.delete("/v1/wakeups/{job_id}", response_model=GatewayWakeupCancelResultV1)
-    def _delete_wakeup(job_id: str) -> GatewayWakeupCancelResultV1:
-        """Cancel one wakeup job or future wakeup repetitions."""
+    @app.put("/v1/reminders/{reminder_id}", response_model=GatewayReminderV1)
+    def _put_reminder(
+        reminder_id: str,
+        request_payload: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        """Update one live reminder by identifier."""
 
-        return runtime.delete_wakeup(job_id=job_id)
+        return runtime.put_reminder(reminder_id=reminder_id, request_payload=request_payload)
+
+    @app.delete("/v1/reminders/{reminder_id}", response_model=GatewayReminderDeleteResultV1)
+    def _delete_reminder(reminder_id: str) -> GatewayReminderDeleteResultV1:
+        """Delete one reminder or future reminder repetitions."""
+
+        return runtime.delete_reminder(reminder_id=reminder_id)
 
     @app.get("/v1/mail/status", response_model=GatewayMailStatusV1)
     def _mail_status() -> GatewayMailStatusV1:

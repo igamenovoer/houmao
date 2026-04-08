@@ -366,7 +366,7 @@ That page SHALL explain that the packaged skill routes by communication intent a
 
 That page SHALL explain that ordinary prompting should prefer the managed-agent seam, that mailbox discovery and mailbox routing begin from `agents mail resolve-live`, and that ordinary mailbox operations belong to `houmao-agent-email-comms` while notifier-round mailbox workflow belongs to `houmao-process-emails-via-gateway`.
 
-That page SHALL explain that gateway lifecycle, current-session discovery, notifier control, and wakeup guidance belong to `houmao-agent-gateway`.
+That page SHALL explain that gateway lifecycle, current-session discovery, notifier control, and reminder guidance belong to `houmao-agent-gateway`.
 
 That page SHALL explain that transport-specific mailbox behavior remains in the mailbox skill family rather than in `houmao-agent-messaging`.
 
@@ -552,11 +552,11 @@ That page SHALL describe the packaged skill as the Houmao-owned entry point for 
 - `agents gateway attach|detach|status`
 - `agents gateway mail-notifier status|enable|disable`
 - current-session versus explicit managed-agent gateway targeting
-- direct live gateway route families such as `/v1/status`, `/v1/wakeups`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
+- direct live gateway route families such as `/v1/status`, `/v1/reminders`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
 
 That page SHALL explain that the packaged gateway skill prefers `houmao-mgr agents gateway ...` and managed-agent `/houmao/agents/{agent_ref}/gateway...` routes when those higher-level surfaces exist.
 
-That page SHALL explain that wakeups are direct live-gateway HTTP in the current implementation and remain in-memory state that does not survive gateway restart.
+That page SHALL explain that reminders are direct live-gateway HTTP in the current implementation, remain in-memory state that does not survive gateway restart, and are selected by smallest ranking value rather than by independent wakeup-job ownership.
 
 That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-agent-messaging` and the mailbox skill family rather than in `houmao-agent-gateway`.
 
@@ -565,10 +565,10 @@ That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-a
 - **THEN** the page identifies `houmao-agent-gateway` as a packaged Houmao-owned skill
 - **AND THEN** it describes that skill as covering gateway lifecycle, gateway discovery, and gateway-only reminder/control surfaces
 
-#### Scenario: Reader sees the wakeup boundary clearly
+#### Scenario: Reader sees the reminder boundary clearly
 - **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that current wakeup control uses direct live gateway `/v1/wakeups` routes
-- **AND THEN** it does not imply that wakeups are durable across gateway restart or already projected through `houmao-mgr agents gateway ...`
+- **THEN** the page explains that current reminder control uses direct live gateway `/v1/reminders` routes
+- **AND THEN** it does not imply that reminders are durable across gateway restart or already projected through `houmao-mgr agents gateway ...`
 
 ### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
 The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
@@ -725,3 +725,4 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL link to the n
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the introduction or top section of the page contains a link to `docs/getting-started/system-skills-overview.md`
 - **AND THEN** the link is presented as a "see also" or "narrative overview" pointer rather than buried in the bottom of the page
+

@@ -529,6 +529,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_path = home_path / "skills/houmao-agent-gateway/SKILL.md"
     agent_gateway_actions = home_path / "skills/houmao-agent-gateway/actions"
     agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
+    advanced_usage_path = home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
+    advanced_usage_patterns = home_path / "skills/houmao-adv-usage-pattern/patterns"
 
     assert result.selected_set_names == (
         "mailbox-full",
@@ -555,7 +557,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
-    assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert advanced_usage_path.is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
@@ -564,6 +566,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
+    advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
@@ -585,10 +588,15 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     gateway_lifecycle_action_path = agent_gateway_actions / "lifecycle.md"
     gateway_discover_action_path = agent_gateway_actions / "discover.md"
     gateway_services_action_path = agent_gateway_actions / "gateway-services.md"
-    gateway_wakeups_action_path = agent_gateway_actions / "wakeups.md"
+    gateway_reminders_action_path = agent_gateway_actions / "reminders.md"
     gateway_mail_notifier_action_path = agent_gateway_actions / "mail-notifier.md"
     gateway_scope_reference_path = agent_gateway_references / "scope-and-routing.md"
     gateway_http_reference_path = agent_gateway_references / "http-surface.md"
+    self_notification_pattern_path = advanced_usage_patterns / "self-notification.md"
+    self_notification_reminders_path = (
+        advanced_usage_patterns / "self-notification-via-reminders.md"
+    )
+    self_notification_mail_path = advanced_usage_patterns / "self-wakeup-via-self-mail.md"
     mailbox_init_action_path = mailbox_mgr_actions / "init.md"
     mailbox_register_action_path = mailbox_mgr_actions / "register.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
@@ -601,8 +609,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
     mail_action = mail_action_path.read_text(encoding="utf-8")
     gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
-    gateway_wakeups_action = gateway_wakeups_action_path.read_text(encoding="utf-8")
+    gateway_reminders_action = gateway_reminders_action_path.read_text(encoding="utf-8")
     gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
+    self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
+    self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
+    self_notification_mail = self_notification_mail_path.read_text(encoding="utf-8")
 
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
@@ -678,8 +689,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/lifecycle.md" in agent_gateway_skill
     assert "actions/discover.md" in agent_gateway_skill
     assert "actions/gateway-services.md" in agent_gateway_skill
-    assert "actions/wakeups.md" in agent_gateway_skill
+    assert "actions/reminders.md" in agent_gateway_skill
     assert "actions/mail-notifier.md" in agent_gateway_skill
+    assert "patterns/self-notification.md" in advanced_usage_skill
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
@@ -688,10 +700,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert gateway_lifecycle_action_path.is_file()
     assert gateway_discover_action_path.is_file()
     assert gateway_services_action_path.is_file()
-    assert gateway_wakeups_action_path.is_file()
+    assert gateway_reminders_action_path.is_file()
     assert gateway_mail_notifier_action_path.is_file()
     assert gateway_scope_reference_path.is_file()
     assert gateway_http_reference_path.is_file()
+    assert self_notification_pattern_path.is_file()
+    assert self_notification_reminders_path.is_file()
+    assert self_notification_mail_path.is_file()
     assert "HOUMAO_AGENT_ID" in gateway_discover_action
     assert (
         "Use the `houmao-mgr` launcher already chosen by the top-level skill."
@@ -699,10 +714,26 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     )
     assert "<chosen houmao-mgr launcher>" in gateway_discover_action
     assert "agents mail resolve-live" in gateway_discover_action
-    assert "/v1/wakeups" in gateway_wakeups_action
-    assert "gateway stop or restart" in gateway_wakeups_action
-    assert "process-local in-memory state" in gateway_wakeups_action
-    assert "/houmao/agents/{agent_ref}/gateway/wakeups" in gateway_http_reference
+    assert "/v1/reminders" in gateway_reminders_action
+    assert "send_keys" in gateway_reminders_action
+    assert "ensure_enter" in gateway_reminders_action
+    assert "paused effective reminder still blocks" in gateway_reminders_action
+    assert "process-local in-memory state" in gateway_reminders_action
+    assert "/houmao/agents/{agent_ref}/gateway/reminders" in gateway_http_reference
+    assert "/v1/reminders" in self_notification_pattern
+    assert (
+        "If you are not sure and durable recovery is not explicitly required, prefer live gateway reminders."
+        in self_notification_pattern
+    )
+    assert "ignore other new mail and work on this first" in self_notification_pattern
+    assert "one reminder per major work chunk" in self_notification_pattern
+    assert (
+        "work is high-priority and should stay focused ahead of unrelated new incoming mail"
+        in self_notification_reminders
+    )
+    assert "does not survive gateway shutdown or restart" in self_notification_reminders
+    assert "must survive gateway shutdown or restart" in self_notification_mail
+    assert "later rounds may reprioritize against external incoming mail" in self_notification_mail
     assert "POST /houmao/agents/{agent_ref}/gateway/control/prompt" in reset_context_action
     assert 'chat_session.mode = "new"' in reset_context_action
     assert "houmao-process-emails-via-gateway" in mail_action

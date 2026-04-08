@@ -36,10 +36,11 @@ Use direct gateway `/v1/...` only when the exact live `gateway.base_url` is alre
 - `GET {gateway.base_url}/v1/control/tui/state`
 - `GET {gateway.base_url}/v1/control/tui/history`
 - `POST {gateway.base_url}/v1/control/tui/note-prompt`
-- `POST {gateway.base_url}/v1/wakeups`
-- `GET {gateway.base_url}/v1/wakeups`
-- `GET {gateway.base_url}/v1/wakeups/{job_id}`
-- `DELETE {gateway.base_url}/v1/wakeups/{job_id}`
+- `POST {gateway.base_url}/v1/reminders`
+- `GET {gateway.base_url}/v1/reminders`
+- `GET {gateway.base_url}/v1/reminders/{reminder_id}`
+- `PUT {gateway.base_url}/v1/reminders/{reminder_id}`
+- `DELETE {gateway.base_url}/v1/reminders/{reminder_id}`
 - `GET {gateway.base_url}/v1/mail-notifier`
 - `PUT {gateway.base_url}/v1/mail-notifier`
 - `DELETE {gateway.base_url}/v1/mail-notifier`
@@ -56,5 +57,5 @@ Use `houmao-agent-email-comms` for the exact `/v1/mail/*` request contract once 
 
 ## Explicit Non-Surface
 
-- There is no supported `/houmao/agents/{agent_ref}/gateway/wakeups` projection today.
-- Wakeups are direct live gateway HTTP only.
+- There is no supported `/houmao/agents/{agent_ref}/gateway/reminders` projection today.
+- Reminders are direct live gateway HTTP only.

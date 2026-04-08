@@ -6,6 +6,19 @@ Gateway lifecycle and explicit live-gateway request commands for managed agents.
 houmao-mgr agents gateway [OPTIONS] COMMAND [ARGS]...
 ```
 
+## Scope Note
+
+This CLI covers gateway lifecycle, prompt and interrupt control, raw send-keys, TUI inspection, and mail-notifier control.
+
+It does not currently expose a `reminders` subcommand family.
+
+- gateway reminders are direct live HTTP routes at `/v1/reminders`
+- prompt reminders and send-keys reminders both stay on that HTTP-only surface
+- there is no supported `houmao-mgr agents gateway reminders ...` CLI surface
+- there is no managed-agent `/houmao/agents/{agent_ref}/gateway/reminders` projection
+
+Use [Gateway Reminders](../gateway/operations/reminders.md) for the reminder behavior model and [Protocol And State Contracts](../gateway/contracts/protocol-and-state.md) for the exact HTTP payloads.
+
 ## Commands
 
 ### `attach`

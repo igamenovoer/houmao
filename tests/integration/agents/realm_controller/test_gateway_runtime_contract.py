@@ -42,7 +42,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayDesiredConfigV1,
     GatewayMailNotifierPutV1,
     GatewayMailStateRequestV1,
-    GatewayWakeupCreateV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderDefinitionV1,
+    GatewayReminderSendKeysV1,
 )
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
 from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
@@ -1472,12 +1474,12 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
         assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
 
 
-def test_gateway_http_wakeup_routes_are_ephemeral_and_do_not_expand_request_kinds(
+def test_gateway_http_reminder_routes_are_ephemeral_and_do_not_expand_request_kinds(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    """Live gateway wakeups should stay in memory and not extend `/v1/requests` kinds."""
+    """Live gateway reminders should stay in memory and not extend `/v1/requests` kinds."""
 
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
@@ -1540,35 +1542,78 @@ def test_gateway_http_wakeup_routes_are_ephemeral_and_do_not_expand_request_kind
             )
             client = GatewayClient(endpoint=endpoint)
 
-            scheduled_job = client.create_wakeup(
-                GatewayWakeupCreateV1(
-                    mode="one_off",
-                    prompt="integration scheduled wakeup",
-                    after_seconds=60,
+            scheduled_result = client.create_reminders(
+                GatewayReminderCreateBatchV1(
+                    reminders=[
+                        GatewayReminderDefinitionV1(
+                            mode="one_off",
+                            title="integration scheduled reminder",
+                            prompt="integration scheduled reminder",
+                            ranking=0,
+                            start_after_seconds=60,
+                        )
+                    ]
                 )
             )
-            assert client.get_wakeup(job_id=scheduled_job.job_id).job_id == scheduled_job.job_id
-            assert [job.job_id for job in client.list_wakeups().jobs] == [scheduled_job.job_id]
+            scheduled_reminder = scheduled_result.reminders[0]
+            assert (
+                client.get_reminder(reminder_id=scheduled_reminder.reminder_id).reminder_id
+                == scheduled_reminder.reminder_id
+            )
+            assert [reminder.reminder_id for reminder in client.list_reminders().reminders] == [
+                scheduled_reminder.reminder_id
+            ]
 
-            cancel_result = client.delete_wakeup(job_id=scheduled_job.job_id)
-            assert cancel_result.canceled is True
-            assert client.list_wakeups().jobs == []
+            delete_result = client.delete_reminder(reminder_id=scheduled_reminder.reminder_id)
+            assert delete_result.deleted is True
+            assert client.list_reminders().reminders == []
 
-            delivered_job = client.create_wakeup(
-                GatewayWakeupCreateV1(
-                    mode="one_off",
-                    prompt="integration delivered wakeup",
-                    after_seconds=0.1,
+            send_keys_request = request.Request(
+                url=f"http://{endpoint.host}:{endpoint.port}/v1/reminders",
+                method="POST",
+                headers={"Content-Type": "application/json"},
+                data=json.dumps(
+                    GatewayReminderCreateBatchV1(
+                        reminders=[
+                            GatewayReminderDefinitionV1(
+                                mode="one_off",
+                                title="unsupported send keys reminder",
+                                send_keys=GatewayReminderSendKeysV1(sequence="<[Escape]>"),
+                                ranking=0,
+                                start_after_seconds=60,
+                            )
+                        ]
+                    ).model_dump(mode="json")
+                ).encode("utf-8"),
+            )
+            with pytest.raises(Exception) as send_keys_exc_info:
+                request.urlopen(send_keys_request, timeout=5.0)
+            send_keys_error = send_keys_exc_info.value
+            assert getattr(send_keys_error, "code", None) == 422
+
+            delivered_result = client.create_reminders(
+                GatewayReminderCreateBatchV1(
+                    reminders=[
+                        GatewayReminderDefinitionV1(
+                            mode="one_off",
+                            title="integration delivered reminder",
+                            prompt="integration delivered reminder",
+                            ranking=0,
+                            start_after_seconds=0.1,
+                        )
+                    ]
                 )
             )
+            delivered_reminder = delivered_result.reminders[0]
 
             _wait_until(
                 lambda: any(
-                    message == "integration delivered wakeup" for _, message in fake_cao.messages()
+                    message == "integration delivered reminder"
+                    for _, message in fake_cao.messages()
                 ),
                 timeout_seconds=5.0,
             )
-            assert client.list_wakeups().jobs == []
+            assert client.list_reminders().reminders == []
 
             invalid_request = request.Request(
                 url=f"http://{endpoint.host}:{endpoint.port}/v1/requests",
@@ -1577,7 +1622,7 @@ def test_gateway_http_wakeup_routes_are_ephemeral_and_do_not_expand_request_kind
                 data=json.dumps(
                     {
                         "schema_version": 1,
-                        "kind": "wakeup_prompt",
+                        "kind": "reminder_prompt",
                         "payload": {"prompt": "should fail"},
                     }
                 ).encode("utf-8"),
@@ -1586,7 +1631,9 @@ def test_gateway_http_wakeup_routes_are_ephemeral_and_do_not_expand_request_kind
                 request.urlopen(invalid_request, timeout=5.0)
             error = exc_info.value
             assert getattr(error, "code", None) == 422
-            assert delivered_job.job_id not in {job.job_id for job in client.list_wakeups().jobs}
+            assert delivered_reminder.reminder_id not in {
+                reminder.reminder_id for reminder in client.list_reminders().reminders
+            }
         finally:
             _best_effort_cleanup_gateway(manifest_path)
 

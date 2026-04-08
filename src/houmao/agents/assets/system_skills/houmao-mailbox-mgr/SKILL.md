@@ -23,7 +23,7 @@ This packaged skill does not cover:
 - `houmao-mgr agents mail ...`
 - shared `/v1/mail/*` workflow
 - `houmao-mgr agents gateway mail-notifier ...`
-- direct gateway `/v1/mail-notifier` or `/v1/wakeups`
+- direct gateway `/v1/mail-notifier` or `/v1/reminders`
 - ad hoc filesystem editing inside mailbox roots
 
 ## Workflow
@@ -88,7 +88,7 @@ This packaged skill does not cover:
 
 - Do not guess missing required inputs that remain absent after checking the prompt and recent chat context.
 - Do not route ordinary mailbox send, reply, check, read, mark-read, or live mailbox discovery through this skill.
-- Do not route gateway notifier, wakeup, or other live gateway-only state through this skill.
+- Do not route gateway notifier, reminder, or other live gateway-only state through this skill.
 - Do not invent `houmao-mgr mailbox ...` filesystem root or account CRUD for Stalwart.
 - Do not present structural message inspection as the same thing as actor-scoped unread or read follow-up state.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.

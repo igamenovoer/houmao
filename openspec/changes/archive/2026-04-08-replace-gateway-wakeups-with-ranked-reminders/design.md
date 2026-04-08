@@ -31,7 +31,7 @@ The repo's current development posture allows direct breaking changes, so this d
 
 Each reminder will keep the current due-time model from wakeups:
 
-- exactly one of `after_seconds` or `deliver_at_utc`
+- exactly one of `start_after_seconds` or `deliver_at_utc`
 - `mode = "one_off"` or `mode = "repeat"`
 - `interval_seconds` required only for repeating reminders
 

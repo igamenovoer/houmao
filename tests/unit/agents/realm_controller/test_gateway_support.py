@@ -47,7 +47,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
-    GatewayWakeupCreateV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderDefinitionV1,
+    GatewayReminderPutV1,
+    GatewayReminderSendKeysV1,
 )
 from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
@@ -2893,32 +2896,74 @@ def test_gateway_request_model_rejects_invalid_submit_prompt_payload() -> None:
         )
 
 
-def test_gateway_wakeup_model_validates_schedule_and_repeat_shape() -> None:
-    with pytest.raises(ValidationError, match="exactly one of after_seconds or deliver_at_utc"):
-        GatewayWakeupCreateV1(
+def test_gateway_reminder_models_validate_schedule_repeat_and_batch_shape() -> None:
+    with pytest.raises(ValidationError, match="exactly one of prompt or send_keys"):
+        GatewayReminderDefinitionV1(
             mode="one_off",
+            title="wake up",
+            ranking=0,
+            start_after_seconds=10,
+        )
+
+    with pytest.raises(ValidationError, match="exactly one of prompt or send_keys"):
+        GatewayReminderDefinitionV1(
+            mode="one_off",
+            title="wake up",
             prompt="wake up",
-            after_seconds=10,
+            send_keys=GatewayReminderSendKeysV1(sequence="<\\[Escape\\]>"),
+            ranking=0,
+            start_after_seconds=10,
+        )
+
+    with pytest.raises(
+        ValidationError, match="exactly one of start_after_seconds or deliver_at_utc"
+    ):
+        GatewayReminderDefinitionV1(
+            mode="one_off",
+            title="wake up",
+            prompt="wake up",
+            ranking=0,
+            start_after_seconds=10,
             deliver_at_utc="2026-03-31T00:00:00+00:00",
         )
 
-    with pytest.raises(ValidationError, match="repeat wakeups require interval_seconds"):
-        GatewayWakeupCreateV1(
+    with pytest.raises(ValidationError, match="repeat reminders require interval_seconds"):
+        GatewayReminderDefinitionV1(
             mode="repeat",
+            title="wake up",
             prompt="wake up",
-            after_seconds=10,
+            ranking=0,
+            start_after_seconds=10,
         )
 
-    with pytest.raises(ValidationError, match="one_off wakeups must not include interval_seconds"):
-        GatewayWakeupCreateV1(
+    with pytest.raises(
+        ValidationError, match="one_off reminders must not include interval_seconds"
+    ):
+        GatewayReminderDefinitionV1(
             mode="one_off",
+            title="wake up",
             prompt="wake up",
-            after_seconds=10,
+            ranking=0,
+            start_after_seconds=10,
             interval_seconds=30,
         )
 
+    with pytest.raises(ValidationError, match="reminders must not be empty"):
+        GatewayReminderCreateBatchV1(reminders=[])
 
-def test_gateway_wakeup_routes_register_list_and_cancel_scheduled_job(
+    send_keys_reminder = GatewayReminderDefinitionV1(
+        mode="one_off",
+        title="dismiss dialog",
+        send_keys=GatewayReminderSendKeysV1(sequence="<[Escape]>"),
+        ranking=0,
+        start_after_seconds=10,
+    )
+    assert send_keys_reminder.prompt is None
+    assert send_keys_reminder.send_keys is not None
+    assert send_keys_reminder.send_keys.ensure_enter is True
+
+
+def test_gateway_reminder_routes_batch_create_list_put_and_delete(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2935,39 +2980,181 @@ def test_gateway_wakeup_routes_register_list_and_cancel_scheduled_job(
     client = TestClient(create_app(runtime=runtime))
 
     create_response = client.post(
-        "/v1/wakeups",
-        json=GatewayWakeupCreateV1(
-            mode="one_off",
-            prompt="scheduled wakeup",
-            after_seconds=60,
+        "/v1/reminders",
+        json=GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="effective reminder",
+                    prompt="effective reminder prompt",
+                    ranking=-10,
+                    start_after_seconds=60,
+                ),
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="blocked reminder",
+                    prompt="blocked reminder prompt",
+                    ranking=5,
+                    start_after_seconds=30,
+                ),
+            ]
         ).model_dump(mode="json"),
     )
 
     assert create_response.status_code == 200
-    wakeup_payload = create_response.json()
-    assert wakeup_payload["mode"] == "one_off"
-    assert wakeup_payload["state"] == "scheduled"
-    job_id = str(wakeup_payload["job_id"])
+    create_payload = create_response.json()
+    assert create_payload["effective_reminder_id"] is not None
+    assert len(create_payload["reminders"]) == 2
+    first_reminder = create_payload["reminders"][0]
+    second_reminder = create_payload["reminders"][1]
+    first_id = str(first_reminder["reminder_id"])
+    second_id = str(second_reminder["reminder_id"])
+    assert first_reminder["selection_state"] == "effective"
+    assert first_reminder["delivery_state"] == "scheduled"
+    assert first_reminder["delivery_kind"] == "prompt"
+    assert first_reminder["send_keys"] is None
+    assert second_reminder["selection_state"] == "blocked"
+    assert second_reminder["blocked_by_reminder_id"] == first_id
 
-    list_response = client.get("/v1/wakeups")
+    list_response = client.get("/v1/reminders")
     assert list_response.status_code == 200
-    assert [job["job_id"] for job in list_response.json()["jobs"]] == [job_id]
+    list_payload = list_response.json()
+    assert list_payload["effective_reminder_id"] == first_id
+    assert [reminder["reminder_id"] for reminder in list_payload["reminders"]] == [
+        first_id,
+        second_id,
+    ]
 
-    get_response = client.get(f"/v1/wakeups/{job_id}")
+    get_response = client.get(f"/v1/reminders/{first_id}")
     assert get_response.status_code == 200
-    assert get_response.json()["prompt"] == "scheduled wakeup"
+    assert get_response.json()["prompt"] == "effective reminder prompt"
+    assert get_response.json()["delivery_kind"] == "prompt"
+    assert get_response.json()["send_keys"] is None
 
-    cancel_response = client.delete(f"/v1/wakeups/{job_id}")
-    assert cancel_response.status_code == 200
-    assert cancel_response.json()["action"] == "cancel_wakeup"
-    assert cancel_response.json()["job_id"] == job_id
+    put_response = client.put(
+        f"/v1/reminders/{first_id}",
+        json=GatewayReminderPutV1(
+            mode="one_off",
+            title="effective reminder delayed",
+            prompt="effective reminder updated",
+            ranking=10,
+            start_after_seconds=120,
+            paused=False,
+        ).model_dump(mode="json"),
+    )
+    assert put_response.status_code == 200
+    assert put_response.json()["selection_state"] == "blocked"
+    assert put_response.json()["blocked_by_reminder_id"] == second_id
 
-    assert client.get(f"/v1/wakeups/{job_id}").status_code == 404
-    assert client.delete(f"/v1/wakeups/{job_id}").status_code == 404
+    list_after_put = client.get("/v1/reminders")
+    assert list_after_put.status_code == 200
+    assert list_after_put.json()["effective_reminder_id"] == second_id
+
+    delete_response = client.delete(f"/v1/reminders/{second_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["action"] == "delete_reminder"
+    assert delete_response.json()["reminder_id"] == second_id
+
+    remaining_payload = client.get("/v1/reminders").json()
+    assert remaining_payload["effective_reminder_id"] == first_id
+    assert [reminder["reminder_id"] for reminder in remaining_payload["reminders"]] == [first_id]
+
+    assert client.get(f"/v1/reminders/{second_id}").status_code == 404
+    assert client.delete(f"/v1/reminders/{second_id}").status_code == 404
+    assert (
+        client.post("/v1/reminders", json={"schema_version": 1, "reminders": []}).status_code == 422
+    )
     assert runtime.status().queue_depth == 0
 
 
-def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
+def test_gateway_rest_backed_reminder_routes_reject_send_keys_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    create_response = client.post(
+        "/v1/reminders",
+        json=GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="dismiss dialog",
+                    send_keys=GatewayReminderSendKeysV1(sequence="<[Escape]>"),
+                    ranking=0,
+                    start_after_seconds=5,
+                )
+            ]
+        ).model_dump(mode="json"),
+    )
+
+    assert create_response.status_code == 422
+    assert "unsupported" in create_response.json()["detail"].lower()
+    assert runtime.list_reminders().reminders == []
+
+
+def test_gateway_reminder_ranking_tie_breaks_by_creation_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    first_result = runtime.create_reminders(
+        GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="first created",
+                    prompt="first created prompt",
+                    ranking=0,
+                    start_after_seconds=60,
+                )
+            ]
+        )
+    )
+    time.sleep(0.01)
+    second_result = runtime.create_reminders(
+        GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="second created",
+                    prompt="second created prompt",
+                    ranking=0,
+                    start_after_seconds=60,
+                )
+            ]
+        )
+    )
+
+    first_id = first_result.reminders[0].reminder_id
+    second_id = second_result.reminders[0].reminder_id
+    reminder_list = runtime.list_reminders()
+    assert reminder_list.effective_reminder_id == first_id
+    assert [reminder.reminder_id for reminder in reminder_list.reminders] == [first_id, second_id]
+    assert runtime.get_reminder(reminder_id=second_id).blocked_by_reminder_id == first_id
+
+
+def test_gateway_repeat_reminder_reschedules_without_catchup_burst(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2980,7 +3167,7 @@ def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
 
         def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
             self.submitted_prompts.append((terminal_id, message))
-            if message == "repeat wakeup":
+            if message == "repeat reminder":
                 self.repeat_prompt_count += 1
                 if self.repeat_prompt_count == 1:
                     self.first_repeat_started.set()
@@ -3001,14 +3188,21 @@ def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
 
     runtime.start()
     try:
-        wakeup = runtime.create_wakeup(
-            GatewayWakeupCreateV1(
-                mode="repeat",
-                prompt="repeat wakeup",
-                after_seconds=0.05,
-                interval_seconds=0.05,
+        reminder = runtime.create_reminders(
+            GatewayReminderCreateBatchV1(
+                reminders=[
+                    GatewayReminderDefinitionV1(
+                        mode="repeat",
+                        title="repeat reminder",
+                        prompt="repeat reminder",
+                        ranking=0,
+                        start_after_seconds=0.05,
+                        interval_seconds=0.05,
+                    )
+                ]
             )
         )
+        reminder_id = reminder.reminders[0].reminder_id
 
         _wait_until(lambda: fake_client.first_repeat_started.is_set())
         time.sleep(0.16)
@@ -3018,39 +3212,21 @@ def test_gateway_repeat_wakeup_reschedules_without_catchup_burst(
         time.sleep(0.02)
         assert fake_client.repeat_prompt_count == 2
 
-        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
-        assert live_job.mode == "repeat"
-        assert live_job.state in {"scheduled", "overdue"}
-        assert live_job.cancel_requested is False
+        live_reminder = runtime.get_reminder(reminder_id=reminder_id)
+        assert live_reminder.mode == "repeat"
+        assert live_reminder.delivery_state in {"scheduled", "overdue"}
+        assert live_reminder.selection_state == "effective"
     finally:
-        runtime.delete_wakeup(job_id=wakeup.job_id)
+        runtime.delete_reminder(reminder_id=reminder_id)
         runtime.shutdown()
 
 
-def test_gateway_wakeup_defers_while_busy_and_cancel_records_active_boundary(
+def test_gateway_paused_effective_reminder_blocks_lower_ranked_dispatch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    class _BlockingBusyFakeCaoRestClient(_FakeCaoRestClient):
-        def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
-            super().__init__(base_url=base_url, timeout_seconds=timeout_seconds)
-            self.busy_prompt_started = threading.Event()
-            self.release_busy_prompt = threading.Event()
-            self.wakeup_prompt_started = threading.Event()
-            self.release_wakeup_prompt = threading.Event()
-
-        def send_terminal_input(self, terminal_id: str, message: str) -> CaoSuccessResponse:
-            self.submitted_prompts.append((terminal_id, message))
-            if message == "busy-work":
-                self.busy_prompt_started.set()
-                assert self.release_busy_prompt.wait(timeout=5.0)
-            if message == "repeat wakeup":
-                self.wakeup_prompt_started.set()
-                assert self.release_wakeup_prompt.wait(timeout=5.0)
-            return CaoSuccessResponse(success=True)
-
     gateway_root = _seed_cao_gateway_root(tmp_path)
-    fake_client = _BlockingBusyFakeCaoRestClient(base_url="http://localhost:9889")
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
@@ -3060,73 +3236,157 @@ def test_gateway_wakeup_defers_while_busy_and_cancel_records_active_boundary(
         host="127.0.0.1",
         port=43123,
     )
-    paths = gateway_paths_from_manifest_path(
-        default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
-    )
-    assert paths is not None
 
     runtime.start()
     try:
-        runtime.create_request(
-            GatewayRequestCreateV1(
-                kind="submit_prompt",
-                payload=GatewayRequestPayloadSubmitPromptV1(prompt="busy-work"),
+        create_result = runtime.create_reminders(
+            GatewayReminderCreateBatchV1(
+                reminders=[
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="paused effective",
+                        prompt="paused effective prompt",
+                        ranking=-10,
+                        paused=True,
+                        start_after_seconds=0.01,
+                    ),
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="ready reminder",
+                        prompt="ready reminder prompt",
+                        ranking=0,
+                        paused=False,
+                        start_after_seconds=0.01,
+                    ),
+                ]
             )
         )
-        _wait_until(lambda: fake_client.busy_prompt_started.is_set())
+        paused_id = create_result.reminders[0].reminder_id
+        blocked_id = create_result.reminders[1].reminder_id
 
-        wakeup = runtime.create_wakeup(
-            GatewayWakeupCreateV1(
-                mode="repeat",
-                prompt="repeat wakeup",
-                after_seconds=0.01,
-                interval_seconds=1,
-            )
+        time.sleep(0.2)
+        assert fake_client.submitted_prompts == []
+
+        paused_reminder = runtime.get_reminder(reminder_id=paused_id)
+        blocked_reminder = runtime.get_reminder(reminder_id=blocked_id)
+        assert paused_reminder.selection_state == "effective"
+        assert paused_reminder.delivery_state == "overdue"
+        assert paused_reminder.paused is True
+        assert blocked_reminder.selection_state == "blocked"
+        assert blocked_reminder.blocked_by_reminder_id == paused_id
+
+        updated_reminder = runtime.put_reminder(
+            reminder_id=paused_id,
+            request_payload=GatewayReminderPutV1(
+                mode="one_off",
+                title="paused effective delayed",
+                prompt="paused effective prompt",
+                ranking=10,
+                paused=True,
+                start_after_seconds=60,
+            ),
         )
+        assert updated_reminder.selection_state == "blocked"
+        assert updated_reminder.blocked_by_reminder_id == blocked_id
 
-        _wait_until(lambda: runtime.get_wakeup(job_id=wakeup.job_id).state == "overdue")
-        log_deadline = time.monotonic() + 5.0
-        while time.monotonic() < log_deadline:
-            if (
-                paths.log_path.is_file()
-                and "wakeup deferred because the gateway is busy"
-                in paths.log_path.read_text(encoding="utf-8")
-            ):
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError("Expected wakeup deferral log line.")
-
-        fake_client.release_busy_prompt.set()
-        _wait_until(lambda: fake_client.wakeup_prompt_started.is_set())
-
-        live_job = runtime.get_wakeup(job_id=wakeup.job_id)
-        assert live_job.state == "executing"
-        assert live_job.cancel_requested is False
-
-        cancel_result = runtime.delete_wakeup(job_id=wakeup.job_id)
-        assert cancel_result.canceled is True
-        assert "already-started prompt delivery" in cancel_result.detail
-
-        canceled_job = runtime.get_wakeup(job_id=wakeup.job_id)
-        assert canceled_job.state == "executing"
-        assert canceled_job.cancel_requested is True
-
-        fake_client.release_wakeup_prompt.set()
         _wait_until(
-            lambda: (
-                [message for _, message in fake_client.submitted_prompts].count("repeat wakeup")
-                == 1
+            lambda: fake_client.submitted_prompts == [("term-123", "ready reminder prompt")],
+            timeout_seconds=5.0,
+        )
+        assert all(
+            message != "paused effective prompt" for _, message in fake_client.submitted_prompts
+        )
+    finally:
+        runtime.shutdown()
+
+
+def test_gateway_local_tmux_send_keys_reminders_execute_with_ensure_enter_rules(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        create_result = runtime.create_reminders(
+            GatewayReminderCreateBatchV1(
+                reminders=[
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="submit slash command",
+                        send_keys=GatewayReminderSendKeysV1(sequence="/model"),
+                        ranking=-30,
+                        start_after_seconds=0.01,
+                    ),
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="keep one trailing enter",
+                        send_keys=GatewayReminderSendKeysV1(sequence="/model<[Enter]>"),
+                        ranking=-20,
+                        start_after_seconds=0.01,
+                    ),
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="dismiss dialog",
+                        send_keys=GatewayReminderSendKeysV1(
+                            sequence="<[Escape]>",
+                            ensure_enter=False,
+                        ),
+                        ranking=-10,
+                        start_after_seconds=0.01,
+                    ),
+                ]
             )
         )
-        time.sleep(1.1)
-        assert [message for _, message in fake_client.submitted_prompts].count("repeat wakeup") == 1
 
-        with pytest.raises(HTTPException, match="Unknown wakeup job"):
-            runtime.get_wakeup(job_id=wakeup.job_id)
+        assert [reminder.delivery_kind for reminder in create_result.reminders] == [
+            "send_keys",
+            "send_keys",
+            "send_keys",
+        ]
+        assert create_result.reminders[0].send_keys is not None
+        assert create_result.reminders[0].send_keys.ensure_enter is True
+        assert create_result.reminders[2].send_keys is not None
+        assert create_result.reminders[2].send_keys.ensure_enter is False
+
+        _wait_until(lambda: len(fake_controller.send_input_calls) >= 3)
+        assert fake_controller.send_input_calls == [
+            ("/model<[Enter]>", False),
+            ("/model<[Enter]>", False),
+            ("<[Escape]>", False),
+        ]
+        assert fake_session.prompt_calls == []
+        assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
     finally:
-        fake_client.release_busy_prompt.set()
-        fake_client.release_wakeup_prompt.set()
         runtime.shutdown()
 
 

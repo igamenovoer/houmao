@@ -1,19 +1,4 @@
-## Purpose
-Define the packaged advanced-usage system skill that documents supported multi-skill workflow compositions on top of Houmao's direct-operation skills.
-## Requirements
-### Requirement: Houmao provides a packaged `houmao-adv-usage-pattern` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-adv-usage-pattern` under the maintained system-skill asset root.
-
-The top-level `SKILL.md` for that packaged skill SHALL serve as an entry index for advanced supported workflow compositions rather than as a flattened direct-operation document.
-
-That skill SHALL organize its guidance through local pattern pages beneath the same packaged skill directory.
-
-That skill SHALL remain distinct from the direct-operation skills that own the supported mailbox, gateway, messaging, and lifecycle surfaces.
-
-#### Scenario: Installed advanced skill exposes an index and local pattern pages
-- **WHEN** an agent or operator opens the installed `houmao-adv-usage-pattern` skill
-- **THEN** the top-level `SKILL.md` acts as an index of supported advanced workflow compositions
-- **AND THEN** the detailed workflow guidance lives in local pattern pages under the same packaged skill directory
+## MODIFIED Requirements
 
 ### Requirement: `houmao-adv-usage-pattern` self-wakeup guidance composes existing Houmao skills
 The packaged `houmao-adv-usage-pattern` skill SHALL include a self-notification pattern family that compares two supported ways for a managed agent to notify itself about later work:
@@ -82,4 +67,3 @@ The pattern family SHALL NOT claim guaranteed unfinished-work recovery beyond th
 - **WHEN** an agent or operator needs self-notification guidance without an explicit durability requirement
 - **THEN** the advanced-usage skill recommends live gateway reminders as the default mode
 - **AND THEN** it still states that self-mail is the correct choice when gateway-surviving durability is required
-

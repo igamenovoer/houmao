@@ -7,7 +7,7 @@ Use `houmao-agent-gateway` when the task is about the managed gateway itself or 
 - attach, detach, or inspect the live gateway
 - manifest-first current-session gateway discovery
 - gateway-owned prompt control, queued requests, raw key delivery, TUI inspection, or headless control
-- direct live `/v1/wakeups`
+- direct live `/v1/reminders`
 - gateway mail-notifier control
 
 ## Use Other Houmao Skills For

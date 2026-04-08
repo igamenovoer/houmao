@@ -446,7 +446,7 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     )
     assert "houmao-mgr agents mail resolve-live" in gateway_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
-    assert "self-wakeup-via-self-mail.md" in advanced_skill
+    assert "self-notification.md" in advanced_skill
     assert "The trigger word `houmao` is intentional." in gateway_skill
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill

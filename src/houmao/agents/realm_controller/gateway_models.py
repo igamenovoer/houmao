@@ -28,8 +28,10 @@ GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
 GatewayRequestKind = Literal["submit_prompt", "interrupt"]
 GatewayStoredRequestKind = Literal["submit_prompt", "interrupt", "mail_notifier_prompt"]
-GatewayWakeupMode = Literal["one_off", "repeat"]
-GatewayWakeupState = Literal["scheduled", "overdue", "executing"]
+GatewayReminderMode = Literal["one_off", "repeat"]
+GatewayReminderDeliveryKind = Literal["prompt", "send_keys"]
+GatewayReminderSelectionState = Literal["effective", "blocked"]
+GatewayReminderDeliveryState = Literal["scheduled", "overdue", "executing"]
 GatewayHealthState = Literal["healthy", "not_attached"]
 GatewayConnectivityState = Literal["connected", "unavailable"]
 GatewayChatSessionSelectorMode = Literal["auto", "new", "current", "tool_last_or_new", "exact"]
@@ -64,7 +66,7 @@ GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
 GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 1
 GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION = 1
-GATEWAY_WAKEUP_SCHEMA_VERSION = 1
+GATEWAY_REMINDER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
 
@@ -749,9 +751,7 @@ class GatewayHeadlessNextPromptSessionRequestV1(_StrictGatewayModel):
         """Validate the next-prompt-session schema version."""
 
         if self.schema_version != GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION:
-            raise ValueError(
-                f"schema_version must be {GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION}"
-            )
+            raise ValueError(f"schema_version must be {GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION}")
         return self
 
 
@@ -819,20 +819,39 @@ class GatewayAcceptedRequestV1(_StrictGatewayModel):
         return value
 
 
-class GatewayWakeupCreateV1(_StrictGatewayModel):
-    """`POST /v1/wakeups` request body."""
+class GatewayReminderSendKeysV1(_StrictGatewayModel):
+    """Reminder-local raw control-input payload."""
 
-    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
-    mode: GatewayWakeupMode
-    prompt: str
-    after_seconds: int | float | None = None
+    sequence: str
+    ensure_enter: bool = True
+
+    @field_validator("sequence")
+    @classmethod
+    def _not_blank_sequence(cls, value: str) -> str:
+        """Validate non-empty reminder send-keys payloads."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class GatewayReminderDefinitionV1(_StrictGatewayModel):
+    """Shared mutable reminder fields used by create and update routes."""
+
+    mode: GatewayReminderMode
+    title: str
+    prompt: str | None = None
+    send_keys: GatewayReminderSendKeysV1 | None = None
+    ranking: int
+    paused: bool = False
+    start_after_seconds: int | float | None = None
     deliver_at_utc: str | None = None
     interval_seconds: int | float | None = None
 
-    @field_validator("prompt", "deliver_at_utc")
+    @field_validator("title", "prompt", "deliver_at_utc")
     @classmethod
     def _optional_not_blank_text(cls, value: str | None) -> str | None:
-        """Validate non-empty prompt and timestamp text fields."""
+        """Validate non-empty reminder text and timestamp fields."""
 
         if value is None:
             return None
@@ -850,7 +869,7 @@ class GatewayWakeupCreateV1(_StrictGatewayModel):
         _parse_gateway_datetime(value)
         return value
 
-    @field_validator("after_seconds", "interval_seconds")
+    @field_validator("start_after_seconds", "interval_seconds")
     @classmethod
     def _positive_finite_seconds(cls, value: int | float | None) -> int | float | None:
         """Validate one optional positive finite seconds value."""
@@ -865,38 +884,83 @@ class GatewayWakeupCreateV1(_StrictGatewayModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_shape(self) -> "GatewayWakeupCreateV1":
-        """Validate wakeup scheduling shape and mode-specific fields."""
+    def _validate_shape(self) -> "GatewayReminderDefinitionV1":
+        """Validate reminder scheduling shape and mode-specific fields."""
 
-        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
-        if (self.after_seconds is None) == (self.deliver_at_utc is None):
-            raise ValueError("exactly one of after_seconds or deliver_at_utc must be set")
+        if (self.prompt is None) == (self.send_keys is None):
+            raise ValueError("exactly one of prompt or send_keys must be set")
+        if (self.start_after_seconds is None) == (self.deliver_at_utc is None):
+            raise ValueError("exactly one of start_after_seconds or deliver_at_utc must be set")
         if self.mode == "repeat" and self.interval_seconds is None:
-            raise ValueError("repeat wakeups require interval_seconds")
+            raise ValueError("repeat reminders require interval_seconds")
         if self.mode == "one_off" and self.interval_seconds is not None:
-            raise ValueError("one_off wakeups must not include interval_seconds")
+            raise ValueError("one_off reminders must not include interval_seconds")
         return self
 
 
-class GatewayWakeupJobV1(_StrictGatewayModel):
-    """One live wakeup job returned by gateway wakeup routes."""
+class GatewayReminderCreateBatchV1(_StrictGatewayModel):
+    """`POST /v1/reminders` request body."""
 
-    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
-    job_id: str
-    mode: GatewayWakeupMode
-    prompt: str
-    state: GatewayWakeupState
+    schema_version: int = Field(default=GATEWAY_REMINDER_SCHEMA_VERSION)
+    reminders: list[GatewayReminderDefinitionV1]
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayReminderCreateBatchV1":
+        """Validate the reminder-create batch schema version and contents."""
+
+        if self.schema_version != GATEWAY_REMINDER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_REMINDER_SCHEMA_VERSION}")
+        if not self.reminders:
+            raise ValueError("reminders must not be empty")
+        return self
+
+
+class GatewayReminderPutV1(GatewayReminderDefinitionV1):
+    """`PUT /v1/reminders/{reminder_id}` request body."""
+
+    schema_version: int = Field(default=GATEWAY_REMINDER_SCHEMA_VERSION)
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayReminderPutV1":
+        """Validate the reminder-update schema version."""
+
+        if self.schema_version != GATEWAY_REMINDER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_REMINDER_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayReminderV1(_StrictGatewayModel):
+    """One live reminder returned by gateway reminder routes."""
+
+    schema_version: int = Field(default=GATEWAY_REMINDER_SCHEMA_VERSION)
+    reminder_id: str
+    mode: GatewayReminderMode
+    delivery_kind: GatewayReminderDeliveryKind
+    title: str
+    prompt: str | None = None
+    send_keys: GatewayReminderSendKeysV1 | None = None
+    ranking: int
+    paused: bool
+    selection_state: GatewayReminderSelectionState
+    delivery_state: GatewayReminderDeliveryState
     created_at_utc: str
     next_due_at_utc: str
     interval_seconds: int | float | None = None
     last_started_at_utc: str | None = None
-    cancel_requested: bool = False
+    blocked_by_reminder_id: str | None = None
 
-    @field_validator("job_id", "prompt", "created_at_utc", "next_due_at_utc", "last_started_at_utc")
+    @field_validator(
+        "reminder_id",
+        "title",
+        "prompt",
+        "created_at_utc",
+        "next_due_at_utc",
+        "last_started_at_utc",
+        "blocked_by_reminder_id",
+    )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
-        """Validate required and optional text fields."""
+        """Validate required and optional reminder text fields."""
 
         if value is None:
             return None
@@ -907,7 +971,7 @@ class GatewayWakeupJobV1(_StrictGatewayModel):
     @field_validator("created_at_utc", "next_due_at_utc", "last_started_at_utc")
     @classmethod
     def _optional_valid_timestamp(cls, value: str | None) -> str | None:
-        """Validate response timestamps."""
+        """Validate reminder response timestamps."""
 
         if value is None:
             return None
@@ -929,58 +993,107 @@ class GatewayWakeupJobV1(_StrictGatewayModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_job_shape(self) -> "GatewayWakeupJobV1":
-        """Validate mode-specific job response invariants."""
+    def _validate_reminder_shape(self) -> "GatewayReminderV1":
+        """Validate response invariants for one reminder."""
 
-        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        if self.schema_version != GATEWAY_REMINDER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_REMINDER_SCHEMA_VERSION}")
+        if (self.prompt is None) == (self.send_keys is None):
+            raise ValueError("exactly one of prompt or send_keys must be set")
         if self.mode == "repeat" and self.interval_seconds is None:
-            raise ValueError("repeat wakeups require interval_seconds")
+            raise ValueError("repeat reminders require interval_seconds")
         if self.mode == "one_off" and self.interval_seconds is not None:
-            raise ValueError("one_off wakeups must not include interval_seconds")
+            raise ValueError("one_off reminders must not include interval_seconds")
+        if self.delivery_kind == "prompt" and self.prompt is None:
+            raise ValueError("delivery_kind=prompt requires prompt")
+        if self.delivery_kind == "send_keys" and self.send_keys is None:
+            raise ValueError("delivery_kind=send_keys requires send_keys")
+        if self.selection_state == "effective" and self.blocked_by_reminder_id is not None:
+            raise ValueError("effective reminders must not include blocked_by_reminder_id")
+        if self.selection_state == "blocked" and self.blocked_by_reminder_id is None:
+            raise ValueError("blocked reminders require blocked_by_reminder_id")
         return self
 
 
-class GatewayWakeupListV1(_StrictGatewayModel):
-    """`GET /v1/wakeups` response body."""
+class GatewayReminderCreateResultV1(_StrictGatewayModel):
+    """`POST /v1/reminders` response body."""
 
-    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
-    jobs: list[GatewayWakeupJobV1]
+    schema_version: int = Field(default=GATEWAY_REMINDER_SCHEMA_VERSION)
+    effective_reminder_id: str | None = None
+    reminders: list[GatewayReminderV1]
+
+    @field_validator("effective_reminder_id")
+    @classmethod
+    def _optional_not_blank_reminder_id(cls, value: str | None) -> str | None:
+        """Validate one optional effective reminder identifier."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
 
     @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayWakeupListV1":
-        """Validate the wakeup list schema version."""
+    def _validate_schema(self) -> "GatewayReminderCreateResultV1":
+        """Validate the reminder-create result schema version."""
 
-        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        if self.schema_version != GATEWAY_REMINDER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_REMINDER_SCHEMA_VERSION}")
         return self
 
 
-class GatewayWakeupCancelResultV1(_StrictGatewayModel):
-    """`DELETE /v1/wakeups/{job_id}` response body."""
+class GatewayReminderListV1(_StrictGatewayModel):
+    """`GET /v1/reminders` response body."""
 
-    schema_version: int = Field(default=GATEWAY_WAKEUP_SCHEMA_VERSION)
+    schema_version: int = Field(default=GATEWAY_REMINDER_SCHEMA_VERSION)
+    effective_reminder_id: str | None = None
+    reminders: list[GatewayReminderV1]
+
+    @field_validator("effective_reminder_id")
+    @classmethod
+    def _optional_not_blank_reminder_id(cls, value: str | None) -> str | None:
+        """Validate one optional effective reminder identifier."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayReminderListV1":
+        """Validate the reminder list schema version."""
+
+        if self.schema_version != GATEWAY_REMINDER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_REMINDER_SCHEMA_VERSION}")
+        return self
+
+
+class GatewayReminderDeleteResultV1(_StrictGatewayModel):
+    """`DELETE /v1/reminders/{reminder_id}` response body."""
+
+    schema_version: int = Field(default=GATEWAY_REMINDER_SCHEMA_VERSION)
     status: Literal["ok"] = "ok"
-    action: Literal["cancel_wakeup"] = "cancel_wakeup"
-    job_id: str
-    canceled: Literal[True] = True
+    action: Literal["delete_reminder"] = "delete_reminder"
+    reminder_id: str
+    deleted: Literal[True] = True
     detail: str
 
-    @field_validator("job_id", "detail")
+    @field_validator("reminder_id", "detail")
     @classmethod
     def _not_blank(cls, value: str) -> str:
-        """Validate non-empty cancellation response fields."""
+        """Validate non-empty delete-response fields."""
 
         if not value.strip():
             raise ValueError("must not be empty")
         return value
 
     @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayWakeupCancelResultV1":
-        """Validate the wakeup cancellation schema version."""
+    def _validate_schema(self) -> "GatewayReminderDeleteResultV1":
+        """Validate the reminder deletion schema version."""
 
-        if self.schema_version != GATEWAY_WAKEUP_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_WAKEUP_SCHEMA_VERSION}")
+        if self.schema_version != GATEWAY_REMINDER_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_REMINDER_SCHEMA_VERSION}")
         return self
 
 

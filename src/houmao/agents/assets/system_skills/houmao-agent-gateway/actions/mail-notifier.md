@@ -40,5 +40,5 @@ Direct live gateway routes:
 
 - Do not treat the notifier as durable work recovery; it is live gateway background behavior.
 - Do not enable the notifier without a valid attached mailbox configuration.
-- Do not describe `mail-notifier` as the same thing as `/v1/wakeups`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
+- Do not describe `mail-notifier` as the same thing as `/v1/reminders`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
 - Do not invent `houmao-mgr agents mail-notifier ...` commands outside the `agents gateway` family.
