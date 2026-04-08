@@ -1499,6 +1499,17 @@ def get_project_launch_profile_command(name: str) -> None:
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact default durable memory directory for launches from this profile.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Persist disabled memory binding for launches from this profile.",
+)
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
     "--reasoning-level",
@@ -1570,6 +1581,8 @@ def add_project_launch_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -1602,6 +1615,9 @@ def add_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+        clear_memory_dir=False,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -1649,6 +1665,22 @@ def add_project_launch_profile_command(
 @click.option("--clear-workdir", is_flag=True, help="Clear the stored default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
 @click.option("--clear-auth", is_flag=True, help="Clear the stored auth override.")
+@click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact durable memory directory override for launches from this profile.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Persist disabled memory binding for launches from this profile.",
+)
+@click.option(
+    "--clear-memory-dir",
+    is_flag=True,
+    help="Clear the stored memory binding back to no profile preference.",
+)
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option("--clear-model", is_flag=True, help="Clear the stored launch-owned model.")
 @click.option(
@@ -1741,6 +1773,9 @@ def set_project_launch_profile_command(
     clear_workdir: bool,
     auth: str | None,
     clear_auth: bool,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
+    clear_memory_dir: bool,
     model: str | None,
     clear_model: bool,
     reasoning_level: int | None,
@@ -1786,6 +1821,9 @@ def set_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+        clear_memory_dir=clear_memory_dir,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -1862,6 +1900,17 @@ def easy_profile_group() -> None:
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact default durable memory directory for launches from this easy profile.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Persist disabled memory binding for launches from this easy profile.",
+)
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
     "--reasoning-level",
@@ -1933,6 +1982,8 @@ def create_easy_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -1965,6 +2016,9 @@ def create_easy_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+        clear_memory_dir=False,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -2419,6 +2473,17 @@ def easy_instance_group() -> None:
     help="Optional runtime working directory override; defaults to the invocation cwd.",
 )
 @click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact durable memory directory override for this instance launch.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Disable durable memory-directory binding for this instance launch.",
+)
+@click.option(
     "--env-set",
     "env_set",
     multiple=True,
@@ -2448,17 +2513,6 @@ def easy_instance_group() -> None:
     default=None,
     help="Force-enable or disable the Houmao-managed prompt header for this launch.",
 )
-@click.option(
-    "--append-system-prompt-text",
-    default=None,
-    help="Inline launch-owned system-prompt appendix for this launch only.",
-)
-@click.option(
-    "--append-system-prompt-file",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Path to a launch-owned system-prompt appendix file for this launch only.",
-)
 @managed_launch_force_option
 def launch_easy_instance_command(
     specialist: str | None,
@@ -2473,13 +2527,13 @@ def launch_easy_instance_command(
     gateway_port: int | None,
     gateway_background: bool,
     workdir: Path | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
     env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
     mail_account_dir: Path | None,
     managed_header: bool | None,
-    append_system_prompt_text: str | None,
-    append_system_prompt_file: Path | None,
     force_mode: str | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
@@ -2497,12 +2551,14 @@ def launch_easy_instance_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
-    launch_appendix_text = _resolve_launch_appendix_text_or_click(
-        appendix_text=append_system_prompt_text,
-        appendix_file=append_system_prompt_file,
-    )
+    launch_profile_memory_dir: str | None = None
+    launch_profile_memory_disabled = False
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_provenance = None
+    resolved_memory_dir, no_memory_dir, _ = _resolve_memory_dir_option_or_click(
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+    )
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
@@ -2531,6 +2587,10 @@ def launch_easy_instance_command(
             source=f"easy profile `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
+        launch_profile_memory_dir = getattr(resolved_profile.entry, "memory_dir", None)
+        launch_profile_memory_disabled = bool(
+            getattr(resolved_profile.entry, "memory_disabled", False)
+        )
         launch_profile_model_config = _build_model_config_or_click(
             model_name=resolved_profile.entry.model_name,
             reasoning_level=resolved_profile.entry.reasoning_level,
@@ -2645,6 +2705,10 @@ def launch_easy_instance_command(
         headless=resolved_headless,
         provider=specialist_metadata.provider,
         working_directory=working_directory,
+        memory_dir=resolved_memory_dir,
+        no_memory_dir=no_memory_dir,
+        launch_profile_memory_dir=launch_profile_memory_dir,
+        launch_profile_memory_disabled=launch_profile_memory_disabled,
         source_working_directory=overlay.project_root,
         source_agent_def_dir=source_agent_def_dir,
         headless_display_style="plain",
@@ -2664,7 +2728,6 @@ def launch_easy_instance_command(
         direct_model_config=direct_model_config,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
-        launch_appendix_text=launch_appendix_text,
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,
@@ -4163,32 +4226,33 @@ def _resolve_prompt_overlay_text_or_click(
     return prompt_overlay_mode, resolved_text
 
 
-def _resolve_launch_appendix_text_or_click(
-    *,
-    appendix_text: str | None,
-    appendix_file: Path | None,
-) -> str | None:
-    """Resolve one launch-owned appendix from inline or file input."""
-
-    if appendix_text is not None and appendix_file is not None:
-        raise click.ClickException(
-            "Provide at most one of `--append-system-prompt-text` or `--append-system-prompt-file`."
-        )
-    if appendix_text is not None:
-        resolved_text = appendix_text.rstrip()
-        return resolved_text if resolved_text.strip() else None
-    if appendix_file is not None:
-        resolved_text = appendix_file.read_text(encoding="utf-8").rstrip()
-        return resolved_text if resolved_text.strip() else None
-    return None
-
-
 def _managed_header_policy_from_override(value: bool | None) -> ManagedHeaderPolicy | None:
     """Return one stored managed-header policy from a tri-state CLI override."""
 
     if value is None:
         return None
     return "enabled" if value else "disabled"
+
+
+def _resolve_memory_dir_option_or_click(
+    *,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
+    clear_memory_dir: bool = False,
+) -> tuple[Path | None, bool, bool]:
+    """Resolve normalized memory-directory CLI inputs."""
+
+    if memory_dir is not None and no_memory_dir:
+        raise click.ClickException("`--memory-dir` and `--no-memory-dir` are mutually exclusive.")
+    if clear_memory_dir and (memory_dir is not None or no_memory_dir):
+        raise click.ClickException(
+            "`--memory-dir`, `--no-memory-dir`, and `--clear-memory-dir` are mutually exclusive."
+        )
+    return (
+        memory_dir.expanduser().resolve() if memory_dir is not None else None,
+        no_memory_dir,
+        clear_memory_dir,
+    )
 
 
 def _build_profile_mailbox_mapping_or_click(
@@ -4314,6 +4378,9 @@ def _store_launch_profile_from_cli(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
+    clear_memory_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -4398,6 +4465,13 @@ def _store_launch_profile_from_cli(
             prompt_overlay_file=prompt_overlay_file,
         )
     )
+    resolved_memory_dir_option, resolved_no_memory_dir, resolved_clear_memory_dir = (
+        _resolve_memory_dir_option_or_click(
+            memory_dir=memory_dir,
+            no_memory_dir=no_memory_dir,
+            clear_memory_dir=clear_memory_dir,
+        )
+    )
     env_mapping = (
         {}
         if clear_env
@@ -4419,6 +4493,10 @@ def _store_launch_profile_from_cli(
         resolved_agent_id = _optional_non_empty_value(agent_id)
         resolved_workdir = _optional_non_empty_value(workdir)
         resolved_auth = _optional_non_empty_value(auth)
+        resolved_memory_dir = (
+            str(resolved_memory_dir_option) if resolved_memory_dir_option is not None else None
+        )
+        resolved_memory_disabled = resolved_no_memory_dir
         resolved_model_config = _build_model_config_or_click(
             model_name=resolved_model_input,
             reasoning_level=reasoning_level,
@@ -4470,6 +4548,18 @@ def _store_launch_profile_from_cli(
             if clear_auth
             else (_optional_non_empty_value(auth) if auth is not None else current.entry.auth_name)
         )
+        if resolved_clear_memory_dir:
+            resolved_memory_dir = None
+            resolved_memory_disabled = False
+        elif resolved_no_memory_dir:
+            resolved_memory_dir = None
+            resolved_memory_disabled = True
+        elif resolved_memory_dir_option is not None:
+            resolved_memory_dir = str(resolved_memory_dir_option)
+            resolved_memory_disabled = False
+        else:
+            resolved_memory_dir = current.entry.memory_dir
+            resolved_memory_disabled = current.entry.memory_disabled
         if clear_model and model is not None:
             raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
         if clear_reasoning_level and reasoning_level is not None:
@@ -4545,6 +4635,9 @@ def _store_launch_profile_from_cli(
             clear_workdir,
             auth is not None,
             clear_auth,
+            memory_dir is not None,
+            no_memory_dir,
+            clear_memory_dir,
             model is not None,
             clear_model,
             reasoning_level is not None,
@@ -4579,6 +4672,8 @@ def _store_launch_profile_from_cli(
         managed_agent_id=resolved_agent_id,
         workdir=resolved_workdir,
         auth_name=resolved_auth,
+        memory_dir=resolved_memory_dir,
+        memory_disabled=resolved_memory_disabled,
         model_name=resolved_model_config.name if resolved_model_config is not None else None,
         reasoning_level=(
             resolved_model_config.reasoning.level
@@ -4726,6 +4821,9 @@ def _instance_payload(
         "easy_profile": easy_profile_name,
         "project_root": str(overlay.project_root),
         "project_agent_def_dir": runtime_payload.get("agent_def_dir")
+        if isinstance(runtime_payload, dict)
+        else None,
+        "memory_dir": runtime_payload.get("memory_dir")
         if isinstance(runtime_payload, dict)
         else None,
         "mailbox": mailbox_payload,

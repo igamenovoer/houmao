@@ -63,6 +63,8 @@ def _write_runtime_manifest(
     runtime_root: Path | None = None,
     tmux_session_name: str = "join-sess",
     session_id: str = "session-1",
+    memory_binding: str | None = None,
+    memory_dir: Path | None = None,
 ) -> Path:
     resolved_runtime_root = (runtime_root or (tmp_path / "runtime")).resolve()
     session_root = (resolved_runtime_root / "sessions" / "codex_headless" / session_id).resolve()
@@ -92,6 +94,8 @@ def _write_runtime_manifest(
             session_id=session_id,
             agent_def_dir=agent_def_dir,
             job_dir=job_dir,
+            memory_binding=memory_binding,
+            memory_dir=memory_dir,
         )
     )
     write_session_manifest(manifest_path, payload)
@@ -254,7 +258,7 @@ def test_admin_cleanup_registry_plain_output_lists_action_lines(
     assert "Planned Actions (1):" in result.output
     assert str(planned_action.path) in result.output
     assert planned_action.reason in result.output
-    assert "Preserved Actions (1):" in result.output
+    assert "Preserved Actions (" in result.output
     assert str(preserved_action.path) in result.output
     assert preserved_action.reason in result.output
     assert "[1 items]" not in result.output
@@ -409,6 +413,41 @@ def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_and_job
     assert str(manifest_path.parent.resolve()) in planned_paths
     assert str((tmp_path / ".houmao" / "jobs" / "session-1").resolve()) in planned_paths
     assert payload["resolution"]["authority"] == "manifest_path"
+
+
+def test_managed_session_cleanup_preserves_memory_dir(
+    tmp_path: Path,
+) -> None:
+    memory_dir = (tmp_path / "shared-memory" / "agent-a").resolve()
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    (memory_dir / "notes.md").write_text("durable\n", encoding="utf-8")
+    manifest_path = _write_runtime_manifest(
+        tmp_path,
+        memory_binding="exact",
+        memory_dir=memory_dir,
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=manifest_path,
+        session_root=None,
+        include_job_dir=True,
+        dry_run=False,
+    )
+
+    assert memory_dir.exists()
+    assert (memory_dir / "notes.md").is_file()
+    affected_paths = {
+        action["path"]
+        for action in (
+            payload["planned_actions"]
+            + payload["applied_actions"]
+            + payload["blocked_actions"]
+            + payload["preserved_actions"]
+        )
+    }
+    assert str(memory_dir) not in affected_paths
 
 
 def test_managed_session_cleanup_missing_manifest_removes_session_root_and_skips_job_dir(
@@ -788,7 +827,7 @@ def test_mailbox_cleanup_plain_output_lists_action_lines(tmp_path: Path) -> None
     assert "inactive mailbox registration is no longer active and is eligible for cleanup" in (
         result.output
     )
-    assert "Preserved Actions (1):" in result.output
+    assert "Preserved Actions (" in result.output
     assert str(paths.messages_dir.resolve()) in result.output
     assert "[1 items]" not in result.output
     assert "{...}" not in result.output

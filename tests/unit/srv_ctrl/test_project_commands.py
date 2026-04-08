@@ -2382,6 +2382,7 @@ def test_project_agents_launch_profiles_crud_round_trip(
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     auth_json_path = (tmp_path / "auth.json").resolve()
+    shared_memory_dir = (repo_root.parent / "shared" / "alice-memory").resolve()
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
     monkeypatch.chdir(repo_root)
 
@@ -2430,6 +2431,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "/repos/alice",
             "--auth",
             "alice-creds",
+            "--memory-dir",
+            "../shared/alice-memory",
             "--model",
             "gpt-5.4-mini",
             "--reasoning-level",
@@ -2464,6 +2467,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
         "agent_id": "agent-alice",
         "workdir": "/repos/alice",
         "auth": "alice-creds",
+        "memory_binding": "exact",
+        "memory_dir": str(shared_memory_dir),
         "model": {"name": "gpt-5.4-mini", "reasoning": {"level": 4}},
         "prompt_mode": "unattended",
         "env": {"PROJECT_CONTEXT": "alice"},
@@ -2545,6 +2550,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
     assert set_result.exit_code == 0, set_result.output
     set_payload = json.loads(set_result.output)
     assert set_payload["defaults"]["auth"] == "reviewer-creds"
+    assert set_payload["defaults"]["memory_binding"] == "exact"
+    assert set_payload["defaults"]["memory_dir"] == str(shared_memory_dir)
     assert set_payload["defaults"]["model"] == {"reasoning": {"level": 4}}
     assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
     assert set_payload["defaults"]["prompt_overlay"]["present"] is True
@@ -2615,6 +2622,7 @@ def test_project_easy_profile_crud_round_trip(
             "/repos/alice",
             "--auth",
             "alice-creds",
+            "--no-memory-dir",
             "--model",
             "gpt-5.4-mini",
             "--reasoning-level",
@@ -2631,6 +2639,8 @@ def test_project_easy_profile_crud_round_trip(
     assert create_payload["profile_lane"] == "easy-profile"
     assert create_payload["specialist"] == "researcher"
     assert create_payload["defaults"]["agent_name"] == "alice"
+    assert create_payload["defaults"]["memory_binding"] == "disabled"
+    assert create_payload["defaults"]["memory_dir"] is None
     assert create_payload["defaults"]["model"] == {
         "name": "gpt-5.4-mini",
         "reasoning": {"level": 4},
@@ -2666,6 +2676,98 @@ def test_project_easy_profile_crud_round_trip(
     )
 
 
+def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "launch-profiles",
+                "add",
+                "--name",
+                "alice",
+                "--recipe",
+                "researcher-codex-default",
+                "--memory-dir",
+                str((tmp_path / "shared" / "alice-memory").resolve()),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    disabled_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--no-memory-dir",
+        ],
+    )
+
+    assert disabled_result.exit_code == 0, disabled_result.output
+    disabled_payload = json.loads(disabled_result.output)
+    assert disabled_payload["defaults"]["memory_binding"] == "disabled"
+    assert disabled_payload["defaults"]["memory_dir"] is None
+
+    cleared_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--clear-memory-dir",
+        ],
+    )
+
+    assert cleared_result.exit_code == 0, cleared_result.output
+    cleared_payload = json.loads(cleared_result.output)
+    assert cleared_payload["defaults"]["memory_binding"] == "inherit"
+    assert cleared_payload["defaults"]["memory_dir"] is None
+
+
 def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2674,13 +2776,11 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     repo_root = (tmp_path / "repo").resolve()
     profile_workdir = (tmp_path / "profile-workdir").resolve()
     runtime_workdir = (tmp_path / "runtime-workdir").resolve()
-    appendix_file = (tmp_path / "appendix.md").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     profile_workdir.mkdir(parents=True, exist_ok=True)
     runtime_workdir.mkdir(parents=True, exist_ok=True)
     auth_json_path = (tmp_path / "auth.json").resolve()
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
-    appendix_file.write_text("Treat gateway diagnostics as high priority.\n", encoding="utf-8")
     monkeypatch.chdir(repo_root)
 
     assert runner.invoke(cli, ["project", "init"]).exit_code == 0
@@ -2726,6 +2826,8 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
                 str(profile_workdir),
                 "--auth",
                 "alice-creds",
+                "--memory-dir",
+                str((tmp_path / "profile-memory").resolve()),
                 "--model",
                 "gpt-5.4-mini",
                 "--reasoning-level",
@@ -2778,8 +2880,6 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
             "alice",
             "--auth",
             "breakglass",
-            "--append-system-prompt-file",
-            str(appendix_file),
             "--workdir",
             str(runtime_workdir),
             "--model",
@@ -2797,6 +2897,10 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["agent_name"] == "alice"
     assert captured["auth"] == "breakglass"
     assert captured["working_directory"] == runtime_workdir
+    assert captured["memory_dir"] is None
+    assert captured["no_memory_dir"] is False
+    assert captured["launch_profile_memory_dir"] == str((tmp_path / "profile-memory").resolve())
+    assert captured["launch_profile_memory_disabled"] is False
     assert captured["provider"] == "codex"
     assert captured["headless"] is False
     assert captured["gateway_auto_attach"] is False
@@ -2806,7 +2910,6 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["direct_model_config"].reasoning.level == 9
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
-    assert captured["launch_appendix_text"] == "Treat gateway diagnostics as high priority."
     assert captured["launch_profile_provenance"] == {
         "name": "alice",
         "lane": "easy_profile",
@@ -2820,67 +2923,6 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     }
     assert captured["declared_mailbox"].transport == "filesystem"
     assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
-
-
-def test_project_easy_instance_launch_rejects_conflicting_append_system_prompt_inputs(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    auth_json_path = (tmp_path / "auth.json").resolve()
-    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
-    appendix_file = (tmp_path / "appendix.md").resolve()
-    appendix_file.write_text("Treat gateway diagnostics as high priority.\n", encoding="utf-8")
-    monkeypatch.chdir(repo_root)
-
-    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
-    assert (
-        runner.invoke(
-            cli,
-            [
-                "project",
-                "easy",
-                "specialist",
-                "create",
-                "--name",
-                "researcher",
-                "--system-prompt",
-                "You are a precise repo researcher.",
-                "--tool",
-                "codex",
-                "--credential",
-                "work",
-                "--api-key",
-                "sk-openai",
-                "--codex-auth-json",
-                str(auth_json_path),
-            ],
-        ).exit_code
-        == 0
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "project",
-            "easy",
-            "instance",
-            "launch",
-            "--specialist",
-            "researcher",
-            "--name",
-            "alice",
-            "--append-system-prompt-text",
-            "Treat gateway diagnostics as high priority.",
-            "--append-system-prompt-file",
-            str(appendix_file),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Provide at most one of `--append-system-prompt-text`" in result.output
 
 
 def test_project_launch_profile_set_can_clear_managed_header_policy(
@@ -3864,6 +3906,7 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "runtime_root_detail": "runtime-root-detail",
             "jobs_root": str((tmp_path / "jobs").resolve()),
             "jobs_root_detail": "jobs-root-detail",
+            "memory_dir": None,
             "mailbox_root": str((tmp_path / "mailbox").resolve()),
             "mailbox_root_detail": "mailbox-root-detail",
             "overlay_root": str((tmp_path / "overlay").resolve()),
@@ -3933,6 +3976,7 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
             "runtime_root_detail": "runtime-root-detail",
             "jobs_root": str((tmp_path / "jobs").resolve()),
             "jobs_root_detail": "jobs-root-detail",
+            "memory_dir": None,
             "mailbox_root": str((tmp_path / "mailbox").resolve()),
             "mailbox_root_detail": "mailbox-root-detail",
             "overlay_root": str((tmp_path / "overlay").resolve()),
@@ -4254,6 +4298,8 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
             managed_agent_name="profile-agent",
             auth_name=None,
             workdir=None,
+            memory_dir=None,
+            memory_disabled=False,
         ),
     )
     captured: dict[str, object] = {}
@@ -4531,6 +4577,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
         },
         "runtime": {
             "agent_def_dir": str((repo_root / ".houmao" / "agents").resolve()),
+            "memory_dir": str((tmp_path / "memory" / "agents" / "repo-research-1").resolve()),
         },
     }
 
@@ -4554,6 +4601,9 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert list_payload["instances"][0]["specialist"] == "researcher"
     assert list_payload["instances"][0]["easy_profile"] == "alice"
     assert list_payload["instances"][0]["tool"] == "codex"
+    assert list_payload["instances"][0]["memory_dir"] == str(
+        (tmp_path / "memory" / "agents" / "repo-research-1").resolve()
+    )
     assert list_payload["instances"][0]["mailbox"] == {
         "transport": "filesystem",
         "principal_id": "HOUMAO-repo-research-1",
@@ -4573,6 +4623,9 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert get_payload["easy_profile"] == "alice"
     assert get_payload["agent_id"] == "agent-123"
     assert get_payload["manifest_path"] == str(manifest_path)
+    assert get_payload["memory_dir"] == str(
+        (tmp_path / "memory" / "agents" / "repo-research-1").resolve()
+    )
     assert get_payload["mailbox"] == {
         "transport": "filesystem",
         "principal_id": "HOUMAO-repo-research-1",

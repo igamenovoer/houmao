@@ -38,6 +38,7 @@ When a project overlay is discovered, commands receive `ProjectAwareLocalRoots` 
 | `agent_def_dir` | `.houmao/agents/` | Agent definitions (tools, roles, skills, recipes, launch profiles). |
 | `runtime_root` | `.houmao/runtime/` | Session runtime state and build artifacts. |
 | `jobs_root` | `.houmao/jobs/` | Job tracking directories. |
+| `memory_root` | `.houmao/memory/` | Conservative default root for managed durable agent memory. |
 | `mailbox_root` | `.houmao/mailbox/` | Project-local filesystem mailbox root. |
 | `easy_root` | `.houmao/easy/` | Easy-specialist metadata. |
 

@@ -594,12 +594,15 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
+    memory_dir: str | None = None
 
-    @field_validator("tracked_agent_id")
+    @field_validator("tracked_agent_id", "memory_dir")
     @classmethod
-    def _tracked_agent_id_not_blank(cls, value: str) -> str:
-        """Require a non-empty tracked-agent id."""
+    def _tracked_agent_id_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string identifiers to be non-empty when present."""
 
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise ValueError("must not be empty")

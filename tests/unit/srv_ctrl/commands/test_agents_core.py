@@ -172,6 +172,12 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     assert captured["gateway_host"] == "127.0.0.1"
     assert captured["gateway_port"] == 0
     assert captured["gateway_execution_mode_override"] == "tmux_auxiliary_window"
+    memory_binding = captured["memory_binding"]
+    assert getattr(memory_binding, "kind") == "auto"
+    assert (
+        getattr(memory_binding, "directory")
+        == (overlay_root / "memory" / "agents" / "6ee1c825367e868092eda76cb18a96e0").resolve()
+    )
     assert launch_result.controller.agent_identity == "repo-research-1"
 
 
@@ -279,7 +285,6 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         persistent_env_records={"OPENAI_ORG_ID": "org-alice"},
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
-        launch_appendix_text="Treat gateway diagnostics as high priority.",
         launch_profile_provenance={
             "name": "alice",
             "lane": "launch_profile",
@@ -303,7 +308,6 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         base_prompt="You are a precise repo researcher.",
         overlay_mode="append",
         overlay_text="Prefer Alice repository conventions.",
-        appendix_text="Treat gateway diagnostics as high priority.",
         managed_header_enabled=True,
         agent_name="repo-research-1",
         agent_id="6ee1c825367e868092eda76cb18a96e0",
@@ -315,27 +319,6 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         "stored_policy": None,
         "agent_name": "repo-research-1",
         "agent_id": "6ee1c825367e868092eda76cb18a96e0",
-    }
-    assert build_request.houmao_system_prompt_layout == {
-        "version": 1,
-        "root_tag": "houmao_system_prompt",
-        "sections": [
-            {"kind": "managed_header"},
-            {
-                "kind": "prompt_body",
-                "sections": [
-                    {"kind": "role_prompt"},
-                    {
-                        "kind": "launch_profile_overlay",
-                        "attributes": {"mode": "append"},
-                    },
-                    {
-                        "kind": "launch_appendix",
-                        "attributes": {"source": "launch_option"},
-                    },
-                ],
-            },
-        ],
     }
     assert build_request.launch_profile_provenance == {
         "name": "alice",
@@ -446,11 +429,6 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
         "stored_policy": None,
         "agent_name": "HOUMAO-codex-researcher",
         "agent_id": derive_agent_id_from_name("HOUMAO-codex-researcher"),
-    }
-    assert build_request.houmao_system_prompt_layout == {
-        "version": 1,
-        "root_tag": "houmao_system_prompt",
-        "sections": [],
     }
 
 

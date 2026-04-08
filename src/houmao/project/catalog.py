@@ -15,6 +15,10 @@ import sqlite3
 import tomllib
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
+from houmao.agents.memory_dir import (
+    resolve_stored_memory_binding,
+    stored_memory_binding_kind,
+)
 from houmao.agents.model_selection import parse_reasoning_level
 from houmao.agents.definition_parser import parse_agent_preset
 from houmao.agents.managed_prompt_header import ManagedHeaderPolicy, normalize_managed_header_policy
@@ -22,7 +26,7 @@ from houmao.agents.managed_prompt_header import ManagedHeaderPolicy, normalize_m
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 5
+CATALOG_SCHEMA_VERSION = 6
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -123,6 +127,8 @@ class LaunchProfileCatalogEntry:
     managed_agent_id: str | None
     workdir: str | None
     auth_name: str | None
+    memory_dir: str | None
+    memory_disabled: bool
     model_name: str | None
     reasoning_level: int | None
     operator_prompt_mode: str | None
@@ -133,6 +139,15 @@ class LaunchProfileCatalogEntry:
     prompt_overlay_mode: str | None
     prompt_overlay_ref: ManagedContentRef | None
     metadata_path: Path | None = None
+
+    @property
+    def memory_binding(self) -> str:
+        """Return the stored memory-binding intent for this launch profile."""
+
+        return stored_memory_binding_kind(
+            memory_dir=self.memory_dir,
+            memory_disabled=self.memory_disabled,
+        )
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection launch-profile path."""
@@ -554,6 +569,8 @@ class ProjectCatalog:
                     launch_profiles.managed_agent_id,
                     launch_profiles.workdir,
                     launch_profiles.auth_name,
+                    launch_profiles.memory_dir,
+                    launch_profiles.memory_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -589,6 +606,8 @@ class ProjectCatalog:
                     launch_profiles.managed_agent_id,
                     launch_profiles.workdir,
                     launch_profiles.auth_name,
+                    launch_profiles.memory_dir,
+                    launch_profiles.memory_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -623,6 +642,8 @@ class ProjectCatalog:
         managed_agent_id: str | None,
         workdir: str | None,
         auth_name: str | None,
+        memory_dir: str | None,
+        memory_disabled: bool,
         operator_prompt_mode: str | None,
         env_mapping: dict[str, str] | None,
         mailbox_mapping: dict[str, Any] | None,
@@ -654,6 +675,10 @@ class ProjectCatalog:
             raise ValueError("Prompt-overlay mode requires prompt-overlay text.")
         resolved_model_name = (
             model_name.strip() if model_name is not None and model_name.strip() else None
+        )
+        resolved_memory_binding = resolve_stored_memory_binding(
+            memory_dir=memory_dir,
+            memory_disabled=memory_disabled,
         )
         resolved_reasoning_level = (
             parse_reasoning_level(reasoning_level, source="launch_profiles.reasoning_level")
@@ -691,6 +716,8 @@ class ProjectCatalog:
                     managed_agent_id,
                     workdir,
                     auth_name,
+                    memory_dir,
+                    memory_disabled,
                     model_name,
                     reasoning_level,
                     operator_prompt_mode,
@@ -702,7 +729,7 @@ class ProjectCatalog:
                     prompt_overlay_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -711,6 +738,8 @@ class ProjectCatalog:
                     managed_agent_id = excluded.managed_agent_id,
                     workdir = excluded.workdir,
                     auth_name = excluded.auth_name,
+                    memory_dir = excluded.memory_dir,
+                    memory_disabled = excluded.memory_disabled,
                     model_name = excluded.model_name,
                     reasoning_level = excluded.reasoning_level,
                     operator_prompt_mode = excluded.operator_prompt_mode,
@@ -731,6 +760,12 @@ class ProjectCatalog:
                     managed_agent_id,
                     workdir,
                     auth_name,
+                    (
+                        str(resolved_memory_binding.directory)
+                        if resolved_memory_binding.directory is not None
+                        else None
+                    ),
+                    1 if resolved_memory_binding.kind == "disabled" else 0,
                     resolved_model_name,
                     resolved_reasoning_level,
                     operator_prompt_mode,
@@ -986,6 +1021,8 @@ class ProjectCatalog:
                     managed_agent_id TEXT,
                     workdir TEXT,
                     auth_name TEXT,
+                    memory_dir TEXT,
+                    memory_disabled INTEGER NOT NULL DEFAULT 0,
                     model_name TEXT,
                     reasoning_level INTEGER,
                     operator_prompt_mode TEXT,
@@ -1014,6 +1051,17 @@ class ProjectCatalog:
             connection, table_name="launch_profiles", column_name="managed_header_policy"
         ):
             connection.execute("ALTER TABLE launch_profiles ADD COLUMN managed_header_policy TEXT")
+        if current_version <= 5:
+            if not _table_has_column(
+                connection, table_name="launch_profiles", column_name="memory_dir"
+            ):
+                connection.execute("ALTER TABLE launch_profiles ADD COLUMN memory_dir TEXT")
+            if not _table_has_column(
+                connection, table_name="launch_profiles", column_name="memory_disabled"
+            ):
+                connection.execute(
+                    "ALTER TABLE launch_profiles ADD COLUMN memory_disabled INTEGER NOT NULL DEFAULT 0"
+                )
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -1373,6 +1421,8 @@ class ProjectCatalog:
             else None,
             workdir=str(row["workdir"]) if row["workdir"] is not None else None,
             auth_name=str(row["auth_name"]) if row["auth_name"] is not None else None,
+            memory_dir=str(row["memory_dir"]) if row["memory_dir"] is not None else None,
+            memory_disabled=bool(row["memory_disabled"]),
             model_name=str(row["model_name"]) if row["model_name"] is not None else None,
             reasoning_level=(
                 parse_reasoning_level(
@@ -1514,6 +1564,8 @@ def _table_schema_sql() -> str:
         managed_agent_id TEXT,
         workdir TEXT,
         auth_name TEXT,
+        memory_dir TEXT,
+        memory_disabled INTEGER NOT NULL DEFAULT 0,
         model_name TEXT,
         reasoning_level INTEGER,
         operator_prompt_mode TEXT,
@@ -1600,6 +1652,8 @@ def _view_sql() -> str:
         launch_profiles.managed_agent_id AS managed_agent_id,
         launch_profiles.workdir AS workdir,
         launch_profiles.auth_name AS auth_name,
+        launch_profiles.memory_dir AS memory_dir,
+        launch_profiles.memory_disabled AS memory_disabled,
         launch_profiles.model_name AS model_name,
         launch_profiles.reasoning_level AS reasoning_level,
         launch_profiles.operator_prompt_mode AS operator_prompt_mode,
@@ -1733,6 +1787,8 @@ def _render_launch_profile_yaml(
         defaults["workdir"] = entry.workdir
     if entry.auth_name is not None:
         defaults["auth"] = entry.auth_name
+    defaults["memory_binding"] = entry.memory_binding
+    defaults["memory_dir"] = entry.memory_dir
     if entry.model_name is not None or entry.reasoning_level is not None:
         defaults["model"] = {}
         if entry.model_name is not None:

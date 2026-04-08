@@ -20,6 +20,7 @@ from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 OperatorPromptModeV1: TypeAlias = Literal["as_is", "unattended"]
 LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
 RegistryLaunchAuthorityV1: TypeAlias = Literal["runtime", "external"]
+RuntimeMemoryBindingKindV1: TypeAlias = Literal["auto", "exact", "disabled"]
 SessionOriginV1: TypeAlias = Literal["joined_tmux"]
 AgentLaunchPostureKindV1: TypeAlias = Literal[
     "runtime_launch_plan",
@@ -307,6 +308,8 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
 
     session_id: str | None = None
     job_dir: str | None = None
+    memory_binding: RuntimeMemoryBindingKindV1 | None = None
+    memory_dir: str | None = None
     agent_def_dir: str | None = None
     agent_pid: int | None = None
     registry_generation_id: str | None = None
@@ -315,6 +318,8 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
     @field_validator(
         "session_id",
         "job_dir",
+        "memory_binding",
+        "memory_dir",
         "agent_def_dir",
         "registry_generation_id",
         "registry_launch_authority",
@@ -335,6 +340,18 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
         if value <= 0:
             raise ValueError("must be > 0")
         return value
+
+    @model_validator(mode="after")
+    def _validate_memory_binding(self) -> "SessionManifestRuntimeSectionV1":
+        if self.memory_binding in {"auto", "exact"} and self.memory_dir is None:
+            raise ValueError("memory_dir is required when runtime.memory_binding enables memory")
+        if self.memory_binding == "disabled" and self.memory_dir is not None:
+            raise ValueError(
+                "runtime.memory_dir must be omitted when runtime.memory_binding is disabled"
+            )
+        if self.memory_binding is None and self.memory_dir is not None:
+            raise ValueError("runtime.memory_binding is required when runtime.memory_dir is set")
+        return self
 
 
 class SessionManifestTmuxSectionV1(_StrictBoundaryModel):

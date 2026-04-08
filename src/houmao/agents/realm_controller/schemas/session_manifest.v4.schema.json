@@ -8,12 +8,12 @@
           "title": "Api Base Url",
           "type": "string"
         },
-        "parsing_mode": {
-          "enum": [
-            "cao_only",
-            "shadow_only"
-          ],
-          "title": "Parsing Mode",
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
           "type": "string"
         },
         "profile_name": {
@@ -22,14 +22,6 @@
         },
         "profile_path": {
           "title": "Profile Path",
-          "type": "string"
-        },
-        "session_name": {
-          "title": "Session Name",
-          "type": "string"
-        },
-        "terminal_id": {
-          "title": "Terminal Id",
           "type": "string"
         },
         "tmux_window_name": {
@@ -43,6 +35,14 @@
           ],
           "default": null,
           "title": "Tmux Window Name"
+        },
+        "parsing_mode": {
+          "enum": [
+            "cao_only",
+            "shadow_only"
+          ],
+          "title": "Parsing Mode",
+          "type": "string"
         },
         "turn_index": {
           "default": 0,
@@ -65,6 +65,21 @@
       "additionalProperties": false,
       "description": "Persisted codex backend section.",
       "properties": {
+        "thread_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thread Id"
+        },
+        "turn_index": {
+          "title": "Turn Index",
+          "type": "integer"
+        },
         "pid": {
           "anyOf": [
             {
@@ -88,21 +103,6 @@
           ],
           "default": null,
           "title": "Process Started At Utc"
-        },
-        "thread_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Thread Id"
-        },
-        "turn_index": {
-          "title": "Turn Index",
-          "type": "integer"
         }
       },
       "required": [
@@ -116,6 +116,29 @@
       "additionalProperties": false,
       "description": "Persisted headless backend section.",
       "properties": {
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Id"
+        },
+        "turn_index": {
+          "title": "Turn Index",
+          "type": "integer"
+        },
+        "role_bootstrap_applied": {
+          "title": "Role Bootstrap Applied",
+          "type": "boolean"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        },
         "resume_selection_kind": {
           "default": "none",
           "enum": [
@@ -137,29 +160,6 @@
           ],
           "default": null,
           "title": "Resume Selection Value"
-        },
-        "role_bootstrap_applied": {
-          "title": "Role Bootstrap Applied",
-          "type": "boolean"
-        },
-        "session_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Session Id"
-        },
-        "turn_index": {
-          "title": "Turn Index",
-          "type": "integer"
-        },
-        "working_directory": {
-          "title": "Working Directory",
-          "type": "string"
         }
       },
       "required": [
@@ -179,20 +179,20 @@
           "title": "Api Base Url",
           "type": "string"
         },
-        "parsing_mode": {
-          "enum": [
-            "cao_only",
-            "shadow_only"
-          ],
-          "title": "Parsing Mode",
-          "type": "string"
-        },
         "session_name": {
           "title": "Session Name",
           "type": "string"
         },
         "terminal_id": {
           "title": "Terminal Id",
+          "type": "string"
+        },
+        "parsing_mode": {
+          "enum": [
+            "cao_only",
+            "shadow_only"
+          ],
+          "title": "Parsing Mode",
           "type": "string"
         },
         "tmux_window_name": {
@@ -293,6 +293,15 @@
       "additionalProperties": false,
       "description": "Persisted filesystem mailbox binding for `launch_plan.v1`.",
       "properties": {
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
         "address": {
           "title": "Address",
           "type": "string"
@@ -305,14 +314,26 @@
           "title": "Filesystem Root",
           "type": "string"
         },
-        "principal_id": {
-          "title": "Principal Id",
+        "mailbox_kind": {
+          "default": "in_root",
+          "enum": [
+            "in_root",
+            "symlink"
+          ],
+          "title": "Mailbox Kind",
           "type": "string"
         },
-        "transport": {
-          "const": "filesystem",
-          "title": "Transport",
-          "type": "string"
+        "mailbox_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mailbox Path"
         }
       },
       "required": [
@@ -329,6 +350,15 @@
       "additionalProperties": false,
       "description": "Persisted Stalwart mailbox binding for `launch_plan.v1`.",
       "properties": {
+        "transport": {
+          "const": "stalwart",
+          "title": "Transport",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
         "address": {
           "title": "Address",
           "type": "string"
@@ -337,29 +367,20 @@
           "title": "Bindings Version",
           "type": "string"
         },
-        "credential_ref": {
-          "title": "Credential Ref",
-          "type": "string"
-        },
         "jmap_url": {
           "title": "Jmap Url",
-          "type": "string"
-        },
-        "login_identity": {
-          "title": "Login Identity",
           "type": "string"
         },
         "management_url": {
           "title": "Management Url",
           "type": "string"
         },
-        "principal_id": {
-          "title": "Principal Id",
+        "login_identity": {
+          "title": "Login Identity",
           "type": "string"
         },
-        "transport": {
-          "const": "stalwart",
-          "title": "Transport",
+        "credential_ref": {
+          "title": "Credential Ref",
           "type": "string"
         }
       },
@@ -380,13 +401,6 @@
       "additionalProperties": false,
       "description": "Persisted `launch_plan.v1` payload.",
       "properties": {
-        "args": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Args",
-          "type": "array"
-        },
         "backend": {
           "enum": [
             "local_interactive",
@@ -400,6 +414,28 @@
           "title": "Backend",
           "type": "string"
         },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "executable": {
+          "title": "Executable",
+          "type": "string"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        },
+        "home_selector": {
+          "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
+        },
         "env_var_names": {
           "items": {
             "type": "string"
@@ -407,49 +443,8 @@
           "title": "Env Var Names",
           "type": "array"
         },
-        "executable": {
-          "title": "Executable",
-          "type": "string"
-        },
-        "home_selector": {
-          "$ref": "#/$defs/LaunchPlanHomeSelectorV1"
-        },
-        "launch_policy_provenance": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LaunchPolicyProvenanceV1"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "mailbox": {
-          "anyOf": [
-            {
-              "discriminator": {
-                "mapping": {
-                  "filesystem": "#/$defs/LaunchPlanMailboxFilesystemV1",
-                  "stalwart": "#/$defs/LaunchPlanMailboxStalwartV1"
-                },
-                "propertyName": "transport"
-              },
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/LaunchPlanMailboxFilesystemV1"
-                },
-                {
-                  "$ref": "#/$defs/LaunchPlanMailboxStalwartV1"
-                }
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Mailbox"
+        "role_injection": {
+          "$ref": "#/$defs/LaunchPlanRoleInjectionV1"
         },
         "metadata": {
           "additionalProperties": {
@@ -482,16 +477,42 @@
           "title": "Metadata",
           "type": "object"
         },
-        "role_injection": {
-          "$ref": "#/$defs/LaunchPlanRoleInjectionV1"
+        "mailbox": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "filesystem": "#/$defs/LaunchPlanMailboxFilesystemV1",
+                  "stalwart": "#/$defs/LaunchPlanMailboxStalwartV1"
+                },
+                "propertyName": "transport"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LaunchPlanMailboxFilesystemV1"
+                },
+                {
+                  "$ref": "#/$defs/LaunchPlanMailboxStalwartV1"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mailbox"
         },
-        "tool": {
-          "title": "Tool",
-          "type": "string"
-        },
-        "working_directory": {
-          "title": "Working Directory",
-          "type": "string"
+        "launch_policy_provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LaunchPolicyProvenanceV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -538,28 +559,16 @@
       "additionalProperties": false,
       "description": "Typed launch-policy provenance persisted in launch/session payloads.",
       "properties": {
-        "detected_tool_version": {
-          "title": "Detected Tool Version",
-          "type": "string"
-        },
-        "override_env_var_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Override Env Var Name"
-        },
         "requested_operator_prompt_mode": {
           "enum": [
             "as_is",
             "unattended"
           ],
           "title": "Requested Operator Prompt Mode",
+          "type": "string"
+        },
+        "detected_tool_version": {
+          "title": "Detected Tool Version",
           "type": "string"
         },
         "selected_strategy_id": {
@@ -573,6 +582,18 @@
           ],
           "title": "Selection Source",
           "type": "string"
+        },
+        "override_env_var_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Env Var Name"
         }
       },
       "required": [
@@ -588,13 +609,13 @@
       "additionalProperties": false,
       "description": "Persisted local interactive backend section.",
       "properties": {
-        "role_bootstrap_applied": {
-          "title": "Role Bootstrap Applied",
-          "type": "boolean"
-        },
         "turn_index": {
           "title": "Turn Index",
           "type": "integer"
+        },
+        "role_bootstrap_applied": {
+          "title": "Role Bootstrap Applied",
+          "type": "boolean"
         },
         "working_directory": {
           "title": "Working Directory",
@@ -625,6 +646,98 @@
           ],
           "title": "Backend",
           "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "tmux_session_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Session Name"
+        },
+        "primary_window_index": {
+          "default": "0",
+          "title": "Primary Window Index",
+          "type": "string"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "profile_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Profile Name"
+        },
+        "profile_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Profile Path"
+        },
+        "session_origin": {
+          "anyOf": [
+            {
+              "const": "joined_tmux",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Origin"
+        },
+        "posture_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "runtime_launch_plan",
+                "tui_launch_options",
+                "headless_launch_options",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posture Kind"
         },
         "launch_args": {
           "anyOf": [
@@ -669,98 +782,6 @@
           ],
           "default": null,
           "title": "Launch Env"
-        },
-        "posture_kind": {
-          "anyOf": [
-            {
-              "enum": [
-                "runtime_launch_plan",
-                "tui_launch_options",
-                "headless_launch_options",
-                "unavailable"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posture Kind"
-        },
-        "primary_window_index": {
-          "default": "0",
-          "title": "Primary Window Index",
-          "type": "string"
-        },
-        "profile_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Profile Name"
-        },
-        "profile_path": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Profile Path"
-        },
-        "session_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Session Id"
-        },
-        "session_origin": {
-          "anyOf": [
-            {
-              "const": "joined_tmux",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Session Origin"
-        },
-        "tmux_session_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tmux Session Name"
-        },
-        "tool": {
-          "title": "Tool",
-          "type": "string"
-        },
-        "working_directory": {
-          "title": "Working Directory",
-          "type": "string"
         }
       },
       "required": [
@@ -817,13 +838,9 @@
           "default": null,
           "title": "Managed Agent Ref"
         },
-        "parsing_mode": {
+        "terminal_id": {
           "anyOf": [
             {
-              "enum": [
-                "cao_only",
-                "shadow_only"
-              ],
               "type": "string"
             },
             {
@@ -831,7 +848,7 @@
             }
           ],
           "default": null,
-          "title": "Parsing Mode"
+          "title": "Terminal Id"
         },
         "profile_name": {
           "anyOf": [
@@ -857,9 +874,13 @@
           "default": null,
           "title": "Profile Path"
         },
-        "terminal_id": {
+        "parsing_mode": {
           "anyOf": [
             {
+              "enum": [
+                "cao_only",
+                "shadow_only"
+              ],
               "type": "string"
             },
             {
@@ -867,7 +888,7 @@
             }
           ],
           "default": null,
-          "title": "Terminal Id"
+          "title": "Parsing Mode"
         },
         "tmux_window_name": {
           "anyOf": [
@@ -889,13 +910,14 @@
       "additionalProperties": false,
       "description": "Shared interactive/runtime control state persisted in v4 manifests.",
       "properties": {
-        "parsing_mode": {
+        "turn_index": {
+          "default": 0,
+          "title": "Turn Index",
+          "type": "integer"
+        },
+        "working_directory": {
           "anyOf": [
             {
-              "enum": [
-                "cao_only",
-                "shadow_only"
-              ],
               "type": "string"
             },
             {
@@ -903,7 +925,7 @@
             }
           ],
           "default": null,
-          "title": "Parsing Mode"
+          "title": "Working Directory"
         },
         "role_bootstrap_applied": {
           "anyOf": [
@@ -929,6 +951,22 @@
           "default": null,
           "title": "Terminal Id"
         },
+        "parsing_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "cao_only",
+                "shadow_only"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parsing Mode"
+        },
         "tmux_window_name": {
           "anyOf": [
             {
@@ -940,23 +978,6 @@
           ],
           "default": null,
           "title": "Tmux Window Name"
-        },
-        "turn_index": {
-          "default": 0,
-          "title": "Turn Index",
-          "type": "integer"
-        },
-        "working_directory": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Working Directory"
         }
       },
       "title": "SessionManifestInteractiveSectionV1",
@@ -966,6 +987,59 @@
       "additionalProperties": false,
       "description": "Normalized runtime-owned manifest authority for one tmux-backed session.",
       "properties": {
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "job_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Dir"
+        },
+        "memory_binding": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "exact",
+                "disabled"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Binding"
+        },
+        "memory_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Dir"
+        },
         "agent_def_dir": {
           "anyOf": [
             {
@@ -990,18 +1064,6 @@
           "default": null,
           "title": "Agent Pid"
         },
-        "job_dir": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Job Dir"
-        },
         "registry_generation_id": {
           "anyOf": [
             {
@@ -1022,18 +1084,6 @@
           ],
           "title": "Registry Launch Authority",
           "type": "string"
-        },
-        "session_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Session Id"
         }
       },
       "title": "SessionManifestRuntimeSectionV1",
@@ -1043,9 +1093,19 @@
       "additionalProperties": false,
       "description": "Normalized tmux session authority for one managed surface.",
       "properties": {
+        "session_name": {
+          "title": "Session Name",
+          "type": "string"
+        },
         "primary_window_index": {
           "default": "0",
           "title": "Primary Window Index",
+          "type": "string"
+        },
+        "primary_window_role": {
+          "const": "managed_agent_surface",
+          "default": "managed_agent_surface",
+          "title": "Primary Window Role",
           "type": "string"
         },
         "primary_window_name": {
@@ -1059,16 +1119,6 @@
           ],
           "default": null,
           "title": "Primary Window Name"
-        },
-        "primary_window_role": {
-          "const": "managed_agent_surface",
-          "default": "managed_agent_surface",
-          "title": "Primary Window Role",
-          "type": "string"
-        },
-        "session_name": {
-          "title": "Session Name",
-          "type": "string"
         }
       },
       "required": [
@@ -1081,40 +1131,9 @@
   "additionalProperties": false,
   "description": "Persisted ``session_manifest.v4`` payload.",
   "properties": {
-    "agent_id": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Agent Id"
-    },
-    "agent_launch_authority": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/SessionManifestAgentLaunchAuthorityV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
-    "agent_name": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Agent Name"
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "integer"
     },
     "backend": {
       "enum": [
@@ -1128,6 +1147,156 @@
       ],
       "title": "Backend",
       "type": "string"
+    },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    },
+    "role_name": {
+      "title": "Role Name",
+      "type": "string"
+    },
+    "created_at_utc": {
+      "title": "Created At Utc",
+      "type": "string"
+    },
+    "working_directory": {
+      "title": "Working Directory",
+      "type": "string"
+    },
+    "brain_manifest_path": {
+      "title": "Brain Manifest Path",
+      "type": "string"
+    },
+    "agent_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Name"
+    },
+    "agent_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Id"
+    },
+    "tmux_session_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tmux Session Name"
+    },
+    "job_dir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Job Dir"
+    },
+    "registry_generation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Registry Generation Id"
+    },
+    "registry_launch_authority": {
+      "default": "runtime",
+      "enum": [
+        "runtime",
+        "external"
+      ],
+      "title": "Registry Launch Authority",
+      "type": "string"
+    },
+    "runtime": {
+      "$ref": "#/$defs/SessionManifestRuntimeSectionV1"
+    },
+    "tmux": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SessionManifestTmuxSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "interactive": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SessionManifestInteractiveSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "agent_launch_authority": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SessionManifestAgentLaunchAuthorityV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "gateway_authority": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SessionManifestGatewayAuthorityV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "launch_plan": {
+      "$ref": "#/$defs/LaunchPlanPayloadV1"
+    },
+    "launch_policy_provenance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LaunchPolicyProvenanceV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "backend_state": {
       "additionalProperties": {
@@ -1160,40 +1329,10 @@
       "title": "Backend State",
       "type": "object"
     },
-    "brain_manifest_path": {
-      "title": "Brain Manifest Path",
-      "type": "string"
-    },
-    "cao": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/CaoSectionV2"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
     "codex": {
       "anyOf": [
         {
           "$ref": "#/$defs/CodexSectionV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
-    "created_at_utc": {
-      "title": "Created At Utc",
-      "type": "string"
-    },
-    "gateway_authority": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/SessionManifestGatewayAuthorityV1"
         },
         {
           "type": "null"
@@ -1212,54 +1351,6 @@
       ],
       "default": null
     },
-    "houmao_server": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/HoumaoServerSectionV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
-    "interactive": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/SessionManifestInteractiveSectionV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
-    "job_dir": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Job Dir"
-    },
-    "launch_plan": {
-      "$ref": "#/$defs/LaunchPlanPayloadV1"
-    },
-    "launch_policy_provenance": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/LaunchPolicyProvenanceV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
     "local_interactive": {
       "anyOf": [
         {
@@ -1271,42 +1362,10 @@
       ],
       "default": null
     },
-    "registry_generation_id": {
+    "cao": {
       "anyOf": [
         {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Registry Generation Id"
-    },
-    "registry_launch_authority": {
-      "default": "runtime",
-      "enum": [
-        "runtime",
-        "external"
-      ],
-      "title": "Registry Launch Authority",
-      "type": "string"
-    },
-    "role_name": {
-      "title": "Role Name",
-      "type": "string"
-    },
-    "runtime": {
-      "$ref": "#/$defs/SessionManifestRuntimeSectionV1"
-    },
-    "schema_version": {
-      "title": "Schema Version",
-      "type": "integer"
-    },
-    "tmux": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/SessionManifestTmuxSectionV1"
+          "$ref": "#/$defs/CaoSectionV2"
         },
         {
           "type": "null"
@@ -1314,25 +1373,16 @@
       ],
       "default": null
     },
-    "tmux_session_name": {
+    "houmao_server": {
       "anyOf": [
         {
-          "type": "string"
+          "$ref": "#/$defs/HoumaoServerSectionV1"
         },
         {
           "type": "null"
         }
       ],
-      "default": null,
-      "title": "Tmux Session Name"
-    },
-    "tool": {
-      "title": "Tool",
-      "type": "string"
-    },
-    "working_directory": {
-      "title": "Working Directory",
-      "type": "string"
+      "default": null
     }
   },
   "required": [

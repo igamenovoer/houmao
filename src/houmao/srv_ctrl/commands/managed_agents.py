@@ -2262,6 +2262,7 @@ def _local_tui_state_response_from_state(
 
     diagnostics = _tracked_errors(tracked_state=tracked_state)
     turn_phase = tracked_state.turn.phase
+    memory_dir = getattr(controller, "memory_dir", None)
     return HoumaoManagedAgentStateResponse(
         tracked_agent_id=tracked_state.tracked_session.tracked_session_id,
         identity=_managed_identity_from_local_tui_state(
@@ -2286,6 +2287,7 @@ def _local_tui_state_response_from_state(
         diagnostics=diagnostics,
         mailbox=_local_mailbox_summary(controller),
         gateway=_local_gateway_summary(controller),
+        memory_dir=str(memory_dir) if memory_dir is not None else None,
     )
 
 
@@ -2365,6 +2367,7 @@ def _local_headless_state_response(
     latest_turn = _latest_local_headless_turn(controller=controller)
     gateway_summary = _local_gateway_summary(controller)
     mailbox_summary = _local_mailbox_summary(controller)
+    memory_dir = getattr(controller, "memory_dir", None)
     if latest_turn is None:
         turn_view = HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None)
         last_turn = HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None)
@@ -2389,6 +2392,7 @@ def _local_headless_state_response(
         diagnostics=[],
         mailbox=mailbox_summary,
         gateway=gateway_summary,
+        memory_dir=str(memory_dir) if memory_dir is not None else None,
     )
 
 

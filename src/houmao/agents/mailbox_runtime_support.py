@@ -536,6 +536,20 @@ def mailbox_bindings_version_now() -> str:
     )
 
 
+def replaceable_mailbox_cleanup_paths(config: MailboxResolvedConfig | None) -> tuple[Path, ...]:
+    """Return mailbox artifacts that are safe to remove during force-clean takeover."""
+
+    if config is None:
+        return ()
+    if isinstance(config, FilesystemMailboxResolvedConfig):
+        if config.mailbox_kind != "symlink":
+            return ()
+        return (config.mailbox_path.resolve(),)
+    if config.credential_file is None:
+        return ()
+    return (config.credential_file.resolve(),)
+
+
 def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
     """Return runtime-managed mailbox env bindings for a resolved config."""
 
@@ -587,27 +601,6 @@ def mailbox_env_var_names(config: MailboxResolvedConfig) -> tuple[str, ...]:
     if isinstance(config, FilesystemMailboxResolvedConfig):
         return (*_MAILBOX_COMMON_ENV_VARS, *_MAILBOX_FILESYSTEM_ENV_VARS)
     return (*_MAILBOX_COMMON_ENV_VARS, *_MAILBOX_EMAIL_ENV_VARS)
-
-
-def replaceable_mailbox_cleanup_paths(config: MailboxResolvedConfig | None) -> tuple[Path, ...]:
-    """Return mailbox-owned paths that are safe to remove during force-clean takeover."""
-
-    if config is None:
-        return ()
-    if isinstance(config, FilesystemMailboxResolvedConfig):
-        if config.mailbox_kind != "symlink" or config.mailbox_path is None:
-            return ()
-        mailbox_path = config.mailbox_path.resolve()
-        try:
-            mailbox_path.relative_to(config.filesystem_root.resolve())
-        except ValueError:
-            return (mailbox_path,)
-        return ()
-
-    credential_file = config.credential_file
-    if credential_file is None:
-        return ()
-    return (credential_file.resolve(),)
 
 
 def resolve_live_mailbox_binding(
