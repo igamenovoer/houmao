@@ -17,6 +17,7 @@ _DEFAULT_SET_NAMES = [
 _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
+    "houmao-mailbox-mgr",
     "houmao-manage-specialist",
     "houmao-manage-credentials",
     "houmao-manage-agent-definition",
@@ -69,6 +70,21 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "agent-messaging",
         "agent-gateway",
     ]
+    mailbox_core_record = next(
+        record for record in payload["sets"] if record["name"] == "mailbox-core"
+    )
+    assert mailbox_core_record["skills"] == [
+        "houmao-process-emails-via-gateway",
+        "houmao-agent-email-comms",
+    ]
+    mailbox_full_record = next(
+        record for record in payload["sets"] if record["name"] == "mailbox-full"
+    )
+    assert mailbox_full_record["skills"] == [
+        "houmao-process-emails-via-gateway",
+        "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
+    ]
     user_control_record = next(
         record for record in payload["sets"] if record["name"] == "user-control"
     )
@@ -113,6 +129,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()

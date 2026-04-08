@@ -1289,6 +1289,35 @@ class GatewayMailSendRequestV1(_StrictGatewayModel):
         return self
 
 
+class GatewayMailPostRequestV1(_StrictGatewayModel):
+    """`POST /v1/mail/post` request body."""
+
+    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
+    subject: str
+    body_content: str
+    attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
+
+    @field_validator("subject")
+    @classmethod
+    def _subject_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("body_content")
+    @classmethod
+    def _body_no_nul(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("must not contain NUL bytes")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "GatewayMailPostRequestV1":
+        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
+        return self
+
+
 class GatewayMailReplyRequestV1(_StrictGatewayModel):
     """`POST /v1/mail/reply` request body."""
 
@@ -1342,10 +1371,10 @@ class GatewayMailStateRequestV1(_StrictGatewayModel):
 
 
 class GatewayMailActionResponseV1(_StrictGatewayModel):
-    """`POST /v1/mail/send|reply` response body."""
+    """`POST /v1/mail/send|post|reply` response body."""
 
     schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    operation: Literal["send", "reply"]
+    operation: Literal["send", "post", "reply"]
     transport: MailboxTransport
     principal_id: str
     address: str

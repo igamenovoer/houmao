@@ -16,7 +16,7 @@ For current-session managed use, that manager-owned helper resolves the current 
 
 - `address`
   Meaning: email-like address associated with the current mailbox principal.
-  Example: `HOUMAO-research@agents.localhost`
+  Example: `research@houmao.localhost`
 
 - `bindings_version`
   Meaning: monotonic binding version or timestamp used to detect mailbox-binding refresh.

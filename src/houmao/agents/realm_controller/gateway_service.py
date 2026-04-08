@@ -26,8 +26,6 @@ from houmao.agents.mailbox_runtime_support import (
     mailbox_processing_skill_reference,
     mailbox_gateway_skill_name,
     mailbox_gateway_skill_reference,
-    mailbox_skill_reference,
-    mailbox_skill_name,
     projected_mailbox_skill_document_path,
     resolve_live_mailbox_binding,
     resolved_mailbox_config_from_payload,
@@ -38,6 +36,7 @@ from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.gateway_mailbox import (
     GatewayMailboxAdapter,
     GatewayMailboxError,
+    GatewayMailboxUnsupportedError,
     build_gateway_mailbox_adapter,
 )
 from houmao.agents.realm_controller.gateway_models import (
@@ -64,6 +63,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
     GatewayMailCheckResponseV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
@@ -253,6 +253,7 @@ def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
             f"- `GET {base_url}/v1/mail/status`",
             f"- `POST {base_url}/v1/mail/check`",
             f"- `POST {base_url}/v1/mail/send`",
+            f"- `POST {base_url}/v1/mail/post`",
             f"- `POST {base_url}/v1/mail/reply`",
             f"- `POST {base_url}/v1/mail/state`",
         ]
@@ -1940,11 +1941,41 @@ class GatewayServiceRuntime:
                     body_content=request_payload.body_content,
                     attachments=request_payload.attachments,
                 )
+            except GatewayMailboxUnsupportedError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             except GatewayMailboxError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             status = adapter.status()
             return GatewayMailActionResponseV1(
                 operation="send",
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message=message,
+            )
+
+    def post_mail(self, request_payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox operator-origin post request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                message = adapter.post(
+                    subject=request_payload.subject,
+                    body_content=request_payload.body_content,
+                    attachments=request_payload.attachments,
+                )
+            except GatewayMailboxUnsupportedError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailActionResponseV1(
+                operation="post",
                 transport=status.transport,
                 principal_id=status.principal_id,
                 address=status.address,
@@ -1966,6 +1997,8 @@ class GatewayServiceRuntime:
                     body_content=request_payload.body_content,
                     attachments=request_payload.attachments,
                 )
+            except GatewayMailboxUnsupportedError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             except GatewayMailboxError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             status = adapter.status()
@@ -2132,11 +2165,6 @@ class GatewayServiceRuntime:
             tool=tool,
             home_path=home_path,
             skill_reference=mailbox_gateway_skill_reference(tool=tool),
-        )
-        transport_path = projected_mailbox_skill_document_path(
-            tool=tool,
-            home_path=home_path,
-            skill_reference=mailbox_skill_reference(mailbox, tool=tool),
         )
 
         if not processing_path.is_file():
@@ -3290,6 +3318,12 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Run one shared mailbox send request."""
 
         return runtime.send_mail(request_payload)
+
+    @app.post("/v1/mail/post", response_model=GatewayMailActionResponseV1)
+    def _mail_post(request_payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
+        """Run one shared mailbox operator-origin post request."""
+
+        return runtime.post_mail(request_payload)
 
     @app.post("/v1/mail/reply", response_model=GatewayMailActionResponseV1)
     def _mail_reply(request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:

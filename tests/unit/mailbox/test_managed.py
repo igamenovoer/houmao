@@ -21,13 +21,21 @@ from houmao.mailbox.managed import (
     RegisterMailboxRequest,
     RepairRequest,
     StateUpdateRequest,
+    cleanup_mailbox_registrations,
     deliver_message,
     deregister_mailbox,
     register_mailbox,
     repair_mailbox_index,
     update_mailbox_state,
 )
-from houmao.mailbox.protocol import MailboxMessage, MailboxPrincipal, serialize_message_document
+from houmao.mailbox.protocol import (
+    HOUMAO_OPERATOR_ADDRESS,
+    HOUMAO_OPERATOR_PRINCIPAL_ID,
+    HOUMAO_OPERATOR_ROLE,
+    MailboxMessage,
+    MailboxPrincipal,
+    serialize_message_document,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2].parent
 _MANAGED_SCRIPT_DIR = _REPO_ROOT / "src" / "houmao" / "mailbox" / "assets" / "rules" / "scripts"
@@ -338,7 +346,55 @@ def test_register_mailbox_script_validation_failure_emits_one_json_error_without
         registration_count = connection.execute(
             "SELECT COUNT(*) FROM mailbox_registrations"
         ).fetchone()
-    assert registration_count == (0,)
+    assert registration_count == (1,)
+
+
+def test_bootstrap_filesystem_mailbox_provisions_reserved_operator_account(tmp_path: Path) -> None:
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
+
+    registration = load_active_mailbox_registration(paths.root, address=HOUMAO_OPERATOR_ADDRESS)
+
+    assert registration is not None
+    assert registration.address == HOUMAO_OPERATOR_ADDRESS
+    assert registration.owner_principal_id == HOUMAO_OPERATOR_PRINCIPAL_ID
+    assert registration.role == HOUMAO_OPERATOR_ROLE
+
+
+def test_deregister_mailbox_rejects_reserved_operator_account(tmp_path: Path) -> None:
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
+
+    with pytest.raises(ManagedMailboxOperationError, match="reserved operator registration"):
+        deregister_mailbox(
+            paths.root,
+            DeregisterMailboxRequest(mode="purge", address=HOUMAO_OPERATOR_ADDRESS),
+        )
+
+
+def test_cleanup_mailbox_registrations_preserves_reserved_operator_account(tmp_path: Path) -> None:
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
+
+    result = cleanup_mailbox_registrations(paths.root, dry_run=True)
+
+    assert result.removed == ()
+    assert any(
+        record.address == HOUMAO_OPERATOR_ADDRESS and record.outcome == "preserved"
+        for record in result.preserved
+    )
+
+
+def test_register_mailbox_request_rejects_reserved_houmao_local_part_for_ordinary_account() -> None:
+    with pytest.raises(
+        ValueError,
+        match="reserved for Houmao-owned system principals",
+    ):
+        RegisterMailboxRequest(
+            mode="safe",
+            address="HOUMAO-alpha@houmao.localhost",
+            owner_principal_id="HOUMAO-alpha",
+            mailbox_kind="in_root",
+            mailbox_path=Path("/tmp/mailboxes/HOUMAO-alpha@houmao.localhost"),
+            role="researcher",
+        )
 
 
 def test_deliver_message_script_validation_failure_emits_one_json_error_without_mutation(
@@ -1061,7 +1117,7 @@ def test_repair_mailbox_index_rebuilds_address_based_projections_and_state(tmp_p
     assert result["ok"] is True
     assert result["message_count"] == 1
     assert result["projection_count"] == 2
-    assert result["registration_count"] == 2
+    assert result["registration_count"] == 3
     assert result["defaulted_state_count"] == 2
     assert result["restored_state_count"] == 0
     assert result["staging_action"] == "quarantine"

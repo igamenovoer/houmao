@@ -8,6 +8,7 @@ message documents.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 import re
 from typing import Literal
@@ -19,6 +20,16 @@ import yaml
 from houmao.mailbox.errors import MailboxProtocolError
 
 MAILBOX_PROTOCOL_VERSION = 1
+HOUMAO_MAILBOX_DOMAIN = "houmao.localhost"
+HOUMAO_RESERVED_LOCAL_PART_PREFIX = "HOUMAO-"
+HOUMAO_OPERATOR_PRINCIPAL_ID = "HOUMAO-operator"
+HOUMAO_OPERATOR_ADDRESS = f"{HOUMAO_OPERATOR_PRINCIPAL_ID}@{HOUMAO_MAILBOX_DOMAIN}"
+HOUMAO_OPERATOR_ROLE = "system_operator"
+HOUMAO_OPERATOR_DISPLAY_NAME = "Houmao Operator"
+HOUMAO_ORIGIN_HEADER_NAME = "x-houmao-origin"
+HOUMAO_REPLY_POLICY_HEADER_NAME = "x-houmao-reply-policy"
+HOUMAO_OPERATOR_ORIGIN_VALUE = "operator"
+HOUMAO_NO_REPLY_POLICY_VALUE = "none"
 MESSAGE_ID_PATTERN = re.compile(r"^msg-\d{8}T\d{6}Z-[0-9a-f]{32}$")
 _RFC3339_UTC_SUFFIX = "Z"
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -233,6 +244,63 @@ def generate_message_id(now: datetime | None = None) -> str:
 def validate_mailbox_address(value: str) -> str:
     """Validate and normalize one mailbox address string."""
 
+    match, normalized = _parse_mailbox_address_match(value)
+    local_part = match.group("local")
+    domain_part = match.group("domain")
+    if ".." in local_part or ".." in domain_part:
+        raise MailboxProtocolError("mailbox addresses must not contain empty dot segments")
+    if domain_part.startswith("-") or domain_part.endswith("-"):
+        raise MailboxProtocolError("mailbox address domains must not start or end with `-`")
+    return normalized
+
+
+def mailbox_address_local_part(value: str) -> str:
+    """Return the normalized local part for one mailbox address."""
+
+    match, _ = _parse_mailbox_address_match(value)
+    return match.group("local")
+
+
+def mailbox_address_domain_part(value: str) -> str:
+    """Return the normalized domain part for one mailbox address."""
+
+    match, _ = _parse_mailbox_address_match(value)
+    return match.group("domain")
+
+
+def is_houmao_reserved_mailbox_local_part(value: str) -> bool:
+    """Return whether one mailbox local part is reserved for Houmao system use."""
+
+    return value.strip().startswith(HOUMAO_RESERVED_LOCAL_PART_PREFIX)
+
+
+def is_houmao_reserved_mailbox_address(value: str) -> bool:
+    """Return whether one full mailbox address uses the reserved Houmao namespace."""
+
+    return is_houmao_reserved_mailbox_local_part(mailbox_address_local_part(value))
+
+
+def is_operator_origin_headers(headers: Mapping[str, object]) -> bool:
+    """Return whether mailbox headers indicate one operator-origin message."""
+
+    origin = headers.get(HOUMAO_ORIGIN_HEADER_NAME)
+    if not isinstance(origin, str):
+        return False
+    return origin.strip().lower() == HOUMAO_OPERATOR_ORIGIN_VALUE
+
+
+def operator_origin_headers() -> dict[str, str]:
+    """Return canonical provenance headers for operator-origin mailbox delivery."""
+
+    return {
+        HOUMAO_ORIGIN_HEADER_NAME: HOUMAO_OPERATOR_ORIGIN_VALUE,
+        HOUMAO_REPLY_POLICY_HEADER_NAME: HOUMAO_NO_REPLY_POLICY_VALUE,
+    }
+
+
+def _parse_mailbox_address_match(value: str) -> tuple[re.Match[str], str]:
+    """Return the normalized address and parsed local/domain match."""
+
     normalized = value.strip()
     if not normalized:
         raise MailboxProtocolError("mailbox addresses must not be empty")
@@ -243,16 +311,9 @@ def validate_mailbox_address(value: str) -> str:
     if match is None:
         raise MailboxProtocolError(
             "mailbox addresses must be full-form email-like values such as "
-            "`HOUMAO-research@agents.localhost`"
+            "`research@houmao.localhost`"
         )
-
-    local_part = match.group("local")
-    domain_part = match.group("domain")
-    if ".." in local_part or ".." in domain_part:
-        raise MailboxProtocolError("mailbox addresses must not contain empty dot segments")
-    if domain_part.startswith("-") or domain_part.endswith("-"):
-        raise MailboxProtocolError("mailbox address domains must not start or end with `-`")
-    return normalized
+    return match, normalized
 
 
 def mailbox_address_path_segment(address: str) -> str:

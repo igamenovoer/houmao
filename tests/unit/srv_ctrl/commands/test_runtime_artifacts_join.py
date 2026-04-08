@@ -317,8 +317,10 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
 
     processing_skill_path = codex_home / "skills/houmao-process-emails-via-gateway/SKILL.md"
     gateway_skill_path = codex_home / "skills/houmao-agent-email-comms/SKILL.md"
+    mailbox_mgr_skill_path = codex_home / "skills/houmao-mailbox-mgr/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
+    assert mailbox_mgr_skill_path.is_file()
     assert (codex_home / "skills/houmao-manage-specialist/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
@@ -338,6 +340,7 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     assert tuple(record.name for record in install_state.installed_skills) == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -394,8 +397,10 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
 
     processing_skill_path = claude_home / "skills/houmao-process-emails-via-gateway/SKILL.md"
     gateway_skill_path = claude_home / "skills/houmao-agent-email-comms/SKILL.md"
+    mailbox_mgr_skill_path = claude_home / "skills/houmao-mailbox-mgr/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
+    assert mailbox_mgr_skill_path.is_file()
     assert (claude_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (claude_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
@@ -453,8 +458,10 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
         gemini_home / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     )
     gateway_skill_path = gemini_home / ".gemini/skills/houmao-agent-email-comms/SKILL.md"
+    mailbox_mgr_skill_path = gemini_home / ".gemini/skills/houmao-mailbox-mgr/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
+    assert mailbox_mgr_skill_path.is_file()
     assert (gemini_home / ".gemini/skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (gemini_home / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()

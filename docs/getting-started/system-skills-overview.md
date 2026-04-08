@@ -19,9 +19,9 @@ Each system skill ships as a directory under `src/houmao/agents/assets/system_sk
 
 System skills are not Python plugins, MCP servers, or runtime hooks. They are agent-readable instruction packages that guide the agent toward the right `houmao-mgr` command for the task. The supporting code is whatever `houmao-mgr` already exposes through `srv_ctrl/commands/`.
 
-## The Eight Packaged Skills
+## The Nine Packaged Skills
 
-Houmao currently ships **eight** system skills. They split into three concern groups: **specialist and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
+Houmao currently ships **nine** system skills. They split into three concern groups: **specialist and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
 
 ### Specialist and credential authoring
 
@@ -43,12 +43,13 @@ Houmao currently ships **eight** system skills. They split into three concern gr
 |---|---|---|
 | `houmao-agent-messaging` | Communicate with already-running managed agents — synchronous prompt and interrupt, queued gateway requests, raw `send-keys`, mailbox routing, and reset-context guidance. Routes by **communication intent**, not by one hardcoded transport. Prefers live gateway-backed delivery when available. | `houmao-mgr agents prompt|interrupt`, `houmao-mgr agents gateway prompt|interrupt|send-keys|tui state|history|note-prompt`, `houmao-mgr agents mail resolve-live` |
 | `houmao-agent-gateway` | Live gateway lifecycle, manifest-first discovery from inside or outside the attached session, gateway-only control surfaces, gateway wakeups, and gateway mail-notifier behavior. Distinct from `houmao-agent-messaging` because it focuses on the gateway sidecar itself, not the messages going through it. | `houmao-mgr agents gateway attach|detach|status|tui watch`, `houmao-mgr agents gateway mail-notifier status|enable|disable` |
+| `houmao-mailbox-mgr` | Mailbox administration for filesystem mailbox roots, project mailbox roots, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents. This is the mailbox-admin skill, not the ordinary mailbox-participation skill. | `houmao-mgr mailbox ...`, `houmao-mgr project mailbox ...`, `houmao-mgr agents mailbox ...` |
 | `houmao-agent-email-comms` | Unified ordinary shared-mailbox operations and no-gateway fallback guidance. Covers gateway-backed `/v1/mail/*` work, transport-local context, and the no-gateway fallback path. The canonical mailbox-operations skill paired with `houmao-mgr agents mail`. | `houmao-mgr agents mail status|check|send|reply|mark-read|resolve-live` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL: gateway-API-first triage, selective inspection, post-success mark-read, and stop-after-round discipline. | `houmao-mgr agents mail check|mark-read` plus the live gateway `/v1/mail/*` facade |
 
 ## Auto-Install vs Explicit Install
 
-The same eight skills can land in a tool home through either path, but the **default selections** are different.
+The same nine skills can land in a tool home through either path, but the **default selections** are different.
 
 ```
                        INSTALL DEFAULTS
@@ -63,14 +64,15 @@ The same eight skills can land in a tool home through either path, but the **def
    │ agent-messaging           │        │ agent-instance  ◄── ADDS  │
    │ agent-gateway             │        │ agent-messaging           │
    │                           │        │ agent-gateway             │
-   │ → 7 skills:               │        │                           │
-   │  process-emails-via-gw    │        │ → 8 skills:               │
+   │ → 8 skills:               │        │                           │
+   │  process-emails-via-gw    │        │ → 9 skills:               │
    │  agent-email-comms        │        │  all of managed launch    │
-   │  manage-specialist        │        │  PLUS:                    │
-   │  manage-credentials       │        │  manage-agent-instance    │
-   │  manage-agent-definition  │        │                           │
-   │  agent-messaging          │        │                           │
-   │  agent-gateway            │        │                           │
+   │  mailbox-mgr             │        │  PLUS:                    │
+   │  manage-specialist       │        │  manage-agent-instance    │
+   │  manage-credentials      │        │                           │
+   │  manage-agent-definition │        │                           │
+   │  agent-messaging         │        │                           │
+   │  agent-gateway           │        │                           │
    └───────────────────────────┘        └───────────────────────────┘
 ```
 
@@ -87,7 +89,8 @@ The named sets resolve as:
 
 | Set | Skills it expands to |
 |---|---|
-| `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms` |
+| `mailbox-core` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms` |
+| `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr` |
 | `user-control` | `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition` |
 | `agent-instance` | `houmao-manage-agent-instance` |
 | `agent-messaging` | `houmao-agent-messaging` |
@@ -99,7 +102,7 @@ When the operator launches or joins through `houmao-mgr`, **the operator already
 
 ### How to install the broader CLI-default set
 
-To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the eight-skill default selection, omit both `--set` and `--skill`:
+To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the nine-skill default selection, omit both `--set` and `--skill`:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
@@ -115,9 +118,9 @@ For the full flag surface, see the [`system-skills` CLI reference](../reference/
 
 Two short heuristics help decide which skill applies to a task that an agent or operator is asked to perform:
 
-**By concern.** Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to one of the three `manage-*` skills. Driving *what a live agent does* — sending it a prompt, attaching a gateway, processing its mailbox — belongs to one of the three `agent-*` skills (`agent-messaging`, `agent-gateway`, `agent-email-comms`/`process-emails-via-gateway`).
+**By concern.** Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to one of the three `manage-*` skills. Administering *mailbox authority itself* — mailbox roots, mailbox registrations, and late mailbox binding — belongs to `houmao-mailbox-mgr`. Driving *what a live agent does* — sending it a prompt, attaching a gateway, or participating in mailbox workflows — belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`.
 
-**By transport.** When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the unread mail batch the notifier just told us about," use the round-oriented `houmao-process-emails-via-gateway`.
+**By transport and boundary.** When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "manage mailbox roots, mailbox registrations, or late mailbox binding," use `houmao-mailbox-mgr`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the unread mail batch the notifier just told us about," use the round-oriented `houmao-process-emails-via-gateway`.
 
 ## See Also
 

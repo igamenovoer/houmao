@@ -8,6 +8,10 @@ description = "Round-oriented gateway mailbox workflow skill."
 asset_subpath = "houmao-agent-email-comms"
 description = "Unified mailbox operations and fallback guidance skill."
 
+[skills.houmao-mailbox-mgr]
+asset_subpath = "houmao-mailbox-mgr"
+description = "Filesystem mailbox administration and late mailbox-binding skill."
+
 [skills.houmao-manage-specialist]
 asset_subpath = "houmao-manage-specialist"
 description = "Project-easy specialist and profile management skill."
@@ -44,6 +48,7 @@ description = "Full mailbox system-skill set."
 skills = [
   "houmao-process-emails-via-gateway",
   "houmao-agent-email-comms",
+  "houmao-mailbox-mgr",
 ]
 
 [sets.user-control]

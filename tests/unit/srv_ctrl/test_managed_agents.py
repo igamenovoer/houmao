@@ -70,6 +70,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_tui_state,
     interrupt_managed_agent,
     list_managed_agents,
+    mail_post,
     mail_send,
     mail_mark_read,
     mail_resolve_live,
@@ -776,6 +777,79 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
     assert payload["status"] == "verified"
     assert payload["execution_path"] == "manager_direct"
     assert payload["message"]["message_ref"] == "filesystem:msg-1"
+
+
+def test_mail_post_local_headless_uses_verified_manager_direct_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    response = GatewayMailActionResponseV1(
+        operation="post",
+        transport="filesystem",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
+        message=GatewayMailboxMessageV1(
+            message_ref="filesystem:msg-operator",
+            thread_ref="filesystem:msg-operator",
+            created_at_utc="2026-03-29T15:00:00Z",
+            subject="operator note",
+            unread=True,
+            sender=GatewayMailboxParticipantV1(address="HOUMAO-operator@houmao.localhost"),
+            to=[GatewayMailboxParticipantV1(address="HOUMAO-alpha@agents.localhost")],
+        ),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_post",
+        lambda controller, **kwargs: response,
+    )
+
+    payload = mail_post(
+        target,
+        subject="operator note",
+        body_content="world",
+        attachments=[],
+    )
+
+    assert payload["authoritative"] is True
+    assert payload["status"] == "verified"
+    assert payload["execution_path"] == "manager_direct"
+    assert payload["operation"] == "post"
+    assert payload["message"]["message_ref"] == "filesystem:msg-operator"
+
+
+def test_mail_post_local_tui_without_authority_raises_click_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_live_gateway_client_for_controller",
+        lambda _controller: None,
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_authority_error",
+        lambda _controller: click.ClickException("manager authority unavailable"),
+    )
+
+    with pytest.raises(click.ClickException, match="authoritative manager or gateway mail authority"):
+        mail_post(
+            target,
+            subject="operator note",
+            body_content="world",
+            attachments=[],
+        )
 
 
 def test_mail_mark_read_local_headless_uses_verified_manager_direct_result(

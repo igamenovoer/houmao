@@ -11,6 +11,7 @@ from houmao.agents.mailbox_runtime_models import (
     StalwartMailboxResolvedConfig,
 )
 from houmao.agents.mailbox_runtime_support import (
+    default_mailbox_address,
     install_runtime_mailbox_system_skills_for_tool,
     mailbox_env_bindings,
     mailbox_skills_destination_for_tool,
@@ -158,6 +159,24 @@ def _healthy_gateway_client_factory(endpoint_log: list[str]):
         return SimpleNamespace(health=lambda: SimpleNamespace(protocol_version="v1"))
 
     return _factory
+
+
+def test_default_mailbox_address_uses_houmao_localhost_for_new_managed_agents() -> None:
+    assert (
+        default_mailbox_address(tool="codex", role_name="researcher", agent_identity="research")
+        == "research@houmao.localhost"
+    )
+
+
+def test_default_mailbox_address_strips_legacy_houmao_prefix_from_agent_identity() -> None:
+    assert (
+        default_mailbox_address(
+            tool="codex",
+            role_name="researcher",
+            agent_identity="HOUMAO-operator",
+        )
+        == "operator@houmao.localhost"
+    )
 
 
 def test_parse_declarative_mailbox_config_allows_none_transport() -> None:
@@ -404,6 +423,10 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert (mailbox_root / "houmao-agent-email-comms/actions/check.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/reply.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/references/curl-examples.md").is_file()
+    assert (
+        mailbox_root
+        / "houmao-agent-email-comms/references/self-notification-via-gateway.md"
+    ).is_file()
     assert (mailbox_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
     processing_skill = (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
@@ -418,6 +441,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
+    assert "references/self-notification-via-gateway.md" in gateway_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     install_state = load_system_skill_install_state(tool="codex", home_path=home_path)
     assert install_state is not None

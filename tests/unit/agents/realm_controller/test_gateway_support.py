@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import shutil
 import subprocess
 import threading
 import time
@@ -38,6 +39,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayMailCheckRequestV1,
     GatewayMailNotifierPutV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
@@ -91,7 +93,13 @@ from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
-from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
+from houmao.mailbox.protocol import (
+    HOUMAO_OPERATOR_ADDRESS,
+    MailboxMessage,
+    is_operator_origin_headers,
+    parse_message_document,
+    serialize_message_document,
+)
 from houmao.mailbox.stalwart import (
     StalwartError,
     build_stalwart_credential_ref,
@@ -3501,6 +3509,15 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     unread_message_id = _deliver_unread_mailbox_message(tmp_path)
+    operator_mailbox_dir = tmp_path / "mailbox" / "mailboxes" / HOUMAO_OPERATOR_ADDRESS
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        connection.execute(
+            "DELETE FROM mailbox_registrations WHERE address = ?",
+            (HOUMAO_OPERATOR_ADDRESS,),
+        )
+        connection.commit()
+    if operator_mailbox_dir.exists():
+        shutil.rmtree(operator_mailbox_dir)
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
@@ -3541,6 +3558,29 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert send_payload["transport"] == "filesystem"
     assert send_payload["message"]["message_ref"].startswith("filesystem:msg-")
 
+    post_response = client.post(
+        "/v1/mail/post",
+        json=GatewayMailPostRequestV1(
+            subject="Gateway route post",
+            body_content="filesystem operator-origin body",
+        ).model_dump(mode="json"),
+    )
+    assert post_response.status_code == 200
+    post_payload = post_response.json()
+    assert post_payload["operation"] == "post"
+    assert post_payload["transport"] == "filesystem"
+    assert post_payload["message"]["unread"] is True
+    assert post_payload["message"]["sender"]["address"] == HOUMAO_OPERATOR_ADDRESS
+    assert post_payload["message"]["to"][0]["address"] == "HOUMAO-gpu@agents.localhost"
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        post_row = connection.execute(
+            "SELECT canonical_path FROM messages WHERE message_id = ?",
+            (post_payload["message"]["message_ref"].split(":", 1)[1],),
+        ).fetchone()
+    assert post_row is not None
+    post_message = parse_message_document(Path(str(post_row[0])).read_text(encoding="utf-8"))
+    assert is_operator_origin_headers(post_message.headers) is True
+
     reply_response = client.post(
         "/v1/mail/reply",
         json=GatewayMailReplyRequestV1(
@@ -3554,6 +3594,23 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert reply_payload["transport"] == "filesystem"
     assert reply_payload["message"]["subject"] == "Re: Gateway unread reminder"
     assert reply_payload["message"]["message_ref"].startswith("filesystem:msg-")
+
+    operator_reply_response = client.post(
+        "/v1/mail/reply",
+        json=GatewayMailReplyRequestV1(
+            message_ref=post_payload["message"]["message_ref"],
+            body_content="should fail",
+        ).model_dump(mode="json"),
+    )
+    assert operator_reply_response.status_code == 422
+    assert "operator-origin" in operator_reply_response.json()["detail"]
+
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        operator_count = connection.execute(
+            "SELECT COUNT(*) FROM mailbox_registrations WHERE address = ?",
+            (HOUMAO_OPERATOR_ADDRESS,),
+        ).fetchone()
+    assert operator_count == (1,)
 
 
 def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mutation(
@@ -3844,6 +3901,16 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     )
     assert send_response.status_code == 200
     assert send_response.json()["message"]["message_ref"] == "stalwart:sent-1"
+
+    post_response = client.post(
+        "/v1/mail/post",
+        json=GatewayMailPostRequestV1(
+            subject="ignored by fake client",
+            body_content="operator-origin body",
+        ).model_dump(mode="json"),
+    )
+    assert post_response.status_code == 422
+    assert "unsupported" in post_response.json()["detail"]
 
     reply_response = client.post(
         "/v1/mail/reply",
@@ -4344,6 +4411,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/check`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/send`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/post`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/reply`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/state`" in prompt
         assert "curl -sS -X POST" not in prompt

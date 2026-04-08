@@ -40,6 +40,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -157,6 +158,7 @@ class _AppServiceDouble:
         self.m_mail_status_calls: list[str] = []
         self.m_mail_check_calls: list[tuple[str, HoumaoManagedAgentMailCheckRequest]] = []
         self.m_mail_send_calls: list[tuple[str, HoumaoManagedAgentMailSendRequest]] = []
+        self.m_mail_post_calls: list[tuple[str, HoumaoManagedAgentMailPostRequest]] = []
         self.m_mail_reply_calls: list[tuple[str, HoumaoManagedAgentMailReplyRequest]] = []
         self.m_mail_state_calls: list[tuple[str, HoumaoManagedAgentMailStateRequest]] = []
 
@@ -690,6 +692,33 @@ class _AppServiceDouble:
             },
         )
 
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        self.m_mail_post_calls.append((agent_ref, request_model))
+        return HoumaoManagedAgentMailActionResponse(
+            operation="post",
+            transport="filesystem",
+            principal_id="agent-1234",
+            address="agent@agents.localhost",
+            message={
+                "message_ref": "msg-post-123",
+                "thread_ref": "thread-post-1",
+                "created_at_utc": "2026-03-24T16:00:00+00:00",
+                "subject": request_model.subject,
+                "unread": True,
+                "body_preview": request_model.body_content,
+                "body_text": request_model.body_content,
+                "sender": {"address": "HOUMAO-operator@houmao.localhost"},
+                "to": [{"address": "agent@agents.localhost"}],
+                "cc": [],
+                "reply_to": [],
+                "attachments": [],
+            },
+        )
+
     def reply_managed_agent_mail(
         self,
         agent_ref: str,
@@ -1180,6 +1209,7 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     mail_status_route = _route("/houmao/agents/{agent_ref}/mail/status", "GET", app=app)
     mail_check_route = _route("/houmao/agents/{agent_ref}/mail/check", "POST", app=app)
     mail_send_route = _route("/houmao/agents/{agent_ref}/mail/send", "POST", app=app)
+    mail_post_route = _route("/houmao/agents/{agent_ref}/mail/post", "POST", app=app)
     mail_reply_route = _route("/houmao/agents/{agent_ref}/mail/reply", "POST", app=app)
     mail_state_route = _route("/houmao/agents/{agent_ref}/mail/state", "POST", app=app)
 
@@ -1296,6 +1326,14 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert mail_send_response.operation == "send"
+    mail_post_response = mail_post_route.endpoint(
+        agent_ref="claude-headless-1",
+        request_model=HoumaoManagedAgentMailPostRequest(
+            subject="operator note",
+            body_content="hello from operator",
+        ),
+    )
+    assert mail_post_response.operation == "post"
     mail_reply_response = mail_reply_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=HoumaoManagedAgentMailReplyRequest(
@@ -1321,6 +1359,15 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert service.m_gateway_tui_state_calls == ["claude-headless-1"]
     assert service.m_gateway_tui_history_calls == [("claude-headless-1", 7)]
     assert service.m_gateway_tui_note_prompt_calls == [("claude-headless-1", "hello")]
+    assert service.m_mail_post_calls == [
+        (
+            "claude-headless-1",
+            HoumaoManagedAgentMailPostRequest(
+                subject="operator note",
+                body_content="hello from operator",
+            ),
+        )
+    ]
     assert service.m_mail_state_calls == [
         (
             "claude-headless-1",

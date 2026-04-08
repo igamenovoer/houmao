@@ -27,7 +27,15 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/check" \
 ```bash
 curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/send" \
   -H 'content-type: application/json' \
-  --data '{"schema_version":1,"to":["recipient@agents.localhost"],"subject":"...","body_content":"...","attachments":[]}'
+  --data '{"schema_version":1,"to":["recipient@houmao.localhost"],"subject":"...","body_content":"...","attachments":[]}'
+```
+
+## Post operator-origin note
+
+```bash
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/post" \
+  -H 'content-type: application/json' \
+  --data '{"schema_version":1,"subject":"...","body_content":"...","attachments":[]}'
 ```
 
 ## Reply

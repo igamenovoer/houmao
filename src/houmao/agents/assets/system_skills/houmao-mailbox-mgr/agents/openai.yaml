@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Mailbox Manager"
+  short_description: "Manage mailbox roots, mailbox registrations, and late mailbox binding."
+  default_prompt: "Use $houmao-mailbox-mgr to create, inspect, repair, clean, or manage Houmao filesystem mailbox roots and mailbox registrations in this workspace, or to manage late mailbox binding on an existing local managed agent."

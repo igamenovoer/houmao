@@ -31,7 +31,7 @@ Each participant is a `MailboxPrincipal` with:
 - optional `manifest_path_hint`
 - optional `role`
 
-Addresses are full-form email-like strings such as `HOUMAO-research@agents.localhost`. Whitespace, blank values, invalid domains, and unsafe literal path-segment values are rejected.
+Addresses are full-form email-like strings such as `research@houmao.localhost`. Whitespace, blank values, invalid domains, and unsafe literal path-segment values are rejected. Newly derived managed-agent addresses use `<agentname>@houmao.localhost`, while `HOUMAO-*` locals under `houmao.localhost` are reserved for Houmao-owned system mailboxes such as `HOUMAO-operator@houmao.localhost`.
 
 ### Threading
 
@@ -56,6 +56,7 @@ Addresses are full-form email-like strings such as `HOUMAO-research@agents.local
 - `subject` must be non-blank.
 - `body_markdown` may be empty, but it must not contain NUL bytes.
 - `headers` is an extensible mapping, but header keys must be non-blank.
+- Operator-origin messages use explicit provenance headers such as `x-houmao-origin: operator` and `x-houmao-reply-policy: none`.
 
 ## Representative Canonical Message
 
@@ -71,10 +72,10 @@ references: []
 created_at_utc: 2026-03-13T09:15:30Z
 from:
   principal_id: HOUMAO-research
-  address: HOUMAO-research@agents.localhost
+  address: research@houmao.localhost
 to:
   - principal_id: HOUMAO-orchestrator
-    address: HOUMAO-orchestrator@agents.localhost
+    address: orchestrator@houmao.localhost
 cc: []
 reply_to: []
 subject: Investigate parser drift

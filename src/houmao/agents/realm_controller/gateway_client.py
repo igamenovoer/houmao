@@ -25,6 +25,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailCheckResponseV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
@@ -111,6 +112,16 @@ class GatewayClient:
         return self._request_model(
             "POST",
             "/v1/mail/send",
+            GatewayMailActionResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def post_mail(self, payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
+        """Call `POST /v1/mail/post`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/post",
             GatewayMailActionResponseV1,
             body=payload.model_dump(mode="json"),
         )

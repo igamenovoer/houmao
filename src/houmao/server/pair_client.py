@@ -37,6 +37,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -252,6 +253,13 @@ class PairAuthorityClientProtocol(Protocol):
         request_model: HoumaoManagedAgentMailSendRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Send managed-agent mail."""
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Post operator-origin mail into one managed-agent mailbox."""
 
     def reply_managed_agent_mail(
         self,

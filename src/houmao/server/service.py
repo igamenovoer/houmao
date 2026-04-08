@@ -140,6 +140,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -1367,6 +1368,17 @@ class HoumaoServerService:
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
         response = self._invoke_live_gateway(lambda: client.send_mail(request_model))
+        return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Deliver one operator-origin mailbox note for a managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.post_mail(request_model))
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
     def reply_managed_agent_mail(

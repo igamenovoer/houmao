@@ -1,6 +1,6 @@
 # Mailbox Common Workflows
 
-This page explains the practical v1 procedures for bootstrapping a mailbox, resolving current bindings, reading mail, sending mail, replying, marking processed mail read, and deciding when filesystem rules or compatibility helpers need deeper inspection.
+This page explains the practical v1 procedures for bootstrapping a mailbox, resolving current bindings, reading mail, sending mail, posting one-way operator notes, replying, marking processed mail read, and deciding when filesystem rules or compatibility helpers need deeper inspection.
 
 ## Mental Model
 
@@ -10,7 +10,7 @@ The safest workflow is simple:
 2. Treat `rules/` as the mailbox-local operating manual, not as an ordinary execution protocol.
 3. Resolve the current live mailbox binding through `houmao-mgr agents mail resolve-live`.
 4. Prefer the live gateway `/v1/mail/*` facade when it is attached.
-5. Otherwise use `houmao-mgr agents mail check|send|reply|mark-read`.
+5. Otherwise use `houmao-mgr agents mail check|send|post|reply|mark-read`.
 6. Touch `rules/scripts/` only for compatibility, debugging, or repair workflows that intentionally bypass the ordinary managed path.
 
 ## Bootstrap And First Inspection
@@ -84,7 +84,7 @@ Use `agents mail send` for manager-owned composition.
 ```bash
 pixi run houmao-mgr agents mail send \
   --agent-name research \
-  --to HOUMAO-orchestrator@agents.localhost \
+  --to orchestrator@houmao.localhost \
   --subject "Investigate parser drift" \
   --body-file body.md \
   --attach notes.txt
@@ -98,6 +98,25 @@ Stepwise expectations:
 4. Otherwise Houmao uses manager-owned direct execution when it can prove authority.
 5. Only when direct authority is unavailable does the local live TUI fallback submit a mailbox prompt into the session.
 6. Submission-only fallback results require separate verification.
+
+## Post Operator-Origin Mail
+
+Use `agents mail post` when the operator wants to deliver a one-way note into the managed agent mailbox without sending as the managed mailbox principal.
+
+```bash
+pixi run houmao-mgr agents mail post \
+  --agent-name research \
+  --subject "Resume after sync" \
+  --body-content "Continue from the latest mailbox checkpoint."
+```
+
+Operator-origin guidance:
+
+- `post` is filesystem-only in v1. A `stalwart` binding rejects it explicitly.
+- The canonical sender is always `HOUMAO-operator@houmao.localhost`.
+- Managed-agent defaults use `<agentname>@houmao.localhost`, while `HOUMAO-*` locals under `houmao.localhost` are reserved for Houmao-owned system mailboxes.
+- `post` requires authoritative mailbox execution and never falls back to TUI prompt submission.
+- Replies to operator-origin messages are rejected explicitly.
 
 ## Reply And Mark Read
 

@@ -38,9 +38,17 @@ from houmao.mailbox.filesystem import (
     unsupported_mailbox_root_reason,
 )
 from houmao.mailbox.protocol import (
+    HOUMAO_MAILBOX_DOMAIN,
+    HOUMAO_OPERATOR_ADDRESS,
+    HOUMAO_OPERATOR_DISPLAY_NAME,
+    HOUMAO_OPERATOR_PRINCIPAL_ID,
+    HOUMAO_OPERATOR_ROLE,
     MailboxAttachment,
     MailboxMessage,
     MailboxPrincipal,
+    is_houmao_reserved_mailbox_local_part,
+    mailbox_address_domain_part,
+    mailbox_address_local_part,
     mailbox_address_path_segment,
     normalize_utc_timestamp,
     parse_message_document,
@@ -401,6 +409,25 @@ class RegisterMailboxRequest(_ManagedRequestModel):
 
         return _normalize_optional_non_blank_string(value)
 
+    @model_validator(mode="after")
+    def _validate_reserved_address_policy(self) -> "RegisterMailboxRequest":
+        """Protect reserved Houmao mailbox locals from ordinary registrations."""
+
+        if (
+            mailbox_address_domain_part(self.address) == HOUMAO_MAILBOX_DOMAIN
+            and is_houmao_reserved_mailbox_local_part(mailbox_address_local_part(self.address))
+            and not (
+                self.address == HOUMAO_OPERATOR_ADDRESS
+                and self.owner_principal_id == HOUMAO_OPERATOR_PRINCIPAL_ID
+                and self.role == HOUMAO_OPERATOR_ROLE
+            )
+        ):
+            raise ValueError(
+                "mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` "
+                "are reserved for Houmao-owned system principals"
+            )
+        return self
+
 
 class DeregisterMailboxRequest(_ManagedRequestModel):
     """Structured mailbox deregistration request."""
@@ -489,6 +516,25 @@ class MailboxCleanupResult:
     removed: tuple[MailboxCleanupRecord, ...]
     preserved: tuple[MailboxCleanupRecord, ...]
     blocked: tuple[MailboxCleanupRecord, ...]
+
+
+def ensure_operator_mailbox_registration(mailbox_root: Path) -> dict[str, object]:
+    """Provision or confirm the reserved filesystem mailbox operator account."""
+
+    resolved_root = mailbox_root.resolve()
+    paths = resolve_filesystem_mailbox_paths(resolved_root)
+    return register_mailbox(
+        resolved_root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=HOUMAO_OPERATOR_ADDRESS,
+            owner_principal_id=HOUMAO_OPERATOR_PRINCIPAL_ID,
+            mailbox_kind="in_root",
+            mailbox_path=paths.mailbox_entry_path(HOUMAO_OPERATOR_ADDRESS),
+            display_name=HOUMAO_OPERATOR_DISPLAY_NAME,
+            role=HOUMAO_OPERATOR_ROLE,
+        ),
+    )
 
 
 def load_json_payload(path: Path) -> object:
@@ -1493,6 +1539,11 @@ def deregister_mailbox(
                 raise ManagedMailboxOperationError(
                     f"no active mailbox registration exists for `{request.address}`"
                 )
+            if registration.address == HOUMAO_OPERATOR_ADDRESS:
+                raise ManagedMailboxOperationError(
+                    "generic mailbox unregister does not allow removing the reserved "
+                    f"operator registration `{HOUMAO_OPERATOR_ADDRESS}`"
+                )
 
             if request.mode == "deactivate":
                 _mark_registration_inactive(connection, registration.registration_id)
@@ -1989,6 +2040,22 @@ def cleanup_mailbox_registrations(
 
                 candidates = _load_cleanup_candidate_registrations(connection)
                 for registration in candidates:
+                    if registration.address == HOUMAO_OPERATOR_ADDRESS:
+                        preserved.append(
+                            MailboxCleanupRecord(
+                                outcome="preserved",
+                                artifact_kind="mailbox_registration",
+                                path=registration.mailbox_entry_path,
+                                reason=(
+                                    "reserved operator registration is part of the filesystem "
+                                    "mailbox root contract and is outside cleanup scope"
+                                ),
+                                address=registration.address,
+                                registration_id=registration.registration_id,
+                                registration_status=registration.status,
+                            )
+                        )
+                        continue
                     threshold_seconds = (
                         inactive_older_than_seconds
                         if registration.status == "inactive"

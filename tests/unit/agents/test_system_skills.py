@@ -50,6 +50,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert tuple(catalog.skills.keys()) == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -91,13 +92,20 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
 
     resolved = resolve_system_skill_selection(
         catalog,
-        set_names=("mailbox-core", "mailbox-full", "user-control", "agent-messaging", "agent-gateway"),
+        set_names=(
+            "mailbox-core",
+            "mailbox-full",
+            "user-control",
+            "agent-messaging",
+            "agent-gateway",
+        ),
         skill_names=("houmao-agent-email-comms", "houmao-manage-specialist"),
     )
 
     assert resolved == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -117,6 +125,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
     assert resolved == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -233,10 +242,12 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     credentials_set_action = credentials_set_action_path.read_text(encoding="utf-8")
     definition_get_action = definition_get_action_path.read_text(encoding="utf-8")
     definition_set_action = definition_set_action_path.read_text(encoding="utf-8")
+    assert "command -v houmao-mgr" in manage_specialist_skill
+    assert "uv tool run --from houmao houmao-mgr" in manage_specialist_skill
     assert ".venv/bin/houmao-mgr" in manage_specialist_skill
     assert "pixi run houmao-mgr" in manage_specialist_skill
     assert "uv run houmao-mgr" in manage_specialist_skill
-    assert "globally installed `houmao-mgr` from uv tools" in manage_specialist_skill
+    assert "user explicitly asks for a specific launcher" in manage_specialist_skill
     assert "actions/create.md" in manage_specialist_skill
     assert "actions/list.md" in manage_specialist_skill
     assert "actions/get.md" in manage_specialist_skill
@@ -263,11 +274,15 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "do not scan env vars, directories, repo-local tool homes" in create_action
     assert "tests/fixtures/agents" not in create_action
     assert "project easy profile list" in list_action
+    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in list_action
+    assert "<chosen houmao-mgr launcher>" in list_action
     assert "project easy profile get --name <name>" in get_action
     assert "project easy profile remove --name <name>" in remove_action
     assert "project easy instance launch --profile <profile>" in launch_action
     assert "project easy profile get --name <profile>" in launch_action
     assert "whether it was launched from a specialist or from an easy profile" in stop_action
+    assert "command -v houmao-mgr" in manage_credentials_skill
+    assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
     assert ".venv/bin/houmao-mgr" in manage_credentials_skill
     assert "pixi run houmao-mgr" in manage_credentials_skill
     assert "uv run houmao-mgr" in manage_credentials_skill
@@ -279,22 +294,34 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "project agents tools <tool> auth ..." in manage_credentials_skill
     assert "project easy profile ..." in manage_credentials_skill
     assert "project agents launch-profiles ..." in manage_credentials_skill
-    assert "Do not treat changing an easy profile or explicit launch profile `--auth` override" in manage_credentials_skill
+    assert (
+        "Do not treat changing an easy profile or explicit launch profile `--auth` override"
+        in manage_credentials_skill
+    )
     assert "Do not print raw secret values" in manage_credentials_skill
     assert credentials_list_action_path.is_file()
     assert credentials_get_action_path.is_file()
     assert credentials_add_action_path.is_file()
     assert credentials_set_action_path.is_file()
     assert credentials_remove_action_path.is_file()
+    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in credentials_get_action
+    assert "<chosen houmao-mgr launcher>" in credentials_get_action
     assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
     assert "Do not bypass `auth get`" in credentials_get_action
-    assert "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
+    assert (
+        "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
+    )
     assert "Do not invent unsupported clear flags" in credentials_set_action
-    assert "stored easy-profile or explicit launch-profile `--auth` override change" in credentials_set_action
+    assert (
+        "stored easy-profile or explicit launch-profile `--auth` override change"
+        in credentials_set_action
+    )
     assert (
         "Do not continue with set when the user has not provided any explicit supported change"
         in credentials_set_action
     )
+    assert "command -v houmao-mgr" in manage_agent_definition_skill
+    assert "uv tool run --from houmao houmao-mgr" in manage_agent_definition_skill
     assert ".venv/bin/houmao-mgr" in manage_agent_definition_skill
     assert "pixi run houmao-mgr" in manage_agent_definition_skill
     assert "uv run houmao-mgr" in manage_agent_definition_skill
@@ -316,6 +343,8 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert definition_get_action_path.is_file()
     assert definition_set_action_path.is_file()
     assert definition_remove_action_path.is_file()
+    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in definition_get_action
+    assert "<chosen houmao-mgr launcher>" in definition_get_action
     assert "project agents roles init --name <role>" in definition_create_action_path.read_text(
         encoding="utf-8"
     )
@@ -393,6 +422,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
 
     manage_agent_instance_path = home_path / "skills/houmao-manage-agent-instance/SKILL.md"
     manage_agent_instance_actions = home_path / "skills/houmao-manage-agent-instance/actions"
+    mailbox_mgr_path = home_path / "skills/houmao-mailbox-mgr/SKILL.md"
+    mailbox_mgr_actions = home_path / "skills/houmao-mailbox-mgr/actions"
+    mailbox_mgr_references = home_path / "skills/houmao-mailbox-mgr/references"
     agent_messaging_path = home_path / "skills/houmao-agent-messaging/SKILL.md"
     agent_messaging_actions = home_path / "skills/houmao-agent-messaging/actions"
     agent_messaging_references = home_path / "skills/houmao-agent-messaging/references"
@@ -411,6 +443,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
         "houmao-manage-specialist",
         "houmao-manage-credentials",
         "houmao-manage-agent-definition",
@@ -420,9 +453,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     )
     assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
     assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert mailbox_mgr_path.is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
+    mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
@@ -451,12 +486,42 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     gateway_mail_notifier_action_path = agent_gateway_actions / "mail-notifier.md"
     gateway_scope_reference_path = agent_gateway_references / "scope-and-routing.md"
     gateway_http_reference_path = agent_gateway_references / "http-surface.md"
+    mailbox_init_action_path = mailbox_mgr_actions / "init.md"
+    mailbox_register_action_path = mailbox_mgr_actions / "register.md"
+    mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
+    mailbox_agent_binding_register_action_path = mailbox_mgr_actions / "agent-binding-register.md"
+    mailbox_root_reference_path = mailbox_mgr_references / "root-selection.md"
+    mailbox_mode_reference_path = mailbox_mgr_references / "mode-vocabulary.md"
+    mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
+    mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
+    discover_action = discover_action_path.read_text(encoding="utf-8")
     reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
     mail_action = mail_action_path.read_text(encoding="utf-8")
     gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
     gateway_wakeups_action = gateway_wakeups_action_path.read_text(encoding="utf-8")
     gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
 
+    assert "actions/init.md" in mailbox_mgr_skill
+    assert "actions/register.md" in mailbox_mgr_skill
+    assert "actions/agent-binding-register.md" in mailbox_mgr_skill
+    assert "references/root-selection.md" in mailbox_mgr_skill
+    assert "command -v houmao-mgr" in mailbox_mgr_skill
+    assert "uv tool run --from houmao houmao-mgr" in mailbox_mgr_skill
+    assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
+    assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
+    assert "houmao-mgr agents mailbox ..." in mailbox_mgr_skill
+    assert mailbox_init_action_path.is_file()
+    assert mailbox_register_action_path.is_file()
+    assert mailbox_messages_get_action_path.is_file()
+    assert mailbox_agent_binding_register_action_path.is_file()
+    assert mailbox_root_reference_path.is_file()
+    assert mailbox_mode_reference_path.is_file()
+    assert mailbox_structural_reference_path.is_file()
+    assert mailbox_stalwart_reference_path.is_file()
+    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in mailbox_init_action_path.read_text(
+        encoding="utf-8"
+    )
+    assert "<chosen houmao-mgr launcher>" in mailbox_init_action_path.read_text(encoding="utf-8")
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill
@@ -472,6 +537,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert stop_action_path.is_file()
     assert relaunch_action_path.is_file()
     assert cleanup_action_path.is_file()
+    assert "command -v houmao-mgr" in manage_agent_instance_skill
+    assert "uv tool run --from houmao houmao-mgr" in manage_agent_instance_skill
     assert "agents launch" in launch_action
     assert "--launch-profile" in launch_action
     assert "launch-profile-backed" in launch_action
@@ -491,7 +558,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/mail.md" in agent_messaging_skill
     assert "actions/reset-context.md" in agent_messaging_skill
     assert "houmao-mgr agents prompt" in agent_messaging_skill
-    assert "globally installed `houmao-mgr` from uv tools" in agent_messaging_skill
+    assert "command -v houmao-mgr" in agent_messaging_skill
+    assert "uv tool run --from houmao houmao-mgr" in agent_messaging_skill
     assert discover_action_path.is_file()
     assert prompt_action_path.is_file()
     assert interrupt_action_path.is_file()
@@ -501,6 +569,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert reset_context_action_path.is_file()
     assert intent_matrix_reference_path.is_file()
     assert managed_agent_http_reference_path.is_file()
+    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in discover_action
+    assert "<chosen houmao-mgr launcher>" in discover_action
     assert "actions/lifecycle.md" in agent_gateway_skill
     assert "actions/discover.md" in agent_gateway_skill
     assert "actions/gateway-services.md" in agent_gateway_skill
@@ -509,7 +579,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
-    assert "globally installed `houmao-mgr` from uv tools" in agent_gateway_skill
+    assert "command -v houmao-mgr" in agent_gateway_skill
+    assert "uv tool run --from houmao houmao-mgr" in agent_gateway_skill
     assert gateway_lifecycle_action_path.is_file()
     assert gateway_discover_action_path.is_file()
     assert gateway_services_action_path.is_file()
@@ -518,6 +589,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert gateway_scope_reference_path.is_file()
     assert gateway_http_reference_path.is_file()
     assert "HOUMAO_AGENT_ID" in gateway_discover_action
+    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in gateway_discover_action
+    assert "<chosen houmao-mgr launcher>" in gateway_discover_action
     assert "agents mail resolve-live" in gateway_discover_action
     assert "/v1/wakeups" in gateway_wakeups_action
     assert "gateway stop or restart" in gateway_wakeups_action

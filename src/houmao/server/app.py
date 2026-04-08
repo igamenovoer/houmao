@@ -48,6 +48,7 @@ from .models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -515,6 +516,13 @@ def create_app(
         request_model: HoumaoManagedAgentMailSendRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         return resolved_service.send_managed_agent_mail(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/post")
+    def post_managed_agent_mail(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        return resolved_service.post_managed_agent_mail(agent_ref, request_model)
 
     @app.post("/houmao/agents/{agent_ref}/mail/reply")
     def reply_managed_agent_mail(

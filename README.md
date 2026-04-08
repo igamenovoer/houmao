@@ -222,7 +222,7 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 
 ### System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can create specialists, manage credentials, inspect definitions, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
 
 | Skill | What it enables |
 |---|---|
@@ -232,16 +232,17 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-manage-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
 | `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule wakeups, and manage gateway mail-notifier behavior |
+| `houmao-mailbox-mgr` | Create, inspect, repair, and clean filesystem mailbox roots; manage mailbox registrations; and manage late filesystem mailbox binding for existing local managed agents |
 | `houmao-agent-email-comms` | Ordinary shared-mailbox operations and the no-gateway fallback path; the canonical mailbox-operations skill paired with `houmao-mgr agents mail` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL |
 
-`agents join` and `agents launch` auto-install seven of these eight skills (everything except the lifecycle-only `houmao-manage-agent-instance`) into managed homes by default — that is the `mailbox-full`, `user-control`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-manage-agent-instance`, run:
+`agents join` and `agents launch` auto-install eight of these nine skills (everything except the lifecycle-only `houmao-manage-agent-instance`) into managed homes by default — that is the `mailbox-full`, `user-control`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-manage-agent-instance`, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-For the 5-minute walkthrough of all eight skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
+For the 5-minute walkthrough of all nine skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
 
 ## Full Documentation
 

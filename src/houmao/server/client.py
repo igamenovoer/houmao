@@ -50,6 +50,7 @@ from .models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -609,6 +610,21 @@ class HoumaoServerClient(CaoRestClient):
         return self._request_root_model(
             "POST",
             f"/houmao/agents/{escaped}/mail/send",
+            HoumaoManagedAgentMailActionResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/post`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/post",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )

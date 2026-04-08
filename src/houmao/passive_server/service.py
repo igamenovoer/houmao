@@ -26,6 +26,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailCheckResponseV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
@@ -449,7 +450,7 @@ class PassiveServerService:
         try:
             return client.check_mail(payload)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_send(
         self, agent_ref: str, payload: GatewayMailSendRequestV1
@@ -465,7 +466,23 @@ class PassiveServerService:
         try:
             return client.send_mail(payload)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_mail_post(
+        self, agent_ref: str, payload: GatewayMailPostRequestV1
+    ) -> GatewayMailActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/post`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.post_mail(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_reply(
         self, agent_ref: str, payload: GatewayMailReplyRequestV1
@@ -481,7 +498,7 @@ class PassiveServerService:
         try:
             return client.reply_mail(payload)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     # -- request submission (Tier 6) -------------------------------------------
 
