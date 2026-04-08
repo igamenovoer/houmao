@@ -35,6 +35,7 @@ from .models import (
     HoumaoHeadlessTurnStatusResponse,
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentGatewayAttachRequest,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentGatewayNextPromptSessionRequest,
@@ -48,7 +49,6 @@ from .models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
-    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -400,8 +400,11 @@ def create_app(
         return resolved_service.managed_agent_gateway_status(agent_ref)
 
     @app.post("/houmao/agents/{agent_ref}/gateway/attach")
-    def attach_managed_agent_gateway(agent_ref: str) -> GatewayStatusV1:
-        return resolved_service.attach_managed_agent_gateway(agent_ref)
+    def attach_managed_agent_gateway(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayAttachRequest | None = None,
+    ) -> GatewayStatusV1:
+        return resolved_service.attach_managed_agent_gateway(agent_ref, request_model)
 
     @app.post("/houmao/agents/{agent_ref}/gateway/detach")
     def detach_managed_agent_gateway(agent_ref: str) -> GatewayStatusV1:
@@ -516,13 +519,6 @@ def create_app(
         request_model: HoumaoManagedAgentMailSendRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         return resolved_service.send_managed_agent_mail(agent_ref, request_model)
-
-    @app.post("/houmao/agents/{agent_ref}/mail/post")
-    def post_managed_agent_mail(
-        agent_ref: str,
-        request_model: HoumaoManagedAgentMailPostRequest,
-    ) -> HoumaoManagedAgentMailActionResponse:
-        return resolved_service.post_managed_agent_mail(agent_ref, request_model)
 
     @app.post("/houmao/agents/{agent_ref}/mail/reply")
     def reply_managed_agent_mail(

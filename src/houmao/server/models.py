@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAdmissionState,
     GatewayChatSessionSelectorV1,
     GatewayConnectivityState,
+    GatewayCurrentExecutionMode,
     GatewayExecutionState,
     GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
@@ -27,7 +28,6 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
     GatewayMailCheckResponseV1,
-    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
@@ -806,6 +806,12 @@ class HoumaoManagedAgentGatewayRequestCreate(GatewayRequestCreateV1):
     """Gateway-mediated managed-agent request payload."""
 
 
+class HoumaoManagedAgentGatewayAttachRequest(_HoumaoModel):
+    """Optional execution-mode selection for managed-agent gateway attach."""
+
+    execution_mode: GatewayCurrentExecutionMode | None = None
+
+
 class HoumaoManagedAgentGatewayRequestAcceptedResponse(GatewayAcceptedRequestV1):
     """Accepted response for `POST /houmao/agents/{agent_ref}/gateway/requests`."""
 
@@ -860,10 +866,6 @@ class HoumaoManagedAgentMailCheckResponse(GatewayMailCheckResponseV1):
 
 class HoumaoManagedAgentMailSendRequest(GatewayMailSendRequestV1):
     """Pair-owned managed-agent mail-send request payload."""
-
-
-class HoumaoManagedAgentMailPostRequest(GatewayMailPostRequestV1):
-    """Pair-owned managed-agent mail-post request payload."""
 
 
 class HoumaoManagedAgentMailReplyRequest(GatewayMailReplyRequestV1):

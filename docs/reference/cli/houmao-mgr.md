@@ -393,8 +393,10 @@ Low-level boundary notes:
 - Easy-instance inspection (`project easy instance list` and `project easy instance get`) reports the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
 - unless `--no-gateway` is supplied, the easy surface now requests launch-time gateway attach by default on loopback (`127.0.0.1`) with a system-assigned port.
+- by default, that easy auto-attach uses same-session foreground gateway execution and reports `gateway_execution_mode` plus `gateway_tmux_window_index` when foreground attach succeeds.
 - `--gateway-port <port>` keeps the default easy gateway attach enabled for that launch, but requests the specified loopback listener port instead of a system-assigned port.
-- `--no-gateway` and `--gateway-port` are mutually exclusive.
+- `--gateway-background` keeps easy auto-attach enabled for that launch, but requests detached background gateway execution instead of the default foreground auxiliary-window execution.
+- `--no-gateway` is mutually exclusive with `--gateway-port` and `--gateway-background`.
 - `--workdir` overrides only the launched agent runtime cwd; the selected project overlay, specialist source, runtime root, jobs root, and default mailbox root remain pinned to the selected project.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
 - Gemini specialists remain headless-only here and fail fast unless `--headless` is supplied.

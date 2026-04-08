@@ -24,6 +24,7 @@ from houmao.server.models import (
     HoumaoHeadlessTurnRequest,
     HoumaoHeadlessTurnStatusResponse,
     HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentGatewayAttachRequest,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentGatewayNextPromptSessionRequest,
@@ -37,7 +38,6 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
-    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -143,7 +143,11 @@ class PairAuthorityClientProtocol(Protocol):
     def get_managed_agent_gateway_status(self, agent_ref: str) -> GatewayStatusV1:
         """Return gateway status for one managed agent."""
 
-    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
+    def attach_managed_agent_gateway(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayAttachRequest | None = None,
+    ) -> GatewayStatusV1:
         """Attach a managed-agent gateway."""
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
@@ -253,13 +257,6 @@ class PairAuthorityClientProtocol(Protocol):
         request_model: HoumaoManagedAgentMailSendRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Send managed-agent mail."""
-
-    def post_managed_agent_mail(
-        self,
-        agent_ref: str,
-        request_model: HoumaoManagedAgentMailPostRequest,
-    ) -> HoumaoManagedAgentMailActionResponse:
-        """Post operator-origin mail into one managed-agent mailbox."""
 
     def reply_managed_agent_mail(
         self,

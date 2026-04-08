@@ -28,6 +28,7 @@ from houmao.server.models import (
     HoumaoHealthResponse,
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
+    HoumaoManagedAgentGatewayAttachRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
@@ -40,7 +41,6 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
-    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -142,7 +142,9 @@ class _AppServiceDouble:
         self.m_turn_artifact_calls: list[tuple[str, str, str]] = []
         self.m_interrupt_calls: list[str] = []
         self.m_gateway_status_calls: list[str] = []
-        self.m_gateway_attach_calls: list[str] = []
+        self.m_gateway_attach_calls: list[
+            tuple[str, HoumaoManagedAgentGatewayAttachRequest | None]
+        ] = []
         self.m_gateway_detach_calls: list[str] = []
         self.m_gateway_tui_state_calls: list[str] = []
         self.m_gateway_tui_history_calls: list[tuple[str, int]] = []
@@ -158,7 +160,6 @@ class _AppServiceDouble:
         self.m_mail_status_calls: list[str] = []
         self.m_mail_check_calls: list[tuple[str, HoumaoManagedAgentMailCheckRequest]] = []
         self.m_mail_send_calls: list[tuple[str, HoumaoManagedAgentMailSendRequest]] = []
-        self.m_mail_post_calls: list[tuple[str, HoumaoManagedAgentMailPostRequest]] = []
         self.m_mail_reply_calls: list[tuple[str, HoumaoManagedAgentMailReplyRequest]] = []
         self.m_mail_state_calls: list[tuple[str, HoumaoManagedAgentMailStateRequest]] = []
 
@@ -513,8 +514,12 @@ class _AppServiceDouble:
             managed_agent_instance_id="claude-headless-1",
         )
 
-    def attach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
-        self.m_gateway_attach_calls.append(agent_ref)
+    def attach_managed_agent_gateway(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentGatewayAttachRequest | None = None,
+    ) -> GatewayStatusV1:
+        self.m_gateway_attach_calls.append((agent_ref, request_model))
         return self.managed_agent_gateway_status(agent_ref)
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
@@ -686,33 +691,6 @@ class _AppServiceDouble:
                 "body_text": request_model.body_content,
                 "sender": {"address": "agent@agents.localhost"},
                 "to": [{"address": request_model.to[0]}],
-                "cc": [],
-                "reply_to": [],
-                "attachments": [],
-            },
-        )
-
-    def post_managed_agent_mail(
-        self,
-        agent_ref: str,
-        request_model: HoumaoManagedAgentMailPostRequest,
-    ) -> HoumaoManagedAgentMailActionResponse:
-        self.m_mail_post_calls.append((agent_ref, request_model))
-        return HoumaoManagedAgentMailActionResponse(
-            operation="post",
-            transport="filesystem",
-            principal_id="agent-1234",
-            address="agent@agents.localhost",
-            message={
-                "message_ref": "msg-post-123",
-                "thread_ref": "thread-post-1",
-                "created_at_utc": "2026-03-24T16:00:00+00:00",
-                "subject": request_model.subject,
-                "unread": True,
-                "body_preview": request_model.body_content,
-                "body_text": request_model.body_content,
-                "sender": {"address": "HOUMAO-operator@houmao.localhost"},
-                "to": [{"address": "agent@agents.localhost"}],
                 "cc": [],
                 "reply_to": [],
                 "attachments": [],
@@ -1209,7 +1187,6 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     mail_status_route = _route("/houmao/agents/{agent_ref}/mail/status", "GET", app=app)
     mail_check_route = _route("/houmao/agents/{agent_ref}/mail/check", "POST", app=app)
     mail_send_route = _route("/houmao/agents/{agent_ref}/mail/send", "POST", app=app)
-    mail_post_route = _route("/houmao/agents/{agent_ref}/mail/post", "POST", app=app)
     mail_reply_route = _route("/houmao/agents/{agent_ref}/mail/reply", "POST", app=app)
     mail_state_route = _route("/houmao/agents/{agent_ref}/mail/state", "POST", app=app)
 
@@ -1267,7 +1244,13 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         gateway_status_route.endpoint(agent_ref="claude-headless-1").gateway_health
         == "not_attached"
     )
-    assert gateway_attach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
+    assert (
+        gateway_attach_route.endpoint(
+            agent_ref="claude-headless-1",
+            request_model=HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+        ).request_admission
+        == "open"
+    )
     assert gateway_detach_route.endpoint(agent_ref="claude-headless-1").request_admission == "open"
     assert (
         gateway_tui_state_route.endpoint(agent_ref="claude-headless-1").terminal_id == "headless123"
@@ -1326,14 +1309,6 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ),
     )
     assert mail_send_response.operation == "send"
-    mail_post_response = mail_post_route.endpoint(
-        agent_ref="claude-headless-1",
-        request_model=HoumaoManagedAgentMailPostRequest(
-            subject="operator note",
-            body_content="hello from operator",
-        ),
-    )
-    assert mail_post_response.operation == "post"
     mail_reply_response = mail_reply_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=HoumaoManagedAgentMailReplyRequest(
@@ -1356,18 +1331,15 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert service.m_gateway_prompt_control_calls[0][1].prompt == "hello"
     assert service.m_gateway_control_calls[0][0] == "claude-headless-1"
     assert service.m_gateway_control_calls[0][1].sequence == "<[Escape]>"
+    assert service.m_gateway_attach_calls == [
+        (
+            "claude-headless-1",
+            HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+        )
+    ]
     assert service.m_gateway_tui_state_calls == ["claude-headless-1"]
     assert service.m_gateway_tui_history_calls == [("claude-headless-1", 7)]
     assert service.m_gateway_tui_note_prompt_calls == [("claude-headless-1", "hello")]
-    assert service.m_mail_post_calls == [
-        (
-            "claude-headless-1",
-            HoumaoManagedAgentMailPostRequest(
-                subject="operator note",
-                body_content="hello from operator",
-            ),
-        )
-    ]
     assert service.m_mail_state_calls == [
         (
             "claude-headless-1",

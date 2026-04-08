@@ -85,6 +85,41 @@ def _seed_role(agent_def_dir: Path) -> None:
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
 
 
+def _create_easy_specialist(runner: CliRunner, *, repo_root: Path, tmp_path: Path) -> None:
+    """Bootstrap one project and create one easy specialist for launch tests."""
+
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+
+    init_result = runner.invoke(cli, ["project", "init"])
+    assert init_result.exit_code == 0, init_result.output
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    assert Path(create_payload["metadata_path"]).is_file()
+    assert (
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    ).is_file()
+
+
 def _native_launch_target(*, tmp_path: Path, agent_def_dir: Path) -> SimpleNamespace:
     """Create one preset-backed native launch target double."""
 
@@ -622,7 +657,10 @@ def test_houmao_mgr_agents_launch_supports_explicit_launch_profiles(
                 managed_agent_id=None,
                 workdir=None,
                 auth_name="default",
+                model_name=None,
+                reasoning_level=None,
                 operator_prompt_mode=None,
+                managed_header_policy=None,
                 env_payload={},
                 mailbox_payload=None,
                 posture_payload={},
@@ -955,8 +993,11 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
             captured.setdefault("base_url", base_url),
             SimpleNamespace(
                 pair_authority_kind="houmao-server",
-                attach_managed_agent_gateway=lambda agent_ref: (
+                attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
                     captured.setdefault("agent_ref", agent_ref),
+                    captured.setdefault(
+                        "execution_mode", getattr(request_model, "execution_mode", None)
+                    ),
                     {
                         "gateway_health": "healthy",
                         "managed_agent_connectivity": "connected",
@@ -966,8 +1007,10 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
                         "queue_depth": 0,
                         "gateway_host": "127.0.0.1",
                         "gateway_port": 43123,
+                        "execution_mode": "tmux_auxiliary_window",
+                        "gateway_tmux_window_index": "2",
                     },
-                )[1],
+                )[2],
             ),
         )[1],
     )
@@ -987,6 +1030,7 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
     assert captured == {
         "base_url": "http://127.0.0.1:9890",
         "agent_ref": "cao-gpu",
+        "execution_mode": "tmux_auxiliary_window",
     }
     assert json.loads(result.output) == {
         "gateway_health": "healthy",
@@ -997,6 +1041,8 @@ def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_sessio
         "queue_depth": 0,
         "gateway_host": "127.0.0.1",
         "gateway_port": 43123,
+        "execution_mode": "tmux_auxiliary_window",
+        "gateway_tmux_window_index": "2",
     }
 
 
@@ -1056,8 +1102,11 @@ def test_houmao_mgr_agents_gateway_attach_supports_explicit_target_tmux_session_
             captured.setdefault("base_url", base_url),
             SimpleNamespace(
                 pair_authority_kind="houmao-server",
-                attach_managed_agent_gateway=lambda agent_ref: (
+                attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
                     captured.setdefault("agent_ref", agent_ref),
+                    captured.setdefault(
+                        "execution_mode", getattr(request_model, "execution_mode", None)
+                    ),
                     {
                         "gateway_health": "healthy",
                         "managed_agent_connectivity": "connected",
@@ -1067,8 +1116,10 @@ def test_houmao_mgr_agents_gateway_attach_supports_explicit_target_tmux_session_
                         "queue_depth": 0,
                         "gateway_host": "127.0.0.1",
                         "gateway_port": 43123,
+                        "execution_mode": "tmux_auxiliary_window",
+                        "gateway_tmux_window_index": "2",
                     },
-                )[1],
+                )[2],
             ),
         )[1],
     )
@@ -1098,6 +1149,7 @@ def test_houmao_mgr_agents_gateway_attach_supports_explicit_target_tmux_session_
     assert captured == {
         "base_url": "http://127.0.0.1:9890",
         "agent_ref": "cao-gpu",
+        "execution_mode": "tmux_auxiliary_window",
     }
     assert json.loads(result.output) == {
         "gateway_health": "healthy",
@@ -1108,6 +1160,120 @@ def test_houmao_mgr_agents_gateway_attach_supports_explicit_target_tmux_session_
         "queue_depth": 0,
         "gateway_host": "127.0.0.1",
         "gateway_port": 43123,
+        "execution_mode": "tmux_auxiliary_window",
+        "gateway_tmux_window_index": "2",
+    }
+
+
+def test_houmao_mgr_agents_gateway_attach_supports_background_override_for_pair_targets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Pair attach should carry the explicit background execution override."""
+
+    manifest_path = default_manifest_path(tmp_path, "houmao_server_rest", "pair-session-1")
+    agent_def_dir = (tmp_path / "agent-def").resolve()
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_houmao_server_plan(tmp_path),
+            role_name="r",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="HOUMAO-pair",
+            agent_id="agent-pair-1",
+            tmux_session_name="HOUMAO-pair",
+            session_id="pair-session-1",
+            agent_def_dir=agent_def_dir,
+            backend_state={
+                "api_base_url": "http://127.0.0.1:9890",
+                "session_name": "cao-gpu",
+                "terminal_id": "term-123",
+                "parsing_mode": "shadow_only",
+                "tmux_window_name": "developer-1",
+            },
+        )
+    )
+    write_session_manifest(manifest_path, payload)
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-pair",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: (
+            str(manifest_path)
+            if session_name == "HOUMAO-pair" and variable_name == AGENT_MANIFEST_PATH_ENV_VAR
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.require_houmao_server_pair",
+        lambda base_url: (
+            captured.setdefault("base_url", base_url),
+            SimpleNamespace(
+                pair_authority_kind="houmao-server",
+                attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
+                    captured.setdefault("agent_ref", agent_ref),
+                    captured.setdefault(
+                        "execution_mode", getattr(request_model, "execution_mode", None)
+                    ),
+                    {
+                        "gateway_health": "healthy",
+                        "managed_agent_connectivity": "connected",
+                        "managed_agent_recovery": "idle",
+                        "request_admission": "open",
+                        "active_execution": "idle",
+                        "queue_depth": 0,
+                        "gateway_host": "127.0.0.1",
+                        "gateway_port": 43123,
+                        "execution_mode": "detached_process",
+                    },
+                )[2],
+            ),
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_identity",
+        lambda client, agent_ref: SimpleNamespace(
+            transport="tui",
+            session_name=agent_ref,
+            agent_name="HOUMAO-pair",
+            agent_id="agent-pair-1",
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "gateway",
+            "attach",
+            "--background",
+            "--target-tmux-session",
+            "HOUMAO-pair",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured == {
+        "base_url": "http://127.0.0.1:9890",
+        "agent_ref": "cao-gpu",
+        "execution_mode": "detached_process",
+    }
+    assert json.loads(result.output) == {
+        "gateway_health": "healthy",
+        "managed_agent_connectivity": "connected",
+        "managed_agent_recovery": "idle",
+        "request_admission": "open",
+        "active_execution": "idle",
+        "queue_depth": 0,
+        "gateway_host": "127.0.0.1",
+        "gateway_port": 43123,
+        "execution_mode": "detached_process",
     }
 
 
@@ -1175,6 +1341,113 @@ def test_houmao_mgr_project_status_supports_cwd_only_discovery_mode_in_subproces
         payload["selected_overlay_detail"]
         == f"Selected overlay root from the cwd-local project-aware `<cwd>/.houmao` candidate. No project overlay exists yet at `{expected_overlay_root}` for this invocation."
     )
+
+
+def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to_foreground(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Easy launch should default gateway auto-attach to foreground execution."""
+
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+    _create_easy_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally", _fake_launch
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["gateway_auto_attach"] is True
+    assert captured["gateway_execution_mode"] == "tmux_auxiliary_window"
+
+
+def test_houmao_mgr_project_easy_instance_launch_supports_gateway_background_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Easy launch should allow detached gateway execution as an explicit override."""
+
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+    _create_easy_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally", _fake_launch
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--gateway-background",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["gateway_auto_attach"] is True
+    assert captured["gateway_execution_mode"] == "detached_process"
 
 
 def test_houmao_mgr_agents_mail_resolve_live_returns_structured_json(

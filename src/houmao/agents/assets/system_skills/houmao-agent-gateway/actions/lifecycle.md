@@ -4,7 +4,7 @@ Use this action when the gateway itself needs to be attached, detached, or inspe
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and requested lifecycle action from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the task still lacks a required target or clear action, ask the user in Markdown before proceeding.
 4. Use `attach` to start or reuse the live gateway sidecar for an already-running managed agent.
@@ -18,31 +18,31 @@ Use this action when the gateway itself needs to be attached, detached, or inspe
 Attach:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway attach --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway attach --agent-id <id>
-<resolved houmao-mgr launcher> agents gateway attach --target-tmux-session <session>
+<chosen houmao-mgr launcher> agents gateway attach --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway attach --agent-id <id>
+<chosen houmao-mgr launcher> agents gateway attach --target-tmux-session <session>
 ```
 
 Detach:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway detach --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway detach --agent-id <id>
-<resolved houmao-mgr launcher> agents gateway detach --target-tmux-session <session>
+<chosen houmao-mgr launcher> agents gateway detach --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway detach --agent-id <id>
+<chosen houmao-mgr launcher> agents gateway detach --target-tmux-session <session>
 ```
 
 Status:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway status --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway status --agent-id <id>
-<resolved houmao-mgr launcher> agents gateway status --target-tmux-session <session>
+<chosen houmao-mgr launcher> agents gateway status --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway status --agent-id <id>
+<chosen houmao-mgr launcher> agents gateway status --target-tmux-session <session>
 ```
 
-Foreground attach is explicit:
+Background attach is explicit:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway attach --foreground --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway attach --background --agent-name <name>
 ```
 
 Pair-managed lifecycle routes:

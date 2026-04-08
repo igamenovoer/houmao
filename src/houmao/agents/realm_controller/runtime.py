@@ -155,7 +155,6 @@ from .loaders import RolePackage, load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
-    default_mailbox_address,
     default_mailbox_principal_id,
     mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
@@ -562,11 +561,7 @@ class RuntimeSessionController:
                 address,
                 field_name="address",
             )
-            or default_mailbox_address(
-                tool=self.launch_plan.tool,
-                role_name=self.role_name,
-                agent_identity=self.agent_identity,
-            )
+            or f"{effective_principal_id}@agents.localhost"
         )
         working_directory = self.launch_plan.working_directory.resolve()
         if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):
@@ -1049,6 +1044,7 @@ def start_runtime_session(
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
+    gateway_execution_mode_override: GatewayCurrentExecutionMode | None = None,
     tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
@@ -1058,6 +1054,10 @@ def start_runtime_session(
     if (gateway_host is not None or gateway_port is not None) and not gateway_auto_attach:
         raise SessionManifestError(
             "Gateway host or port overrides require launch-time gateway attach."
+        )
+    if gateway_execution_mode_override is not None and not gateway_auto_attach:
+        raise SessionManifestError(
+            "Gateway execution-mode overrides require launch-time gateway attach."
         )
 
     manifest = load_brain_manifest(brain_manifest_path)
@@ -1255,6 +1255,7 @@ def start_runtime_session(
         attach_result = controller.attach_gateway(
             host_override=gateway_host,
             port_override=gateway_port,
+            execution_mode_override=gateway_execution_mode_override,
         )
         if attach_result.status == "error":
             controller.gateway_auto_attach_error = attach_result.detail
@@ -2508,7 +2509,9 @@ def _build_provider_start_launch_plan_for_relaunch(
     if stored_role_prompt is not None:
         role_package = replace(role_package, system_prompt=stored_role_prompt)
     else:
-        persisted_managed_header_enabled = _managed_prompt_header_enabled_from_brain_manifest(manifest)
+        persisted_managed_header_enabled = _managed_prompt_header_enabled_from_brain_manifest(
+            manifest
+        )
         managed_header_decision = resolve_managed_prompt_header_decision(
             launch_override=None,
             stored_policy=None,

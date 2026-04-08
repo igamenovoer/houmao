@@ -2406,6 +2406,11 @@ def easy_instance_group() -> None:
     help="Request one fixed loopback gateway listener port for this launch.",
 )
 @click.option(
+    "--gateway-background",
+    is_flag=True,
+    help="Run the auto-attached gateway as a detached background process for this launch.",
+)
+@click.option(
     "--workdir",
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
     default=None,
@@ -2452,6 +2457,7 @@ def launch_easy_instance_command(
     headless: bool | None,
     no_gateway: bool,
     gateway_port: int | None,
+    gateway_background: bool,
     workdir: Path | None,
     env_set: tuple[str, ...],
     mail_transport: str | None,
@@ -2557,6 +2563,8 @@ def launch_easy_instance_command(
         )
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
+    if no_gateway and gateway_background:
+        raise click.ClickException("`--no-gateway` and `--gateway-background` cannot be combined.")
     if mail_transport == "email":
         raise click.ClickException(
             "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
@@ -2577,17 +2585,32 @@ def launch_easy_instance_command(
     launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
     gateway_auto_attach = default_gateway_auto_attach
     requested_gateway_port = default_gateway_port if gateway_auto_attach else None
+    gateway_host = default_gateway_host if gateway_auto_attach else None
     if no_gateway:
         gateway_auto_attach = False
         requested_gateway_port = None
+        gateway_host = None
     elif gateway_port is not None:
         gateway_auto_attach = True
         requested_gateway_port = gateway_port
-    gateway_host = default_gateway_host if gateway_auto_attach else None
+        gateway_host = default_gateway_host or "127.0.0.1"
+    elif gateway_background:
+        gateway_auto_attach = True
+        if requested_gateway_port is None:
+            requested_gateway_port = 0
+        if gateway_host is None:
+            gateway_host = "127.0.0.1"
     requested_gateway_port = (
         requested_gateway_port
         if requested_gateway_port is not None
         else 0
+        if gateway_auto_attach
+        else None
+    )
+    gateway_execution_mode = (
+        "detached_process"
+        if gateway_auto_attach and gateway_background
+        else "tmux_auxiliary_window"
         if gateway_auto_attach
         else None
     )
@@ -2609,6 +2632,7 @@ def launch_easy_instance_command(
         gateway_auto_attach=gateway_auto_attach,
         gateway_host=gateway_host,
         gateway_port=requested_gateway_port,
+        gateway_execution_mode=gateway_execution_mode,
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
         mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),
@@ -4112,7 +4136,7 @@ def _resolve_prompt_overlay_text_or_click(
     if prompt_overlay_mode is not None and resolved_text is None:
         raise click.ClickException(
             "Prompt-overlay mode requires `--prompt-overlay-text` or `--prompt-overlay-file`."
-    )
+        )
     return prompt_overlay_mode, resolved_text
 
 

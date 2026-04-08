@@ -33,6 +33,7 @@ from houmao.agents.native_launch_resolver import (
     resolve_preset_owner_agent_def_dir,
 )
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -269,6 +270,7 @@ def launch_managed_agent_locally(
     gateway_auto_attach: bool = False,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
+    gateway_execution_mode: GatewayCurrentExecutionMode | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
@@ -404,6 +406,13 @@ def launch_managed_agent_locally(
             gateway_auto_attach=gateway_auto_attach,
             gateway_host=gateway_host,
             gateway_port=gateway_port,
+            gateway_execution_mode_override=(
+                gateway_execution_mode
+                if gateway_execution_mode is not None
+                else "tmux_auxiliary_window"
+                if gateway_auto_attach
+                else None
+            ),
             mailbox_transport=mailbox_transport,
             mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,
@@ -479,6 +488,17 @@ def emit_local_launch_completion(
     gateway_port = getattr(controller, "gateway_port", None)
     if gateway_port is not None:
         payload["gateway_port"] = gateway_port
+    gateway_status = None
+    gateway_status_loader = getattr(controller, "gateway_status", None)
+    if gateway_host is not None and gateway_port is not None and callable(gateway_status_loader):
+        try:
+            gateway_status = gateway_status_loader()
+        except (click.ClickException, RuntimeError, SessionManifestError):
+            gateway_status = None
+    if gateway_status is not None:
+        payload["gateway_execution_mode"] = gateway_status.execution_mode
+        if gateway_status.gateway_tmux_window_index is not None:
+            payload["gateway_tmux_window_index"] = gateway_status.gateway_tmux_window_index
     gateway_auto_attach_error = getattr(controller, "gateway_auto_attach_error", None)
     if gateway_auto_attach_error is not None:
         payload["gateway_auto_attach_error"] = gateway_auto_attach_error
