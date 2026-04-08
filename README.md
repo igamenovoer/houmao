@@ -228,7 +228,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-agent-definition` | List, inspect, initialize, update, and remove roles and recipes |
 | `houmao-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
-| `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule wakeups, and manage gateway mail-notifier behavior |
+| `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule ranked reminders, and manage gateway mail-notifier behavior |
 | `houmao-mailbox-mgr` | Create, inspect, repair, and clean filesystem mailbox roots; manage mailbox registrations; and manage late filesystem mailbox binding for existing local managed agents |
 | `houmao-agent-email-comms` | Ordinary shared-mailbox operations and the no-gateway fallback path; the canonical mailbox-operations skill paired with `houmao-mgr agents mail` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL |
