@@ -506,3 +506,58 @@ The command SHALL target takeover by the resolved managed identity rather than b
 - **AND WHEN** that unrelated live session does not own managed identity `worker-a`
 - **THEN** the command does not treat `--force` as permission to replace that unrelated session
 - **AND THEN** the launch still fails on the tmux session-name collision
+
+### Requirement: `houmao-mgr agents launch` supports one-shot launch-owned system-prompt appendix
+`houmao-mgr agents launch` SHALL accept optional launch-owned system-prompt appendix input through:
+
+- `--append-system-prompt-text`
+- `--append-system-prompt-file`
+
+Those options SHALL be mutually exclusive.
+
+When either option is supplied, the provided appendix SHALL participate only in the current launch's effective prompt composition and SHALL NOT rewrite the source role prompt or any stored launch profile.
+
+When the launch also resolves a launch-profile prompt overlay, the appendix SHALL be appended after overlay resolution within the current launch's effective prompt composition.
+
+#### Scenario: Direct managed launch appends one-shot prompt text for the current launch only
+- **WHEN** an operator runs `houmao-mgr agents launch --agents researcher --provider codex --append-system-prompt-text "Prefer the current branch naming rules."`
+- **THEN** the current launch's effective prompt includes a launch appendix after the other resolved prompt-body sections
+- **AND THEN** a later launch without the appendix option does not inherit that one-shot appendix
+
+#### Scenario: Profile-backed launch appends file-based appendix after overlay resolution
+- **WHEN** launch profile `alice` already contributes a prompt overlay
+- **AND WHEN** an operator runs `houmao-mgr agents launch --launch-profile alice --append-system-prompt-file /tmp/appendix.md`
+- **THEN** the current launch appends the file content after the resolved launch-profile overlay
+- **AND THEN** stored launch profile `alice` remains unchanged
+
+#### Scenario: Launch rejects conflicting appendix inputs
+- **WHEN** an operator supplies both `--append-system-prompt-text` and `--append-system-prompt-file` on the same `houmao-mgr agents launch` invocation
+- **THEN** the command fails clearly before brain construction begins
+- **AND THEN** it does not start a managed session for that invalid launch request
+
+### Requirement: `houmao-mgr agents launch` supports one-off memory-directory controls
+`houmao-mgr agents launch` SHALL accept optional `--memory-dir <path>` and `--no-memory-dir` launch-time controls for tmux-backed managed sessions.
+
+`--memory-dir` and `--no-memory-dir` SHALL be mutually exclusive on this surface.
+
+When neither flag is supplied, `agents launch` SHALL resolve memory binding from any selected launch-profile memory configuration and otherwise fall back to the system default behavior for that launch surface.
+
+When `agents launch` resolves the system default behavior in project context, the default memory directory SHALL derive from the selected source overlay rather than from `--workdir`.
+
+#### Scenario: Project-context launch derives default memory from the source overlay instead of `--workdir`
+- **WHEN** an active project overlay resolves as `/repo-a/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider codex --workdir /repo-b`
+- **AND WHEN** no stored launch-profile memory configuration and no direct memory override are supplied
+- **THEN** the resulting managed launch resolves memory under `/repo-a/.houmao/memory/agents/<agent-id>/`
+- **AND THEN** it does not derive the default memory directory from `/repo-b`
+
+#### Scenario: Explicit no-memory override suppresses the default memory directory
+- **WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider codex --no-memory-dir`
+- **THEN** the resulting managed launch resolves memory binding as disabled
+- **AND THEN** the launch does not create a default memory directory for that session
+
+#### Scenario: Explicit memory-dir override wins over a profile that disables memory
+- **WHEN** launch profile `alice` stores disabled memory binding
+- **AND WHEN** an operator runs `houmao-mgr agents launch --launch-profile alice --memory-dir /tmp/alice-memory`
+- **THEN** the resulting managed launch resolves memory directory `/tmp/alice-memory`
+- **AND THEN** the stored launch profile still records disabled memory binding as its reusable default

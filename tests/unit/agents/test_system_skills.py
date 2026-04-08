@@ -12,6 +12,7 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_AGENT_INSTANCE,
     SYSTEM_SKILL_SET_ADVANCED_USAGE,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
+    SYSTEM_SKILL_SET_TOURING,
     SYSTEM_SKILL_SET_USER_CONTROL,
     SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SystemSkillCatalogError,
@@ -52,6 +53,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
@@ -65,6 +67,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "mailbox-core",
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -73,6 +76,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
+        SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
         SYSTEM_SKILL_SET_AGENT_GATEWAY,
@@ -80,6 +84,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.managed_join_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
+        SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
         SYSTEM_SKILL_SET_AGENT_GATEWAY,
@@ -87,6 +92,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
+        SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_INSTANCE,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
@@ -103,6 +109,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
             "mailbox-core",
             "mailbox-full",
             "advanced-usage",
+            "touring",
             "user-control",
             "agent-messaging",
             "agent-gateway",
@@ -115,6 +122,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -137,6 +145,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -531,10 +540,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
     advanced_usage_path = home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
     advanced_usage_patterns = home_path / "skills/houmao-adv-usage-pattern/patterns"
+    touring_path = home_path / "skills/houmao-touring/SKILL.md"
+    touring_branches = home_path / "skills/houmao-touring/branches"
+    touring_references = home_path / "skills/houmao-touring/references"
 
     assert result.selected_set_names == (
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -546,6 +559,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -558,6 +572,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
     assert advanced_usage_path.is_file()
+    assert touring_path.is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
@@ -567,6 +582,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
+    touring_skill = touring_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
@@ -597,6 +613,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         advanced_usage_patterns / "self-notification-via-reminders.md"
     )
     self_notification_mail_path = advanced_usage_patterns / "self-wakeup-via-self-mail.md"
+    touring_orient_path = touring_branches / "orient.md"
+    touring_setup_path = touring_branches / "setup-project-and-mailbox.md"
+    touring_author_launch_path = touring_branches / "author-and-launch.md"
+    touring_live_ops_path = touring_branches / "live-operations.md"
+    touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
+    touring_question_style_path = touring_references / "question-style.md"
     mailbox_init_action_path = mailbox_mgr_actions / "init.md"
     mailbox_register_action_path = mailbox_mgr_actions / "register.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
@@ -614,6 +636,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
     self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
     self_notification_mail = self_notification_mail_path.read_text(encoding="utf-8")
+    touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
 
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
@@ -692,6 +715,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/reminders.md" in agent_gateway_skill
     assert "actions/mail-notifier.md" in agent_gateway_skill
     assert "patterns/self-notification.md" in advanced_usage_skill
+    assert "manual guided tour skill" in touring_skill
+    assert "Use this Houmao skill only when the user explicitly asks for `houmao-touring`" in touring_skill
+    assert "branches/orient.md" in touring_skill
+    assert "branches/lifecycle-follow-up.md" in touring_skill
+    assert "references/question-style.md" in touring_skill
+    assert "houmao-project-mgr" in touring_skill
+    assert "houmao-agent-instance" in touring_skill
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
@@ -707,6 +737,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert self_notification_pattern_path.is_file()
     assert self_notification_reminders_path.is_file()
     assert self_notification_mail_path.is_file()
+    assert touring_orient_path.is_file()
+    assert touring_setup_path.is_file()
+    assert touring_author_launch_path.is_file()
+    assert touring_live_ops_path.is_file()
+    assert touring_lifecycle_path.is_file()
+    assert touring_question_style_path.is_file()
     assert "HOUMAO_AGENT_ID" in gateway_discover_action
     assert (
         "Use the `houmao-mgr` launcher already chosen by the top-level skill."
@@ -734,6 +770,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "does not survive gateway shutdown or restart" in self_notification_reminders
     assert "must survive gateway shutdown or restart" in self_notification_mail
     assert "later rounds may reprioritize against external incoming mail" in self_notification_mail
+    assert "A specialist is a reusable agent template" in touring_question_style
+    assert "You can skip this now and come back later." in touring_question_style
+    assert "stop `research`" in touring_question_style
     assert "POST /houmao/agents/{agent_ref}/gateway/control/prompt" in reset_context_action
     assert 'chat_session.mode = "new"' in reset_context_action
     assert "houmao-process-emails-via-gateway" in mail_action

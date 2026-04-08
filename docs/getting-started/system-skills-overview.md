@@ -19,9 +19,15 @@ Each system skill ships as a directory under `src/houmao/agents/assets/system_sk
 
 System skills are not Python plugins, MCP servers, or runtime hooks. They are agent-readable instruction packages that guide the agent toward the right `houmao-mgr` command for the task. The supporting code is whatever `houmao-mgr` already exposes through `srv_ctrl/commands/`.
 
-## The Eleven Packaged Skills
+## The Twelve Packaged Skills
 
-Houmao currently ships **eleven** system skills. They split into three concern groups: **project, specialist, and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
+Houmao currently ships **twelve** system skills. They split into four concern groups: **guided touring**, **project, specialist, and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
+
+### Guided Touring
+
+| Skill | What it enables | Canonical CLI routing |
+|---|---|---|
+| `houmao-touring` | Manual guided tour for first-time or re-orienting users. It starts from current state, explains the next likely branches, and helps the user move across project setup, mailbox setup, specialist/profile authoring, launches, live-agent operations, and lifecycle follow-up. Use it only when the user explicitly asks for the tour. | Routes through the maintained `houmao-mgr project ...`, `houmao-mgr project mailbox ...`, `houmao-mgr project easy ...`, and `houmao-mgr agents ...` families via the dedicated Houmao-owned skills |
 
 ### Project, specialist, and credential authoring
 
@@ -51,7 +57,7 @@ Houmao currently ships **eleven** system skills. They split into three concern g
 
 ## Auto-Install vs Explicit Install
 
-The same eleven skills can land in a tool home through either path, but the **default selections** are different.
+The same twelve skills can land in a tool home through either path, but the **default selections** are different.
 
 ```
                        INSTALL DEFAULTS
@@ -63,15 +69,17 @@ The same eleven skills can land in a tool home through either path, but the **de
    ┌───────────────────────────┐        ┌───────────────────────────┐
    │ mailbox-full              │        │ mailbox-full              │
    │ advanced-usage            │        │ advanced-usage            │
+   │ touring                   │        │ touring                   │
    │ user-control              │        │ user-control              │
    │ agent-messaging           │        │ agent-instance  ◄── ADDS  │
    │ agent-gateway             │        │ agent-messaging           │
    │                           │        │ agent-gateway             │
-   │ → 10 skills:              │        │                           │
-   │  process-emails-via-gw    │        │ → 11 skills:              │
+   │ → 11 skills:              │        │                           │
+   │  process-emails-via-gw    │        │ → 12 skills:              │
    │  agent-email-comms        │        │  all of managed launch    │
    │  mailbox-mgr              │        │  PLUS:                    │
    │  adv-usage-pattern        │        │  agent-instance           │
+   │  touring                  │        │                           │
    │  project-mgr              │        │                           │
    │  specialist-mgr           │        │                           │
    │  credential-mgr           │        │                           │
@@ -85,9 +93,9 @@ The catalog source of truth lives at `src/houmao/agents/assets/system_skills/cat
 
 ```toml
 [auto_install]
-managed_launch_sets = ["mailbox-full", "advanced-usage", "user-control", "agent-messaging", "agent-gateway"]
-managed_join_sets   = ["mailbox-full", "advanced-usage", "user-control", "agent-messaging", "agent-gateway"]
-cli_default_sets    = ["mailbox-full", "advanced-usage", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]
+managed_launch_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-messaging", "agent-gateway"]
+managed_join_sets   = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-messaging", "agent-gateway"]
+cli_default_sets    = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]
 ```
 
 The named sets resolve as:
@@ -97,6 +105,7 @@ The named sets resolve as:
 | `mailbox-core` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms` |
 | `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr` |
 | `advanced-usage` | `houmao-adv-usage-pattern` |
+| `touring` | `houmao-touring` |
 | `user-control` | `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition` |
 | `agent-instance` | `houmao-agent-instance` |
 | `agent-messaging` | `houmao-agent-messaging` |
@@ -108,7 +117,7 @@ When the operator launches or joins through `houmao-mgr`, **the operator already
 
 ### How to install the broader CLI-default set
 
-To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the eleven-skill default selection, omit both `--set` and `--skill`:
+To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the twelve-skill default selection, omit both `--set` and `--skill`:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
@@ -123,6 +132,8 @@ For the full flag surface, see the [`system-skills` CLI reference](../reference/
 ## When to Use Which Skill
 
 Two short heuristics help decide which skill applies to a task that an agent or operator is asked to perform:
+
+**By entry style.** When the user explicitly asks for a first-run guided tour or wants help re-orienting from current Houmao state, start with `houmao-touring`. It is the manual guided entrypoint that inspects current posture, explains the next likely branches, and routes execution to the maintained Houmao-owned skills rather than flattening them into one broad direct-operation surface.
 
 **By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, explicit launch profiles, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to `houmao-specialist-mgr`, `houmao-credential-mgr`, or `houmao-agent-definition`. Administering *mailbox authority itself* — mailbox roots, mailbox registrations, and late mailbox binding — belongs to `houmao-mailbox-mgr`. Driving *what a live agent does* — sending it a prompt, attaching a gateway, or participating in mailbox workflows — belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`.
 

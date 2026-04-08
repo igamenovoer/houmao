@@ -10,6 +10,7 @@ from houmao.srv_ctrl.commands.main import cli
 _DEFAULT_SET_NAMES = [
     "mailbox-full",
     "advanced-usage",
+    "touring",
     "user-control",
     "agent-instance",
     "agent-messaging",
@@ -19,6 +20,7 @@ _CATALOG_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-adv-usage-pattern",
+    "houmao-touring",
     "houmao-mailbox-mgr",
     "houmao-project-mgr",
     "houmao-specialist-mgr",
@@ -33,6 +35,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-email-comms",
     "houmao-mailbox-mgr",
     "houmao-adv-usage-pattern",
+    "houmao-touring",
     "houmao-project-mgr",
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
@@ -69,6 +72,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "mailbox-core",
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -78,6 +82,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["managed_launch_sets"] == [
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-messaging",
         "agent-gateway",
@@ -85,6 +90,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["managed_join_sets"] == [
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-messaging",
         "agent-gateway",
@@ -108,6 +114,8 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         record for record in payload["sets"] if record["name"] == "advanced-usage"
     )
     assert advanced_usage_record["skills"] == ["houmao-adv-usage-pattern"]
+    touring_record = next(record for record in payload["sets"] if record["name"] == "touring")
+    assert touring_record["skills"] == ["houmao-touring"]
     user_control_record = next(
         record for record in payload["sets"] if record["name"] == "user-control"
     )
@@ -155,6 +163,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-touring/SKILL.md").is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
