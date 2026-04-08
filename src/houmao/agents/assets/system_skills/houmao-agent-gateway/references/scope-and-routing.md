@@ -12,7 +12,7 @@ Use `houmao-agent-gateway` when the task is about the managed gateway itself or 
 
 ## Use Other Houmao Skills For
 
-- `houmao-manage-agent-instance`
+- `houmao-agent-instance`
   start, join, stop, relaunch, or clean up the managed agent session itself
 - `houmao-agent-messaging`
   ordinary prompt, interrupt, or mailbox routing across already-running managed agents

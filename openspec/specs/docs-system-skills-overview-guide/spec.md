@@ -12,10 +12,10 @@ The docs site SHALL include a getting-started guide at `docs/getting-started/sys
 
 That guide SHALL list every system skill currently shipped under `src/houmao/agents/assets/system_skills/`. At minimum, that list SHALL include:
 
-- `houmao-manage-specialist` — specialist authoring and specialist-scoped launch/stop entry,
-- `houmao-manage-credentials` — project-local tool auth bundle administration,
-- `houmao-manage-agent-definition` — low-level role and recipe administration,
-- `houmao-manage-agent-instance` — managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `cleanup`),
+- `houmao-specialist-mgr` — specialist authoring and specialist-scoped launch/stop entry,
+- `houmao-credential-mgr` — project-local tool auth bundle administration,
+- `houmao-agent-definition` — low-level role and recipe administration,
+- `houmao-agent-instance` — managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `cleanup`),
 - `houmao-agent-messaging` — prompt, interrupt, queue, raw input, mailbox routing, and reset-context guidance for already-running managed agents,
 - `houmao-agent-gateway` — gateway lifecycle, gateway discovery, wakeups, notifier guidance for attached managed agents,
 - `houmao-agent-email-comms` — ordinary shared-mailbox operations and no-gateway fallback guidance,
@@ -33,7 +33,7 @@ The guide SHALL distinguish managed-home auto-install behavior from external-hom
 The guide SHALL explain that the system-skills surface is how an agent itself drives Houmao management without requiring the operator to invoke `houmao-mgr` manually, and SHALL link to:
 
 - `docs/reference/cli/system-skills.md` for the full reference,
-- `docs/getting-started/easy-specialists.md` for the user-facing flow that exercises `houmao-manage-specialist`,
+- `docs/getting-started/easy-specialists.md` for the user-facing flow that exercises `houmao-specialist-mgr`,
 - `docs/getting-started/launch-profiles.md` for the launch-side concepts the agent skills observe,
 - the README "System Skills" subsection for the catalog-table view.
 

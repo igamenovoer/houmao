@@ -1,10 +1,10 @@
 ## Purpose
-Define the packaged Houmao-owned `houmao-manage-credentials` skill for project-local auth-bundle management guidance.
+Define the packaged Houmao-owned `houmao-credential-mgr` skill for project-local auth-bundle management guidance.
 
 ## Requirements
 
-### Requirement: Houmao provides a packaged `houmao-manage-credentials` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-manage-credentials` under the maintained system-skill asset root.
+### Requirement: Houmao provides a packaged `houmao-credential-mgr` system skill
+The system SHALL package a Houmao-owned system skill named `houmao-credential-mgr` under the maintained system-skill asset root.
 
 That skill SHALL instruct agents to manage project-local auth bundles through these supported commands:
 
@@ -39,22 +39,22 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - direct hand-editing of auth-bundle files under `.houmao/agents/tools/`
 
 #### Scenario: Installed skill points the agent at project-local auth-bundle commands
-- **WHEN** an agent opens the installed `houmao-manage-credentials` skill
+- **WHEN** an agent opens the installed `houmao-credential-mgr` skill
 - **THEN** the skill directs the agent to use the supported `project agents tools <tool> auth ...` command surface for auth-bundle work
 - **AND THEN** it does not redirect the agent to ad hoc filesystem editing or unrelated runtime-control surfaces
 
 #### Scenario: Installed skill routes to action-specific local guidance
-- **WHEN** an agent reads the installed `houmao-manage-credentials` skill
+- **WHEN** an agent reads the installed `houmao-credential-mgr` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for `list`, `get`, `add`, `set`, and `remove`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than one flattened entry page
 
 #### Scenario: Installed skill keeps non-auth project and runtime surfaces out of scope
-- **WHEN** an agent reads the installed `houmao-manage-credentials` skill
+- **WHEN** an agent reads the installed `houmao-credential-mgr` skill
 - **THEN** the skill marks specialist CRUD, managed-agent lifecycle work, mailbox cleanup, and direct file editing as outside the packaged skill scope
 - **AND THEN** it does not present those actions as part of project-local credential-management guidance
 
-### Requirement: `houmao-manage-credentials` resolves the `houmao-mgr` launcher in the required precedence order
-The packaged `houmao-manage-credentials` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
+### Requirement: `houmao-credential-mgr` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-credential-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
 2. if that lookup fails, use the uv-managed fallback `uv tool run --from houmao houmao-mgr`,
@@ -92,8 +92,8 @@ The resolved launcher SHALL be reused for any routed auth-bundle action selected
 - **THEN** the skill tells the agent to honor that requested launcher
 - **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
-### Requirement: `houmao-manage-credentials` selects the correct auth-bundle action and asks before guessing
-The packaged `houmao-manage-credentials` skill SHALL tell the agent to recover omitted auth-bundle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
+### Requirement: `houmao-credential-mgr` selects the correct auth-bundle action and asks before guessing
+The packaged `houmao-credential-mgr` skill SHALL tell the agent to recover omitted auth-bundle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 

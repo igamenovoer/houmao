@@ -27,15 +27,15 @@ Houmao currently ships **nine** system skills. They split into three concern gro
 
 | Skill | What it enables | Canonical CLI routing |
 |---|---|---|
-| `houmao-manage-specialist` | Create, list, inspect, remove easy specialists; create, list, inspect, remove easy profiles; launch and stop easy instances from either source. | `houmao-mgr project easy specialist ...`, `houmao-mgr project easy profile ...`, `houmao-mgr project easy instance launch|stop` |
-| `houmao-manage-credentials` | Add, update, inspect, remove project-local tool auth bundles for Claude, Codex, and Gemini. Manages auth bundle contents, not stored profile-level auth overrides. | `houmao-mgr project agents tools <tool> auth list|get|add|set|remove` |
+| `houmao-specialist-mgr` | Create, list, inspect, remove easy specialists; create, list, inspect, remove easy profiles; launch and stop easy instances from either source. | `houmao-mgr project easy specialist ...`, `houmao-mgr project easy profile ...`, `houmao-mgr project easy instance launch|stop` |
+| `houmao-credential-mgr` | Add, update, inspect, remove project-local tool auth bundles for Claude, Codex, and Gemini. Manages auth bundle contents, not stored profile-level auth overrides. | `houmao-mgr project agents tools <tool> auth list|get|add|set|remove` |
 
 ### Agent definition and instance management
 
 | Skill | What it enables | Canonical CLI routing |
 |---|---|---|
-| `houmao-manage-agent-definition` | Low-level project-local role and recipe management. Use this when the right move is editing roles or named recipes instead of going through the easy specialist surface. | `houmao-mgr project agents roles ...`, `houmao-mgr project agents recipes ...` (with `presets ...` as the compatibility alias) |
-| `houmao-manage-agent-instance` | Launch, adopt (`join`), list, stop, relaunch, and clean up live managed-agent instances created from roles, recipes, explicit launch profiles, or specialists. The canonical lifecycle skill for general live-agent work after any specialist-scoped launch or stop entry. | `houmao-mgr agents launch|join|list|state|stop|relaunch|cleanup` |
+| `houmao-agent-definition` | Low-level project-local role and recipe management. Use this when the right move is editing roles or named recipes instead of going through the easy specialist surface. | `houmao-mgr project agents roles ...`, `houmao-mgr project agents recipes ...` (with `presets ...` as the compatibility alias) |
+| `houmao-agent-instance` | Launch, adopt (`join`), list, stop, relaunch, and clean up live managed-agent instances created from roles, recipes, explicit launch profiles, or specialists. The canonical lifecycle skill for general live-agent work after any specialist-scoped launch or stop entry. | `houmao-mgr agents launch|join|list|state|stop|relaunch|cleanup` |
 
 ### Agent communication, gateway, and mailbox
 
@@ -91,14 +91,14 @@ The named sets resolve as:
 |---|---|
 | `mailbox-core` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms` |
 | `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr` |
-| `user-control` | `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition` |
-| `agent-instance` | `houmao-manage-agent-instance` |
+| `user-control` | `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition` |
+| `agent-instance` | `houmao-agent-instance` |
 | `agent-messaging` | `houmao-agent-messaging` |
 | `agent-gateway` | `houmao-agent-gateway` |
 
-### Why managed launch/join leaves out `houmao-manage-agent-instance`
+### Why managed launch/join leaves out `houmao-agent-instance`
 
-When the operator launches or joins through `houmao-mgr`, **the operator already has full instance lifecycle control**. The packaged `houmao-manage-agent-instance` skill exists for the case where an agent in some other managed home needs to drive lifecycle for live agents itself. Inside a freshly-managed home there is no second-tier instance authority to delegate to, so the auto-install set keeps the lifecycle-only skill out and lets `system-skills install` add it on demand for external homes that want the full agent-driven surface.
+When the operator launches or joins through `houmao-mgr`, **the operator already has full instance lifecycle control**. The packaged `houmao-agent-instance` skill exists for the case where an agent in some other managed home needs to drive lifecycle for live agents itself. Inside a freshly-managed home there is no second-tier instance authority to delegate to, so the auto-install set keeps the lifecycle-only skill out and lets `system-skills install` add it on demand for external homes that want the full agent-driven surface.
 
 ### How to install the broader CLI-default set
 
@@ -125,6 +125,6 @@ Two short heuristics help decide which skill applies to a task that an agent or 
 ## See Also
 
 - [`system-skills` CLI reference](../reference/cli/system-skills.md) — full flag surface, effective-home resolution, and projection paths.
-- [Easy Specialists guide](easy-specialists.md) — the operator-facing flow that exercises `houmao-manage-specialist`.
+- [Easy Specialists guide](easy-specialists.md) — the operator-facing flow that exercises `houmao-specialist-mgr`.
 - [Launch Profiles guide](launch-profiles.md) — the launch-side concepts that the messaging and gateway skills observe.
 - README "System Skills" subsection — the catalog-table view bridging this narrative to the per-skill rows.

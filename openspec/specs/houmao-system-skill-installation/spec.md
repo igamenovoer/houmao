@@ -22,7 +22,7 @@ For the current maintained skill set, each packaged skill `asset_subpath` SHALL 
 
 Logical grouping of current skills SHALL be expressed through named skill sets and descriptions rather than through nested packaged skill directories.
 
-For the user-control skill set, the current packaged specialist-management skill SHALL be `houmao-manage-specialist`, the current packaged credential-management skill SHALL be `houmao-manage-credentials`, and the packaged catalog SHALL NOT continue to expose `project-easy` as the active named set for those packaged skills.
+For the user-control skill set, the current packaged specialist-management skill SHALL be `houmao-specialist-mgr`, the current packaged credential-management skill SHALL be `houmao-credential-mgr`, and the packaged catalog SHALL NOT continue to expose `project-easy` as the active named set for those packaged skills.
 
 #### Scenario: Maintainer inspects the packaged current-skill catalog
 - **WHEN** a maintainer inspects the Houmao-owned packaged system-skill assets
@@ -33,7 +33,7 @@ For the user-control skill set, the current packaged specialist-management skill
 
 #### Scenario: User-control set references the current packaged user-control skills
 - **WHEN** a maintainer inspects the packaged current-skill catalog
-- **THEN** the `user-control` set resolves `houmao-manage-specialist` and `houmao-manage-credentials`
+- **THEN** the `user-control` set resolves `houmao-specialist-mgr` and `houmao-credential-mgr`
 - **AND THEN** the current installable skill inventory does not still expose `project-easy` as the active named set for that packaged skill family
 
 #### Scenario: Loader rejects a schema-invalid packaged catalog
@@ -166,9 +166,9 @@ If Houmao encounters a previously recorded copy-only install-state record from b
 
 #### Scenario: Reinstall migrates the renamed specialist-management skill
 - **WHEN** a target tool home already records Houmao-owned install state for `houmao-create-specialist`
-- **AND WHEN** the current packaged catalog now selects `houmao-manage-specialist`
-- **THEN** reinstall or auto-install removes the previously owned `houmao-create-specialist` projected directory before or during projection of `houmao-manage-specialist`
-- **AND THEN** the recorded Houmao-owned install state is updated to keep only `houmao-manage-specialist`
+- **AND WHEN** the current packaged catalog now selects `houmao-specialist-mgr`
+- **THEN** reinstall or auto-install removes the previously owned `houmao-create-specialist` projected directory before or during projection of `houmao-specialist-mgr`
+- **AND THEN** the recorded Houmao-owned install state is updated to keep only `houmao-specialist-mgr`
 - **AND THEN** the target home does not retain the stale owned `houmao-create-specialist` directory alongside the renamed skill
 
 #### Scenario: Non-owned collision fails closed
@@ -183,32 +183,32 @@ If Houmao encounters a previously recorded copy-only install-state record from b
 - **AND THEN** the existing owned copied skill path remains manageable by the shared installer
 
 ### Requirement: Packaged system-skill catalog includes low-level agent-definition guidance in the user-control set
-The packaged current-system-skill catalog SHALL include `houmao-manage-agent-definition` as a current installable Houmao-owned skill.
+The packaged current-system-skill catalog SHALL include `houmao-agent-definition` as a current installable Houmao-owned skill.
 
-That packaged skill SHALL use `houmao-manage-agent-definition` as both its catalog key and its packaged `asset_subpath`.
+That packaged skill SHALL use `houmao-agent-definition` as both its catalog key and its packaged `asset_subpath`.
 
 The packaged catalog's `user-control` named set SHALL include:
 
-- `houmao-manage-specialist`
-- `houmao-manage-credentials`
-- `houmao-manage-agent-definition`
+- `houmao-specialist-mgr`
+- `houmao-credential-mgr`
+- `houmao-agent-definition`
 
-The packaged catalog SHALL keep `houmao-manage-agent-definition` inside `user-control` rather than creating a separate named set just for low-level definition authoring.
+The packaged catalog SHALL keep `houmao-agent-definition` inside `user-control` rather than creating a separate named set just for low-level definition authoring.
 
 Because managed launch and managed join already resolve `user-control`, those fixed auto-install selections SHALL pick up the new packaged skill through the expanded set membership.
 
 #### Scenario: Maintainer sees the packaged agent-definition skill in the user-control inventory
 - **WHEN** a maintainer inspects the packaged current-system-skill catalog
-- **THEN** the current installable skill inventory includes `houmao-manage-agent-definition`
-- **AND THEN** the `user-control` named set resolves that skill alongside `houmao-manage-specialist` and `houmao-manage-credentials`
+- **THEN** the current installable skill inventory includes `houmao-agent-definition`
+- **AND THEN** the `user-control` named set resolves that skill alongside `houmao-specialist-mgr` and `houmao-credential-mgr`
 
 #### Scenario: Managed auto-install picks up the expanded user-control set
 - **WHEN** a maintainer inspects the packaged `managed_launch_sets` and `managed_join_sets`
 - **THEN** those fixed auto-install selections still reference `user-control`
-- **AND THEN** the resolved `user-control` install list now includes `houmao-manage-agent-definition` without requiring a new named set
+- **AND THEN** the resolved `user-control` install list now includes `houmao-agent-definition` without requiring a new named set
 
 ### Requirement: Packaged system-skill catalog includes agent-instance lifecycle guidance and adds it to CLI-default installs
-The packaged current-system-skill catalog SHALL include `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` as current installable Houmao-owned skills.
+The packaged current-system-skill catalog SHALL include `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` as current installable Houmao-owned skills.
 
 Each packaged skill SHALL use its skill name as both its catalog key and its packaged `asset_subpath`.
 
@@ -238,7 +238,7 @@ The packaged catalog's fixed `cli_default_sets` selection SHALL include:
 
 - `mailbox-full`
 - `user-control`
-- the dedicated agent-instance lifecycle set containing `houmao-manage-agent-instance`
+- the dedicated agent-instance lifecycle set containing `houmao-agent-instance`
 - the dedicated agent-messaging set containing `houmao-agent-messaging`
 - the dedicated agent-gateway set containing `houmao-agent-gateway`
 
@@ -246,13 +246,13 @@ This change SHALL NOT require adding the separate agent-instance lifecycle set t
 
 #### Scenario: Maintainer sees the lifecycle, messaging, and gateway skills in the packaged catalog
 - **WHEN** a maintainer inspects the packaged current-system-skill catalog
-- **THEN** the current installable skill inventory includes `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway`
+- **THEN** the current installable skill inventory includes `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway`
 - **AND THEN** each skill uses its own flat asset subpath under the maintained runtime asset root
 
 #### Scenario: CLI-default selection includes lifecycle, messaging, and gateway guidance
 - **WHEN** a maintainer inspects the packaged auto-install selection lists
 - **THEN** the fixed `cli_default_sets` selection includes the agent-instance lifecycle set, the agent-messaging set, and the agent-gateway set
-- **AND THEN** the CLI-default install path resolves `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway`
+- **AND THEN** the CLI-default install path resolves `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway`
 
 #### Scenario: Managed auto-install gains gateway guidance but still excludes the lifecycle-only set
 - **WHEN** a maintainer inspects the packaged `managed_launch_sets` and `managed_join_sets`

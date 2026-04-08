@@ -1,10 +1,10 @@
 ## Purpose
-Define the packaged Houmao-owned `houmao-manage-agent-instance` skill for managed-agent instance lifecycle guidance.
+Define the packaged Houmao-owned `houmao-agent-instance` skill for managed-agent instance lifecycle guidance.
 
 ## Requirements
 
-### Requirement: Houmao provides a packaged `houmao-manage-agent-instance` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-manage-agent-instance` under the maintained system-skill asset root.
+### Requirement: Houmao provides a packaged `houmao-agent-instance` system skill
+The system SHALL package a Houmao-owned system skill named `houmao-agent-instance` under the maintained system-skill asset root.
 
 That skill SHALL instruct agents to manage live managed-agent instances through these supported lifecycle commands:
 
@@ -26,7 +26,7 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `relaunch`
 - `cleanup`
 
-That packaged skill SHALL remain the canonical Houmao-owned skill for general live managed-agent lifecycle guidance even when `houmao-manage-specialist` also offers specialist-scoped `launch` and `stop` entry points with post-action handoff into this skill.
+That packaged skill SHALL remain the canonical Houmao-owned skill for general live managed-agent lifecycle guidance even when `houmao-specialist-mgr` also offers specialist-scoped `launch` and `stop` entry points with post-action handoff into this skill.
 
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
@@ -37,27 +37,27 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - `project mailbox ...` and `admin cleanup runtime ...`
 
 #### Scenario: Installed skill points the agent at instance lifecycle commands
-- **WHEN** an agent opens the installed `houmao-manage-agent-instance` skill
+- **WHEN** an agent opens the installed `houmao-agent-instance` skill
 - **THEN** the skill directs the agent to use the supported launch, join, list, stop, relaunch, and cleanup commands for managed-agent instances
 - **AND THEN** it does not redirect the agent to ad hoc filesystem editing or unrelated runtime-control surfaces
 
 #### Scenario: Installed skill routes to action-specific local guidance
-- **WHEN** an agent reads the installed `houmao-manage-agent-instance` skill
+- **WHEN** an agent reads the installed `houmao-agent-instance` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for `launch`, `join`, `list`, `stop`, `relaunch`, and `cleanup`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than one flattened entry page
 
 #### Scenario: Installed skill keeps mailbox and specialist CRUD out of scope
-- **WHEN** an agent reads the installed `houmao-manage-agent-instance` skill
+- **WHEN** an agent reads the installed `houmao-agent-instance` skill
 - **THEN** the skill marks mailbox operations and specialist CRUD as outside the packaged skill scope
 - **AND THEN** it does not present those actions as part of managed-agent instance lifecycle guidance
 
 #### Scenario: Installed skill remains the follow-up lifecycle surface after specialist-scoped entry
-- **WHEN** an agent or user reaches `houmao-manage-agent-instance` after using specialist-scoped `launch` or `stop` guidance
+- **WHEN** an agent or user reaches `houmao-agent-instance` after using specialist-scoped `launch` or `stop` guidance
 - **THEN** the skill remains the canonical packaged Houmao-owned entry point for further live managed-agent lifecycle work
-- **AND THEN** it does not require `houmao-manage-specialist` to become a general-purpose instance-management skill
+- **AND THEN** it does not require `houmao-specialist-mgr` to become a general-purpose instance-management skill
 
-### Requirement: `houmao-manage-agent-instance` resolves the `houmao-mgr` launcher in the required precedence order
-The packaged `houmao-manage-agent-instance` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
+### Requirement: `houmao-agent-instance` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-agent-instance` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
 2. if that lookup fails, use the uv-managed fallback `uv tool run --from houmao houmao-mgr`,
@@ -95,8 +95,8 @@ The resolved launcher SHALL be reused for any routed managed-agent instance acti
 - **THEN** the skill tells the agent to honor that requested launcher
 - **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
-### Requirement: `houmao-manage-agent-instance` selects the correct instance-lifecycle command and asks before guessing
-The packaged `houmao-manage-agent-instance` skill SHALL tell the agent to recover omitted lifecycle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
+### Requirement: `houmao-agent-instance` selects the correct instance-lifecycle command and asks before guessing
+The packaged `houmao-agent-instance` skill SHALL tell the agent to recover omitted lifecycle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 

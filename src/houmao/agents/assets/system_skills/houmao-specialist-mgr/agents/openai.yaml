@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Manage Specialist"
+  short_description: "Manage Houmao easy specialists and profiles."
+  default_prompt: "Use $houmao-specialist-mgr to create, list, inspect, or remove Houmao easy specialists or profiles in this workspace, or to launch and stop easy instances from them."

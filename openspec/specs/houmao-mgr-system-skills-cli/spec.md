@@ -68,7 +68,7 @@ The command SHALL use the shared Houmao system-skill installer for projection an
 
 #### Scenario: Explicit home override wins over tool-native env redirection
 - **WHEN** `CODEX_HOME=/tmp/codex-from-env`
-- **AND WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-explicit --skill houmao-manage-specialist`
+- **AND WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-explicit --skill houmao-specialist-mgr`
 - **THEN** the command installs the selected skill into `/tmp/codex-explicit`
 - **AND THEN** it does not redirect that install to `/tmp/codex-from-env`
 
@@ -98,7 +98,7 @@ The command SHALL use the shared Houmao system-skill installer for projection an
 - **AND THEN** it does not silently replace that explicit selection with another internal default selection
 
 #### Scenario: Install applies one selected skill in symlink mode
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --skill houmao-manage-specialist --symlink`
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --skill houmao-specialist-mgr --symlink`
 - **THEN** the command installs that selected Houmao-owned skill into the explicit target home using symlink projection mode
 - **AND THEN** it does not silently replace that symlink request with copied projection
 
@@ -173,69 +173,69 @@ At minimum, the reported state SHALL identify:
 ### Requirement: `houmao-mgr system-skills` surfaces the renamed specialist-management skill in current inventory
 `houmao-mgr system-skills` SHALL use the current packaged system-skill inventory when reporting, installing, and inspecting Houmao-owned skills.
 
-For the user-control skill set, that current inventory SHALL surface `houmao-manage-specialist` rather than `houmao-create-specialist`.
+For the user-control skill set, that current inventory SHALL surface `houmao-specialist-mgr` rather than `houmao-create-specialist`.
 
-When `system-skills install` resolves the default or `user-control` selection, the reported installed skill names and subsequent `system-skills status` output SHALL use `houmao-manage-specialist` as the current specialist-management skill name.
+When `system-skills install` resolves the default or `user-control` selection, the reported installed skill names and subsequent `system-skills status` output SHALL use `houmao-specialist-mgr` as the current specialist-management skill name.
 
 #### Scenario: List reports the renamed specialist-management skill
 - **WHEN** an operator runs `houmao-mgr system-skills list`
-- **THEN** the command reports `houmao-manage-specialist` in the current Houmao-owned skill inventory
+- **THEN** the command reports `houmao-specialist-mgr` in the current Houmao-owned skill inventory
 - **AND THEN** the `user-control` set resolves the renamed skill instead of `houmao-create-specialist`
 
 #### Scenario: Default install and status report the renamed skill
 - **WHEN** an operator installs the CLI default system-skill selection into a target tool home
-- **THEN** the install result reports `houmao-manage-specialist` in the resolved current skill list
-- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-manage-specialist` as the installed specialist-management skill
+- **THEN** the install result reports `houmao-specialist-mgr` in the resolved current skill list
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-specialist-mgr` as the installed specialist-management skill
 
 ### Requirement: `houmao-mgr system-skills` surfaces the user-control named set and credential-management skill
 `houmao-mgr system-skills` SHALL use the current packaged system-skill inventory and named sets when reporting, installing, and inspecting Houmao-owned skills.
 
-That current inventory SHALL surface `houmao-manage-credentials` as an installable packaged skill.
+That current inventory SHALL surface `houmao-credential-mgr` as an installable packaged skill.
 
 The reported named sets SHALL include `user-control` as the packaged non-mailbox user-controlled-agent skill set.
 
-When `system-skills install` resolves a selection that includes `user-control`, the reported installed skill names and later `system-skills status` output SHALL include `houmao-manage-credentials` whenever that install completed successfully.
+When `system-skills install` resolves a selection that includes `user-control`, the reported installed skill names and later `system-skills status` output SHALL include `houmao-credential-mgr` whenever that install completed successfully.
 
 #### Scenario: List reports the user-control set and credential-management skill
 - **WHEN** an operator runs `houmao-mgr system-skills list`
-- **THEN** the command reports `houmao-manage-credentials` in the current Houmao-owned skill inventory
+- **THEN** the command reports `houmao-credential-mgr` in the current Houmao-owned skill inventory
 - **AND THEN** it reports `user-control` as the named set that groups the packaged user-controlled-agent skills
 
 #### Scenario: User-control install and status report the credential-management skill
 - **WHEN** an operator installs a system-skill selection that includes `user-control` into a target tool home
-- **THEN** the install result reports `houmao-manage-credentials` in the resolved current skill list
-- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-manage-credentials` as installed when that selection completed successfully
+- **THEN** the install result reports `houmao-credential-mgr` in the resolved current skill list
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-credential-mgr` as installed when that selection completed successfully
 
 ### Requirement: `houmao-mgr system-skills` surfaces the user-control agent-definition skill
 `houmao-mgr system-skills` SHALL use the current packaged system-skill inventory and named sets when reporting, installing, and inspecting Houmao-owned skills.
 
-That current inventory SHALL surface `houmao-manage-agent-definition` as an installable packaged skill.
+That current inventory SHALL surface `houmao-agent-definition` as an installable packaged skill.
 
-When `system-skills install` resolves a selection that includes `user-control`, the reported installed skill names and later `system-skills status` output SHALL include `houmao-manage-agent-definition` whenever that install completed successfully.
+When `system-skills install` resolves a selection that includes `user-control`, the reported installed skill names and later `system-skills status` output SHALL include `houmao-agent-definition` whenever that install completed successfully.
 
 #### Scenario: List reports the user-control agent-definition skill
 - **WHEN** an operator runs `houmao-mgr system-skills list`
-- **THEN** the command reports `houmao-manage-agent-definition` in the current Houmao-owned skill inventory
+- **THEN** the command reports `houmao-agent-definition` in the current Houmao-owned skill inventory
 - **AND THEN** it reports that skill as part of the packaged `user-control` skill family
 
 #### Scenario: User-control install and status report the agent-definition skill
 - **WHEN** an operator installs a system-skill selection that includes `user-control` into a target tool home
-- **THEN** the install result reports `houmao-manage-agent-definition` in the resolved current skill list
-- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-manage-agent-definition` as installed when that selection completed successfully
+- **THEN** the install result reports `houmao-agent-definition` in the resolved current skill list
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-agent-definition` as installed when that selection completed successfully
 
 ### Requirement: `houmao-mgr system-skills` surfaces the packaged agent-instance lifecycle skill and updated CLI-default selection
 `houmao-mgr system-skills` SHALL use the packaged catalog inventory and fixed set lists when reporting, installing, and inspecting Houmao-owned skills.
 
-That current inventory SHALL surface `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` as installable packaged skills.
+That current inventory SHALL surface `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` as installable packaged skills.
 
 The reported named sets SHALL include the dedicated agent-instance lifecycle set, the dedicated agent-messaging set, and the dedicated agent-gateway set.
 
 When `system-skills install` resolves the packaged CLI-default set list, the resolved installed skill names and later `system-skills status` output SHALL include:
 
-- `houmao-manage-specialist`
-- `houmao-manage-credentials`
-- `houmao-manage-agent-definition`
-- `houmao-manage-agent-instance`
+- `houmao-specialist-mgr`
+- `houmao-credential-mgr`
+- `houmao-agent-definition`
+- `houmao-agent-instance`
 - `houmao-agent-messaging`
 - `houmao-agent-gateway`
 
@@ -243,13 +243,13 @@ Omitting both `--set` and `--skill` SHALL remain one supported path that resolve
 
 #### Scenario: List reports the packaged lifecycle, messaging, and gateway skills with their sets
 - **WHEN** an operator runs `houmao-mgr system-skills list`
-- **THEN** the command reports `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the current Houmao-owned skill inventory
+- **THEN** the command reports `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the current Houmao-owned skill inventory
 - **AND THEN** it reports the dedicated named sets that resolve those skills
 
 #### Scenario: Omitted-selection install reports the packaged non-mailbox Houmao skills
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home`
 - **AND WHEN** no `--set` or `--skill` is supplied
-- **THEN** the install result reports `houmao-manage-specialist`, `houmao-manage-credentials`, `houmao-manage-agent-definition`, `houmao-manage-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the resolved current skill list
+- **THEN** the install result reports `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the resolved current skill list
 - **AND THEN** a later `houmao-mgr system-skills status` for that home reports those skills as installed when the CLI-default install completed successfully
 
 ### Requirement: `houmao-mgr system-skills` surfaces the unified mailbox skill inventory

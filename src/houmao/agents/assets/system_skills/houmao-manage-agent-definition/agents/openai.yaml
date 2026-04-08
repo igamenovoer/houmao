@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Manage Agent Definition"
-  short_description: "Manage low-level Houmao roles and presets."
-  default_prompt: "Use $houmao-manage-agent-definition to create, list, inspect, update, or remove Houmao low-level agent roles and presets in this workspace."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Manage Credentials"
+  short_description: "Manage Houmao project-local credentials."
+  default_prompt: "Use $houmao-credential-mgr to list, inspect, add, update, or remove Houmao project-local credentials in this workspace."

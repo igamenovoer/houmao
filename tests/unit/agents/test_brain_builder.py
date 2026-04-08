@@ -252,9 +252,9 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_mgr_skill.is_file()
-    assert (home / "skills/houmao-manage-specialist/SKILL.md").is_file()
-    assert (home / "skills/houmao-manage-credentials/SKILL.md").is_file()
-    assert (home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (home / "skills/houmao-credential-mgr/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
@@ -265,9 +265,9 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
+        "houmao-specialist-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )

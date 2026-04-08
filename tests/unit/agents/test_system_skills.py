@@ -51,10 +51,10 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
-        "houmao-manage-agent-instance",
+        "houmao-specialist-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
+        "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -99,16 +99,16 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
             "agent-messaging",
             "agent-gateway",
         ),
-        skill_names=("houmao-agent-email-comms", "houmao-manage-specialist"),
+        skill_names=("houmao-agent-email-comms", "houmao-specialist-mgr"),
     )
 
     assert resolved == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
+        "houmao-specialist-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -126,10 +126,10 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
-        "houmao-manage-agent-instance",
+        "houmao-specialist-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
+        "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -181,21 +181,21 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     )
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    manage_specialist_path = home_path / "skills/houmao-manage-specialist/SKILL.md"
-    manage_specialist_actions = home_path / "skills/houmao-manage-specialist/actions"
-    manage_specialist_references = home_path / "skills/houmao-manage-specialist/references"
-    manage_credentials_path = home_path / "skills/houmao-manage-credentials/SKILL.md"
-    manage_credentials_actions = home_path / "skills/houmao-manage-credentials/actions"
-    manage_agent_definition_path = home_path / "skills/houmao-manage-agent-definition/SKILL.md"
-    manage_agent_definition_agents = home_path / "skills/houmao-manage-agent-definition/agents"
-    manage_agent_definition_actions = home_path / "skills/houmao-manage-agent-definition/actions"
+    manage_specialist_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
+    manage_specialist_actions = home_path / "skills/houmao-specialist-mgr/actions"
+    manage_specialist_references = home_path / "skills/houmao-specialist-mgr/references"
+    manage_credentials_path = home_path / "skills/houmao-credential-mgr/SKILL.md"
+    manage_credentials_actions = home_path / "skills/houmao-credential-mgr/actions"
+    manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
+    manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
+    manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
+        "houmao-specialist-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
     )
     assert state is not None
     assert state.schema_version == SYSTEM_SKILL_STATE_SCHEMA_VERSION
@@ -333,7 +333,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "project agents roles list|get|init|set|remove" in manage_agent_definition_skill
     assert "project agents recipes list|get|add|set|remove" in manage_agent_definition_skill
     assert "project agents presets list|get|add|set|remove" in manage_agent_definition_skill
-    assert "houmao-manage-credentials" in manage_agent_definition_skill
+    assert "houmao-credential-mgr" in manage_agent_definition_skill
     assert "project agents roles scaffold" in manage_agent_definition_skill
     assert "project agents roles presets ..." in manage_agent_definition_skill
     assert "direct hand-editing under `.houmao/agents/`" in manage_agent_definition_skill
@@ -359,7 +359,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert "project agents roles set --name <role>" in definition_set_action
     assert "project agents recipes set --name <recipe>" in definition_set_action
     assert "--clear-auth" in definition_set_action
-    assert "houmao-manage-credentials" in definition_set_action
+    assert "houmao-credential-mgr" in definition_set_action
     assert "project agents roles remove --name <role>" in definition_remove_action_path.read_text(
         encoding="utf-8"
     )
@@ -420,8 +420,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         use_cli_default=True,
     )
 
-    manage_agent_instance_path = home_path / "skills/houmao-manage-agent-instance/SKILL.md"
-    manage_agent_instance_actions = home_path / "skills/houmao-manage-agent-instance/actions"
+    manage_agent_instance_path = home_path / "skills/houmao-agent-instance/SKILL.md"
+    manage_agent_instance_actions = home_path / "skills/houmao-agent-instance/actions"
     mailbox_mgr_path = home_path / "skills/houmao-mailbox-mgr/SKILL.md"
     mailbox_mgr_actions = home_path / "skills/houmao-mailbox-mgr/actions"
     mailbox_mgr_references = home_path / "skills/houmao-mailbox-mgr/references"
@@ -444,15 +444,15 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
-        "houmao-manage-agent-instance",
+        "houmao-specialist-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
+        "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
-    assert (home_path / "skills/houmao-manage-credentials/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
@@ -610,20 +610,20 @@ def test_install_system_skills_for_home_supports_explicit_symlink_projection(
     result = install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        skill_names=("houmao-manage-specialist",),
+        skill_names=("houmao-specialist-mgr",),
         projection_mode="symlink",
     )
 
-    installed_skill_dir = home_path / "skills/houmao-manage-specialist"
+    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
 
     assert result.projection_mode == "symlink"
     assert installed_skill_dir.is_symlink()
     assert installed_skill_dir.readlink().is_absolute()
-    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-manage-specialist")
+    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
     assert (installed_skill_dir / "SKILL.md").is_file()
     assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-manage-specialist",)
+    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
     assert tuple(record.projection_mode for record in state.installed_skills) == ("symlink",)
 
 
@@ -648,7 +648,7 @@ def test_install_system_skills_for_home_rejects_symlink_projection_without_files
         install_system_skills_for_home(
             tool="codex",
             home_path=home_path,
-            skill_names=("houmao-manage-specialist",),
+            skill_names=("houmao-specialist-mgr",),
             projection_mode="symlink",
         )
 
@@ -657,12 +657,12 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
-    installed_skill_dir = home_path / "skills/houmao-manage-specialist"
+    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
 
     install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        skill_names=("houmao-manage-specialist",),
+        skill_names=("houmao-specialist-mgr",),
     )
     assert installed_skill_dir.is_dir()
     assert not installed_skill_dir.is_symlink()
@@ -670,17 +670,17 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
     install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        skill_names=("houmao-manage-specialist",),
+        skill_names=("houmao-specialist-mgr",),
         projection_mode="symlink",
     )
     assert installed_skill_dir.is_symlink()
-    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-manage-specialist")
+    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
     assert (installed_skill_dir / "SKILL.md").is_file()
 
     install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        skill_names=("houmao-manage-specialist",),
+        skill_names=("houmao-specialist-mgr",),
         projection_mode="copy",
     )
     assert installed_skill_dir.is_dir()
@@ -689,7 +689,7 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
     assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-manage-specialist",)
+    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
     assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
 
 
@@ -753,15 +753,15 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
     result = install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        skill_names=("houmao-process-emails-via-gateway", "houmao-manage-specialist"),
+        skill_names=("houmao-process-emails-via-gateway", "houmao-specialist-mgr"),
     )
 
     assert result.projected_relative_dirs == (
         "skills/houmao-process-emails-via-gateway",
-        "skills/houmao-manage-specialist",
+        "skills/houmao-specialist-mgr",
     )
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert not (home_path / "skills/mailbox/houmao-process-emails-via-gateway").exists()
     assert not (home_path / "skills/project/houmao-create-specialist").exists()
     assert not (home_path / "skills/mailbox").exists()
@@ -771,11 +771,11 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
     assert state is not None
     assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
         "skills/houmao-process-emails-via-gateway",
-        "skills/houmao-manage-specialist",
+        "skills/houmao-specialist-mgr",
     )
     assert tuple(record.name for record in state.installed_skills) == (
         "houmao-process-emails-via-gateway",
-        "houmao-manage-specialist",
+        "houmao-specialist-mgr",
     )
     assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
 
@@ -785,11 +785,11 @@ def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_r
 ) -> None:
     home_path = (tmp_path / "gemini-home").resolve()
     _write(
-        home_path / ".agents/skills/houmao-manage-specialist/SKILL.md",
+        home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md",
         "old specialist path\n",
     )
     _write(
-        home_path / ".agents/skills/houmao-manage-agent-instance/SKILL.md",
+        home_path / ".agents/skills/houmao-agent-instance/SKILL.md",
         "old agent-instance path\n",
     )
     state_path = system_skill_state_path_for_home(home_path)
@@ -802,16 +802,16 @@ def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_r
                 "installed_at": "2026-04-05T00:00:00Z",
                 "installed_skills": [
                     {
-                        "name": "houmao-manage-specialist",
-                        "asset_subpath": "houmao-manage-specialist",
-                        "projected_relative_dir": ".agents/skills/houmao-manage-specialist",
+                        "name": "houmao-specialist-mgr",
+                        "asset_subpath": "houmao-specialist-mgr",
+                        "projected_relative_dir": ".agents/skills/houmao-specialist-mgr",
                         "projection_mode": "copy",
                         "content_digest": "old-specialist",
                     },
                     {
-                        "name": "houmao-manage-agent-instance",
-                        "asset_subpath": "houmao-manage-agent-instance",
-                        "projected_relative_dir": ".agents/skills/houmao-manage-agent-instance",
+                        "name": "houmao-agent-instance",
+                        "asset_subpath": "houmao-agent-instance",
+                        "projected_relative_dir": ".agents/skills/houmao-agent-instance",
                         "projection_mode": "copy",
                         "content_digest": "old-agent-instance",
                     },
@@ -826,25 +826,25 @@ def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_r
     result = install_system_skills_for_home(
         tool="gemini",
         home_path=home_path,
-        skill_names=("houmao-manage-specialist",),
+        skill_names=("houmao-specialist-mgr",),
     )
 
-    assert result.projected_relative_dirs == (".gemini/skills/houmao-manage-specialist",)
-    assert (home_path / ".gemini/skills/houmao-manage-specialist/SKILL.md").is_file()
-    assert (home_path / ".gemini/skills/houmao-manage-agent-instance/SKILL.md").is_file()
-    assert not (home_path / ".agents/skills/houmao-manage-specialist").exists()
-    assert not (home_path / ".agents/skills/houmao-manage-agent-instance").exists()
+    assert result.projected_relative_dirs == (".gemini/skills/houmao-specialist-mgr",)
+    assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (home_path / ".gemini/skills/houmao-agent-instance/SKILL.md").is_file()
+    assert not (home_path / ".agents/skills/houmao-specialist-mgr").exists()
+    assert not (home_path / ".agents/skills/houmao-agent-instance").exists()
     assert not (home_path / ".agents/skills").exists()
 
     state = load_system_skill_install_state(tool="gemini", home_path=home_path)
     assert state is not None
     assert tuple(record.name for record in state.installed_skills) == (
-        "houmao-manage-specialist",
-        "houmao-manage-agent-instance",
+        "houmao-specialist-mgr",
+        "houmao-agent-instance",
     )
     assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
-        ".gemini/skills/houmao-manage-specialist",
-        ".gemini/skills/houmao-manage-agent-instance",
+        ".gemini/skills/houmao-specialist-mgr",
+        ".gemini/skills/houmao-agent-instance",
     )
     assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
 
@@ -883,17 +883,79 @@ def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
     result = install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        skill_names=("houmao-manage-specialist",),
+        skill_names=("houmao-specialist-mgr",),
     )
 
-    assert result.projected_relative_dirs == ("skills/houmao-manage-specialist",)
-    assert (home_path / "skills/houmao-manage-specialist/SKILL.md").is_file()
+    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert not (home_path / "skills/houmao-create-specialist").exists()
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
     assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-manage-specialist",)
+    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
     assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
-        "skills/houmao-manage-specialist",
+        "skills/houmao-specialist-mgr",
+    )
+    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+
+
+@pytest.mark.parametrize(
+    ("legacy_name", "current_name"),
+    [
+        ("houmao-manage-specialist", "houmao-specialist-mgr"),
+        ("houmao-manage-credentials", "houmao-credential-mgr"),
+        ("houmao-manage-agent-definition", "houmao-agent-definition"),
+        ("houmao-manage-agent-instance", "houmao-agent-instance"),
+    ],
+)
+def test_install_system_skills_for_home_migrates_superseded_current_skill_owned_path(
+    tmp_path: Path,
+    legacy_name: str,
+    current_name: str,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    _write(
+        home_path / f"skills/{legacy_name}/SKILL.md",
+        "old flat skill path\n",
+    )
+    state_path = system_skill_state_path_for_home(home_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "tool": "codex",
+                "installed_at": "2026-04-08T00:00:00Z",
+                "installed_skills": [
+                    {
+                        "name": legacy_name,
+                        "asset_subpath": legacy_name,
+                        "projected_relative_dir": f"skills/{legacy_name}",
+                        "projection_mode": "copy",
+                        "content_digest": "old-flat-skill",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=(current_name,),
+    )
+
+    assert result.projected_relative_dirs == (f"skills/{current_name}",)
+    assert (home_path / f"skills/{current_name}/SKILL.md").is_file()
+    assert not (home_path / f"skills/{legacy_name}").exists()
+
+    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    assert state is not None
+    assert tuple(record.name for record in state.installed_skills) == (current_name,)
+    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+        f"skills/{current_name}",
     )
     assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)

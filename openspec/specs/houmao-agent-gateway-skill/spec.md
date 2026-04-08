@@ -49,7 +49,7 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 #### Scenario: Installed skill keeps non-gateway concerns out of scope
 - **WHEN** an agent reads the installed `houmao-agent-gateway` skill
 - **THEN** the skill marks ordinary prompt/mail flows, transport-specific mailbox internals, and unrelated live-agent lifecycle work as outside the packaged skill scope
-- **AND THEN** it does not present `houmao-agent-gateway` as the generic replacement for `houmao-manage-agent-instance`, `houmao-agent-messaging`, or the mailbox skills
+- **AND THEN** it does not present `houmao-agent-gateway` as the generic replacement for `houmao-agent-instance`, `houmao-agent-messaging`, or the mailbox skills
 
 ### Requirement: `houmao-agent-gateway` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-agent-gateway` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:

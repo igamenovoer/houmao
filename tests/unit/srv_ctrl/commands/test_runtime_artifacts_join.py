@@ -321,9 +321,9 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert mailbox_mgr_skill_path.is_file()
-    assert (codex_home / "skills/houmao-manage-specialist/SKILL.md").is_file()
-    assert (codex_home / "skills/houmao-manage-credentials/SKILL.md").is_file()
-    assert (codex_home / "skills/houmao-manage-agent-definition/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-credential-mgr/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
     processing_skill = processing_skill_path.read_text(encoding="utf-8")
@@ -341,9 +341,9 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
+        "houmao-specialist-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )

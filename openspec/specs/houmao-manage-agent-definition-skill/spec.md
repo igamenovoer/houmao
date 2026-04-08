@@ -1,11 +1,11 @@
 ## Purpose
-Define the packaged Houmao-owned `houmao-manage-agent-definition` system skill for low-level project-local role and preset management.
+Define the packaged Houmao-owned `houmao-agent-definition` system skill for low-level project-local role and preset management.
 
 ## Requirements
 
-### Requirement: Houmao provides a packaged `houmao-manage-agent-definition` system skill
+### Requirement: Houmao provides a packaged `houmao-agent-definition` system skill
 
-The system SHALL package a Houmao-owned system skill named `houmao-manage-agent-definition` under the maintained system-skill asset root.
+The system SHALL package a Houmao-owned system skill named `houmao-agent-definition` under the maintained system-skill asset root.
 
 That skill SHALL instruct agents to manage low-level project-local agent definitions through these supported current commands:
 
@@ -42,23 +42,23 @@ The packaged skill SHALL NOT instruct agents to use retired or unsupported low-l
 - `houmao-mgr project agents roles presets ...`
 
 #### Scenario: Installed skill points the agent at the current low-level role and preset commands
-- **WHEN** an agent opens the installed `houmao-manage-agent-definition` skill
+- **WHEN** an agent opens the installed `houmao-agent-definition` skill
 - **THEN** the skill directs the agent to use the supported `project agents roles ...` and `project agents presets ...` command surfaces for low-level definition work
 - **AND THEN** it does not redirect the agent to ad hoc filesystem editing, stale command trees, or unrelated runtime-control surfaces
 
 #### Scenario: Installed skill routes to action-specific local guidance
-- **WHEN** an agent reads the installed `houmao-manage-agent-definition` skill
+- **WHEN** an agent reads the installed `houmao-agent-definition` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for `create`, `list`, `get`, `set`, and `remove`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than one flattened entry page
 
 #### Scenario: Installed skill keeps easy, runtime, and auth-content workflows out of scope
-- **WHEN** an agent reads the installed `houmao-manage-agent-definition` skill
+- **WHEN** an agent reads the installed `houmao-agent-definition` skill
 - **THEN** the skill marks easy-specialist CRUD, managed-agent lifecycle work, direct auth-bundle mutation, and filesystem editing as outside the packaged skill scope
 - **AND THEN** it does not present those actions as part of low-level agent-definition guidance
 
-### Requirement: `houmao-manage-agent-definition` resolves the `houmao-mgr` launcher in the required precedence order
+### Requirement: `houmao-agent-definition` resolves the `houmao-mgr` launcher in the required precedence order
 
-The packaged `houmao-manage-agent-definition` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
+The packaged `houmao-agent-definition` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
 2. if that lookup fails, use the uv-managed fallback `uv tool run --from houmao houmao-mgr`,
@@ -96,9 +96,9 @@ The resolved launcher SHALL be reused for any routed definition-management actio
 - **THEN** the skill tells the agent to honor that requested launcher
 - **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
-### Requirement: `houmao-manage-agent-definition` selects the correct current low-level command and asks before guessing
+### Requirement: `houmao-agent-definition` selects the correct current low-level command and asks before guessing
 
-The packaged `houmao-manage-agent-definition` skill SHALL tell the agent to recover omitted definition-management inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
+The packaged `houmao-agent-definition` skill SHALL tell the agent to recover omitted definition-management inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 
@@ -129,7 +129,7 @@ At minimum, the skill SHALL require the agent to obtain:
 
 When the user asks to change which credential bundle one preset or low-level definition uses, the skill SHALL treat that as a preset-auth-reference change on `presets set` rather than as direct auth-bundle mutation.
 
-When the user asks to change env vars or auth files inside an auth bundle, the skill SHALL report that the request belongs to `houmao-manage-credentials` rather than inventing direct file edits or routing that request through definition-management commands.
+When the user asks to change env vars or auth files inside an auth bundle, the skill SHALL report that the request belongs to `houmao-credential-mgr` rather than inventing direct file edits or routing that request through definition-management commands.
 
 #### Scenario: Full role inspection uses explicit prompt inclusion
 - **WHEN** the user asks the agent to inspect one role's full low-level definition including its prompt text
@@ -144,7 +144,7 @@ When the user asks to change env vars or auth files inside an auth bundle, the s
 #### Scenario: Auth-bundle content mutation stays on the credential skill
 - **WHEN** the user asks the agent to add, remove, or change env vars or auth files inside an auth bundle
 - **THEN** the skill reports that the request belongs to the credential-management workflow
-- **AND THEN** it does not claim that `houmao-manage-agent-definition` covers that lower-level auth-bundle content mutation
+- **AND THEN** it does not claim that `houmao-agent-definition` covers that lower-level auth-bundle content mutation
 
 #### Scenario: Missing target or mutation requires a user question
 - **WHEN** the selected definition-management action still lacks a required target or explicit mutation after checking the current prompt and recent chat context

@@ -4,7 +4,7 @@ Define the packaged specialist-management system skill contract for routed speci
 ## Requirements
 
 ### Requirement: Houmao provides a packaged `houmao-create-specialist` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-manage-specialist` under the maintained system-skill asset root.
+The system SHALL package a Houmao-owned system skill named `houmao-specialist-mgr` under the maintained system-skill asset root.
 
 That skill SHALL instruct agents to manage reusable specialists through `houmao-mgr project easy specialist create|list|get|remove` and specialist-scoped runtime actions through `houmao-mgr project easy instance launch|stop` rather than through deprecated or lower-level authoring surfaces.
 
@@ -17,7 +17,7 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `launch`,
 - `stop`.
 
-That packaged skill SHALL treat generic managed-agent lifecycle actions outside specialist-scoped launch and stop as out of scope and SHALL direct users to `houmao-manage-agent-instance` for further agent management after a specialist-backed launch or stop flow.
+That packaged skill SHALL treat generic managed-agent lifecycle actions outside specialist-scoped launch and stop as out of scope and SHALL direct users to `houmao-agent-instance` for further agent management after a specialist-backed launch or stop flow.
 
 The create action within that packaged skill SHALL describe the documented project-easy defaults that matter for authoring behavior, including:
 
@@ -31,22 +31,22 @@ The create action within that packaged skill SHALL describe the documented proje
 - **AND THEN** it does not redirect the agent to deprecated entrypoints or ad hoc filesystem editing
 
 #### Scenario: Installed skill routes to action-specific local guidance
-- **WHEN** an agent reads the installed `houmao-manage-specialist` skill
+- **WHEN** an agent reads the installed `houmao-specialist-mgr` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for `create`, `list`, `get`, `remove`, `launch`, and `stop`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than being flattened into one long entry page
 
 #### Scenario: Installed skill preserves the documented easy-specialist create defaults
-- **WHEN** an agent follows the create path inside the installed `houmao-manage-specialist` skill
+- **WHEN** an agent follows the create path inside the installed `houmao-specialist-mgr` skill
 - **THEN** the skill states that `--credential` defaults to `<specialist-name>-creds`
 - **AND THEN** it states that system-prompt input is optional and that `--no-unattended` is the explicit opt-out from the easy unattended default
 
 #### Scenario: Installed skill hands off follow-up lifecycle work after specialist launch or stop
-- **WHEN** an agent completes a specialist-backed `launch` or `stop` action through `houmao-manage-specialist`
-- **THEN** the skill tells the user that further agent management should go through `houmao-manage-agent-instance`
-- **AND THEN** it does not imply that `houmao-manage-specialist` is the canonical surface for generic live managed-agent lifecycle
+- **WHEN** an agent completes a specialist-backed `launch` or `stop` action through `houmao-specialist-mgr`
+- **THEN** the skill tells the user that further agent management should go through `houmao-agent-instance`
+- **AND THEN** it does not imply that `houmao-specialist-mgr` is the canonical surface for generic live managed-agent lifecycle
 
 ### Requirement: `houmao-create-specialist` resolves the `houmao-mgr` launcher in the required precedence order
-The packaged `houmao-manage-specialist` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
+The packaged `houmao-specialist-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
 2. if that lookup fails, use the uv-managed fallback `uv tool run --from houmao houmao-mgr`,
@@ -85,7 +85,7 @@ The resolved launcher SHALL be reused for any routed `project easy specialist` a
 - **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
 ### Requirement: `houmao-create-specialist` recovers explicit inputs from conversation context and asks before guessing
-The packaged `houmao-manage-specialist` skill SHALL tell the agent to recover omitted specialist-management inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
+The packaged `houmao-specialist-mgr` skill SHALL tell the agent to recover omitted specialist-management inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 
@@ -141,7 +141,7 @@ The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remov
 - **AND THEN** it keeps create-only auth logic scoped to the create action
 
 ### Requirement: `houmao-create-specialist` describes Claude credential lanes separately from optional state templates
-The create action within the packaged `houmao-manage-specialist` skill SHALL describe Claude credential-providing methods separately from optional Claude runtime-state template inputs.
+The create action within the packaged `houmao-specialist-mgr` skill SHALL describe Claude credential-providing methods separately from optional Claude runtime-state template inputs.
 
 When the create action lists Claude-specific create inputs or discovery outcomes, it SHALL treat:
 
@@ -151,6 +151,6 @@ When the create action lists Claude-specific create inputs or discovery outcomes
 The create action SHALL NOT present `claude_state.template.json` as one of the ways to provide Claude credentials.
 
 #### Scenario: Installed skill does not present the Claude state template as credentials
-- **WHEN** an agent reads the create guidance inside the installed `houmao-manage-specialist` skill
+- **WHEN** an agent reads the create guidance inside the installed `houmao-specialist-mgr` skill
 - **THEN** the skill distinguishes Claude credential-providing methods from the optional Claude state-template input
 - **AND THEN** it does not describe `claude_state.template.json` as a Claude credential lane

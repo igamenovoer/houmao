@@ -5,7 +5,7 @@ Define credential-source and auth-importability rules for the packaged specialis
 
 ### Requirement: `houmao-create-specialist` SHALL expose four credential-source modes
 
-The create action within the packaged `houmao-manage-specialist` system skill SHALL describe credential sourcing as four explicit modes:
+The create action within the packaged `houmao-specialist-mgr` system skill SHALL describe credential sourcing as four explicit modes:
 
 1. fully explicit auth values or files supplied by the user,
 2. user-directed environment lookup using explicit variable names or explicit variable-name patterns,
@@ -14,7 +14,7 @@ The create action within the packaged `houmao-manage-specialist` system skill SH
 
 The create action SHALL treat those as distinct credential-source modes unless the user explicitly asks to combine them.
 
-If the selected action is not `create`, the packaged `houmao-manage-specialist` skill SHALL NOT enter any credential-source mode.
+If the selected action is not `create`, the packaged `houmao-specialist-mgr` skill SHALL NOT enter any credential-source mode.
 
 If the user does not request any credential-source mode and does not already provide enough auth input for `create`, the skill SHALL only:
 
@@ -57,12 +57,12 @@ When the user explicitly requests tool-specific automatic discovery for `create`
 #### Scenario: Non-create action does not enter credential-source handling
 
 - **WHEN** the user asks for `list`, `get`, or `remove`
-- **THEN** the packaged `houmao-manage-specialist` skill does not invoke credential-source mode handling
+- **THEN** the packaged `houmao-specialist-mgr` skill does not invoke credential-source mode handling
 - **AND THEN** it keeps auth discovery scoped to specialist creation only
 
 ### Requirement: `houmao-create-specialist` SHALL keep tool-specific lookup guidance in deployment-realistic reference pages
 
-The packaged `houmao-manage-specialist` system skill SHALL keep create-action tool-specific credential lookup guidance outside the top-level `SKILL.md` in separate local reference pages for Claude, Codex, and Gemini.
+The packaged `houmao-specialist-mgr` system skill SHALL keep create-action tool-specific credential lookup guidance outside the top-level `SKILL.md` in separate local reference pages for Claude, Codex, and Gemini.
 
 The top-level skill SHALL route into the create action first, and the create action SHALL load only the reference page for the currently selected tool and only when the active credential-source mode requires tool-specific lookup guidance.
 
@@ -96,7 +96,7 @@ Each tool-specific reference page SHALL NOT instruct agents to use `tests/fixtur
 
 ### Requirement: `houmao-create-specialist` SHALL only import discovered auth that the create command can represent
 
-The create action within the packaged `houmao-manage-specialist` system skill SHALL distinguish between:
+The create action within the packaged `houmao-specialist-mgr` system skill SHALL distinguish between:
 
 - discovered auth that can be mapped into supported `houmao-mgr project easy specialist create` inputs for the selected tool,
 - discovered auth that cannot be faithfully represented by those supported inputs.
@@ -129,7 +129,7 @@ This importability rule SHALL apply to both user-directed discovery and automati
 - **AND THEN** it asks the user for a supported explicit input or another importable credential source instead of inventing a bundle
 
 ### Requirement: `houmao-create-specialist` treats vendor-supported Claude login state and OAuth tokens as importable
-When the selected tool is Claude and the create action’s active credential-source mode permits discovery, the packaged `houmao-manage-specialist` skill SHALL treat these discovered Claude auth shapes as importable:
+When the selected tool is Claude and the create action’s active credential-source mode permits discovery, the packaged `houmao-specialist-mgr` skill SHALL treat these discovered Claude auth shapes as importable:
 
 - `CLAUDE_CODE_OAUTH_TOKEN`
 - Claude login state rooted at `CLAUDE_CONFIG_DIR` or the maintained default Claude config root when that root contains the vendor files needed for the Claude login-state lane

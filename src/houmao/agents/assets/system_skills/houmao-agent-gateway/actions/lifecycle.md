@@ -53,7 +53,7 @@ Pair-managed lifecycle routes:
 
 ## Guardrails
 
-- Do not use this action to launch or stop the managed agent process; use `houmao-manage-agent-instance` for that.
+- Do not use this action to launch or stop the managed agent process; use `houmao-agent-instance` for that.
 - Do not combine `--pair-port` with `--current-session` or `--target-tmux-session`.
 - Do not describe `--pair-port` as the live gateway listener port; it selects Houmao pair authority only.
 - Do not assume attach succeeds just because the session is gateway-capable.

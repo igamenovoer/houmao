@@ -140,12 +140,12 @@ Any `--yolo` occurrence SHALL either be removed or rewritten as an explicit "rem
 
 ### Requirement: No stale `specialist` skill identifier references remain
 
-All files under `docs/` SHALL be swept for occurrences of the bare skill identifier `specialist` used as if it were the current packaged Houmao-owned skill name. The current name is `houmao-manage-specialist` (renamed in `2026-04-05-rename-create-specialist-to-manage-specialist`).
+All files under `docs/` SHALL be swept for occurrences of the bare skill identifier `specialist` used as if it were the current packaged Houmao-owned skill name. The current name is `houmao-specialist-mgr`.
 
 The sweep SHALL distinguish:
 
 - legitimate prose use of the noun "specialist" (in phrases like "easy specialist", "specialist creation", "specialist-backed launch") — left unchanged,
-- the legacy skill identifier `specialist` or `houmao-create-specialist` used as a current packaged skill — replaced with `houmao-manage-specialist`.
+- the legacy skill identifier `specialist` or `houmao-create-specialist` used as a current packaged skill — replaced with `houmao-specialist-mgr`.
 
 Each replacement SHALL be reviewed in context for accuracy.
 
@@ -158,7 +158,7 @@ Each replacement SHALL be reviewed in context for accuracy.
 #### Scenario: Prose use of "specialist" is preserved
 
 - **WHEN** a doc page uses "specialist" as a noun (e.g., "easy specialist", "specialist creation flow")
-- **THEN** the sweep does not rewrite that prose use into `houmao-manage-specialist`
+- **THEN** the sweep does not rewrite that prose use into `houmao-specialist-mgr`
 - **AND THEN** only the literal skill identifier is rewritten
 
 ### Requirement: Verification step covers `agentsys` stragglers introduced after the prior sweep
