@@ -422,6 +422,10 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/SKILL.md").is_file()
     assert (mailbox_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (
+        mailbox_root
+        / "houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
+    ).is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/check.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/reply.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/references/curl-examples.md").is_file()
@@ -434,6 +438,9 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
         encoding="utf-8"
     )
     gateway_skill = (mailbox_root / "houmao-agent-email-comms/SKILL.md").read_text(encoding="utf-8")
+    advanced_skill = (mailbox_root / "houmao-adv-usage-pattern/SKILL.md").read_text(
+        encoding="utf-8"
+    )
     assert "shared gateway mailbox API" in processing_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
     assert (
@@ -441,6 +448,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
         in gateway_skill
     )
     assert "houmao-adv-usage-pattern" in gateway_skill
+    assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     install_state = load_system_skill_install_state(tool="codex", home_path=home_path)
     assert install_state is not None

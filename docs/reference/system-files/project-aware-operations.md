@@ -86,5 +86,6 @@ In CI or controlled automation where no `.houmao/` directory exists on disk:
 ## See Also
 
 - [Agent Definition Directory](../../getting-started/agent-definitions.md) — overlay directory structure
+- [Managed Memory Dirs](../../getting-started/managed-memory-dirs.md) — operator-facing guide to the durable memory-dir model
 - [System Files Reference](index.md) — filesystem paths reference
 - [Easy Specialists Guide](../../getting-started/easy-specialists.md) — the easy-specialist model

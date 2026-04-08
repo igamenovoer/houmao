@@ -613,6 +613,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         advanced_usage_patterns / "self-notification-via-reminders.md"
     )
     self_notification_mail_path = advanced_usage_patterns / "self-wakeup-via-self-mail.md"
+    relay_loop_pattern_path = advanced_usage_patterns / "relay-loop-via-gateway-and-mailbox.md"
     touring_orient_path = touring_branches / "orient.md"
     touring_setup_path = touring_branches / "setup-project-and-mailbox.md"
     touring_author_launch_path = touring_branches / "author-and-launch.md"
@@ -636,6 +637,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
     self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
     self_notification_mail = self_notification_mail_path.read_text(encoding="utf-8")
+    relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
 
     assert "actions/init.md" in mailbox_mgr_skill
@@ -715,6 +717,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/reminders.md" in agent_gateway_skill
     assert "actions/mail-notifier.md" in agent_gateway_skill
     assert "patterns/self-notification.md" in advanced_usage_skill
+    assert "patterns/relay-loop-via-gateway-and-mailbox.md" in advanced_usage_skill
     assert "manual guided tour skill" in touring_skill
     assert "Use this Houmao skill only when the user explicitly asks for `houmao-touring`" in touring_skill
     assert "branches/orient.md" in touring_skill
@@ -737,6 +740,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert self_notification_pattern_path.is_file()
     assert self_notification_reminders_path.is_file()
     assert self_notification_mail_path.is_file()
+    assert relay_loop_pattern_path.is_file()
     assert touring_orient_path.is_file()
     assert touring_setup_path.is_file()
     assert touring_author_launch_path.is_file()
@@ -770,6 +774,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "does not survive gateway shutdown or restart" in self_notification_reminders
     assert "must survive gateway shutdown or restart" in self_notification_mail
     assert "later rounds may reprioritize against external incoming mail" in self_notification_mail
+    assert "HOUMAO_JOB_DIR" in relay_loop_pattern
+    assert "Do not use `HOUMAO_MEMORY_DIR` as the default home" in relay_loop_pattern
+    assert "ask the user for that parameter" in relay_loop_pattern
+    assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
+    assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
     assert "A specialist is a reusable agent template" in touring_question_style
     assert "You can skip this now and come back later." in touring_question_style
     assert "stop `research`" in touring_question_style

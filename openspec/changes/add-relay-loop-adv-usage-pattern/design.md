@@ -7,7 +7,8 @@ The relevant runtime primitives already exist:
 - queued gateway prompt delivery for live prompt handoff between already-running agents,
 - mailbox send and reply behavior for receipts and result reporting,
 - live gateway reminders for follow-up wakeups,
-- self-mail for durable local backlog.
+- self-mail for durable local backlog,
+- `HOUMAO_JOB_DIR` for per-session scratch bookkeeping state.
 
 The important current constraints are:
 
@@ -15,6 +16,7 @@ The important current constraints are:
 - mailbox `reply` routes back to the upstream sender rather than to an arbitrary next relay target;
 - the ordinary shared mail send surface does not expose custom workflow headers or explicit caller-controlled threading fields;
 - only one gateway reminder is effective at a time, so one reminder per active outbound loop does not scale well for one sender with many loops.
+- `HOUMAO_MEMORY_DIR` is the durable memory lane and should not be repurposed as short-lived relay-loop control bookkeeping.
 - the current mail-notifier reference doc claims digest-based deduplication, but the source currently computes unread digests only for audit/state and still re-enqueues unchanged unread snapshots on later cycles.
 
 This change is documentation and packaged-skill guidance only. It does not add or change gateway, mailbox, or manager APIs.
@@ -88,6 +90,36 @@ Why:
 Alternative considered:
 
 - Reconstructing workflow identity from mailbox thread state alone. Rejected because the relay graph is not equivalent to one mailbox thread, especially when the egress returns directly to the origin.
+
+### Store mutable relay-loop bookkeeping under `HOUMAO_JOB_DIR`
+
+The pattern should direct agents to keep the mutable relay-loop ledger under `HOUMAO_JOB_DIR` by default, because that directory is the per-session scratch lane for runtime-managed work.
+
+Why:
+
+- Relay-loop bookkeeping is short-lived control state tied to one live pattern run.
+- `HOUMAO_JOB_DIR` is the runtime-published scratch area intended for per-session outputs and bookkeeping.
+- The pattern should not repurpose durable managed memory for transient retry counters, due times, or seen-handoff markers.
+
+Alternative considered:
+
+- Storing the ledger under `HOUMAO_MEMORY_DIR`. Rejected because managed memory is the durable notebook/archive lane and should not become the default home for ephemeral relay-control bookkeeping.
+
+### Derive timing thresholds from context and ask the user when needed
+
+The pattern should not present fixed universal receipt, result, or retry thresholds as if Houmao defines them. Instead, the pattern should direct agents to derive timing values from the current task context, any explicit user deadline, and the known live-gateway cadence boundaries.
+
+When a timing value is materially important to correctness or user expectations and the agent cannot choose a sensible value from available context, the pattern should explicitly allow and recommend asking the user for that parameter rather than inventing an arbitrary threshold.
+
+Why:
+
+- The gateway exposes timing primitives and readiness gates, but it does not define one correct relay-loop SLA for every workflow.
+- As a skill, the guidance can rely on the agent asking the user for missing workflow policy when that policy is not inferable locally.
+- Thresholds such as receipt review time, overall result deadline, and maximum retry horizon are business-policy values, not protocol constants.
+
+Alternative considered:
+
+- Publishing one repository-wide default timeout table in the pattern itself. Rejected because that would overstate runtime guarantees and encourage agents to use arbitrary values even when the task clearly needs user input.
 
 ### Require senders to arm follow-up and end the turn
 

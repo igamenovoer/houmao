@@ -1,6 +1,6 @@
 ---
 name: houmao-adv-usage-pattern
-description: Use Houmao's advanced-usage pattern skill for supported multi-step workflow compositions such as unified self-notification via gateway reminders or self-mail.
+description: Use Houmao's advanced-usage pattern skill for supported multi-step workflow compositions such as self-notification and multi-agent relay loops built from existing Houmao skills.
 license: MIT
 ---
 
@@ -13,6 +13,7 @@ This skill is intentionally above the direct-operation skills. Keep exact mailbo
 ## Supported Patterns
 
 - Read [patterns/self-notification.md](patterns/self-notification.md) when a managed agent wants to notify itself about later work and needs to choose between live gateway reminders and self-mail backlog.
+- Read [patterns/relay-loop-via-gateway-and-mailbox.md](patterns/relay-loop-via-gateway-and-mailbox.md) when a managed agent needs a robust multi-agent relay loop where work enters at one live-gateway agent, may transit across additional live-gateway agents, and the designated loop exit returns the final result to the origin through mailbox email.
 
 ## Guardrails
 

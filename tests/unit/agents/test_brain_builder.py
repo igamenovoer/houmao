@@ -430,6 +430,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     advanced_skill = (result.home_path / "skills/houmao-adv-usage-pattern/SKILL.md").read_text(
         encoding="utf-8"
     )
+    relay_loop_pattern = (
+        result.home_path
+        / "skills/houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
+    )
 
     assert "houmao-process-emails-via-gateway" in processing_skill
     assert "metadata-first triage" in processing_skill
@@ -448,6 +452,8 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "houmao-mgr agents mail resolve-live" in gateway_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     assert "self-notification.md" in advanced_skill
+    assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
+    assert relay_loop_pattern.is_file()
     assert "The trigger word `houmao` is intentional." in gateway_skill
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill

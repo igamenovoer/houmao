@@ -54,6 +54,14 @@ That local loop state SHALL include explicit workflow identifiers and retry book
 - due time or next review time,
 - retry or attempt count.
 
+The relay-loop pattern SHALL direct agents to store that mutable loop ledger under `HOUMAO_JOB_DIR` by default as per-session scratch bookkeeping.
+
+The relay-loop pattern SHALL NOT describe `HOUMAO_MEMORY_DIR` as the default or recommended location for this mutable relay-loop bookkeeping.
+
+The relay-loop pattern SHALL describe timing thresholds such as receipt review time, result deadline, next review time, retry spacing, or retry horizon as workflow-policy values that agents derive from current task context and explicit user requirements rather than as fixed Houmao runtime constants.
+
+When the agent cannot choose one of those materially important timing values sensibly from current context, the relay-loop pattern SHALL permit and recommend asking the user for that value instead of inventing an arbitrary threshold.
+
 The relay-loop pattern SHALL direct the sender to:
 
 1. persist the local loop state,
@@ -80,6 +88,16 @@ The relay-loop pattern SHALL direct receivers to deduplicate repeated handoffs b
 - **WHEN** one sender has multiple outbound relay loops in flight at the same time
 - **THEN** the pattern directs that sender to keep the loop rows in one local ledger and use one supervisor reminder as the default live wake path
 - **AND THEN** it does not describe one live reminder per active loop as the default scalable pattern
+
+#### Scenario: Mutable relay-loop ledger uses the job dir rather than managed memory
+- **WHEN** a reader looks for where the relay-loop pattern stores retry counters, due times, and seen-handoff bookkeeping
+- **THEN** the pattern directs that mutable ledger to `HOUMAO_JOB_DIR`
+- **AND THEN** it does not present `HOUMAO_MEMORY_DIR` as the normal home for that ephemeral control state
+
+#### Scenario: Timing thresholds come from workflow context or explicit user input
+- **WHEN** a reader looks for how to choose receipt deadlines, review cadence, or retry horizons in the relay-loop pattern
+- **THEN** the pattern explains that those values come from workflow context and explicit user requirements rather than fixed Houmao defaults
+- **AND THEN** it allows the agent to ask the user when a materially important timing value is not inferable from context
 
 #### Scenario: Repeated handoff is deduplicated by workflow identifiers
 - **WHEN** a receiver encounters the same `loop_id` and `handoff_id` again after an ambiguous resend

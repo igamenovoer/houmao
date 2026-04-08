@@ -70,6 +70,7 @@ A launch profile may store, with no inline secrets:
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
 - a managed prompt-header policy (`inherit`, `enabled`, or `disabled`),
+- optional memory-dir intent (`auto`, one explicit absolute path, or disabled),
 - a prompt overlay (mode plus inline text or a referenced file).
 
 Inline prompt-overlay text is stored inline. File-referenced overlays are kept as managed file-backed content under the overlay-owned content roots, and the catalog stores only the reference. This keeps long prompt overlays out of the catalog database itself.
@@ -192,6 +193,7 @@ For full option tables and edge cases, see the [`houmao-mgr` CLI reference](../r
 
 - [Easy Specialists](easy-specialists.md) — operator workflow for the easy lane (specialist → optional easy profile → instance).
 - [Agent Definition Directory](agent-definitions.md) — directory layout, projection paths, and the canonical recipe authoring path.
+- [Managed Memory Dirs](managed-memory-dirs.md) — the durable memory-dir model, default paths, and launch-time controls.
 - [`houmao-mgr` CLI reference](../reference/cli/houmao-mgr.md) — authoritative option tables for `project easy profile`, `project agents launch-profiles`, and `agents launch --launch-profile`.
 - [Launch Overrides](../reference/build-phase/launch-overrides.md) — how launch-profile defaults compose with adapter defaults and direct overrides during build.
 - [Launch Plan](../reference/run-phase/launch-plan.md) — how launch-profile-derived inputs flow through the manifest into the run-phase `LaunchPlan`.

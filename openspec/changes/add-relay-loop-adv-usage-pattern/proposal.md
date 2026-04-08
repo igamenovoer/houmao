@@ -8,6 +8,8 @@ Houmao's advanced usage guidance currently covers self-notification, but it does
 - Define the relay-loop roles and message flow: loop origin, loop ingress, relay agents, loop egress, receipt mail, final result mail, and final result acknowledgement.
 - Specify that each sender persists local loop state, sends the downstream handoff, arms a wakeup mechanism for follow-up, and ends the current turn instead of actively waiting inside one long LLM round.
 - Specify explicit workflow identifiers such as `loop_id`, `handoff_id`, and result acknowledgement state so repeated sends can be deduplicated safely.
+- Specify that the mutable relay-loop ledger lives under `HOUMAO_JOB_DIR` as per-session scratch bookkeeping, not under `HOUMAO_MEMORY_DIR`.
+- Specify how agents obtain timing thresholds: derive them from task context or user-provided deadlines when available, and ask the user when a materially important value cannot be chosen sensibly from context.
 - Define the recommended single-agent supervisor model for many outbound loops: one local ledger, one supervisor reminder, and optional durable self-mail checkpoint instead of one live reminder per active loop.
 - Include concrete text-block templates for downstream handoff requests, mailbox follow-up messages, and reminder text so the pattern shows agents exactly what information must be recorded.
 - Clarify when the hybrid `reminder + optional self-mail checkpoint` approach is preferred over pure reminder-only or pure self-mail-only coordination.
