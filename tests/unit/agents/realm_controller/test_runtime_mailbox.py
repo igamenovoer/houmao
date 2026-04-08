@@ -377,9 +377,7 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
     assert receiver.launch_plan.mailbox is not None
     assert sender.launch_plan.mailbox.filesystem_root == shared_root.resolve()
     assert receiver.launch_plan.mailbox.filesystem_root == shared_root.resolve()
-    assert (
-        shared_root / "mailboxes" / "HOUMAO-mailbox-sender@agents.localhost" / "inbox"
-    ).is_dir()
+    assert (shared_root / "mailboxes" / "HOUMAO-mailbox-sender@agents.localhost" / "inbox").is_dir()
     assert (
         shared_root / "mailboxes" / "HOUMAO-mailbox-receiver@agents.localhost" / "inbox"
     ).is_dir()
@@ -872,9 +870,14 @@ def test_relaunch_of_older_manifest_recomputes_default_managed_header(
     result = controller.relaunch()
 
     assert result.status == "ok"
-    assert controller.launch_plan.role_injection.prompt.startswith("[HOUMAO MANAGED HEADER]")
+    assert controller.launch_plan.role_injection.prompt.startswith(
+        '<houmao_system_prompt version="1">'
+    )
+    assert "<managed_header>" in controller.launch_plan.role_injection.prompt
     assert "Managed agent name: alice" in controller.launch_plan.role_injection.prompt
-    assert controller.launch_plan.role_injection.prompt.endswith("\n\nRole prompt")
+    assert (
+        "<role_prompt>\nRole prompt\n</role_prompt>" in controller.launch_plan.role_injection.prompt
+    )
 
 
 def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_posture(

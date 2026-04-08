@@ -197,7 +197,7 @@ pixi run houmao-mgr agents launch \
   --launch-profile researcher-default
 ```
 
-`--launch-profile` and `--agents` are mutually exclusive on `agents launch`. The launch profile contributes its own birth-time defaults — managed-agent identity, working directory, auth override, prompt-mode, durable env records, mailbox config, headless and gateway posture, managed-header policy, and any prompt overlay — and direct CLI overrides such as `--agent-name`, `--auth`, `--workdir`, `--managed-header`, or `--no-managed-header` win over those defaults without rewriting the stored profile. Prompt composition order is source role prompt, prompt-overlay resolution, managed-header prepend when enabled, then backend-specific role injection. For the shared conceptual model, see [Launch Profiles](launch-profiles.md).
+`--launch-profile` and `--agents` are mutually exclusive on `agents launch`. The launch profile contributes its own birth-time defaults — managed-agent identity, working directory, auth override, prompt-mode, durable env records, mailbox config, headless and gateway posture, managed-header policy, and any prompt overlay — and direct CLI overrides such as `--agent-name`, `--auth`, `--workdir`, `--managed-header`, `--no-managed-header`, `--append-system-prompt-text`, or `--append-system-prompt-file` win over those defaults without rewriting the stored profile. Prompt composition order is source role prompt, prompt-overlay resolution, launch appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. For the shared conceptual model, see [Launch Profiles](launch-profiles.md).
 
 If you want the higher-level launch path, use:
 

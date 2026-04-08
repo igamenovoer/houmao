@@ -2448,6 +2448,17 @@ def easy_instance_group() -> None:
     default=None,
     help="Force-enable or disable the Houmao-managed prompt header for this launch.",
 )
+@click.option(
+    "--append-system-prompt-text",
+    default=None,
+    help="Inline launch-owned system-prompt appendix for this launch only.",
+)
+@click.option(
+    "--append-system-prompt-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a launch-owned system-prompt appendix file for this launch only.",
+)
 @managed_launch_force_option
 def launch_easy_instance_command(
     specialist: str | None,
@@ -2467,6 +2478,8 @@ def launch_easy_instance_command(
     mail_root: Path | None,
     mail_account_dir: Path | None,
     managed_header: bool | None,
+    append_system_prompt_text: str | None,
+    append_system_prompt_file: Path | None,
     force_mode: str | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
@@ -2484,6 +2497,10 @@ def launch_easy_instance_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
+    launch_appendix_text = _resolve_launch_appendix_text_or_click(
+        appendix_text=append_system_prompt_text,
+        appendix_file=append_system_prompt_file,
+    )
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_provenance = None
     direct_model_config = _build_model_config_or_click(
@@ -2647,6 +2664,7 @@ def launch_easy_instance_command(
         direct_model_config=direct_model_config,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
+        launch_appendix_text=launch_appendix_text,
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,
@@ -4143,6 +4161,26 @@ def _resolve_prompt_overlay_text_or_click(
             "Prompt-overlay mode requires `--prompt-overlay-text` or `--prompt-overlay-file`."
         )
     return prompt_overlay_mode, resolved_text
+
+
+def _resolve_launch_appendix_text_or_click(
+    *,
+    appendix_text: str | None,
+    appendix_file: Path | None,
+) -> str | None:
+    """Resolve one launch-owned appendix from inline or file input."""
+
+    if appendix_text is not None and appendix_file is not None:
+        raise click.ClickException(
+            "Provide at most one of `--append-system-prompt-text` or `--append-system-prompt-file`."
+        )
+    if appendix_text is not None:
+        resolved_text = appendix_text.rstrip()
+        return resolved_text if resolved_text.strip() else None
+    if appendix_file is not None:
+        resolved_text = appendix_file.read_text(encoding="utf-8").rstrip()
+        return resolved_text if resolved_text.strip() else None
+    return None
 
 
 def _managed_header_policy_from_override(value: bool | None) -> ManagedHeaderPolicy | None:

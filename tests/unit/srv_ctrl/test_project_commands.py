@@ -2674,11 +2674,13 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     repo_root = (tmp_path / "repo").resolve()
     profile_workdir = (tmp_path / "profile-workdir").resolve()
     runtime_workdir = (tmp_path / "runtime-workdir").resolve()
+    appendix_file = (tmp_path / "appendix.md").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     profile_workdir.mkdir(parents=True, exist_ok=True)
     runtime_workdir.mkdir(parents=True, exist_ok=True)
     auth_json_path = (tmp_path / "auth.json").resolve()
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    appendix_file.write_text("Treat gateway diagnostics as high priority.\n", encoding="utf-8")
     monkeypatch.chdir(repo_root)
 
     assert runner.invoke(cli, ["project", "init"]).exit_code == 0
@@ -2776,6 +2778,8 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
             "alice",
             "--auth",
             "breakglass",
+            "--append-system-prompt-file",
+            str(appendix_file),
             "--workdir",
             str(runtime_workdir),
             "--model",
@@ -2802,6 +2806,7 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["direct_model_config"].reasoning.level == 9
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
+    assert captured["launch_appendix_text"] == "Treat gateway diagnostics as high priority."
     assert captured["launch_profile_provenance"] == {
         "name": "alice",
         "lane": "easy_profile",
@@ -2815,6 +2820,67 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     }
     assert captured["declared_mailbox"].transport == "filesystem"
     assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
+
+
+def test_project_easy_instance_launch_rejects_conflicting_append_system_prompt_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    appendix_file = (tmp_path / "appendix.md").resolve()
+    appendix_file.write_text("Treat gateway diagnostics as high priority.\n", encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "alice",
+            "--append-system-prompt-text",
+            "Treat gateway diagnostics as high priority.",
+            "--append-system-prompt-file",
+            str(appendix_file),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Provide at most one of `--append-system-prompt-text`" in result.output
 
 
 def test_project_launch_profile_set_can_clear_managed_header_policy(

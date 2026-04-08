@@ -100,6 +100,7 @@ class BuildRequest:
     direct_model_config: ModelConfig | None = None
     role_prompt_override: str | None = None
     managed_prompt_header: dict[str, Any] | None = None
+    houmao_system_prompt_layout: dict[str, Any] | None = None
     launch_profile_provenance: dict[str, Any] | None = None
 
     def effective_setup(self) -> str:
@@ -867,6 +868,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         manifest["inputs"]["role_prompt_text"] = request.role_prompt_override
     if request.managed_prompt_header is not None:
         manifest["inputs"]["managed_prompt_header"] = dict(request.managed_prompt_header)
+    if request.houmao_system_prompt_layout is not None:
+        manifest["inputs"]["houmao_system_prompt_layout"] = dict(
+            request.houmao_system_prompt_layout
+        )
     if request.extra:
         manifest["inputs"]["extra"] = dict(request.extra)
     if request.mailbox is not None:

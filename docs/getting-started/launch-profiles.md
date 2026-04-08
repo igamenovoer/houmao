@@ -112,16 +112,19 @@ Prompt overlays are inline text or a referenced file. File-backed overlays remai
 
 ## Managed Prompt Header
 
-Managed launches prepend one short Houmao-owned prompt header by default. The header tells the agent that it is Houmao-managed, includes the resolved managed-agent name and id, points the agent toward `houmao-mgr` and other supported Houmao system interfaces for Houmao-related work, and tells it to avoid unsupported ad hoc probing when a supported Houmao interface exists. The header stays general-purpose and does not name individual packaged guidance entries.
+Managed launches render one short Houmao-owned prompt header by default. For current managed launches, the final prompt is rooted at `<houmao_system_prompt>`, the header appears in `<managed_header>`, and the remaining prompt content appears in `<prompt_body>`. The header tells the agent that it is Houmao-managed, includes the resolved managed-agent name and id, points the agent toward `houmao-mgr` and other supported Houmao system interfaces for Houmao-related work, and tells it to avoid unsupported ad hoc probing when a supported Houmao interface exists. The header stays general-purpose and does not name individual packaged guidance entries.
 
 Prompt composition order is:
 
 1. source role prompt,
 2. launch-profile prompt overlay resolution,
-3. managed prompt-header prepend,
-4. backend-specific prompt injection.
+3. one-shot launch appendix append when `agents launch` or `project easy instance launch` supplies `--append-system-prompt-text` or `--append-system-prompt-file`,
+4. structured render into `<houmao_system_prompt>`,
+5. backend-specific prompt injection.
 
-That means backend-specific role injection sees one already-composed effective launch prompt. The runtime does not replay the managed header later as a separate bootstrap turn.
+That means backend-specific role injection sees one already-composed effective launch prompt. The runtime does not replay the managed header, overlay, or appendix later as separate bootstrap turns.
+
+The launch appendix is launch-owned and append-only in this workflow. It affects only the current launch, appears after the resolved profile overlay inside `<prompt_body>`, and never rewrites the source role prompt or the stored launch profile.
 
 The managed header is controlled by the same precedence model as other birth-time launch defaults:
 

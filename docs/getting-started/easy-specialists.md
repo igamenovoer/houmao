@@ -175,7 +175,7 @@ houmao-mgr project easy instance launch --profile reviewer-default
 
 When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
 
-Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, and `--managed-header` or `--no-managed-header` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
+Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, `--managed-header` or `--no-managed-header`, and `--append-system-prompt-text` or `--append-system-prompt-file` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 
 By default, easy instance launch also auto-attaches a live loopback gateway for the new session on `127.0.0.1` with a system-assigned port. Use `--no-gateway` to skip that default for one launch, or `--gateway-port <port>` when you want one fixed loopback listener port on the current launch. If the managed session starts but gateway attachment fails afterward, Houmao keeps the session running and reports the attach error together with the manifest/session identity so you can retry or stop it explicitly.
 
@@ -191,6 +191,7 @@ Key options:
 | `--no-gateway` | False | Skip the default launch-time gateway attach for this instance. |
 | `--gateway-port` | Auto | Request one fixed loopback gateway listener port for this launch. |
 | `--managed-header`, `--no-managed-header` | Profile policy, otherwise enabled | Force-enable or disable the Houmao-managed prompt header for one launch. |
+| `--append-system-prompt-text`, `--append-system-prompt-file` | None | Mutually exclusive one-shot appendix input appended after any resolved prompt overlay for the current launch only. |
 | `--session-name` | None | Optional tmux session name override. |
 | `--auth` | Specialist's credential or profile default | Optional auth bundle override. |
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
@@ -205,6 +206,8 @@ Gemini specialists remain headless-only here. Use `--headless` when launching a 
 `--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port.
 
 `--managed-header` and `--no-managed-header` are mutually exclusive. When neither flag is supplied, easy-instance launch inherits managed-header policy from the selected easy profile when one is present; otherwise it falls back to the default enabled behavior.
+
+`--append-system-prompt-text` and `--append-system-prompt-file` are also mutually exclusive. When supplied, the appendix is appended after any easy-profile prompt overlay inside the current launch's structured `<houmao_system_prompt>` and is not persisted back into the selected specialist or profile.
 
 The previous easy-launch `--yolo` override was removed in 0.3.x. Startup autonomy is owned by the stored specialist `launch.prompt_mode` (or, when launching from an easy profile that overrides it, by the profile's stored prompt-mode override): `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 

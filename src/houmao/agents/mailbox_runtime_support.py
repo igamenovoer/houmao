@@ -589,6 +589,27 @@ def mailbox_env_var_names(config: MailboxResolvedConfig) -> tuple[str, ...]:
     return (*_MAILBOX_COMMON_ENV_VARS, *_MAILBOX_EMAIL_ENV_VARS)
 
 
+def replaceable_mailbox_cleanup_paths(config: MailboxResolvedConfig | None) -> tuple[Path, ...]:
+    """Return mailbox-owned paths that are safe to remove during force-clean takeover."""
+
+    if config is None:
+        return ()
+    if isinstance(config, FilesystemMailboxResolvedConfig):
+        if config.mailbox_kind != "symlink" or config.mailbox_path is None:
+            return ()
+        mailbox_path = config.mailbox_path.resolve()
+        try:
+            mailbox_path.relative_to(config.filesystem_root.resolve())
+        except ValueError:
+            return (mailbox_path,)
+        return ()
+
+    credential_file = config.credential_file
+    if credential_file is None:
+        return ()
+    return (credential_file.resolve(),)
+
+
 def resolve_live_mailbox_binding(
     *,
     durable_mailbox: MailboxResolvedConfig,

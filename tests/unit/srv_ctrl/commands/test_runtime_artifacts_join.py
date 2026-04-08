@@ -345,6 +345,7 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",

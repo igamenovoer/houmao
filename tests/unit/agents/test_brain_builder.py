@@ -269,6 +269,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -1055,6 +1056,11 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
                 "agent_name": "alice",
                 "agent_id": "agent-alice",
             },
+            houmao_system_prompt_layout={
+                "version": 1,
+                "root_tag": "houmao_system_prompt",
+                "sections": [{"kind": "managed_header"}],
+            },
             launch_profile_provenance={
                 "name": "alice",
                 "lane": "launch_profile",
@@ -1073,6 +1079,11 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
         "stored_policy": None,
         "agent_name": "alice",
         "agent_id": "agent-alice",
+    }
+    assert manifest["inputs"]["houmao_system_prompt_layout"] == {
+        "version": 1,
+        "root_tag": "houmao_system_prompt",
+        "sections": [{"kind": "managed_header"}],
     }
     assert manifest["runtime"]["launch_contract"]["construction_provenance"]["launch_profile"] == {
         "name": "alice",

@@ -22,7 +22,7 @@ from houmao.agents.managed_launch_force import (
 )
 from houmao.agents.managed_prompt_header import (
     ManagedHeaderPolicy,
-    compose_managed_launch_prompt,
+    compose_managed_launch_prompt_payload,
     managed_prompt_header_metadata,
     normalize_managed_header_policy,
     resolve_managed_launch_identity,
@@ -455,6 +455,26 @@ def _resolve_operator_prompt_mode_or_click(
     return cast(OperatorPromptMode, value)
 
 
+def _resolve_launch_appendix_text_or_click(
+    *,
+    appendix_text: str | None,
+    appendix_file: Path | None,
+) -> str | None:
+    """Resolve one launch-owned appendix text input from inline or file options."""
+
+    if appendix_text is not None and appendix_file is not None:
+        raise click.ClickException(
+            "Provide at most one of `--append-system-prompt-text` or `--append-system-prompt-file`."
+        )
+    if appendix_text is not None:
+        resolved = appendix_text.rstrip()
+        return resolved if resolved.strip() else None
+    if appendix_file is not None:
+        resolved = appendix_file.read_text(encoding="utf-8").rstrip()
+        return resolved if resolved.strip() else None
+    return None
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -485,6 +505,7 @@ def launch_managed_agent_locally(
     direct_model_config: ModelConfig | None = None,
     prompt_overlay_mode: str | None = None,
     prompt_overlay_text: str | None = None,
+    launch_appendix_text: str | None = None,
     managed_header_override: bool | None = None,
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None,
     launch_profile_provenance: dict[str, Any] | None = None,
@@ -570,10 +591,11 @@ def launch_managed_agent_locally(
         if takeover_context is not None:
             _perform_managed_force_takeover(takeover_context)
             takeover_completed = True
-        effective_role_prompt = compose_managed_launch_prompt(
+        prompt_payload = compose_managed_launch_prompt_payload(
             base_prompt=target.role_prompt,
             overlay_mode=prompt_overlay_mode,
             overlay_text=prompt_overlay_text,
+            appendix_text=launch_appendix_text,
             managed_header_enabled=managed_header_decision.enabled,
             agent_name=managed_launch_identity.agent_name,
             agent_id=managed_launch_identity.agent_id,
@@ -601,11 +623,12 @@ def launch_managed_agent_locally(
                 existing_home_mode=(
                     takeover_context.force_mode if takeover_context is not None else None
                 ),
-                role_prompt_override=effective_role_prompt,
+                role_prompt_override=prompt_payload.prompt,
                 managed_prompt_header=managed_prompt_header_metadata(
                     decision=managed_header_decision,
                     identity=managed_launch_identity,
                 ),
+                houmao_system_prompt_layout=prompt_payload.layout,
                 launch_profile_provenance=launch_profile_provenance,
             )
         )
@@ -641,7 +664,9 @@ def launch_managed_agent_locally(
             mailbox_account_dir=mailbox_account_dir,
             headless_display_style=headless_display_style if headless else None,
             headless_display_detail=headless_display_detail if headless else None,
-            managed_force_mode=takeover_context.force_mode if takeover_context is not None else None,
+            managed_force_mode=takeover_context.force_mode
+            if takeover_context is not None
+            else None,
         )
     except LaunchPolicyResolutionError as exc:
         raise click.ClickException(
@@ -793,6 +818,17 @@ def agents_group() -> None:
     help="Force-enable or disable the Houmao-managed prompt header for this launch.",
 )
 @click.option(
+    "--append-system-prompt-text",
+    default=None,
+    help="Inline launch-owned system-prompt appendix for this launch only.",
+)
+@click.option(
+    "--append-system-prompt-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a launch-owned system-prompt appendix file for this launch only.",
+)
+@click.option(
     "--workdir",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
     default=None,
@@ -832,6 +868,8 @@ def launch_agents_command(
     session_name: str | None,
     headless: bool,
     managed_header: bool | None,
+    append_system_prompt_text: str | None,
+    append_system_prompt_file: Path | None,
     workdir: Path | None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
@@ -861,6 +899,10 @@ def launch_agents_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
+    launch_appendix_text = _resolve_launch_appendix_text_or_click(
+        appendix_text=append_system_prompt_text,
+        appendix_file=append_system_prompt_file,
+    )
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_provenance = None
     gateway_auto_attach = False
@@ -991,6 +1033,7 @@ def launch_agents_command(
         direct_model_config=direct_model_config,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
+        launch_appendix_text=launch_appendix_text,
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,

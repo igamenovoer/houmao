@@ -1817,6 +1817,8 @@ def test_agents_launch_help_exposes_workdir_not_working_directory() -> None:
 
     assert result.exit_code == 0, result.output
     assert "--launch-profile TEXT" in result.output
+    assert "--append-system-prompt-text TEXT" in result.output
+    assert "--append-system-prompt-file FILE" in result.output
     assert "--workdir DIRECTORY" in result.output
     assert "--working-directory" not in result.output
 
@@ -1911,6 +1913,8 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             "codex",
             "--auth",
             "breakglass",
+            "--append-system-prompt-text",
+            "Treat gateway diagnostics as high priority.",
             "--workdir",
             str(runtime_workdir),
         ],
@@ -1933,6 +1937,7 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
     assert captured["persistent_env_records"] == {"PROJECT_CONTEXT": "alice"}
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
+    assert captured["launch_appendix_text"] == "Treat gateway diagnostics as high priority."
     assert captured["declared_mailbox"].transport == "filesystem"
     assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
     assert captured["launch_profile_provenance"] == {
@@ -1946,6 +1951,28 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             "present": True,
         },
     }
+
+
+def test_agents_launch_rejects_conflicting_append_system_prompt_inputs(tmp_path: Path) -> None:
+    appendix_file = (tmp_path / "appendix.md").resolve()
+    appendix_file.write_text("Prefer the current branch naming rules.\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--append-system-prompt-text",
+            "Prefer the current branch naming rules.",
+            "--append-system-prompt-file",
+            str(appendix_file),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Provide at most one of `--append-system-prompt-text`" in result.output
 
 
 def test_agents_launch_rejects_conflicting_launch_profile_provider(
@@ -2265,6 +2292,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
         base_prompt="You are gpu-kernel-coder.",
         overlay_mode=None,
         overlay_text=None,
+        appendix_text=None,
         managed_header_enabled=True,
         agent_name="gpu",
         agent_id="0aa0be2a866411d9ff03515227454947",
