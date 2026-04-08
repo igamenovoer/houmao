@@ -20,6 +20,12 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
 - [houmao-server](reference/cli/houmao-server.md): HTTP server for session management and TUI tracking.
 - [houmao-passive-server](reference/cli/houmao-passive-server.md): Registry-driven stateless server — no legacy dependencies.
+- [system-skills](reference/cli/system-skills.md): Install and inspect packaged Houmao-owned skill sets for resolved tool homes.
+- [agents gateway](reference/cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
+- [agents turn](reference/cli/agents-turn.md): Managed headless turn submission and inspection.
+- [agents mail](reference/cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [agents mailbox](reference/cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [admin cleanup](reference/cli/admin-cleanup.md): Registry and runtime maintenance commands.
 - [CLI Entrypoints](reference/cli.md): Module-level entry points and common runtime flags.
 
 ### Build Phase
@@ -33,6 +39,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
 - [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and server-backed.
 - [Role Injection](reference/run-phase/role-injection.md): Per-backend role injection strategies.
+- [Managed Launch Prompt Header](reference/run-phase/managed-prompt-header.md): Houmao-owned prompt header prepended to every managed launch by default — content, composition, opt-out flags, and stored launch-profile policy.
 
 ### Subsystems
 
@@ -49,7 +56,6 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [Claude Vendor Login Files](reference/claude-vendor-login-files.md): How to import Claude vendor login state, what each file means, and how to validate that lane locally.
 - [Release Publishing](reference/release-publishing.md): PyPI trusted publishing setup and the public release flow.
 - [Houmao Server Pair](reference/houmao_server_pair.md): Server + manager pair workflows.
-- [Runtime-Managed Agents](reference/agents/index.md): Session model, targeting, and recovery.
 - [Managed Agent API](reference/managed_agent_api.md): Direct agent control API surface.
 
 ## Developer Guides

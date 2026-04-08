@@ -1,10 +1,6 @@
 # Houmao
 > A framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents.
 
-## Current Status
-
-Houmao is under active development. The operator-facing workflow is stabilizing around the `houmao-mgr` + `houmao-server` pair, with `local_interactive` (tmux-backed) as the primary backend. Expect interface changes while the core runtime, gateway, and mailbox contracts continue to harden.
-
 ## Project Introduction
 
 Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github.io/houmao/)

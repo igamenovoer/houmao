@@ -130,5 +130,5 @@ Two short heuristics help decide which skill applies to a task that an agent or 
 - [Easy Specialists guide](easy-specialists.md) — the operator-facing flow that exercises `houmao-specialist-mgr`.
 - [Launch Profiles guide](launch-profiles.md) — the launch-side concepts that the messaging and gateway skills observe.
 - [Agent Definition Directory](agent-definitions.md) — `.houmao/` layout, catalog-versus-projection storage, and project-local authoring paths.
-- [Project-Aware Operations](../reference/agents/operations/project-aware-operations.md) — project-aware root resolution and affected command families.
+- [Project-Aware Operations](../reference/system-files/project-aware-operations.md) — project-aware root resolution and affected command families.
 - README "System Skills" subsection — the catalog-table view bridging this narrative to the per-skill rows.

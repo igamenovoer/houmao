@@ -63,7 +63,7 @@ The current implementation documents what exists today:
 ## Related References
 
 - [System Files / Shared Registry](../system-files/shared-registry.md): Centralized filesystem layout and ownership boundary for the registry root.
-- [Runtime-Managed Agents Reference](../agents/index.md): The broader runtime session model that uses registry-backed discovery.
+- [Session Lifecycle](../run-phase/session-lifecycle.md): The broader runtime session model that uses registry-backed discovery.
 - [Agent Gateway Reference](../gateway/index.md): Stable and live gateway data that can be pointed to from registry records.
 - [Mailbox Reference](../mailbox/index.md): Mailbox identity and binding metadata that may appear in registry records.
 - [Realm Controller](../realm_controller.md): Broad runtime overview and CLI entry points.

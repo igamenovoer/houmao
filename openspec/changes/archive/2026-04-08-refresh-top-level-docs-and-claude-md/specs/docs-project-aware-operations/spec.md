@@ -1,9 +1,4 @@
-# docs-project-aware-operations Specification
-
-## Purpose
-Define the documentation requirements for the project-aware operations reference page.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Project-aware operations reference page exists
 

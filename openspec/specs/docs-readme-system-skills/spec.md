@@ -8,7 +8,8 @@ The `README.md` usage section SHALL include a subsection introducing the system-
 
 The subsection SHALL explain that Houmao installs packaged skills into agent tool homes so that agents can drive management tasks through their native skill interface without requiring the operator to invoke `houmao-mgr` manually.
 
-The subsection SHALL list the six non-mailbox packaged skill families:
+The subsection SHALL list the seven non-mailbox packaged skill families:
+- `houmao-project-mgr` — project overlay lifecycle, project layout, and project-scoped launch-profile and easy-instance inspection routing
 - `houmao-specialist-mgr` — specialist authoring plus specialist-scoped launch and stop entry
 - `houmao-credential-mgr` — project-local credential management
 - `houmao-agent-definition` — low-level role and preset definition management
@@ -16,7 +17,7 @@ The subsection SHALL list the six non-mailbox packaged skill families:
 - `houmao-agent-messaging` — prompt, queue, raw-input, mailbox routing, and reset-context guidance for already-running managed agents
 - `houmao-agent-gateway` — gateway lifecycle, gateway discovery, wakeups, and notifier guidance for attached managed agents
 
-The subsection SHALL explain that `agents join` and `agents launch` auto-install the packaged user-control, agent-messaging, and agent-gateway skills into managed homes by default, while explicit `houmao-mgr system-skills install` into an external tool home can add the broader CLI-default skill selection that also includes `houmao-agent-instance`.
+The subsection SHALL explain that `agents join` and `agents launch` auto-install the packaged user-control, agent-messaging, and agent-gateway skills into managed homes by default, which means the managed `user-control` install now includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, and `houmao-agent-definition`, while explicit `houmao-mgr system-skills install` into an external tool home can add the broader CLI-default skill selection that also includes `houmao-agent-instance`.
 
 The subsection SHALL show a brief current `houmao-mgr system-skills install` example for explicit external tool homes that relies on the CLI-default selection by omitting both `--set` and `--skill`.
 
@@ -26,13 +27,14 @@ The subsection SHALL link to `docs/reference/cli/system-skills.md` for the full 
 
 - **WHEN** a reader scans the README usage section
 - **THEN** they find a subsection describing the system-skills surface
-- **AND THEN** they see the six non-mailbox packaged skill families listed with brief descriptions
-- **AND THEN** they see that `houmao-agent-gateway` is presented as the gateway-focused packaged skill for attached managed agents
+- **AND THEN** they see the seven non-mailbox packaged skill families listed with brief descriptions
+- **AND THEN** they see that `houmao-project-mgr` is presented as the project lifecycle and layout skill
 
 #### Scenario: Reader can distinguish managed auto-install from external CLI-default install
 
 - **WHEN** a reader wants to understand which Houmao skills appear inside managed homes versus an explicit external tool home
 - **THEN** the README explains that managed launch and join auto-install the user-control, messaging, and gateway skills
+- **AND THEN** it explains that the managed `user-control` set now includes `houmao-project-mgr`
 - **AND THEN** it explains that external `system-skills install` can add the broader CLI-default selection that also includes `houmao-agent-instance`
 
 #### Scenario: Reader can install system skills into an external tool home with current CLI syntax
@@ -140,3 +142,20 @@ That subsection SHALL distinguish `houmao-mailbox-mgr` from `houmao-agent-email-
 - **WHEN** a reader compares the README rows for `houmao-mailbox-mgr`, `houmao-agent-email-comms`, and `houmao-process-emails-via-gateway`
 - **THEN** the README explains that `houmao-mailbox-mgr` owns mailbox administration
 - **AND THEN** it keeps ordinary mailbox operations and notifier-driven unread-mail rounds on the existing mailbox worker skills
+
+### Requirement: README does not contain a Current Status stability paragraph
+
+The `README.md` file SHALL NOT contain a "Current Status" section (or any equivalently titled leading paragraph) that frames the `houmao-mgr` plus `houmao-server` operator surface as unstable, actively churning, or still stabilizing.
+
+The opening content above the "Project Introduction" section SHALL jump directly from the project tagline to the introductory material without a separate status-disclaimer paragraph.
+
+#### Scenario: Reader opens README without a misleading stability warning
+
+- **WHEN** a reader opens `README.md` and reads from the top
+- **THEN** there is no "Current Status" heading or section
+- **AND THEN** there is no leading paragraph that tells the reader the operator interface is unstable or still stabilizing
+
+#### Scenario: README does not describe `houmao-mgr` plus `houmao-server` as stabilizing
+
+- **WHEN** searching `README.md` content above the "Project Introduction" section
+- **THEN** the text does not claim that the operator interface is stabilizing, unstable, or likely to change

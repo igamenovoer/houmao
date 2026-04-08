@@ -47,7 +47,6 @@
 - [Release Publishing](release-publishing.md): PyPI trusted publishing setup and the GitHub release flow.
 - [Realm Controller](realm_controller.md): Runtime session orchestration.
 - [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.
-- [Runtime-Managed Agents](agents/index.md): Session model, targeting, and recovery.
 - [Managed-Agent API](managed_agent_api.md): Direct agent control API surface.
 
 - [Realm Controller Send-Keys](realm_controller_send_keys.md): Raw tmux send-keys control.

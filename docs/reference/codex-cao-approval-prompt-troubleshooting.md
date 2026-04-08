@@ -1,6 +1,6 @@
 # Troubleshooting Codex Approval Prompts (Legacy `cao_rest` Backend)
 
-> **Legacy notice:** This troubleshooting page applies to the `cao_rest` backend, which is planned for removal. For new sessions, use the `local_interactive` backend where Codex launch is directly controlled.
+> **Unmaintained — Deprecated Backend.** This troubleshooting guide applies to the `cao_rest` backend, which remains in the codebase as a legacy escape hatch. Its documentation is no longer actively maintained and the content below may be incorrect or stale. It is retained only as historical troubleshooting for the deprecated `cao_rest` path. Prefer the `local_interactive` backend for new Codex sessions.
 
 This page covers one specific failure mode for `cao_rest`-backed Codex sessions: the live session starts, but the first real prompt turn stops on an operator approval menu instead of completing the requested action.
 
@@ -123,7 +123,7 @@ If the prompt still blocks, check these in order:
 
 ## Source References
 
-- [`src/houmao/agents/launch_policy/`](../../../../src/houmao/agents/launch_policy/)
-- [`docs/reference/realm_controller.md`](../../realm_controller.md)
-- [`docs/reference/agents/operations/session-and-message-flows.md`](../operations/session-and-message-flows.md)
-- [`openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md`](../../../../openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md)
+- [`src/houmao/agents/launch_policy/`](../../src/houmao/agents/launch_policy/)
+- [`docs/reference/realm_controller.md`](realm_controller.md)
+- [`docs/reference/run-phase/session-lifecycle.md`](run-phase/session-lifecycle.md)
+- [`openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md`](../../openspec/changes/add-versioned-unattended-brain-launch-policy/verification/live-validation-matrix.md)
