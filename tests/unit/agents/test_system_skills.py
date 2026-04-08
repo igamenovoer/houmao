@@ -10,6 +10,7 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_AGENT_GATEWAY,
     SYSTEM_SKILL_SET_AGENT_MESSAGING,
     SYSTEM_SKILL_SET_AGENT_INSTANCE,
+    SYSTEM_SKILL_SET_ADVANCED_USAGE,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
     SYSTEM_SKILL_SET_USER_CONTROL,
     SYSTEM_SKILL_STATE_SCHEMA_VERSION,
@@ -50,6 +51,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert tuple(catalog.skills.keys()) == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-adv-usage-pattern",
         "houmao-mailbox-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
@@ -62,6 +64,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert tuple(catalog.sets.keys()) == (
         "mailbox-core",
         "mailbox-full",
+        "advanced-usage",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -69,18 +72,21 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     )
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
+        SYSTEM_SKILL_SET_ADVANCED_USAGE,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
         SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
     assert catalog.auto_install.managed_join_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
+        SYSTEM_SKILL_SET_ADVANCED_USAGE,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
         SYSTEM_SKILL_SET_AGENT_GATEWAY,
     )
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
+        SYSTEM_SKILL_SET_ADVANCED_USAGE,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_INSTANCE,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
@@ -96,6 +102,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         set_names=(
             "mailbox-core",
             "mailbox-full",
+            "advanced-usage",
             "user-control",
             "agent-messaging",
             "agent-gateway",
@@ -107,6 +114,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-adv-usage-pattern",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -128,6 +136,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-adv-usage-pattern",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -242,9 +251,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     stop_action_path = manage_specialist_actions / "stop.md"
     project_init_action = project_init_action_path.read_text(encoding="utf-8")
     project_status_action = project_status_action_path.read_text(encoding="utf-8")
-    project_launch_profiles_action = project_launch_profiles_action_path.read_text(
-        encoding="utf-8"
-    )
+    project_launch_profiles_action = project_launch_profiles_action_path.read_text(encoding="utf-8")
     project_easy_instances_action = project_easy_instances_action_path.read_text(encoding="utf-8")
     project_overlay_reference = project_overlay_reference_path.read_text(encoding="utf-8")
     project_layout_reference = project_layout_reference_path.read_text(encoding="utf-8")
@@ -294,11 +301,17 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert project_layout_reference_path.is_file()
     assert project_effects_reference_path.is_file()
     assert project_routing_reference_path.is_file()
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in project_init_action
+    assert (
+        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
+        in project_init_action
+    )
     assert "<chosen houmao-mgr launcher>" in project_init_action
     assert "--with-compatibility-profiles" in project_init_action
     assert "would_bootstrap_overlay" in project_status_action
-    assert "project agents launch-profiles add --name <profile> --recipe <recipe>" in project_launch_profiles_action
+    assert (
+        "project agents launch-profiles add --name <profile> --recipe <recipe>"
+        in project_launch_profiles_action
+    )
     assert "project easy instance list" in project_easy_instances_action
     assert "project easy instance get --name <name>" in project_easy_instances_action
     assert "project easy instance stop --name <name>" in project_easy_instances_action
@@ -383,7 +396,10 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert credentials_add_action_path.is_file()
     assert credentials_set_action_path.is_file()
     assert credentials_remove_action_path.is_file()
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in credentials_get_action
+    assert (
+        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
+        in credentials_get_action
+    )
     assert "<chosen houmao-mgr launcher>" in credentials_get_action
     assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
     assert "Do not bypass `auth get`" in credentials_get_action
@@ -422,7 +438,10 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert definition_get_action_path.is_file()
     assert definition_set_action_path.is_file()
     assert definition_remove_action_path.is_file()
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in definition_get_action
+    assert (
+        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
+        in definition_get_action
+    )
     assert "<chosen houmao-mgr launcher>" in definition_get_action
     assert "project agents roles init --name <role>" in definition_create_action_path.read_text(
         encoding="utf-8"
@@ -513,6 +532,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
 
     assert result.selected_set_names == (
         "mailbox-full",
+        "advanced-usage",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -523,6 +543,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-adv-usage-pattern",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -534,6 +555,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
+    assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
@@ -599,8 +621,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert mailbox_mode_reference_path.is_file()
     assert mailbox_structural_reference_path.is_file()
     assert mailbox_stalwart_reference_path.is_file()
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in mailbox_init_action_path.read_text(
-        encoding="utf-8"
+    assert (
+        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
+        in mailbox_init_action_path.read_text(encoding="utf-8")
     )
     assert "<chosen houmao-mgr launcher>" in mailbox_init_action_path.read_text(encoding="utf-8")
     assert "actions/launch.md" in manage_agent_instance_skill
@@ -670,7 +693,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert gateway_scope_reference_path.is_file()
     assert gateway_http_reference_path.is_file()
     assert "HOUMAO_AGENT_ID" in gateway_discover_action
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in gateway_discover_action
+    assert (
+        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
+        in gateway_discover_action
+    )
     assert "<chosen houmao-mgr launcher>" in gateway_discover_action
     assert "agents mail resolve-live" in gateway_discover_action
     assert "/v1/wakeups" in gateway_wakeups_action

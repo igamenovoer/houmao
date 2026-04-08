@@ -963,6 +963,173 @@ def test_deliver_message_routes_by_address_and_state_updates_use_active_registra
     ) == (1, 1, 0, 0)
 
 
+def test_deliver_message_self_addressed_mail_starts_unread(tmp_path: Path) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-self",
+        address="HOUMAO-self@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+
+    staged_message = paths.staging_dir / "self-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T041600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T041600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T04:16:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": sender.principal_id,
+                    "address": sender.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Self-addressed reminder",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+
+    result = deliver_message(paths.root, request)
+
+    sender_sent_projection = (
+        paths.mailbox_entry_path(sender.address) / "sent" / f"{request.message_id}.md"
+    )
+    sender_inbox_projection = (
+        paths.mailbox_entry_path(sender.address) / "inbox" / f"{request.message_id}.md"
+    )
+
+    assert result["ok"] is True
+    assert sender_sent_projection.is_symlink()
+    assert sender_inbox_projection.is_symlink()
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=sender.address,
+        message_id=request.message_id,
+    ) == (0, 0, 0, 0)
+
+
+def test_update_mailbox_state_lazy_insert_keeps_self_addressed_mail_unread(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-self",
+        address="HOUMAO-self@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+
+    staged_message = paths.staging_dir / "lazy-self-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T041700Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T041700Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T04:17:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": sender.principal_id,
+                    "address": sender.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Lazy self-addressed reminder",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+
+    registration = load_active_mailbox_registration(paths.root, address=sender.address)
+    with sqlite3.connect(registration.local_sqlite_path) as connection:
+        connection.execute("DELETE FROM message_state WHERE message_id = ?", (request.message_id,))
+        connection.commit()
+
+    state_result = update_mailbox_state(
+        paths.root,
+        StateUpdateRequest.from_payload(
+            {
+                "address": sender.address,
+                "message_id": request.message_id,
+                "starred": True,
+            }
+        ),
+    )
+
+    assert state_result["ok"] is True
+    assert state_result["read"] is False
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=sender.address,
+        message_id=request.message_id,
+    ) == (0, 1, 0, 0)
+
+
+def test_repair_mailbox_index_rebuilds_self_addressed_mail_as_unread(tmp_path: Path) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-self",
+        address="HOUMAO-self@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+
+    staged_message = paths.staging_dir / "repair-self-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T041800Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T041800Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T04:18:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": sender.principal_id,
+                    "address": sender.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Repair self-addressed reminder",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+    paths.sqlite_path.unlink()
+
+    result = repair_mailbox_index(paths.root, RepairRequest.from_payload({}))
+
+    assert result["ok"] is True
+    assert result["message_count"] == 1
+    assert result["projection_count"] == 2
+    assert result["defaulted_state_count"] == 1
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=sender.address,
+        message_id=request.message_id,
+    ) == (0, 0, 0, 0)
+
+
 def test_deregister_mailbox_purge_preserves_canonical_history_and_symlink_targets(
     tmp_path: Path,
 ) -> None:

@@ -17,7 +17,6 @@ from houmao.agents.mailbox_runtime_support import (
     mailbox_skills_destination_for_tool,
     parse_declarative_mailbox_config,
     publish_tmux_live_mailbox_projection,
-    replaceable_mailbox_cleanup_paths,
     resolve_live_mailbox_binding_from_agent_identity,
     resolve_live_mailbox_binding_from_manifest_path,
     resolve_live_mailbox_binding,
@@ -219,22 +218,7 @@ def test_resolve_live_mailbox_binding_preserves_symlink_filesystem_projection(
     assert resolution.source == "manifest_binding"
     assert resolution.mailbox == durable_mailbox
     assert payload["mailbox"]["filesystem"]["mailbox_kind"] == "symlink"
-
-
-def test_replaceable_mailbox_cleanup_paths_returns_private_symlink_mailbox(
-    tmp_path: Path,
-) -> None:
-    durable_mailbox = _build_symlink_filesystem_mailbox(tmp_path)
-
-    assert replaceable_mailbox_cleanup_paths(durable_mailbox) == (durable_mailbox.mailbox_path,)
-
-
-def test_replaceable_mailbox_cleanup_paths_skips_in_root_filesystem_mailbox(
-    tmp_path: Path,
-) -> None:
-    durable_mailbox = _build_filesystem_mailbox(tmp_path)
-
-    assert replaceable_mailbox_cleanup_paths(durable_mailbox) == ()
+    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(durable_mailbox.mailbox_path)
 
 
 def test_resolve_live_mailbox_binding_rejects_missing_active_registration(tmp_path: Path) -> None:
@@ -433,37 +417,37 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert set(references) == {
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-adv-usage-pattern",
     }
     assert (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/SKILL.md").is_file()
+    assert (mailbox_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/check.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/reply.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/references/curl-examples.md").is_file()
     assert (
-        mailbox_root
-        / "houmao-agent-email-comms/references/self-notification-via-gateway.md"
+        mailbox_root / "houmao-agent-email-comms/references/self-notification-via-gateway.md"
     ).is_file()
     assert (mailbox_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
     processing_skill = (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
         encoding="utf-8"
     )
-    gateway_skill = (mailbox_root / "houmao-agent-email-comms/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    gateway_skill = (mailbox_root / "houmao-agent-email-comms/SKILL.md").read_text(encoding="utf-8")
     assert "shared gateway mailbox API" in processing_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
-    assert "references/self-notification-via-gateway.md" in gateway_skill
+    assert "houmao-adv-usage-pattern" in gateway_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     install_state = load_system_skill_install_state(tool="codex", home_path=home_path)
     assert install_state is not None
     assert tuple(record.name for record in install_state.installed_skills) == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-adv-usage-pattern",
     )
 
 
@@ -478,6 +462,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
     assert set(references) == {
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-adv-usage-pattern",
     }
     assert (
         home_path
@@ -488,6 +473,11 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
         home_path
         / mailbox_skills_destination_for_tool("gemini")
         / "houmao-agent-email-comms/SKILL.md"
+    ).is_file()
+    assert (
+        home_path
+        / mailbox_skills_destination_for_tool("gemini")
+        / "houmao-adv-usage-pattern/SKILL.md"
     ).is_file()
     assert not (home_path / mailbox_skills_destination_for_tool("gemini") / "mailbox").exists()
 
@@ -503,9 +493,11 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_claude_top_leve
     assert set(references) == {
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-adv-usage-pattern",
     }
     assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/SKILL.md").is_file()
+    assert (skills_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/actions/check.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()

@@ -8,7 +8,7 @@ import hashlib
 import mimetypes
 from pathlib import Path
 import sqlite3
-from typing import Protocol, Sequence
+from typing import Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from houmao.agents.mailbox_runtime_models import (
@@ -222,7 +222,7 @@ class FilesystemGatewayMailboxAdapter:
                     message_id=message_id, created_at_utc=created_at_utc
                 ),
             ),
-            unread=False,
+            unread=self._load_local_unread_state(message_id=message_id),
         )
 
     def post(
@@ -261,7 +261,7 @@ class FilesystemGatewayMailboxAdapter:
                     message_id=message_id, created_at_utc=created_at_utc
                 ),
             ),
-            unread=True,
+            unread=self._load_local_unread_state(message_id=message_id),
         )
 
     def reply(
@@ -307,7 +307,7 @@ class FilesystemGatewayMailboxAdapter:
                     message_id=message_id, created_at_utc=created_at_utc
                 ),
             ),
-            unread=False,
+            unread=self._load_local_unread_state(message_id=message_id),
         )
 
     def update_read_state(
@@ -350,7 +350,7 @@ class FilesystemGatewayMailboxAdapter:
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
         sender: ManagedPrincipal | None = None,
-        headers: dict[str, object] | None = None,
+        headers: Mapping[str, object] | None = None,
     ) -> DeliveryRequest:
         staged_message_path = (
             self.m_mailbox.filesystem_root / "staging" / f"gateway-{uuid4().hex[:12]}.md"
@@ -462,6 +462,29 @@ class FilesystemGatewayMailboxAdapter:
         if row is None:
             raise GatewayMailboxError(f"filesystem mailbox message `{message_id}` was not found")
         return self._load_message_document(message_id=message_id, canonical_path=Path(str(row[0])))
+
+    def _load_local_unread_state(self, *, message_id: str) -> bool:
+        """Return the actor-local unread state for one delivered filesystem message."""
+
+        local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+            self.m_mailbox.filesystem_root,
+            address=self.m_mailbox.address,
+        )
+        try:
+            with sqlite3.connect(local_sqlite_path) as connection:
+                row = connection.execute(
+                    "SELECT is_read FROM message_state WHERE message_id = ?",
+                    (message_id,),
+                ).fetchone()
+        except sqlite3.DatabaseError as exc:
+            raise GatewayMailboxError(
+                f"filesystem mailbox state is unreadable for `{self.m_mailbox.address}`"
+            ) from exc
+        if row is None:
+            raise GatewayMailboxError(
+                f"filesystem mailbox state is missing for `{message_id}` in `{self.m_mailbox.address}`"
+            )
+        return not bool(row[0])
 
     def _load_message_document(self, *, message_id: str, canonical_path: Path) -> MailboxMessage:
         try:

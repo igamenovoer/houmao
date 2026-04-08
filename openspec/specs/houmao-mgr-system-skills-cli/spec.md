@@ -173,19 +173,36 @@ At minimum, the reported state SHALL identify:
 ### Requirement: `houmao-mgr system-skills` surfaces the renamed specialist-management skill in current inventory
 `houmao-mgr system-skills` SHALL use the current packaged system-skill inventory when reporting, installing, and inspecting Houmao-owned skills.
 
-For the user-control skill set, that current inventory SHALL surface `houmao-specialist-mgr` rather than `houmao-create-specialist`.
+For the user-control skill set, that current inventory SHALL surface `houmao-specialist-mgr` rather than `houmao-manage-specialist`.
 
 When `system-skills install` resolves the default or `user-control` selection, the reported installed skill names and subsequent `system-skills status` output SHALL use `houmao-specialist-mgr` as the current specialist-management skill name.
 
 #### Scenario: List reports the renamed specialist-management skill
 - **WHEN** an operator runs `houmao-mgr system-skills list`
 - **THEN** the command reports `houmao-specialist-mgr` in the current Houmao-owned skill inventory
-- **AND THEN** the `user-control` set resolves the renamed skill instead of `houmao-create-specialist`
+- **AND THEN** the `user-control` set resolves the renamed skill instead of `houmao-manage-specialist`
 
 #### Scenario: Default install and status report the renamed skill
 - **WHEN** an operator installs the CLI default system-skill selection into a target tool home
 - **THEN** the install result reports `houmao-specialist-mgr` in the resolved current skill list
 - **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-specialist-mgr` as the installed specialist-management skill
+
+### Requirement: `houmao-mgr system-skills` surfaces the user-control project-management skill
+`houmao-mgr system-skills` SHALL use the current packaged system-skill inventory and named sets when reporting, installing, and inspecting Houmao-owned skills.
+
+That current inventory SHALL surface `houmao-project-mgr` as an installable packaged skill.
+
+When `system-skills install` resolves a selection that includes `user-control`, the reported installed skill names and later `houmao-mgr system-skills status` output SHALL include `houmao-project-mgr` whenever that install completed successfully.
+
+#### Scenario: List reports the user-control project-management skill
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the command reports `houmao-project-mgr` in the current Houmao-owned skill inventory
+- **AND THEN** it reports that skill as part of the packaged `user-control` skill family
+
+#### Scenario: User-control install and status report the project-management skill
+- **WHEN** an operator installs a system-skill selection that includes `user-control` into a target tool home
+- **THEN** the install result reports `houmao-project-mgr` in the resolved current skill list
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-project-mgr` as installed when that selection completed successfully
 
 ### Requirement: `houmao-mgr system-skills` surfaces the user-control named set and credential-management skill
 `houmao-mgr system-skills` SHALL use the current packaged system-skill inventory and named sets when reporting, installing, and inspecting Houmao-owned skills.
@@ -232,6 +249,7 @@ The reported named sets SHALL include the dedicated agent-instance lifecycle set
 
 When `system-skills install` resolves the packaged CLI-default set list, the resolved installed skill names and later `system-skills status` output SHALL include:
 
+- `houmao-project-mgr`
 - `houmao-specialist-mgr`
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
@@ -249,7 +267,7 @@ Omitting both `--set` and `--skill` SHALL remain one supported path that resolve
 #### Scenario: Omitted-selection install reports the packaged non-mailbox Houmao skills
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home`
 - **AND WHEN** no `--set` or `--skill` is supplied
-- **THEN** the install result reports `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the resolved current skill list
+- **THEN** the install result reports `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-instance`, `houmao-agent-messaging`, and `houmao-agent-gateway` in the resolved current skill list
 - **AND THEN** a later `houmao-mgr system-skills status` for that home reports those skills as installed when the CLI-default install completed successfully
 
 ### Requirement: `houmao-mgr system-skills` surfaces the unified mailbox skill inventory
@@ -286,3 +304,22 @@ When `system-skills install` resolves a selection that includes mailbox skills, 
 - **WHEN** an operator installs a system-skill selection that includes `mailbox-core` and no broader mailbox set
 - **THEN** the resolved mailbox skill list includes `houmao-process-emails-via-gateway` and `houmao-agent-email-comms`
 - **AND THEN** it does not automatically add `houmao-mailbox-mgr` through the narrower mailbox-core selection
+
+### Requirement: `houmao-mgr system-skills` surfaces the packaged advanced-usage skill
+`houmao-mgr system-skills` SHALL use the packaged current-system-skill inventory and named sets when reporting, installing, and inspecting Houmao-owned skills.
+
+That current inventory SHALL surface `houmao-adv-usage-pattern` as an installable packaged skill.
+
+The reported named sets SHALL include the dedicated advanced-usage set for that skill.
+
+When `system-skills install` resolves the packaged managed-home or CLI-default selection that includes the advanced-usage set, the reported installed skill names and later `system-skills status` output SHALL include `houmao-adv-usage-pattern` whenever that install completed successfully.
+
+#### Scenario: List reports the advanced-usage skill and set
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the command reports `houmao-adv-usage-pattern` in the current Houmao-owned skill inventory
+- **AND THEN** it reports the dedicated advanced-usage named set in the current packaged set inventory
+
+#### Scenario: Default install and status report the advanced-usage skill
+- **WHEN** an operator installs a packaged default system-skill selection into a target tool home
+- **THEN** the install result reports `houmao-adv-usage-pattern` in the resolved current skill list when the default set list includes the advanced-usage set
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-adv-usage-pattern` as installed when that selection completed successfully

@@ -72,6 +72,7 @@ MAILBOX_TRANSPORT_STALWART = "stalwart"
 MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
 MAILBOX_PROCESSING_SKILL_NAME = "houmao-process-emails-via-gateway"
 MAILBOX_COMMS_SKILL_NAME = "houmao-agent-email-comms"
+MAILBOX_ADVANCED_USAGE_SKILL_NAME = "houmao-adv-usage-pattern"
 MAILBOX_PROCESSING_SKILL_REFERENCE = (
     f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_PROCESSING_SKILL_NAME}"
 )
@@ -458,23 +459,6 @@ def resolve_effective_mailbox_config(
         f"unsupported mailbox transport {transport!r}; expected one of "
         f"{MAILBOX_TRANSPORT_FILESYSTEM!r} or {MAILBOX_TRANSPORT_STALWART!r}"
     )
-
-
-def replaceable_mailbox_cleanup_paths(config: MailboxResolvedConfig | None) -> tuple[Path, ...]:
-    """Return predecessor-owned mailbox paths that are safe to remove during clean takeover."""
-
-    if not isinstance(config, FilesystemMailboxResolvedConfig):
-        return ()
-    if config.mailbox_kind != "symlink" or config.mailbox_path is None:
-        return ()
-
-    mailbox_path = config.mailbox_path.resolve()
-    filesystem_root = config.filesystem_root.resolve()
-    try:
-        mailbox_path.relative_to(filesystem_root)
-    except ValueError:
-        return (mailbox_path,)
-    return ()
 
 
 def refresh_filesystem_mailbox_config(
@@ -985,6 +969,7 @@ def install_runtime_mailbox_system_skills_for_tool(
         skill_names=(
             MAILBOX_PROCESSING_SKILL_NAME,
             MAILBOX_COMMS_SKILL_NAME,
+            MAILBOX_ADVANCED_USAGE_SKILL_NAME,
         ),
     )
     return tuple(
@@ -1009,6 +994,7 @@ def project_runtime_mailbox_system_skills(
         skill_names=(
             MAILBOX_PROCESSING_SKILL_NAME,
             MAILBOX_COMMS_SKILL_NAME,
+            MAILBOX_ADVANCED_USAGE_SKILL_NAME,
         ),
     )
 

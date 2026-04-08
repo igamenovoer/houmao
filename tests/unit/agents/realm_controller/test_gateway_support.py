@@ -3613,6 +3613,101 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert operator_count == (1,)
 
 
+def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    client = TestClient(create_app(runtime=runtime))
+    try:
+        send_response = client.post(
+            "/v1/mail/send",
+            json=GatewayMailSendRequestV1(
+                to=["HOUMAO-gpu@agents.localhost"],
+                subject="Gateway self-send",
+                body_content="filesystem self-send body",
+            ).model_dump(mode="json"),
+        )
+        assert send_response.status_code == 200
+        send_payload = send_response.json()
+        self_message_ref = send_payload["message"]["message_ref"]
+        assert send_payload["message"]["unread"] is True
+
+        check_response = client.post(
+            "/v1/mail/check",
+            json=GatewayMailCheckRequestV1(unread_only=True, limit=10).model_dump(mode="json"),
+        )
+        assert check_response.status_code == 200
+        check_payload = check_response.json()
+        assert check_payload["unread_count"] == 1
+        assert [message["message_ref"] for message in check_payload["messages"]] == [
+            self_message_ref
+        ]
+
+        status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        assert status.enabled is True
+        assert status.supported is True
+
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
+        _wait_until(
+            lambda: any(
+                row.outcome == "enqueued"
+                and row.unread_summary
+                and row.unread_summary[0].message_ref == self_message_ref
+                for row in read_gateway_notifier_audit_records(paths.queue_path)
+            ),
+            timeout_seconds=5.0,
+        )
+
+        state_response = client.post(
+            "/v1/mail/state",
+            json=GatewayMailStateRequestV1(
+                message_ref=self_message_ref,
+                read=True,
+            ).model_dump(mode="json"),
+        )
+        assert state_response.status_code == 200
+        assert state_response.json()["read"] is True
+
+        post_mark_read_check = client.post(
+            "/v1/mail/check",
+            json=GatewayMailCheckRequestV1(unread_only=True, limit=10).model_dump(mode="json"),
+        )
+        assert post_mark_read_check.status_code == 200
+        assert post_mark_read_check.json()["unread_count"] == 0
+
+        _wait_until(
+            lambda: any(
+                row.outcome == "empty" and row.unread_count == 0
+                for row in read_gateway_notifier_audit_records(paths.queue_path)
+            ),
+            timeout_seconds=5.0,
+        )
+    finally:
+        runtime.shutdown()
+
+
 def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4400,7 +4495,10 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "not as a registered slash skill" not in prompt
         assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
-        assert "use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms`" in prompt
+        assert (
+            "use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms`"
+            in prompt
+        )
         assert "Do not inspect the current project or runtime home for skill files." in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
@@ -4469,9 +4567,15 @@ def test_gateway_mail_notifier_renders_claude_native_skill_invocation(
 
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
-        assert "Claude Code the standalone slash-skill line above invokes the installed Houmao skill" in prompt
+        assert (
+            "Claude Code the standalone slash-skill line above invokes the installed Houmao skill"
+            in prompt
+        )
         assert "/houmao-process-emails-via-gateway" in prompt
-        assert "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name" in prompt
+        assert (
+            "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name"
+            in prompt
+        )
         assert "Do not inspect the current project or runtime home for skill files." in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt

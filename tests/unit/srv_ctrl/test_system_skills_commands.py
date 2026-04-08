@@ -9,15 +9,30 @@ from houmao.srv_ctrl.commands.main import cli
 
 _DEFAULT_SET_NAMES = [
     "mailbox-full",
+    "advanced-usage",
     "user-control",
     "agent-instance",
     "agent-messaging",
     "agent-gateway",
 ]
+_CATALOG_SKILLS = [
+    "houmao-process-emails-via-gateway",
+    "houmao-agent-email-comms",
+    "houmao-adv-usage-pattern",
+    "houmao-mailbox-mgr",
+    "houmao-project-mgr",
+    "houmao-specialist-mgr",
+    "houmao-credential-mgr",
+    "houmao-agent-definition",
+    "houmao-agent-instance",
+    "houmao-agent-messaging",
+    "houmao-agent-gateway",
+]
 _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-mailbox-mgr",
+    "houmao-adv-usage-pattern",
     "houmao-project-mgr",
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
@@ -49,10 +64,11 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert [record["name"] for record in payload["skills"]] == _DEFAULT_RESOLVED_SKILLS
+    assert [record["name"] for record in payload["skills"]] == _CATALOG_SKILLS
     assert [record["name"] for record in payload["sets"]] == [
         "mailbox-core",
         "mailbox-full",
+        "advanced-usage",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -61,12 +77,14 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
     assert payload["auto_install"]["managed_launch_sets"] == [
         "mailbox-full",
+        "advanced-usage",
         "user-control",
         "agent-messaging",
         "agent-gateway",
     ]
     assert payload["auto_install"]["managed_join_sets"] == [
         "mailbox-full",
+        "advanced-usage",
         "user-control",
         "agent-messaging",
         "agent-gateway",
@@ -86,6 +104,10 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
     ]
+    advanced_usage_record = next(
+        record for record in payload["sets"] if record["name"] == "advanced-usage"
+    )
+    assert advanced_usage_record["skills"] == ["houmao-adv-usage-pattern"]
     user_control_record = next(
         record for record in payload["sets"] if record["name"] == "user-control"
     )
@@ -132,6 +154,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()

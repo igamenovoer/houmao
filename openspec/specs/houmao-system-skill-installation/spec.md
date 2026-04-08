@@ -22,7 +22,7 @@ For the current maintained skill set, each packaged skill `asset_subpath` SHALL 
 
 Logical grouping of current skills SHALL be expressed through named skill sets and descriptions rather than through nested packaged skill directories.
 
-For the user-control skill set, the current packaged specialist-management skill SHALL be `houmao-specialist-mgr`, the current packaged credential-management skill SHALL be `houmao-credential-mgr`, and the packaged catalog SHALL NOT continue to expose `project-easy` as the active named set for those packaged skills.
+For the user-control skill set, the current packaged project-management skill SHALL be `houmao-project-mgr`, the current packaged specialist-management skill SHALL be `houmao-specialist-mgr`, the current packaged credential-management skill SHALL be `houmao-credential-mgr`, the current packaged low-level definition-management skill SHALL be `houmao-agent-definition`, and the packaged catalog SHALL NOT continue to expose `project-easy` as the active named set for those packaged skills or `houmao-manage-specialist`, `houmao-manage-credentials`, or `houmao-manage-agent-definition` as current installable skills.
 
 #### Scenario: Maintainer inspects the packaged current-skill catalog
 - **WHEN** a maintainer inspects the Houmao-owned packaged system-skill assets
@@ -31,10 +31,11 @@ For the user-control skill set, the current packaged specialist-management skill
 - **AND THEN** one authoritative packaged catalog file identifies the current installable skill inventory, named skill sets, fixed auto-install set lists, and explicit `schema_version`
 - **AND THEN** each current packaged skill directory lives directly under that asset root using its skill name as the relative `asset_subpath`
 
-#### Scenario: User-control set references the current packaged user-control skills
+#### Scenario: User-control set references the renamed current packaged user-control skills
 - **WHEN** a maintainer inspects the packaged current-skill catalog
-- **THEN** the `user-control` set resolves `houmao-specialist-mgr` and `houmao-credential-mgr`
+- **THEN** the `user-control` set resolves `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, and `houmao-agent-definition`
 - **AND THEN** the current installable skill inventory does not still expose `project-easy` as the active named set for that packaged skill family
+- **AND THEN** the current installable skill inventory does not still expose `houmao-manage-specialist`, `houmao-manage-credentials`, or `houmao-manage-agent-definition` as active packaged skills
 
 #### Scenario: Loader rejects a schema-invalid packaged catalog
 - **WHEN** Houmao loads the packaged current-skill catalog
@@ -189,6 +190,7 @@ That packaged skill SHALL use `houmao-agent-definition` as both its catalog key 
 
 The packaged catalog's `user-control` named set SHALL include:
 
+- `houmao-project-mgr`
 - `houmao-specialist-mgr`
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
@@ -200,7 +202,7 @@ Because managed launch and managed join already resolve `user-control`, those fi
 #### Scenario: Maintainer sees the packaged agent-definition skill in the user-control inventory
 - **WHEN** a maintainer inspects the packaged current-system-skill catalog
 - **THEN** the current installable skill inventory includes `houmao-agent-definition`
-- **AND THEN** the `user-control` named set resolves that skill alongside `houmao-specialist-mgr` and `houmao-credential-mgr`
+- **AND THEN** the `user-control` named set resolves that skill alongside `houmao-project-mgr`, `houmao-specialist-mgr`, and `houmao-credential-mgr`
 
 #### Scenario: Managed auto-install picks up the expanded user-control set
 - **WHEN** a maintainer inspects the packaged `managed_launch_sets` and `managed_join_sets`
@@ -290,3 +292,22 @@ When those fixed selections resolve `mailbox-full`, the resolved installed skill
 - **AND WHEN** those fixed set lists still include `mailbox-full`
 - **THEN** the resolved install selection includes `houmao-mailbox-mgr`
 - **AND THEN** the change does not require a separate fixed auto-install set just to surface mailbox-administration guidance
+
+### Requirement: Packaged system-skill catalog includes the advanced-usage skill and default set selection
+The packaged current-system-skill catalog SHALL include `houmao-adv-usage-pattern` as a current installable Houmao-owned skill.
+
+That packaged skill SHALL use `houmao-adv-usage-pattern` as both its catalog key and its packaged `asset_subpath`.
+
+The packaged catalog SHALL define a dedicated named set for that skill rather than folding it silently into an unrelated existing set.
+
+The packaged catalog's fixed `managed_launch_sets`, `managed_join_sets`, and `cli_default_sets` selections SHALL include that dedicated advanced-usage set so the packaged advanced skill is installed by default in managed homes and default external-home installs.
+
+#### Scenario: Maintainer sees the advanced-usage skill in the packaged catalog
+- **WHEN** a maintainer inspects the packaged current-system-skill catalog
+- **THEN** the current installable skill inventory includes `houmao-adv-usage-pattern`
+- **AND THEN** the catalog defines a dedicated named set for that skill using the same flat packaged asset-path model as the other current skills
+
+#### Scenario: Default install selections include the advanced-usage set
+- **WHEN** a maintainer inspects the packaged `managed_launch_sets`, `managed_join_sets`, and `cli_default_sets`
+- **THEN** each fixed selection includes the dedicated advanced-usage set
+- **AND THEN** the default resolved install list for managed homes and CLI-default installs includes `houmao-adv-usage-pattern`

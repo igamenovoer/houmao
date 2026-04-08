@@ -42,14 +42,13 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 
 - Read [references/endpoint-contract.md](references/endpoint-contract.md) for the shared `/v1/mail/*` route summary.
 - Read [references/curl-examples.md](references/curl-examples.md) for copy-paste curl forms against the exact current `gateway.base_url`.
-- Read [references/self-notification-via-gateway.md](references/self-notification-via-gateway.md) when a managed agent with a live gateway and mailbox binding needs to leave itself one mailbox-driven follow-up reminder and then wait for the next gateway notification round.
 - Read [references/managed-agent-fallback.md](references/managed-agent-fallback.md) for the supported `houmao-mgr agents mail ...` fallback surface when no live gateway facade exists.
 - Read [references/filesystem-resolver-fields.md](references/filesystem-resolver-fields.md) or [references/stalwart-resolver-fields.md](references/stalwart-resolver-fields.md) when transport-local resolver fields matter.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) only when filesystem mailbox layout details are relevant.
 
 ## Useful Patterns
 
-- A managed agent with a live gateway and mailbox binding can send mail to its own mailbox, leave the gateway mail-notifier enabled, and then wait for the next notification round instead of polling mail proactively. Use [references/self-notification-via-gateway.md](references/self-notification-via-gateway.md) for the exact pattern boundary and guardrails.
+- For supported higher-level mailbox and gateway compositions such as self-wakeup through self-mail plus notifier-driven rounds, switch to the Houmao advanced-usage skill `houmao-adv-usage-pattern`.
 
 ## Guardrails
 
