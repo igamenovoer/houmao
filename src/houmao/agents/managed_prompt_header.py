@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
@@ -48,7 +48,7 @@ def normalize_managed_header_policy(
             f"{source} stores invalid managed-header policy {value!r}; expected "
             "`inherit`, `enabled`, or `disabled`."
         )
-    return value
+    return cast(ManagedHeaderPolicy, value)
 
 
 def resolve_managed_prompt_header_decision(

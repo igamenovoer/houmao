@@ -4086,6 +4086,160 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
     assert captured["mailbox_account_dir"] is None
 
 
+def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project._load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(
+            tool="codex",
+            provider="codex",
+            resolved_preset_path=lambda project_overlay: preset_path,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="repo-research-1",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["force_mode"] == "keep-stale"
+
+
+def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    specialist = SimpleNamespace(
+        tool="codex",
+        provider="codex",
+        resolved_preset_path=lambda project_overlay: preset_path,
+    )
+    resolved_profile = SimpleNamespace(
+        specialist=specialist,
+        source_exists=True,
+        recipe_name="researcher",
+        prompt_overlay_text=None,
+        entry=SimpleNamespace(
+            name="alice",
+            profile_lane="easy_profile",
+            source_kind="specialist",
+            source_name="researcher",
+            mailbox_payload=None,
+            operator_prompt_mode=None,
+            env_payload={},
+            model_name=None,
+            reasoning_level=None,
+            managed_header_policy="inherit",
+            prompt_overlay_mode=None,
+            posture_payload={"headless": True},
+            managed_agent_name="profile-agent",
+            auth_name=None,
+            workdir=None,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project._load_launch_profile_or_click",
+        lambda **kwargs: resolved_profile,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="profile-agent",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--profile",
+            "alice",
+            "--force",
+            "clean",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["force_mode"] == "clean"
+
+
 def test_project_easy_instance_stop_checks_overlay_and_delegates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

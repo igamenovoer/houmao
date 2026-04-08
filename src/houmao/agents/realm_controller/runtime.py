@@ -29,6 +29,7 @@ from houmao.agents.managed_prompt_header import (
     compose_managed_launch_prompt,
     resolve_managed_prompt_header_decision,
 )
+from houmao.agents.managed_launch_force import ManagedLaunchForceMode
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
     AGENT_DEF_DIR_ENV_VAR,
@@ -1047,6 +1048,7 @@ def start_runtime_session(
     gateway_execution_mode_override: GatewayCurrentExecutionMode | None = None,
     tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
+    managed_force_mode: ManagedLaunchForceMode | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
@@ -1197,6 +1199,14 @@ def start_runtime_session(
         style=headless_display_style,
         detail=headless_display_detail,
     )
+    if managed_force_mode is not None:
+        launch_plan = replace(
+            launch_plan,
+            metadata={
+                **launch_plan.metadata,
+                "managed_force_mode": managed_force_mode,
+            },
+        )
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import tomllib
@@ -252,6 +253,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_mgr_skill.is_file()
+    assert (home / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
@@ -265,6 +267,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
@@ -1254,6 +1257,70 @@ auth_projection:
     adapter = _load_tool_adapter(adapter_path)
 
     assert adapter.credential_file_mappings[0].required is True
+
+
+def test_build_brain_home_keep_stale_preserves_untouched_existing_files(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    base_request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=runtime_root,
+        tool="codex",
+        skills=["skill-a"],
+        setup="default",
+        auth="personal-a",
+        home_id="home-001",
+    )
+    first_build = build_brain_home(base_request)
+    stale_path = first_build.home_path / "stale.txt"
+    stale_path.write_text("left behind\n", encoding="utf-8")
+
+    second_build = build_brain_home(
+        replace(base_request, existing_home_mode="keep-stale")
+    )
+
+    assert second_build.home_path == first_build.home_path
+    assert stale_path.is_file()
+    assert (
+        second_build.manifest["runtime"]["launch_contract"]["construction_provenance"][
+            "existing_home_mode"
+        ]
+        == "keep-stale"
+    )
+
+
+def test_build_brain_home_clean_recreates_empty_home_before_projection(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    base_request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=runtime_root,
+        tool="codex",
+        skills=["skill-a"],
+        setup="default",
+        auth="personal-a",
+        home_id="home-001",
+    )
+    first_build = build_brain_home(base_request)
+    stale_path = first_build.home_path / "stale.txt"
+    stale_path.write_text("left behind\n", encoding="utf-8")
+
+    second_build = build_brain_home(replace(base_request, existing_home_mode="clean"))
+
+    assert second_build.home_path == first_build.home_path
+    assert not stale_path.exists()
+    assert (
+        second_build.manifest["runtime"]["launch_contract"]["construction_provenance"][
+            "existing_home_mode"
+        ]
+        == "clean"
+    )
 
 
 @pytest.mark.parametrize(

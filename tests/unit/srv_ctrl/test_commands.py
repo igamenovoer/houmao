@@ -2010,6 +2010,69 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
     assert "conflicts with launch profile" in result.output
 
 
+def test_agents_launch_help_mentions_force_mode() -> None:
+    result = CliRunner().invoke(cli, ["agents", "launch", "--help"])
+
+    assert result.exit_code == 0
+    assert "--force [keep-stale|clean]" in result.output
+
+
+def test_agents_launch_bare_force_forwards_keep_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    captured: dict[str, object] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity="worker-a",
+                agent_id="agent-1234",
+                tmux_session_name="worker-a",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["force_mode"] == "keep-stale"
+
+
+def test_agents_launch_rejects_invalid_force_mode() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--force",
+            "broken",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--force'" in result.output
+
+
 def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

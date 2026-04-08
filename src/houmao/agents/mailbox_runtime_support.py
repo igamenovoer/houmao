@@ -460,6 +460,23 @@ def resolve_effective_mailbox_config(
     )
 
 
+def replaceable_mailbox_cleanup_paths(config: MailboxResolvedConfig | None) -> tuple[Path, ...]:
+    """Return predecessor-owned mailbox paths that are safe to remove during clean takeover."""
+
+    if not isinstance(config, FilesystemMailboxResolvedConfig):
+        return ()
+    if config.mailbox_kind != "symlink" or config.mailbox_path is None:
+        return ()
+
+    mailbox_path = config.mailbox_path.resolve()
+    filesystem_root = config.filesystem_root.resolve()
+    try:
+        mailbox_path.relative_to(filesystem_root)
+    except ValueError:
+        return (mailbox_path,)
+    return ()
+
+
 def refresh_filesystem_mailbox_config(
     config: FilesystemMailboxResolvedConfig,
     *,

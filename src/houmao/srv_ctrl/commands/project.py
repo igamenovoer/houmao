@@ -32,6 +32,7 @@ from houmao.agents.model_selection import (
     model_config_to_payload,
     normalize_model_config,
 )
+from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.project.catalog import ProjectCatalog
 from houmao.project.easy import (
@@ -64,6 +65,7 @@ from .cleanup_support import emit_cleanup_payload
 from .common import (
     build_destructive_confirmation_callback,
     confirm_destructive_action,
+    managed_launch_force_option,
     overwrite_confirm_option,
 )
 from .output import emit
@@ -2446,6 +2448,7 @@ def easy_instance_group() -> None:
     default=None,
     help="Force-enable or disable the Houmao-managed prompt header for this launch.",
 )
+@managed_launch_force_option
 def launch_easy_instance_command(
     specialist: str | None,
     profile: str | None,
@@ -2464,6 +2467,7 @@ def launch_easy_instance_command(
     mail_root: Path | None,
     mail_account_dir: Path | None,
     managed_header: bool | None,
+    force_mode: str | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2607,7 +2611,7 @@ def launch_easy_instance_command(
         if gateway_auto_attach
         else None
     )
-    gateway_execution_mode = (
+    gateway_execution_mode: GatewayCurrentExecutionMode | None = (
         "detached_process"
         if gateway_auto_attach and gateway_background
         else "tmux_auxiliary_window"
@@ -2646,6 +2650,7 @@ def launch_easy_instance_command(
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         launch_profile_provenance=launch_profile_provenance,
+        force_mode=force_mode,
     )
     emit_local_launch_completion(
         launch_result=launch_result,
@@ -4369,6 +4374,7 @@ def _store_launch_profile_from_cli(
         )
     )
     resolved_model_input = _resolve_model_name_or_click(model) if model is not None else None
+    resolved_managed_header_policy: ManagedHeaderPolicy | None
 
     if current is None:
         resolved_agent_name = _optional_non_empty_value(agent_name)

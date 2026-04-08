@@ -17,6 +17,7 @@ from houmao.agents.mailbox_runtime_support import (
     mailbox_skills_destination_for_tool,
     parse_declarative_mailbox_config,
     publish_tmux_live_mailbox_projection,
+    replaceable_mailbox_cleanup_paths,
     resolve_live_mailbox_binding_from_agent_identity,
     resolve_live_mailbox_binding_from_manifest_path,
     resolve_live_mailbox_binding,
@@ -218,7 +219,22 @@ def test_resolve_live_mailbox_binding_preserves_symlink_filesystem_projection(
     assert resolution.source == "manifest_binding"
     assert resolution.mailbox == durable_mailbox
     assert payload["mailbox"]["filesystem"]["mailbox_kind"] == "symlink"
-    assert payload["mailbox"]["filesystem"]["mailbox_path"] == str(durable_mailbox.mailbox_path)
+
+
+def test_replaceable_mailbox_cleanup_paths_returns_private_symlink_mailbox(
+    tmp_path: Path,
+) -> None:
+    durable_mailbox = _build_symlink_filesystem_mailbox(tmp_path)
+
+    assert replaceable_mailbox_cleanup_paths(durable_mailbox) == (durable_mailbox.mailbox_path,)
+
+
+def test_replaceable_mailbox_cleanup_paths_skips_in_root_filesystem_mailbox(
+    tmp_path: Path,
+) -> None:
+    durable_mailbox = _build_filesystem_mailbox(tmp_path)
+
+    assert replaceable_mailbox_cleanup_paths(durable_mailbox) == ()
 
 
 def test_resolve_live_mailbox_binding_rejects_missing_active_registration(tmp_path: Path) -> None:

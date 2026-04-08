@@ -222,6 +222,55 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert resolve_live_agent_record("gpu") is None
 
 
+def test_start_runtime_session_persists_managed_force_mode_in_launch_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(kwargs.get("agent_identity") or "gpu"),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="claude_headless",
+        working_directory=tmp_path,
+        agent_name="gpu",
+        managed_force_mode="keep-stale",
+    )
+
+    persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
+    assert persisted["launch_plan"]["metadata"]["managed_force_mode"] == "keep-stale"
+
+
 def test_start_runtime_session_seeds_gateway_defaults_from_manifest_extra(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
