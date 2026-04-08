@@ -1,12 +1,11 @@
 # Known Issues
 
+## Status
+As of 2026-04-08, the previously stored issue notes in this directory were judged outdated and moved to [`../obsolete/`](../obsolete/).
+
 ## Purpose
-Track ongoing, unfixed issues and current limitations.
+Use this directory only for current, still-relevant known issues.
 
 ## Naming Pattern
 `issue-[description].md`
 Example: `issue-slow-startup-on-windows.md`
-
-## Historical Snapshots
-This directory may include copied issue snapshots used by archived OpenSpec
-history. Keep snapshot paths stable to preserve archive reference integrity.

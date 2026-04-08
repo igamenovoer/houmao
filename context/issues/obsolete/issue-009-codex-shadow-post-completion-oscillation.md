@@ -1,5 +1,10 @@
 # Issue 009: Codex Shadow Post-Completion Oscillation - Historical Progress Lines Keep Finished Turns Active
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 - A finished Codex turn can keep bouncing between active and complete states instead of settling to a stable idle prompt.
 

@@ -5,7 +5,7 @@ Use this action when the attached agent needs a reminder about unfinished work a
 ## Workflow
 
 1. Confirm that the task really wants a gateway-owned reminder rather than a durable external scheduler.
-2. Use the launcher resolved from the top-level skill when managed-agent discovery is still needed.
+2. Use the `houmao-mgr` launcher already chosen by the top-level skill when managed-agent discovery is still needed.
 3. Recover the exact prompt text plus one timing mode from the current prompt first and recent chat context second when they were stated explicitly:
    - `after_seconds`
    - `deliver_at_utc`

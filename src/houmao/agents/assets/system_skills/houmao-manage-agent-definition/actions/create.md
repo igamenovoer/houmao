@@ -4,7 +4,7 @@ Use this action only when the user wants to create one new low-level role or one
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine whether the target is a role or a recipe.
 3. Recover required inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the target kind is still missing, ask the user in Markdown before proceeding. Prefer a compact table when the target kind or several required create inputs need clarification.
@@ -18,8 +18,8 @@ Use this action only when the user wants to create one new low-level role or one
 Use one of these maintained command shapes:
 
 ```text
-<resolved houmao-mgr launcher> project agents roles init --name <role> [--system-prompt <text> | --system-prompt-file <path>]
-<resolved houmao-mgr launcher> project agents recipes add --name <recipe> --role <role> --tool <tool> [--setup <name>] [--auth <bundle>] [--skill <name> ...] [--prompt-mode unattended|as_is]
+<chosen houmao-mgr launcher> project agents roles init --name <role> [--system-prompt <text> | --system-prompt-file <path>]
+<chosen houmao-mgr launcher> project agents recipes add --name <recipe> --role <role> --tool <tool> [--setup <name>] [--auth <bundle>] [--skill <name> ...] [--prompt-mode unattended|as_is]
 ```
 
 ## Guardrails

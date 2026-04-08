@@ -1,5 +1,10 @@
 # Issue: Local Interactive `agents mail send` Can Hang After A Valid Sentinel Result
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 — Real mailbox delivery succeeds, but the operator-facing CLI can remain stuck and fail to return promptly.
 

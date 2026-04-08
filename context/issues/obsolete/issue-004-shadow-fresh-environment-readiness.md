@@ -1,5 +1,10 @@
 # Issue 004: Fresh-Environment TUI Noise — No Capability Probe, No Operator-Block Recovery
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 — Late, confusing failures in clean environments, HTT worktrees, and CI.
 

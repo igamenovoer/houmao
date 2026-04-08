@@ -6,7 +6,7 @@ Use this action only when the user wants to list persisted easy specialists or p
 
 1. Determine whether the user wants `specialists`, `profiles`, or both.
 2. If that target list kind is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
-3. Use the launcher resolved from the top-level skill.
+3. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 4. Run the matching list command.
 5. Report the listed specialists or profiles from the command output.
 
@@ -15,8 +15,8 @@ Use this action only when the user wants to list persisted easy specialists or p
 Use one of:
 
 ```text
-<resolved houmao-mgr launcher> project easy specialist list
-<resolved houmao-mgr launcher> project easy profile list
+<chosen houmao-mgr launcher> project easy specialist list
+<chosen houmao-mgr launcher> project easy profile list
 ```
 
 ## Guardrails

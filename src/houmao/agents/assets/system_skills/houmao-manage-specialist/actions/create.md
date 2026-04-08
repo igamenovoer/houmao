@@ -6,7 +6,7 @@ Use this action only when the user wants to create or replace one reusable easy 
 
 1. Determine whether the target resource is `specialist` or `profile`.
 2. If that target resource kind is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
-3. Use the launcher resolved from the top-level skill.
+3. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 4. If the target resource is `profile`, follow `Profile Create Workflow` below and stop after reporting the result.
 5. Otherwise follow `Specialist Create Workflow` below.
 
@@ -35,12 +35,12 @@ Use this action only when the user wants to create or replace one reusable easy 
    - Claude: `references/claude-credential-lookup.md`
    - Codex: `references/codex-credential-lookup.md`
    - Gemini: `references/gemini-credential-lookup.md`
-8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same resolved `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
+8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same chosen `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
 9. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
    - do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless one of the supported credential-source modes is explicitly active
    - ask the user in Markdown for the missing auth inputs instead of guessing
    - mention that they can either provide auth explicitly, point you at env names or patterns, point you at a directory, or ask for `auto credentials`
-10. Run `project easy specialist create` through the resolved launcher.
+10. Run `project easy specialist create` through the chosen `houmao-mgr` launcher.
 11. Report the created specialist, selected tool, resolved credential name, and the generated artifact paths returned by the command.
 
 ## Credential Source Modes
@@ -88,10 +88,10 @@ If the user did not request one of the supported discovery modes:
 
 ## Profile Create Command Shape
 
-Use the resolved launcher with:
+Use the chosen `houmao-mgr` launcher with:
 
 ```text
-<resolved houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> ...
+<chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> ...
 ```
 
 Required inputs:
@@ -141,10 +141,10 @@ Profile create rules:
 
 ## Specialist Command Shape
 
-Use the resolved launcher with:
+Use the chosen `houmao-mgr` launcher with:
 
 ```text
-<resolved houmao-mgr launcher> project easy specialist create --name <name> --tool <tool> ...
+<chosen houmao-mgr launcher> project easy specialist create --name <name> --tool <tool> ...
 ```
 
 Use these documented defaults and options exactly:

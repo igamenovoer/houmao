@@ -6,7 +6,7 @@ Use this action only when the user wants to launch one easy instance from an exi
 
 1. Determine whether the launch source is `specialist` or `profile`.
 2. If that launch-source kind is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
-3. Use the launcher resolved from the top-level skill.
+3. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 4. Recover the launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 5. If the launch source is `specialist` and the specialist name or instance name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
 6. If the launch source is `profile` and the profile name is still missing, ask the user before proceeding.
@@ -20,8 +20,8 @@ Use this action only when the user wants to launch one easy instance from an exi
 Use one of:
 
 ```text
-<resolved houmao-mgr launcher> project easy instance launch --specialist <specialist> --name <instance> ...
-<resolved houmao-mgr launcher> project easy instance launch --profile <profile> [--name <instance>] ...
+<chosen houmao-mgr launcher> project easy instance launch --specialist <specialist> --name <instance> ...
+<chosen houmao-mgr launcher> project easy instance launch --profile <profile> [--name <instance>] ...
 ```
 
 Required inputs:

@@ -4,7 +4,7 @@ Use this action only when the user wants the transport-neutral interrupt path fo
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the target selector is still missing, ask the user in Markdown before proceeding.
 4. Use `agents interrupt` for the default CLI path.
@@ -16,7 +16,7 @@ Use this action only when the user wants the transport-neutral interrupt path fo
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents interrupt --agent-name <name>
+<chosen houmao-mgr launcher> agents interrupt --agent-name <name>
 ```
 
 Authoritative selector alternatives:

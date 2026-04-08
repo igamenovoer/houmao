@@ -1,5 +1,10 @@
 # Issue 003: Bag-of-Signals TUI Classification — Historical Output Pollutes Current State
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 — Historical signals in the tail window cause misclassification of current TUI state.
 

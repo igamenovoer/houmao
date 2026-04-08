@@ -1,5 +1,10 @@
 # Issue: CAO Session Creation Times Out — Client Budget vs. Server-Side Synchronous Init
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 — The detached session launch path is unusable for both `claude_code` and `codex` providers. The demo's full pipeline and any headless automation that creates sessions through `houmao-server` are blocked.
 

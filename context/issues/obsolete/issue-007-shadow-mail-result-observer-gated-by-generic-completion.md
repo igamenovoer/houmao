@@ -1,5 +1,10 @@
 # Issue 007: Shadow Mail Result Observer Was Gated Behind Generic Completion
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P0 — Valid live mailbox results can still time out instead of returning success.
 

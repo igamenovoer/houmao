@@ -35,12 +35,12 @@ This packaged skill does not cover:
 
 1. Identify which easy-workflow action the user wants: `create`, `list`, `get`, `remove`, `launch`, or `stop`, and whether it targets a `specialist`, a `profile`, or one easy instance.
 2. If the requested action or target resource kind is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-3. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
-   - repo-local `.venv/bin/houmao-mgr`
-   - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
-   - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
-   - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-4. Reuse that same resolved launcher for the selected easy-workflow action.
+3. Choose one `houmao-mgr` launcher for the current turn:
+   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
+   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
+   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
+4. Reuse that same chosen launcher for the selected easy-workflow action.
 5. Load exactly one action page:
    - `actions/create.md`
    - `actions/list.md`
@@ -77,6 +77,6 @@ This packaged skill does not cover:
 - Do not route `project easy instance list|get` through this skill.
 - Do not route generic managed-agent `join`, `list`, `stop`, or `cleanup` requests through this skill.
 - Do not imply that this skill replaces `houmao-manage-agent-instance` for broader live-agent lifecycle work.
-- Do not force `pixi run houmao-mgr` when the workspace is not a development project.
-- Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.
+- Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
+- Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for specialist management.

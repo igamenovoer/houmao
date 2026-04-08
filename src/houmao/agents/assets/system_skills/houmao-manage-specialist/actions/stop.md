@@ -4,7 +4,7 @@ Use this action only when the user wants to stop one easy instance in the easy w
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the easy-instance name from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the easy-instance name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the instance name.
 4. Run `project easy instance stop --name <name>`.
@@ -16,7 +16,7 @@ Use this action only when the user wants to stop one easy instance in the easy w
 Use:
 
 ```text
-<resolved houmao-mgr launcher> project easy instance stop --name <name>
+<chosen houmao-mgr launcher> project easy instance stop --name <name>
 ```
 
 ## Guardrails

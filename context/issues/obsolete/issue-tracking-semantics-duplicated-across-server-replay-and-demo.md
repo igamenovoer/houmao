@@ -1,5 +1,10 @@
 # Issue: Tracking Semantics Are Duplicated Across Server, Replay, and Demo Layers
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 - The repository has no single authoritative owner for tracked TUI semantics, which creates drift risk, inverted dependencies, and recurring integration bugs such as circular imports.
 

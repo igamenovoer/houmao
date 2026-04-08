@@ -401,6 +401,7 @@ At minimum, that family SHALL include:
 - `status`
 - `check`
 - `send`
+- `post`
 - `reply`
 - `mark-read`
 
@@ -408,7 +409,8 @@ Those commands SHALL address managed agents by managed-agent reference and SHALL
 
 - pair-managed targets SHALL use pair-owned mail authority,
 - local managed targets SHALL use verified manager-owned local mail authority or verified gateway-backed authority when available,
-- when a local live-TUI target lacks verified direct or gateway authority for a mailbox action, the command MAY fall back to TUI-mediated submission and SHALL preserve a non-authoritative submission result instead of claiming mailbox success,
+- when a local live-TUI target lacks verified direct or gateway authority for ordinary mailbox actions such as `check`, `send`, `reply`, or `mark-read`, the command MAY fall back to TUI-mediated submission and SHALL preserve a non-authoritative submission result instead of claiming mailbox success,
+- operator-origin `post` SHALL NOT fall back to TUI-mediated submission and SHALL fail explicitly when verified manager-owned, pair-owned, or gateway-backed authority is unavailable,
 - callers SHALL NOT be required to discover or call gateway endpoints directly themselves when using the CLI.
 
 For commands in that family that operate on one managed agent, `houmao-mgr` SHALL support both explicit selectors and same-session current-session targeting:
@@ -445,14 +447,21 @@ For local managed targets, ordinary mailbox follow-up SHALL NOT require promptin
 - **AND THEN** the command does not require prompting the target agent to interpret mailbox instructions for that ordinary mailbox check
 
 #### Scenario: Local live-TUI send without verified direct authority returns submission-only fallback
-- **WHEN** an operator runs `houmao-mgr agents mail send --agent-name alice --to bob@agents.localhost --subject "..." --body-content "..."`
+- **WHEN** an operator runs `houmao-mgr agents mail send --agent-name alice --to bob@houmao.localhost --subject "..." --body-content "..."`
 - **AND WHEN** `alice` resolves to a local live-TUI managed-agent target
 - **AND WHEN** verified manager-owned or gateway-backed mail execution is unavailable for that action
 - **THEN** `houmao-mgr` returns a non-authoritative submission result for that mailbox request
 - **AND THEN** the command does not claim verified mailbox success solely from TUI transcript recovery
 
+#### Scenario: Local live-TUI post without verified authority fails explicitly
+- **WHEN** an operator runs `houmao-mgr agents mail post --agent-name alice --subject "..." --body-content "..."`
+- **AND WHEN** `alice` resolves to a local live-TUI managed-agent target
+- **AND WHEN** verified manager-owned or gateway-backed mail execution is unavailable for that action
+- **THEN** the command fails explicitly instead of returning a submission-only mailbox result
+- **AND THEN** it does not ask the target agent to impersonate `HOUMAO-operator@houmao.localhost`
+
 #### Scenario: Pair-managed target still uses pair-owned mail authority
-- **WHEN** an operator runs `houmao-mgr agents mail send --agent-id abc123 --to bob@agents.localhost --subject "..." --body-content "..."`
+- **WHEN** an operator runs `houmao-mgr agents mail post --agent-id abc123 --subject "..." --body-content "..."`
 - **AND WHEN** `abc123` resolves through pair authority
 - **THEN** `houmao-mgr` dispatches that mailbox action through the supported pair-owned mail authority
 - **AND THEN** the operator does not need to discover or address the pair-owned gateway endpoint directly
@@ -693,22 +702,38 @@ If the supplied `--agent-name` exactly matches one unique live local tmux/sessio
 - **THEN** `houmao-mgr` fails explicitly
 - **AND THEN** the error states that exactly one of `--agent-id` or `--agent-name` is required
 
-### Requirement: `houmao-mgr agents gateway attach` supports explicit foreground tmux-window mode for tmux-backed managed sessions
-`houmao-mgr agents gateway attach` SHALL accept an explicit `--foreground` option for tmux-backed managed sessions.
+### Requirement: `houmao-mgr agents gateway attach` defaults tmux-backed managed sessions to foreground tmux-window mode with explicit background opt-out
+`houmao-mgr agents gateway attach` SHALL default tmux-backed managed sessions to same-session foreground tmux-window mode.
 
-When `--foreground` is requested for a runtime-owned tmux-backed managed session, `houmao-mgr` SHALL attach or reuse the gateway in same-session foreground tmux-window mode rather than detached-process mode.
+`houmao-mgr agents gateway attach` SHALL accept an explicit `--background` option for tmux-backed managed sessions.
 
-When `--foreground` is requested for a pair-managed `houmao_server_rest` session that already uses same-session tmux-window gateway execution, `houmao-mgr` MAY treat that request as an explicit idempotent request for the already-supported foreground topology.
+When no `--background` override is supplied for a runtime-owned tmux-backed managed session, `houmao-mgr` SHALL attach or reuse the gateway in same-session foreground tmux-window mode rather than detached-process mode.
+
+When no `--background` override is supplied for a pair-managed `houmao_server_rest` session, `houmao-mgr` SHALL treat the attach as the standard same-session auxiliary-window topology for that managed session.
+
+When `--background` is requested for a tmux-backed managed session, `houmao-mgr` SHALL attach or reuse the gateway in detached background execution rather than same-session foreground tmux-window mode.
 
 When foreground tmux-window mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` SHALL surface the gateway execution mode and the authoritative tmux window index for the live gateway surface so operators can inspect that console directly.
 
 Foreground tmux-window mode SHALL NOT redefine the managed agent attach contract: tmux window `0` remains reserved for the agent surface, and the gateway window SHALL use index `>=1`.
 
-#### Scenario: Operator requests foreground gateway attach for a runtime-owned tmux-backed session
-- **WHEN** an operator runs `houmao-mgr agents gateway attach --foreground --agent-id <id>`
+#### Scenario: Default gateway attach uses foreground mode for a runtime-owned tmux-backed session
+- **WHEN** an operator runs `houmao-mgr agents gateway attach --agent-id <id>`
 - **AND WHEN** the addressed managed session is a runtime-owned tmux-backed session
 - **THEN** `houmao-mgr` attaches or reuses the gateway in same-session foreground tmux-window mode
 - **AND THEN** the command reports the actual tmux window index for the live gateway surface
+
+#### Scenario: Default gateway attach preserves the pair-managed same-session topology
+- **WHEN** an operator runs `houmao-mgr agents gateway attach --agent-id <id>`
+- **AND WHEN** the addressed managed session is a pair-managed `houmao_server_rest` session
+- **THEN** `houmao-mgr` attaches or reuses the gateway in same-session foreground tmux-window mode
+- **AND THEN** the command reports the actual tmux window index for the live gateway surface
+
+#### Scenario: Operator requests background gateway attach
+- **WHEN** an operator runs `houmao-mgr agents gateway attach --background --agent-id <id>`
+- **AND WHEN** the addressed managed session is tmux-backed and gateway-capable
+- **THEN** `houmao-mgr` attaches or reuses the gateway in detached background execution
+- **AND THEN** the attach result does not claim a foreground tmux gateway window for that attach
 
 #### Scenario: Operator inspects foreground gateway status through the native CLI
 - **WHEN** an operator runs `houmao-mgr agents gateway status --agent-id <id>`
@@ -717,7 +742,7 @@ Foreground tmux-window mode SHALL NOT redefine the managed agent attach contract
 - **AND THEN** the command reports the authoritative tmux window index for the live gateway surface
 
 #### Scenario: Foreground attach preserves the agent surface contract
-- **WHEN** an operator requests foreground gateway attach for a tmux-backed managed session
+- **WHEN** a tmux-backed managed session runs with foreground gateway execution active
 - **THEN** the gateway attaches in a tmux window whose index is `>=1`
 - **AND THEN** tmux window `0` remains the managed agent surface
 

@@ -4,7 +4,7 @@ Use this action only when the user wants to update one existing project-local au
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family, bundle name, and explicit supported changes from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family or bundle name is still missing, ask the user in Markdown before proceeding. Prefer a compact table when the tool lane or several required fields are missing.
 4. If no supported change is present yet, ask the user for the missing explicit change instead of guessing.
@@ -25,7 +25,7 @@ Use this action only when the user wants to update one existing project-local au
 Use:
 
 ```text
-<resolved houmao-mgr launcher> project agents tools <tool> auth set --name <name> ...
+<chosen houmao-mgr launcher> project agents tools <tool> auth set --name <name> ...
 ```
 
 Supported tool-specific changes:

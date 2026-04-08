@@ -50,12 +50,12 @@ This packaged skill does not cover:
    - an explicit project launch profile for `houmao-mgr agents launch --launch-profile`, or
    - a predefined specialist for `houmao-mgr project easy instance launch`
 3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-4. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
-   - repo-local `.venv/bin/houmao-mgr`
-   - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
-   - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
-   - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-5. Reuse that same resolved launcher for the selected instance-lifecycle action.
+4. Choose one `houmao-mgr` launcher for the current turn:
+   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
+   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
+   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
+5. Reuse that same chosen launcher for the selected instance-lifecycle action.
 6. Load exactly one action page:
    - `actions/launch.md`
    - `actions/join.md`
@@ -93,6 +93,6 @@ This packaged skill does not cover:
 - Do not reject explicit launch-profile-backed launch just because the stored profile already carries gateway or mailbox defaults.
 - Do not route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.
 - Do not silently replace `agents relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
-- Do not force `pixi run houmao-mgr` when the workspace is not a development project.
-- Do not ignore a repo-local `.venv` launcher just because Pixi or uv hints are also present.
+- Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
+- Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for managed-agent lifecycle work.

@@ -3,29 +3,37 @@
 ## Purpose
 Define the durable per-agent gateway companion, including its storage layout, HTTP surface, execution policy, and recovery behavior.
 ## Requirements
-### Requirement: Per-agent gateway companion introduces no visible operator surface by default and may attach after session start
+### Requirement: Per-agent gateway companion defaults tmux-backed managed sessions to same-session foreground execution and may attach after session start
 The system SHALL support a per-agent gateway companion for gateway-capable tmux-backed sessions.
 
-Outside pair-managed same-session `houmao_server_rest` topology and outside explicit foreground attach mode, the gateway companion SHALL NOT require or create a separate visible tmux window or pane for normal operation.
+For tmux-backed managed sessions, managed attach and launch-time auto-attach SHALL default the effective gateway execution mode to same-session foreground auxiliary-window execution unless the operator explicitly requests background mode.
 
-For pair-managed same-session `houmao_server_rest` sessions and for runtime-owned tmux-backed sessions whose attach flow explicitly requests foreground mode, the gateway companion MAY run in an auxiliary tmux window in the same tmux session so long as that auxiliary window does not redefine the contractual managed-agent surface.
+When explicit background mode is requested for a tmux-backed managed session, the gateway companion SHALL use detached execution and SHALL NOT require or create a visible tmux window or pane for normal operation.
+
+When foreground same-session mode is active, the gateway companion MAY run in an auxiliary tmux window in the same tmux session so long as that auxiliary window does not redefine the contractual managed-agent surface.
 
 The gateway companion MAY be started immediately after a managed session starts or later by attaching to an already-running tmux-backed session.
 
 The gateway companion SHALL direct its own logs away from the contractual operator-facing agent surface. When foreground mode is active, gateway console output SHALL appear only in the auxiliary gateway window and gateway-owned durable log storage, not on the agent surface in tmux window `0`.
 
-#### Scenario: Attach-later preserves a single visible TUI surface by default
-- **WHEN** a gateway companion attaches to an already-running tmux-backed session without explicit foreground mode outside the supported pair-managed same-session `houmao_server_rest` topology
-- **THEN** the managed agent TUI remains the only visible operator surface for normal interaction
+#### Scenario: Default attach-later uses same-session foreground execution
+- **WHEN** a gateway companion attaches to an already-running tmux-backed managed session without an explicit background override
+- **THEN** the effective execution mode is same-session foreground auxiliary-window execution
+- **AND THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
+
+#### Scenario: Default launch-time auto-attach uses same-session foreground execution
+- **WHEN** a tmux-backed managed session starts with launch-time gateway auto-attach enabled
+- **AND WHEN** no explicit background override is requested for that launch
+- **THEN** the effective gateway execution mode is same-session foreground auxiliary-window execution
+- **AND THEN** the live gateway does not reuse tmux window `0`
+
+#### Scenario: Explicit background mode avoids a visible gateway window
+- **WHEN** a gateway companion attaches to a tmux-backed managed session with explicit background mode enabled
+- **THEN** the effective execution mode is detached background execution
 - **AND THEN** the attach flow does not require creating a visible tmux pane or window for the gateway
 
-#### Scenario: Runtime-owned foreground attach may add an auxiliary window
-- **WHEN** a gateway companion attaches to an already-running runtime-owned tmux-backed session with explicit foreground mode enabled
-- **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
-- **AND THEN** that auxiliary window does not become the contractual managed-agent surface
-
 #### Scenario: Pair-managed same-session gateway does not redefine the contractual agent surface
-- **WHEN** a pair-managed `houmao_server_rest` gateway companion runs in an auxiliary tmux window in the same tmux session
+- **WHEN** a managed gateway companion runs in an auxiliary tmux window in the same tmux session
 - **THEN** that auxiliary window does not become the contractual managed-agent surface
 - **AND THEN** the primary agent surface remains distinct from the gateway window
 
@@ -50,7 +58,9 @@ Current-session attach SHALL NOT fall back to retired `AGENTSYS_*` names. It SHA
 - **THEN** the attach flow resolves authority through exactly one fresh shared-registry record
 
 ### Requirement: Pair-managed `houmao_server_rest` gateway companions may run in an auxiliary tmux window without redefining the agent surface
-For pair-managed tmux-backed `houmao_server_rest` sessions, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session for normal operation.
+For pair-managed tmux-backed `houmao_server_rest` sessions, the system SHALL default the gateway companion to same-session auxiliary-window execution for normal operation unless explicit background mode is requested.
+
+When explicit background mode is requested for a pair-managed `houmao_server_rest` session, the system SHALL attach or reuse the gateway in detached execution instead of creating or reusing the same-session auxiliary tmux window for that attach.
 
 When the gateway companion runs in the same tmux session, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
 
@@ -60,10 +70,15 @@ The gateway companion SHALL continue writing its own durable logs to gateway-own
 
 The `houmao-server` process and its internal child-CAO support state SHALL remain outside the agent's tmux session even when the gateway companion runs in the same managed session as the agent.
 
-#### Scenario: Attach-later adds an auxiliary window without redefining the agent surface
-- **WHEN** a gateway companion attaches later to an already-running pair-managed `houmao_server_rest` session
+#### Scenario: Default pair-managed attach adds an auxiliary window without redefining the agent surface
+- **WHEN** a gateway companion attaches later to an already-running pair-managed `houmao_server_rest` session without an explicit background override
 - **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
 - **AND THEN** tmux window `0` remains the canonical managed agent surface for that session
+
+#### Scenario: Pair-managed explicit background attach skips the auxiliary window
+- **WHEN** a gateway companion attaches to a pair-managed `houmao_server_rest` session with explicit background mode enabled
+- **THEN** the attach flow uses detached background execution for that attach
+- **AND THEN** it does not create or reuse a same-session auxiliary tmux window for the gateway
 
 #### Scenario: Gateway logging stays off the primary agent surface
 - **WHEN** the gateway companion emits logs or diagnostics while running in an auxiliary tmux window
@@ -77,7 +92,7 @@ The `houmao-server` process and its internal child-CAO support state SHALL remai
 - **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle
 
 ### Requirement: Runtime-owned foreground gateway companions may run in an auxiliary tmux window without redefining the agent surface
-For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session when foreground mode is explicitly requested.
+For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session whenever foreground mode is the effective execution mode, whether selected by default or by an explicit override.
 
 When that foreground mode is active, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
 
@@ -85,8 +100,8 @@ When that foreground mode is active, the runtime SHALL treat the gateway auxilia
 
 The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
 
-#### Scenario: Runtime-owned foreground attach adds an auxiliary window without redefining the agent surface
-- **WHEN** a gateway companion attaches later to an already-running runtime-owned tmux-backed session with explicit foreground mode enabled
+#### Scenario: Runtime-owned default foreground attach adds an auxiliary window without redefining the agent surface
+- **WHEN** a gateway companion attaches later to an already-running runtime-owned tmux-backed session without an explicit background override
 - **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
 - **AND THEN** tmux window `0` remains the canonical managed agent surface for that session
 - **AND THEN** the gateway auxiliary window uses a tmux window index `>=1`
@@ -434,7 +449,7 @@ The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POS
 
 The wakeup HTTP API SHALL additionally expose `POST /v1/wakeups`, `GET /v1/wakeups`, `GET /v1/wakeups/{job_id}`, and `DELETE /v1/wakeups/{job_id}`.
 
-For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
+For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/check`, `POST /v1/mail/send`, `POST /v1/mail/post`, `POST /v1/mail/reply`, and `POST /v1/mail/state`.
 
 When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier`, `GET /v1/mail-notifier`, and `DELETE /v1/mail-notifier`.
 
@@ -450,7 +465,9 @@ The wakeup routes SHALL be served by the gateway sidecar itself and SHALL use st
 
 The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
 
-The shared mailbox routes SHALL be limited to mailbox status, `check`, `send`, `reply`, and explicit single-message read-state update behaviors supported by both the filesystem and `stalwart` transports.
+The shared mailbox routes SHALL be limited to mailbox status, `check`, ordinary `send`, operator-origin `post`, `reply`, and explicit single-message read-state update behavior.
+
+Ordinary `send`, `reply`, and read-state update behavior SHALL continue using the shared mailbox abstraction across both the filesystem and `stalwart` transports. Operator-origin `post` SHALL support only filesystem mailbox bindings in v1 and SHALL fail explicitly for other transports.
 
 Those shared mailbox routes SHALL use structured request and response payloads and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
 
@@ -501,10 +518,20 @@ Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the termi
 - **THEN** the live gateway serves that operation through `POST /v1/mail/check`
 - **AND THEN** the caller receives normalized mailbox message metadata without reading mailbox-local SQLite directly
 
+#### Scenario: Filesystem-backed mailbox post uses the dedicated gateway mail surface
+- **WHEN** a caller performs operator-origin mailbox delivery against a mailbox-enabled session whose resolved mailbox transport is `filesystem`
+- **THEN** the live gateway serves that operation through `POST /v1/mail/post`
+- **AND THEN** the resulting delivery uses the reserved Houmao operator mailbox sender rather than the managed agent sender principal
+
 #### Scenario: Stalwart-backed mailbox reply uses the same dedicated gateway mail surface
 - **WHEN** a caller performs mailbox `reply` against a mailbox-enabled session whose resolved mailbox transport is `stalwart`
 - **THEN** the live gateway serves that operation through `POST /v1/mail/reply`
 - **AND THEN** the caller uses the same shared gateway mailbox contract rather than Stalwart-native transport objects directly
+
+#### Scenario: Stalwart-backed mailbox post fails explicitly
+- **WHEN** a caller performs operator-origin mailbox delivery against a mailbox-enabled session whose resolved mailbox transport is `stalwart`
+- **THEN** the live gateway rejects that operation explicitly
+- **AND THEN** it does not pretend that filesystem operator-origin semantics are available for the current transport
 
 #### Scenario: Session without mailbox binding rejects gateway mailbox routes explicitly
 - **WHEN** a caller invokes a gateway mailbox route for a managed session whose manifest has no mailbox binding
@@ -1288,29 +1315,3 @@ The gateway SHALL only record gateway-owned prompt-submission tracking evidence 
 - **WHEN** a caller uses the dedicated gateway raw control-input endpoint to send the sequence `"hello world"` to an attached runtime-owned `local_interactive` session
 - **THEN** the gateway inserts the literal text `hello world`
 - **AND THEN** it does not auto-submit because the caller did not include an explicit `<[Enter]>`
-
-### Requirement: Runtime-owned foreground gateway companions may run in an auxiliary tmux window without redefining the agent surface
-For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session when foreground mode is explicitly requested.
-
-When that foreground mode is active, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
-
-When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
-
-The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
-
-#### Scenario: Runtime-owned foreground attach adds an auxiliary window without redefining the agent surface
-- **WHEN** a gateway companion attaches later to an already-running runtime-owned tmux-backed session with explicit foreground mode enabled
-- **THEN** the attach flow creates or reuses an auxiliary tmux window for the gateway companion
-- **AND THEN** tmux window `0` remains the canonical managed agent surface for that session
-- **AND THEN** the gateway auxiliary window uses a tmux window index `>=1`
-
-#### Scenario: Runtime-owned foreground gateway logging stays off the primary agent surface
-- **WHEN** the gateway companion emits logs or diagnostics while running in an auxiliary tmux window for a runtime-owned session
-- **THEN** the gateway output appears only in the auxiliary gateway window and gateway-owned durable log storage
-- **AND THEN** normal gateway activity does not inject its own text into the operator-facing agent window `0`
-
-#### Scenario: Runtime-owned foreground gateway lifecycle uses the auxiliary tmux surface
-- **WHEN** the gateway companion runs in an auxiliary tmux window for a runtime-owned tmux-backed session
-- **THEN** the runtime determines local gateway liveness from the auxiliary tmux pane state for that window
-- **AND THEN** the runtime waits for successful gateway health responses before treating the gateway as ready
-- **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle

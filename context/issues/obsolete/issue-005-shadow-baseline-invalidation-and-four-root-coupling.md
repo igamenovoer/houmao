@@ -1,5 +1,10 @@
 # Issue 005: Baseline Invalidation Without Recovery + Four-Root Environmental Coupling
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P2 — Long-running sessions drift; every new environment rediscovers the same cascade.
 

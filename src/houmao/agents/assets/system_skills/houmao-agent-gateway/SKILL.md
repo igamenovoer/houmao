@@ -45,12 +45,12 @@ This packaged skill does not cover:
 1. Identify which gateway intent the user actually wants: lifecycle, current-session discovery, gateway-only control, wakeups, or mail-notifier.
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the selected action still lacks a required target or direct-gateway input, ask the user in Markdown before proceeding.
-4. Resolve the correct `houmao-mgr` launcher for the current workspace in this order:
-   - repo-local `.venv/bin/houmao-mgr`
-   - `pixi run houmao-mgr` when the workspace shows development-project hints such as `pixi.lock`, `.pixi/`, `pixi.toml`, or a Pixi-managed `pyproject.toml`
-   - `uv run houmao-mgr` when the workspace shows project-local uv hints such as `uv.lock` or a uv-managed `pyproject.toml`
-   - globally installed `houmao-mgr` from uv tools for the ordinary end-user case
-5. Reuse that same resolved launcher for the selected gateway action.
+4. Choose one `houmao-mgr` launcher for the current turn:
+   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
+   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
+   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
+5. Reuse that same chosen launcher for the selected gateway action.
 6. Prefer the managed-agent seam first for outside callers:
    - `houmao-mgr agents gateway ...` for CLI-driven work
    - `/houmao/agents/*/gateway...` for pair-managed HTTP control
@@ -92,6 +92,8 @@ This packaged skill does not cover:
 
 - Do not treat gateway attach or detach as the same thing as launching or stopping the managed agent.
 - Do not guess the target managed agent, current-session manifest, or live gateway host and port.
+- Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
+- Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not teach `HOUMAO_GATEWAY_ATTACH_PATH` or `HOUMAO_GATEWAY_ROOT` as supported current-session discovery.
 - Do not scrape live gateway env for shared mailbox work when `houmao-mgr agents mail resolve-live` is the supported exact `gateway.base_url` resolver.
 - Do not describe `/v1/wakeups` as durable across gateway stop or restart.

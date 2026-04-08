@@ -1,5 +1,10 @@
 # Issue: Houmao Server Interactive Prompt Turns Do Not Surface Lifecycle Transitions
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 - The server-backed shadow-watch demo cannot show active/completing turn state for direct interactive prompting, which is now the main purpose of the demo.
 

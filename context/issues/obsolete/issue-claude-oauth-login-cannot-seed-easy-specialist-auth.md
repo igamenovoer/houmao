@@ -1,5 +1,10 @@
 # Issue: Claude OAuth Login Cannot Seed Easy Specialist Auth
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P2 - A common healthy local Claude setup looks authenticated to the operator, but Houmao's higher-level specialist authoring path still cannot create or refresh a Claude specialist without extra manual credential export.
 

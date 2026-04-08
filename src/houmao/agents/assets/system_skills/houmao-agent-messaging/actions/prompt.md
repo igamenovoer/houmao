@@ -4,7 +4,7 @@ Use this action only when the user wants one normal conversational turn for an a
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and prompt text from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the target selector or prompt text is still missing, ask the user in Markdown before proceeding.
 4. When the current context does not already confirm whether the target has a live gateway, run `agents gateway status` first.
@@ -19,9 +19,9 @@ Use this action only when the user wants one normal conversational turn for an a
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents gateway status --agent-name <name>
-<resolved houmao-mgr launcher> agents gateway prompt --agent-name <name> --prompt "<message>"
-<resolved houmao-mgr launcher> agents prompt --agent-name <name> --prompt "<message>"
+<chosen houmao-mgr launcher> agents gateway status --agent-name <name>
+<chosen houmao-mgr launcher> agents gateway prompt --agent-name <name> --prompt "<message>"
+<chosen houmao-mgr launcher> agents prompt --agent-name <name> --prompt "<message>"
 ```
 
 Authoritative selector alternatives:

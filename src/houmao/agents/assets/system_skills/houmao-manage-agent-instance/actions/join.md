@@ -4,7 +4,7 @@ Use this action only when the user wants Houmao to adopt one already-running sup
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the join inputs from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the managed-agent name is still missing, ask the user in Markdown before proceeding.
 4. If the request is for headless join and the provider or `--launch-args` values are still missing, ask the user in Markdown for those missing fields before proceeding.
@@ -16,7 +16,7 @@ Use this action only when the user wants Houmao to adopt one already-running sup
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents join --agent-name <name> ...
+<chosen houmao-mgr launcher> agents join --agent-name <name> ...
 ```
 
 Headless join requires:

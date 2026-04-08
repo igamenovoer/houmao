@@ -1,5 +1,10 @@
 # Issue: Real-Agent HTT Worktree Runs Mix Snapshot, Host Secrets, Tool State, And Workdir Contracts
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Status
 Known as of 2026-03-18.
 

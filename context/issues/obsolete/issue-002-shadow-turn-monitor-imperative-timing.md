@@ -1,5 +1,10 @@
 # Issue 002: _TurnMonitor Imperative Timing — Single-Sample Completion, Stall Fragility, Projection-Based Diffing
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 — False completion on transient idle; stall false positives; projector changes break lifecycle decisions.
 

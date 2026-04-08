@@ -4,7 +4,7 @@ Use this action only when the user wants to update one existing low-level role o
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine whether the target is a role or a recipe.
 3. Recover the target name and explicit mutations from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the target kind, target name, or required explicit mutation is still missing, ask the user in Markdown before proceeding.
@@ -30,8 +30,8 @@ Use this action only when the user wants to update one existing low-level role o
 Use one of these maintained command shapes:
 
 ```text
-<resolved houmao-mgr launcher> project agents roles set --name <role> [--system-prompt <text> | --system-prompt-file <path> | --clear-system-prompt]
-<resolved houmao-mgr launcher> project agents recipes set --name <recipe> [--role <role>] [--tool <tool>] [--setup <setup>] [--auth <bundle> | --clear-auth] [--add-skill <skill> ...] [--remove-skill <skill> ...] [--clear-skills] [--prompt-mode unattended|as_is | --clear-prompt-mode]
+<chosen houmao-mgr launcher> project agents roles set --name <role> [--system-prompt <text> | --system-prompt-file <path> | --clear-system-prompt]
+<chosen houmao-mgr launcher> project agents recipes set --name <recipe> [--role <role>] [--tool <tool>] [--setup <setup>] [--auth <bundle> | --clear-auth] [--add-skill <skill> ...] [--remove-skill <skill> ...] [--clear-skills] [--prompt-mode unattended|as_is | --clear-prompt-mode]
 ```
 
 ## Guardrails

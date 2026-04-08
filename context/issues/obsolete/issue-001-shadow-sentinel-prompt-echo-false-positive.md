@@ -1,5 +1,10 @@
 # Issue 001: Shadow Mailbox Sentinel Prompt-Echo False Positive
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P0 — Mailbox turns fail intermittently in production.
 

@@ -1,5 +1,10 @@
 # Issue 008: Mailbox Prompt Should Not Reference Skill Install Paths
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 — Real-agent mailbox turns can drift into skill/path discovery instead of executing the mailbox operation.
 

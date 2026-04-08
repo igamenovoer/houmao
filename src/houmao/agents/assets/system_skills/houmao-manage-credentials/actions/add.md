@@ -4,7 +4,7 @@ Use this action only when the user wants to create one new project-local auth bu
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family, bundle name, and supported auth inputs from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family or bundle name is still missing, ask the user in Markdown before proceeding. Prefer a compact table when the tool lane or several required fields are missing.
 4. If supported auth inputs are still missing, ask the user for the missing explicit inputs instead of guessing.
@@ -22,7 +22,7 @@ Use this action only when the user wants to create one new project-local auth bu
 Use:
 
 ```text
-<resolved houmao-mgr launcher> project agents tools <tool> auth add --name <name> ...
+<chosen houmao-mgr launcher> project agents tools <tool> auth add --name <name> ...
 ```
 
 Supported tool-specific inputs:

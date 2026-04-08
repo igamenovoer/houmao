@@ -1,5 +1,10 @@
 # Issue: Tmux Session Env Fallback For Live Agent And Gateway Bindings Is Incomplete
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 - The runtime design assumes managed agents and their gateways live inside tmux-backed runtime containers, but env-var resolution still behaves inconsistently across agent, skill, and gateway paths.
 

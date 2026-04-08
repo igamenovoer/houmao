@@ -4,7 +4,7 @@ Use this action only when the user wants to list low-level roles or named recipe
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine whether the user wants roles or recipes.
 3. Recover any explicit recipe filters from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the target kind is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the target kind.
@@ -17,8 +17,8 @@ Use this action only when the user wants to list low-level roles or named recipe
 Use one of these maintained command shapes:
 
 ```text
-<resolved houmao-mgr launcher> project agents roles list
-<resolved houmao-mgr launcher> project agents recipes list [--role <role>] [--tool <tool>]
+<chosen houmao-mgr launcher> project agents roles list
+<chosen houmao-mgr launcher> project agents recipes list [--role <role>] [--tool <tool>]
 ```
 
 ## Guardrails

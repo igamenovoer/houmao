@@ -4,7 +4,7 @@ Use this action only when the user wants to relaunch one tmux-backed managed-age
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the relaunch target from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the user is clearly asking for current-session relaunch from inside the owning tmux session, allow the current-session `agents relaunch` form without requiring an unnecessary explicit selector.
 4. If no explicit target is available and current-session relaunch is not clearly the intended valid path, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the live managed-agent name or id.
@@ -16,19 +16,19 @@ Use this action only when the user wants to relaunch one tmux-backed managed-age
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents relaunch --agent-name <name>
+<chosen houmao-mgr launcher> agents relaunch --agent-name <name>
 ```
 
 or:
 
 ```text
-<resolved houmao-mgr launcher> agents relaunch --agent-id <id>
+<chosen houmao-mgr launcher> agents relaunch --agent-id <id>
 ```
 
 or, for current-session relaunch from inside the owning tmux session:
 
 ```text
-<resolved houmao-mgr launcher> agents relaunch
+<chosen houmao-mgr launcher> agents relaunch
 ```
 
 ## Guardrails

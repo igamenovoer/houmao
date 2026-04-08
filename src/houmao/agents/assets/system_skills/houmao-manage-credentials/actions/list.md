@@ -4,7 +4,7 @@ Use this action only when the user wants to list project-local auth bundles for 
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the tool family is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the tool.
 4. Run `project agents tools <tool> auth list`.
@@ -15,7 +15,7 @@ Use this action only when the user wants to list project-local auth bundles for 
 Use:
 
 ```text
-<resolved houmao-mgr launcher> project agents tools <tool> auth list
+<chosen houmao-mgr launcher> project agents tools <tool> auth list
 ```
 
 ## Guardrails

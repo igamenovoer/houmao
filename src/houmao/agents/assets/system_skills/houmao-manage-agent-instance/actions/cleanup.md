@@ -4,7 +4,7 @@ Use this action only when the user wants to clean stopped-session managed-agent 
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine which cleanup kind the user wants:
    - `session` for one stopped managed-session envelope
    - `logs` for session-local log artifacts
@@ -24,19 +24,19 @@ Use this action only when the user wants to clean stopped-session managed-agent 
 Use one of:
 
 ```text
-<resolved houmao-mgr launcher> agents cleanup session --agent-name <name>
-<resolved houmao-mgr launcher> agents cleanup session --agent-id <id>
-<resolved houmao-mgr launcher> agents cleanup session --manifest-path <path>
-<resolved houmao-mgr launcher> agents cleanup session --session-root <path>
+<chosen houmao-mgr launcher> agents cleanup session --agent-name <name>
+<chosen houmao-mgr launcher> agents cleanup session --agent-id <id>
+<chosen houmao-mgr launcher> agents cleanup session --manifest-path <path>
+<chosen houmao-mgr launcher> agents cleanup session --session-root <path>
 ```
 
 or:
 
 ```text
-<resolved houmao-mgr launcher> agents cleanup logs --agent-name <name>
-<resolved houmao-mgr launcher> agents cleanup logs --agent-id <id>
-<resolved houmao-mgr launcher> agents cleanup logs --manifest-path <path>
-<resolved houmao-mgr launcher> agents cleanup logs --session-root <path>
+<chosen houmao-mgr launcher> agents cleanup logs --agent-name <name>
+<chosen houmao-mgr launcher> agents cleanup logs --agent-id <id>
+<chosen houmao-mgr launcher> agents cleanup logs --manifest-path <path>
+<chosen houmao-mgr launcher> agents cleanup logs --session-root <path>
 ```
 
 ## Guardrails

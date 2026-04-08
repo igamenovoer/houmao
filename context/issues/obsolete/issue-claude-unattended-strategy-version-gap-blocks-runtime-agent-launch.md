@@ -1,5 +1,10 @@
 # Issue: Claude Unattended Strategy Version Gap Blocks Runtime Agent Launch
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 - Claude-based managed launches can fail completely on healthy systems after a provider upgrade, even though the runtime and TUI backend code paths are otherwise correct.
 

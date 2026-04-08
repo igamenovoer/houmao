@@ -1,5 +1,10 @@
 # Issue 006: Version Preset Treadmill — Every CLI Release Is a Potential Regression
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P3 — Maintenance burden; silent regressions on upstream tool updates.
 

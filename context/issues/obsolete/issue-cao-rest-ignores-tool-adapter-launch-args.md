@@ -1,5 +1,10 @@
 # Issue: `cao_rest` Ignores Tool-Adapter `launch.args`
 
+> Obsolete as of 2026-04-08.
+> Moved from `context/issues/known/` to `context/issues/obsolete/`.
+> Retained for historical reference only.
+
+
 ## Priority
 P1 — The runtime persists backend launch args that are not actually applied in CAO-backed sessions, which creates a misleading contract and can break hands-off automation assumptions.
 

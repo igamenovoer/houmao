@@ -4,7 +4,7 @@ Use this action only when the user wants to stop one live managed agent. This re
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the managed-agent target from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the target is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the live managed-agent name or id.
 4. Run `agents stop` against that target.
@@ -15,13 +15,13 @@ Use this action only when the user wants to stop one live managed agent. This re
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents stop --agent-name <name>
+<chosen houmao-mgr launcher> agents stop --agent-name <name>
 ```
 
 or:
 
 ```text
-<resolved houmao-mgr launcher> agents stop --agent-id <id>
+<chosen houmao-mgr launcher> agents stop --agent-id <id>
 ```
 
 ## Guardrails

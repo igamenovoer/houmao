@@ -4,7 +4,7 @@ Use this action only when the user wants to create one new managed-agent instanc
 
 ## Workflow
 
-1. Use the launcher resolved from the top-level skill.
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine which launch lane the request actually needs:
    - direct managed launch from a predefined role or preset
    - explicit launch-profile-backed managed launch
@@ -24,7 +24,7 @@ Use this lane when the user wants to launch from a predefined role or preset thr
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents launch --agents <selector> --provider <provider> ...
+<chosen houmao-mgr launcher> agents launch --agents <selector> --provider <provider> ...
 ```
 
 Required inputs:
@@ -53,7 +53,7 @@ Use this lane when the user wants to launch through an existing explicit project
 Use:
 
 ```text
-<resolved houmao-mgr launcher> agents launch --launch-profile <profile> ...
+<chosen houmao-mgr launcher> agents launch --launch-profile <profile> ...
 ```
 
 Required inputs:
@@ -85,7 +85,7 @@ Use this lane when the user wants to launch from an existing easy specialist.
 Use:
 
 ```text
-<resolved houmao-mgr launcher> project easy instance launch --specialist <specialist> --name <instance> ...
+<chosen houmao-mgr launcher> project easy instance launch --specialist <specialist> --name <instance> ...
 ```
 
 Required inputs:
