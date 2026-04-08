@@ -51,6 +51,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
@@ -106,6 +107,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
@@ -126,6 +128,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
@@ -181,6 +184,9 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     )
 
     state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
+    project_mgr_actions = home_path / "skills/houmao-project-mgr/actions"
+    project_mgr_references = home_path / "skills/houmao-project-mgr/references"
     manage_specialist_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
     manage_specialist_actions = home_path / "skills/houmao-specialist-mgr/actions"
     manage_specialist_references = home_path / "skills/houmao-specialist-mgr/references"
@@ -193,6 +199,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
+        "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
@@ -206,22 +213,43 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "copy",
         "copy",
         "copy",
+        "copy",
     )
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
+    assert project_mgr_path.is_file()
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
+    project_mgr_skill = project_mgr_path.read_text(encoding="utf-8")
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
+    project_init_action_path = project_mgr_actions / "init.md"
+    project_status_action_path = project_mgr_actions / "status.md"
+    project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
+    project_easy_instances_action_path = project_mgr_actions / "easy-instances.md"
+    project_overlay_reference_path = project_mgr_references / "overlay-resolution.md"
+    project_layout_reference_path = project_mgr_references / "project-layout.md"
+    project_effects_reference_path = project_mgr_references / "project-aware-effects.md"
+    project_routing_reference_path = project_mgr_references / "routing-boundaries.md"
     create_action_path = manage_specialist_actions / "create.md"
     list_action_path = manage_specialist_actions / "list.md"
     get_action_path = manage_specialist_actions / "get.md"
     remove_action_path = manage_specialist_actions / "remove.md"
     launch_action_path = manage_specialist_actions / "launch.md"
     stop_action_path = manage_specialist_actions / "stop.md"
+    project_init_action = project_init_action_path.read_text(encoding="utf-8")
+    project_status_action = project_status_action_path.read_text(encoding="utf-8")
+    project_launch_profiles_action = project_launch_profiles_action_path.read_text(
+        encoding="utf-8"
+    )
+    project_easy_instances_action = project_easy_instances_action_path.read_text(encoding="utf-8")
+    project_overlay_reference = project_overlay_reference_path.read_text(encoding="utf-8")
+    project_layout_reference = project_layout_reference_path.read_text(encoding="utf-8")
+    project_effects_reference = project_effects_reference_path.read_text(encoding="utf-8")
+    project_routing_reference = project_routing_reference_path.read_text(encoding="utf-8")
     create_action = create_action_path.read_text(encoding="utf-8")
     list_action = list_action_path.read_text(encoding="utf-8")
     get_action = get_action_path.read_text(encoding="utf-8")
@@ -242,6 +270,57 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
     credentials_set_action = credentials_set_action_path.read_text(encoding="utf-8")
     definition_get_action = definition_get_action_path.read_text(encoding="utf-8")
     definition_set_action = definition_set_action_path.read_text(encoding="utf-8")
+    assert "command -v houmao-mgr" in project_mgr_skill
+    assert "uv tool run --from houmao houmao-mgr" in project_mgr_skill
+    assert ".venv/bin/houmao-mgr" in project_mgr_skill
+    assert "pixi run houmao-mgr" in project_mgr_skill
+    assert "uv run houmao-mgr" in project_mgr_skill
+    assert "project init" in project_mgr_skill
+    assert "project status" in project_mgr_skill
+    assert "project agents launch-profiles ..." in project_mgr_skill
+    assert "project easy instance list|get|stop" in project_mgr_skill
+    assert "houmao-specialist-mgr" in project_mgr_skill
+    assert "houmao-agent-instance" in project_mgr_skill
+    assert "actions/init.md" in project_mgr_skill
+    assert "actions/status.md" in project_mgr_skill
+    assert "actions/launch-profiles.md" in project_mgr_skill
+    assert "actions/easy-instances.md" in project_mgr_skill
+    assert "references/project-aware-effects.md" in project_mgr_skill
+    assert project_init_action_path.is_file()
+    assert project_status_action_path.is_file()
+    assert project_launch_profiles_action_path.is_file()
+    assert project_easy_instances_action_path.is_file()
+    assert project_overlay_reference_path.is_file()
+    assert project_layout_reference_path.is_file()
+    assert project_effects_reference_path.is_file()
+    assert project_routing_reference_path.is_file()
+    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in project_init_action
+    assert "<chosen houmao-mgr launcher>" in project_init_action
+    assert "--with-compatibility-profiles" in project_init_action
+    assert "would_bootstrap_overlay" in project_status_action
+    assert "project agents launch-profiles add --name <profile> --recipe <recipe>" in project_launch_profiles_action
+    assert "project easy instance list" in project_easy_instances_action
+    assert "project easy instance get --name <name>" in project_easy_instances_action
+    assert "project easy instance stop --name <name>" in project_easy_instances_action
+    assert "HOUMAO_PROJECT_OVERLAY_DIR" in project_overlay_reference
+    assert "HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE" in project_overlay_reference
+    assert "HOUMAO_AGENT_DEF_DIR" in project_overlay_reference
+    assert "catalog.sqlite" in project_layout_reference
+    assert "content/" in project_layout_reference
+    assert "agents/" in project_layout_reference
+    assert "runtime/" in project_layout_reference
+    assert "jobs/" in project_layout_reference
+    assert "mailbox/" in project_layout_reference
+    assert "easy/" in project_layout_reference
+    assert "brains build" in project_effects_reference
+    assert "agents launch" in project_effects_reference
+    assert "server start" in project_effects_reference
+    assert "admin cleanup runtime" in project_effects_reference
+    assert "houmao-specialist-mgr" in project_routing_reference
+    assert "houmao-credential-mgr" in project_routing_reference
+    assert "houmao-agent-definition" in project_routing_reference
+    assert "houmao-agent-instance" in project_routing_reference
+    assert "houmao-mailbox-mgr" in project_routing_reference
     assert "command -v houmao-mgr" in manage_specialist_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_specialist_skill
     assert ".venv/bin/houmao-mgr" in manage_specialist_skill
@@ -444,6 +523,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
@@ -454,6 +534,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
+    assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()

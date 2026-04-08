@@ -18,6 +18,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-mailbox-mgr",
+    "houmao-project-mgr",
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
     "houmao-agent-definition",
@@ -89,6 +90,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         record for record in payload["sets"] if record["name"] == "user-control"
     )
     assert user_control_record["skills"] == [
+        "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
@@ -130,6 +132,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
@@ -268,6 +271,7 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
     assert install_result.exit_code == 0, install_result.output
     install_payload = json.loads(install_result.output)
     assert install_payload["home_path"] == str(workspace)
+    assert (workspace / ".gemini/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-definition/SKILL.md").is_file()

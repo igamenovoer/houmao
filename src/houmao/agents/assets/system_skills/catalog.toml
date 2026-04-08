@@ -12,6 +12,10 @@ description = "Unified mailbox operations and fallback guidance skill."
 asset_subpath = "houmao-mailbox-mgr"
 description = "Filesystem mailbox administration and late mailbox-binding skill."
 
+[skills.houmao-project-mgr]
+asset_subpath = "houmao-project-mgr"
+description = "Project overlay lifecycle, layout, and project-scoped launch-profile or easy-instance management skill."
+
 [skills.houmao-specialist-mgr]
 asset_subpath = "houmao-specialist-mgr"
 description = "Project-easy specialist and profile management skill."
@@ -54,6 +58,7 @@ skills = [
 [sets.user-control]
 description = "User-controlled agent-management system skills."
 skills = [
+  "houmao-project-mgr",
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",

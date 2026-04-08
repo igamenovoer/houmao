@@ -19,14 +19,15 @@ Each system skill ships as a directory under `src/houmao/agents/assets/system_sk
 
 System skills are not Python plugins, MCP servers, or runtime hooks. They are agent-readable instruction packages that guide the agent toward the right `houmao-mgr` command for the task. The supporting code is whatever `houmao-mgr` already exposes through `srv_ctrl/commands/`.
 
-## The Nine Packaged Skills
+## The Ten Packaged Skills
 
-Houmao currently ships **nine** system skills. They split into three concern groups: **specialist and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
+Houmao currently ships **ten** system skills. They split into three concern groups: **project, specialist, and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
 
-### Specialist and credential authoring
+### Project, specialist, and credential authoring
 
 | Skill | What it enables | Canonical CLI routing |
 |---|---|---|
+| `houmao-project-mgr` | Project overlay lifecycle, `.houmao/` layout explanation, project-aware command-effect guidance, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing. | `houmao-mgr project init`, `houmao-mgr project status`, `houmao-mgr project agents launch-profiles ...`, `houmao-mgr project easy instance list|get|stop` |
 | `houmao-specialist-mgr` | Create, list, inspect, remove easy specialists; create, list, inspect, remove easy profiles; launch and stop easy instances from either source. | `houmao-mgr project easy specialist ...`, `houmao-mgr project easy profile ...`, `houmao-mgr project easy instance launch|stop` |
 | `houmao-credential-mgr` | Add, update, inspect, remove project-local tool auth bundles for Claude, Codex, and Gemini. Manages auth bundle contents, not stored profile-level auth overrides. | `houmao-mgr project agents tools <tool> auth list|get|add|set|remove` |
 
@@ -49,7 +50,7 @@ Houmao currently ships **nine** system skills. They split into three concern gro
 
 ## Auto-Install vs Explicit Install
 
-The same nine skills can land in a tool home through either path, but the **default selections** are different.
+The same ten skills can land in a tool home through either path, but the **default selections** are different.
 
 ```
                        INSTALL DEFAULTS
@@ -64,15 +65,16 @@ The same nine skills can land in a tool home through either path, but the **defa
    │ agent-messaging           │        │ agent-instance  ◄── ADDS  │
    │ agent-gateway             │        │ agent-messaging           │
    │                           │        │ agent-gateway             │
-   │ → 8 skills:               │        │                           │
-   │  process-emails-via-gw    │        │ → 9 skills:               │
-   │  agent-email-comms        │        │  all of managed launch    │
-   │  mailbox-mgr             │        │  PLUS:                    │
-   │  manage-specialist       │        │  manage-agent-instance    │
-   │  manage-credentials      │        │                           │
-   │  manage-agent-definition │        │                           │
-   │  agent-messaging         │        │                           │
-   │  agent-gateway           │        │                           │
+   │ → 9 skills:               │        │                           │
+   │  process-emails-via-gw    │        │ → 10 skills:              │
+   │  project-mgr              │        │  all of managed launch    │
+   │  agent-email-comms        │        │  PLUS:                    │
+   │  mailbox-mgr              │        │  agent-instance           │
+   │  specialist-mgr           │        │                           │
+   │  credential-mgr           │        │                           │
+   │  agent-definition         │        │                           │
+   │  agent-messaging          │        │                           │
+   │  agent-gateway            │        │                           │
    └───────────────────────────┘        └───────────────────────────┘
 ```
 
@@ -91,7 +93,7 @@ The named sets resolve as:
 |---|---|
 | `mailbox-core` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms` |
 | `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr` |
-| `user-control` | `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition` |
+| `user-control` | `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition` |
 | `agent-instance` | `houmao-agent-instance` |
 | `agent-messaging` | `houmao-agent-messaging` |
 | `agent-gateway` | `houmao-agent-gateway` |
@@ -102,7 +104,7 @@ When the operator launches or joins through `houmao-mgr`, **the operator already
 
 ### How to install the broader CLI-default set
 
-To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the nine-skill default selection, omit both `--set` and `--skill`:
+To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the ten-skill default selection, omit both `--set` and `--skill`:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
@@ -118,13 +120,15 @@ For the full flag surface, see the [`system-skills` CLI reference](../reference/
 
 Two short heuristics help decide which skill applies to a task that an agent or operator is asked to perform:
 
-**By concern.** Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to one of the three `manage-*` skills. Administering *mailbox authority itself* — mailbox roots, mailbox registrations, and late mailbox binding — belongs to `houmao-mailbox-mgr`. Driving *what a live agent does* — sending it a prompt, attaching a gateway, or participating in mailbox workflows — belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`.
+**By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, explicit launch profiles, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to `houmao-specialist-mgr`, `houmao-credential-mgr`, or `houmao-agent-definition`. Administering *mailbox authority itself* — mailbox roots, mailbox registrations, and late mailbox binding — belongs to `houmao-mailbox-mgr`. Driving *what a live agent does* — sending it a prompt, attaching a gateway, or participating in mailbox workflows — belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`.
 
-**By transport and boundary.** When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "manage mailbox roots, mailbox registrations, or late mailbox binding," use `houmao-mailbox-mgr`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the unread mail batch the notifier just told us about," use the round-oriented `houmao-process-emails-via-gateway`.
+**By transport and boundary.** When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "manage mailbox roots, mailbox registrations, or late mailbox binding," use `houmao-mailbox-mgr`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the unread mail batch the notifier just told us about," use the round-oriented `houmao-process-emails-via-gateway`. When the task is "what project is active here?" or "what changes for other subcommands when `.houmao/` exists?", use `houmao-project-mgr`.
 
 ## See Also
 
 - [`system-skills` CLI reference](../reference/cli/system-skills.md) — full flag surface, effective-home resolution, and projection paths.
 - [Easy Specialists guide](easy-specialists.md) — the operator-facing flow that exercises `houmao-specialist-mgr`.
 - [Launch Profiles guide](launch-profiles.md) — the launch-side concepts that the messaging and gateway skills observe.
+- [Agent Definition Directory](agent-definitions.md) — `.houmao/` layout, catalog-versus-projection storage, and project-local authoring paths.
+- [Project-Aware Operations](../reference/agents/operations/project-aware-operations.md) — project-aware root resolution and affected command families.
 - README "System Skills" subsection — the catalog-table view bridging this narrative to the per-skill rows.
