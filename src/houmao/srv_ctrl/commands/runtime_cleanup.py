@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 import os
 from pathlib import Path
 
+import click
+
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
@@ -18,6 +20,7 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
     runtime_owned_session_root_from_manifest_path,
 )
+from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
 from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
@@ -25,8 +28,8 @@ from houmao.project.overlay import (
 )
 
 from .cleanup_support import CleanupAction, build_cleanup_payload, remove_path
+from .managed_agents import _list_registry_records, _resolve_local_managed_agent_record
 from .project_aware_wording import describe_runtime_root_selection
-from .managed_agents import _resolve_local_managed_agent_record
 
 
 class CleanupResolutionError(RuntimeError):
@@ -39,8 +42,10 @@ class ResolvedManagedSessionCleanupTarget:
 
     manifest_path: Path
     session_root: Path
-    payload: SessionManifestPayloadV4
+    payload: SessionManifestPayloadV4 | None
     resolution: dict[str, object]
+    registry_record: LiveAgentRegistryRecordV2 | None = None
+    parse_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,7 +87,11 @@ def resolve_managed_session_cleanup_target(
 ) -> ResolvedManagedSessionCleanupTarget:
     """Resolve one managed-session cleanup authority from selectors or paths."""
 
-    from .agents.gateway import _resolve_current_session_manifest, _try_current_tmux_session_name
+    from .agents.gateway import (
+        _read_current_session_agent_id,
+        _resolve_current_session_manifest,
+        _try_current_tmux_session_name,
+    )
 
     selected_authorities = [
         label
@@ -99,13 +108,13 @@ def resolve_managed_session_cleanup_target(
         raise CleanupResolutionError(f"Use exactly one cleanup authority, got {joined}.")
 
     if manifest_path is not None:
-        return _load_explicit_manifest_target(
+        return _load_cleanup_target_from_manifest_path(
             manifest_path=manifest_path,
             authority="manifest_path",
         )
     if session_root is not None:
-        return _load_explicit_manifest_target(
-            manifest_path=(session_root.resolve() / "manifest.json"),
+        return _load_cleanup_target_from_session_root(
+            session_root=session_root,
             authority="session_root",
             authority_value=str(session_root.resolve()),
         )
@@ -123,8 +132,8 @@ def resolve_managed_session_cleanup_target(
                 "Local cleanup target resolution found no fresh shared-registry record for "
                 f"{selector}. Use `--manifest-path` or `--session-root` for stopped sessions."
             )
-        return _load_explicit_manifest_target(
-            manifest_path=Path(record.runtime.manifest_path),
+        return _load_cleanup_target_from_registry_record(
+            record=record,
             authority="agent_id" if agent_id is not None else "agent_name",
             authority_value=record.agent_id if agent_id is not None else record.agent_name,
         )
@@ -135,11 +144,38 @@ def resolve_managed_session_cleanup_target(
             "Exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or "
             "`--session-root` is required unless the command runs inside the target tmux session."
         )
-    resolution = _resolve_current_session_manifest(session_name=session_name)
-    return _load_explicit_manifest_target(
-        manifest_path=resolution.manifest_path,
-        authority="current_session",
-        authority_value=session_name,
+    manifest_error: str | None = None
+    try:
+        resolution = _resolve_current_session_manifest(session_name=session_name)
+    except click.ClickException as exc:
+        manifest_error = str(exc)
+    else:
+        return _load_cleanup_target_from_manifest_path(
+            manifest_path=resolution.manifest_path,
+            authority="current_session",
+            authority_value=session_name,
+            registry_record=getattr(resolution, "registry_record", None),
+        )
+
+    try:
+        current_agent_id = _read_current_session_agent_id(session_name=session_name)
+    except click.ClickException as exc:
+        raise CleanupResolutionError(str(exc)) from exc
+    if current_agent_id is not None:
+        record = _resolve_local_managed_agent_record(
+            agent_id=current_agent_id,
+            agent_name=None,
+        )
+        if record is not None and record.terminal.session_name == session_name:
+            return _load_cleanup_target_from_registry_record(
+                record=record,
+                authority="current_session",
+                authority_value=session_name,
+            )
+    if manifest_error is not None:
+        raise CleanupResolutionError(manifest_error)
+    raise CleanupResolutionError(
+        "Current-session cleanup target resolution could not recover live session metadata."
     )
 
 
@@ -160,8 +196,9 @@ def cleanup_managed_session(
         manifest_path=manifest_path,
         session_root=session_root,
     )
-    live = _payload_is_live(target.payload)
-    session_name = _payload_tmux_session_name(target.payload)
+    live = _cleanup_target_is_live(target)
+    session_name = _cleanup_target_tmux_session_name(target)
+    session_details = _cleanup_target_details(target)
 
     planned_actions: list[CleanupAction] = []
     applied_actions: list[CleanupAction] = []
@@ -173,17 +210,17 @@ def cleanup_managed_session(
         path=target.session_root,
         proposed_action="remove",
         reason="managed session no longer appears live on the local host",
-        details=_session_identity_details(target.payload),
+        details=session_details,
     )
 
-    job_dir = _payload_job_dir(target.payload)
+    job_dir = _payload_job_dir(target.payload) if target.payload is not None else None
     job_dir_action = (
         CleanupAction(
             artifact_kind="job_dir",
             path=job_dir,
             proposed_action="remove",
             reason="job_dir was persisted in the stopped session manifest",
-            details=_session_identity_details(target.payload),
+            details=session_details,
         )
         if include_job_dir
         and job_dir is not None
@@ -235,6 +272,17 @@ def cleanup_managed_session(
                         path=job_dir,
                         proposed_action="preserve",
                         reason="job_dir does not exist",
+                        details=session_details,
+                    )
+                )
+            elif target.payload is None:
+                preserved_actions.append(
+                    CleanupAction(
+                        artifact_kind="job_dir",
+                        path=target.manifest_path,
+                        proposed_action="preserve",
+                        reason="job_dir cleanup was skipped because manifest metadata is unavailable",
+                        details=session_details,
                     )
                 )
 
@@ -271,13 +319,13 @@ def cleanup_managed_session_logs(
         manifest_path=manifest_path,
         session_root=session_root,
     )
-    live = _payload_is_live(target.payload)
+    live = _cleanup_target_is_live(target)
     planned_actions, applied_actions, blocked_actions, preserved_actions = _cleanup_session_logs(
         session_root=target.session_root,
         live=live,
         dry_run=dry_run,
         older_than_seconds=None,
-        session_details=_session_identity_details(target.payload),
+        session_details=_cleanup_target_details(target),
     )
 
     return build_cleanup_payload(
@@ -312,8 +360,8 @@ def cleanup_managed_session_mailbox(
         manifest_path=manifest_path,
         session_root=session_root,
     )
-    live = _payload_is_live(target.payload)
-    session_details = _session_identity_details(target.payload)
+    live = _cleanup_target_is_live(target)
+    session_details = _cleanup_target_details(target)
     mailbox_secret_dir = (target.session_root / "mailbox-secrets").resolve()
 
     planned_actions: list[CleanupAction] = []
@@ -321,8 +369,10 @@ def cleanup_managed_session_mailbox(
     blocked_actions: list[CleanupAction] = []
     preserved_actions: list[CleanupAction] = []
 
-    mailbox = target.payload.launch_plan.mailbox
-    if mailbox is None or getattr(mailbox, "transport", None) != "stalwart":
+    mailbox = target.payload.launch_plan.mailbox if target.payload is not None else None
+    if target.payload is not None and (
+        mailbox is None or getattr(mailbox, "transport", None) != "stalwart"
+    ):
         preserved_actions.append(
             CleanupAction(
                 artifact_kind="session_mailbox_secrets",
@@ -849,17 +899,42 @@ def discover_runtime_session_envelopes(runtime_root: Path) -> tuple[RuntimeSessi
     return tuple(envelopes)
 
 
-def _load_explicit_manifest_target(
+def _load_cleanup_target_from_manifest_path(
     *,
     manifest_path: Path,
     authority: str,
     authority_value: str | None = None,
+    registry_record: LiveAgentRegistryRecordV2 | None = None,
 ) -> ResolvedManagedSessionCleanupTarget:
-    """Load and validate one explicit manifest-backed cleanup target."""
+    """Load one manifest-backed cleanup target with partial-target fallback."""
 
     resolved_manifest_path = manifest_path.resolve()
-    handle = load_session_manifest(resolved_manifest_path)
-    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    session_root = runtime_owned_session_root_from_manifest_path(resolved_manifest_path)
+    if session_root is None:
+        raise CleanupResolutionError(
+            "Cleanup target must use the runtime-owned `<session-root>/manifest.json` layout, "
+            f"got `{resolved_manifest_path}`."
+        )
+    matched_registry_record = registry_record or _find_registry_record_for_session_root(
+        session_root.resolve()
+    )
+    try:
+        handle = load_session_manifest(resolved_manifest_path)
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except SessionManifestError as exc:
+        return ResolvedManagedSessionCleanupTarget(
+            manifest_path=resolved_manifest_path,
+            session_root=session_root.resolve(),
+            payload=None,
+            resolution={
+                "authority": authority,
+                "value": authority_value
+                if authority_value is not None
+                else str(resolved_manifest_path),
+            },
+            registry_record=matched_registry_record,
+            parse_error=str(exc),
+        )
     session_root = runtime_owned_session_root_from_manifest_path(handle.path)
     if session_root is None:
         raise CleanupResolutionError(
@@ -874,6 +949,90 @@ def _load_explicit_manifest_target(
             "authority": authority,
             "value": authority_value if authority_value is not None else str(handle.path.resolve()),
         },
+        registry_record=matched_registry_record,
+    )
+
+
+def _load_cleanup_target_from_session_root(
+    *,
+    session_root: Path,
+    authority: str,
+    authority_value: str | None = None,
+    registry_record: LiveAgentRegistryRecordV2 | None = None,
+    parse_error: str | None = None,
+) -> ResolvedManagedSessionCleanupTarget:
+    """Build one partial cleanup target from a runtime-owned session root."""
+
+    resolved_session_root = session_root.resolve()
+    manifest_path = (resolved_session_root / "manifest.json").resolve()
+    matched_registry_record = registry_record or _find_registry_record_for_session_root(
+        resolved_session_root
+    )
+    if parse_error is None:
+        return _load_cleanup_target_from_manifest_path(
+            manifest_path=manifest_path,
+            authority=authority,
+            authority_value=authority_value,
+            registry_record=matched_registry_record,
+        )
+    return ResolvedManagedSessionCleanupTarget(
+        manifest_path=manifest_path,
+        session_root=resolved_session_root,
+        payload=None,
+        resolution={
+            "authority": authority,
+            "value": authority_value if authority_value is not None else str(resolved_session_root),
+        },
+        registry_record=matched_registry_record,
+        parse_error=parse_error,
+    )
+
+
+def _load_cleanup_target_from_registry_record(
+    *,
+    record: LiveAgentRegistryRecordV2,
+    authority: str,
+    authority_value: str | None = None,
+) -> ResolvedManagedSessionCleanupTarget:
+    """Resolve one cleanup target from a fresh shared-registry record."""
+
+    manifest_path = Path(record.runtime.manifest_path).resolve()
+    manifest_target_error: str | None = None
+    try:
+        target = _load_cleanup_target_from_manifest_path(
+            manifest_path=manifest_path,
+            authority=authority,
+            authority_value=authority_value,
+            registry_record=record,
+        )
+    except CleanupResolutionError as exc:
+        target = None
+        manifest_target_error = str(exc)
+    else:
+        registry_session_root = _registry_record_session_root(record)
+        if target.payload is not None:
+            return target
+        if registry_session_root is None or registry_session_root == target.session_root:
+            return target
+        manifest_target_error = target.parse_error
+
+    registry_session_root = _registry_record_session_root(record)
+    if registry_session_root is None:
+        detail = (
+            manifest_target_error
+            if manifest_target_error is not None
+            else "shared-registry record did not include a usable runtime.session_root"
+        )
+        raise CleanupResolutionError(
+            "Cleanup target resolution could not recover a runtime-owned session root from "
+            f"shared-registry data: {detail}"
+        )
+    return _load_cleanup_target_from_session_root(
+        session_root=registry_session_root,
+        authority=authority,
+        authority_value=authority_value,
+        registry_record=record,
+        parse_error=manifest_target_error,
     )
 
 
@@ -1052,6 +1211,72 @@ def _apply_cleanup_action(
         )
     else:
         applied_actions.append(action)
+
+
+def _cleanup_target_tmux_session_name(target: ResolvedManagedSessionCleanupTarget) -> str | None:
+    """Return the best available tmux session name for one cleanup target."""
+
+    if target.payload is not None:
+        return _payload_tmux_session_name(target.payload)
+    if target.registry_record is not None:
+        return target.registry_record.terminal.session_name
+    return None
+
+
+def _cleanup_target_is_live(target: ResolvedManagedSessionCleanupTarget) -> bool:
+    """Return whether one cleanup target still appears live on the local host."""
+
+    session_name = _cleanup_target_tmux_session_name(target)
+    if session_name is None or not session_name.strip():
+        return False
+    return tmux_session_exists(session_name=session_name)
+
+
+def _cleanup_target_details(target: ResolvedManagedSessionCleanupTarget) -> dict[str, object]:
+    """Return compact identity details for one resolved cleanup target."""
+
+    details: dict[str, object] = {
+        "session_root": str(target.session_root),
+        "manifest_path": str(target.manifest_path),
+    }
+    if target.payload is not None:
+        details.update(_session_identity_details(target.payload))
+    elif target.registry_record is not None:
+        details["agent_id"] = target.registry_record.agent_id
+        details["agent_name"] = target.registry_record.agent_name
+        details["tmux_session_name"] = target.registry_record.terminal.session_name
+    if target.parse_error is not None:
+        details["parse_error"] = target.parse_error
+    return details
+
+
+def _registry_record_session_root(record: LiveAgentRegistryRecordV2) -> Path | None:
+    """Return the optional runtime-owned session root recorded in shared registry state."""
+
+    session_root_value = record.runtime.session_root
+    if session_root_value is not None and session_root_value.strip():
+        path = Path(session_root_value)
+        if path.is_absolute():
+            return path.resolve()
+    manifest_path = Path(record.runtime.manifest_path).resolve()
+    derived_session_root = runtime_owned_session_root_from_manifest_path(manifest_path)
+    if derived_session_root is None:
+        return None
+    return derived_session_root.resolve()
+
+
+def _find_registry_record_for_session_root(session_root: Path) -> LiveAgentRegistryRecordV2 | None:
+    """Return one unique fresh shared-registry record that matches the session root."""
+
+    resolved_session_root = session_root.resolve()
+    matches = [
+        record
+        for record in _list_registry_records()
+        if _registry_record_session_root(record) == resolved_session_root
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _coerce_now(now: datetime | None) -> datetime:

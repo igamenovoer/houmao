@@ -48,6 +48,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailActionResponseV1,
     GatewayMailAttachmentUploadV1,
     GatewayMailCheckResponseV1,
+    GatewayMailPostRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayMailReplyRequestV1,
@@ -1164,6 +1165,34 @@ def _local_manager_mail_reply(
     )
 
 
+def _local_manager_mail_post(
+    controller: RuntimeSessionController,
+    *,
+    subject: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Post operator-origin mail through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        message = adapter.post(
+            subject=subject,
+            body_content=body_content,
+            attachments=attachments,
+        )
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return GatewayMailActionResponseV1(
+        operation="post",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message=message,
+    )
+
+
 def _local_manager_mail_mark_read(
     controller: RuntimeSessionController,
     *,
@@ -1236,6 +1265,27 @@ def _gateway_mail_reply(
         return client.reply_mail(
             GatewayMailReplyRequestV1(
                 message_ref=message_ref,
+                body_content=body_content,
+                attachments=list(attachments),
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def _gateway_mail_post(
+    client: GatewayClient,
+    *,
+    subject: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> GatewayMailActionResponseV1:
+    """Post operator-origin mail through one live loopback gateway client."""
+
+    try:
+        return client.post_mail(
+            GatewayMailPostRequestV1(
+                subject=subject,
                 body_content=body_content,
                 attachments=list(attachments),
             )
@@ -1408,6 +1458,77 @@ def mail_send(
             "body_content": body_content,
             "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
         },
+    )
+
+
+def mail_post(
+    target: ManagedAgentTarget,
+    *,
+    subject: str,
+    body_content: str,
+    attachments: Sequence[GatewayMailAttachmentUploadV1],
+) -> object:
+    """Post one operator-origin mailbox note into one managed agent inbox."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        from houmao.server.models import HoumaoManagedAgentMailPostRequest
+
+        return build_verified_mail_command_result(
+            operation="post",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.post_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailPostRequest(
+                    subject=subject,
+                    body_content=body_content,
+                    attachments=list(attachments),
+                ),
+            ),
+        )
+
+    assert target.controller is not None
+    if target.identity.transport != "tui":
+        return build_verified_mail_command_result(
+            operation="post",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_post(
+                target.controller,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    direct_mail_error = _local_manager_mail_authority_error(target.controller)
+    if direct_mail_error is None:
+        return build_verified_mail_command_result(
+            operation="post",
+            execution_path="manager_direct",
+            payload=_local_manager_mail_post(
+                target.controller,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+
+    gateway_client = _live_gateway_client_for_controller(target.controller)
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="post",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_post(
+                gateway_client,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+            ),
+        )
+    raise click.ClickException(
+        "operator-origin mailbox post requires authoritative manager or gateway mail authority; "
+        "live TUI submission fallback is intentionally unsupported"
     )
 
 
