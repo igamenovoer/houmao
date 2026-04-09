@@ -1,0 +1,242 @@
+  Use the installed Houmao email-processing skill `houmao-process-emails-via-gateway`
+  for this round.
+  $houmao-process-emails-via-gateway http://127.0.0.1:38003
+  In Codex this Houmao skill is installed natively. The standalone line above is the
+  native skill trigger for this gateway-notified round.
+  Use the installed Houmao skills directly from the native tool skill surface. Do not
+  inspect the current project or runtime home for skill files.
+  If you need the exact `/v1/mail/*` operation contract or no-gateway transport
+  guidance for this round, use the lower-level Houmao mailbox communication skill
+  `houmao-agent-email-comms` after the round skill expands.
+
+  List unread mail through the shared gateway mailbox API for this round.
+  Choose which unread email or emails are relevant to process, complete that work,
+  mark only those successfully processed emails read, then stop and wait for the next
+  notification.
+
+  Gateway mailbox operations for this round use the exact live gateway base URL:
+  `http://127.0.0.1:38003`
+
+  Do not guess another host or port.
+
+  Full shared mailbox endpoint URLs:
+
+  - `GET http://127.0.0.1:38003/v1/mail/status`
+  - `POST http://127.0.0.1:38003/v1/mail/check`
+  - `POST http://127.0.0.1:38003/v1/mail/send`
+  - `POST http://127.0.0.1:38003/v1/mail/post`
+  - `POST http://127.0.0.1:38003/v1/mail/reply`
+  - `POST http://127.0.0.1:38003/v1/mail/state`
+
+
+[2m• [0mI’m processing the current shared-mailbox round through the provided gateway URL and
+  starting with mailbox status plus the unread snapshot so I can triage what needs
+  attention before touching any read state.
+
+[1m[38;5;2m•[0m [1mRan[0m [38;2;137;180;250mcurl[38;2;147;153;178m -[38;2;235;160;172msS[38;2;205;214;244m http://127.0.0.1:38003/v1/mail/status[39m
+[2m  └ {"schema_version":1,"transport":"filesystem","principal_id":"HOUMAO-alice-review",[0m
+    [2m"address":"alice-review@houmao.localhost","bindings_version":"2026-04-09T10:15:18.[0m
+    [2m917799Z"}[0m
+
+[1m[38;5;2m•[0m [1mRan[0m [38;2;137;180;250mcurl[38;2;147;153;178m -[38;2;235;160;172msS[38;2;147;153;178m -[38;2;235;160;172mX[38;2;205;214;244m POST http://127.0.0.1:38003/v1/mail/check[39m
+[2m  └ {"detail":[{"type":"missing","loc":["body"],"msg":"Field required","input":null}]}[0m
+
+[2m──────────────────────────────────────────────────────────────────────────────────────[0m
+
+[2m• [0m[38;5;6m/v1/mail/check[39m expects a JSON body, so I’m probing the mailbox contract minimally
+  with an empty JSON payload next; once I have the unread metadata, I’ll pick only the
+  messages that are actionable in this round.
+
+[1m[38;5;2m•[0m [1mRan[0m [38;2;137;180;250mcurl[38;2;147;153;178m -[38;2;235;160;172msS[38;2;147;153;178m -[38;2;235;160;172mX[38;2;205;214;244m POST http://127.0.0.1:38003/v1/mail/check[38;2;147;153;178m -[38;2;235;160;172mH[38;2;205;214;244m [38;2;166;227;161m'content-type: applica[39m
+[2m  │ [0m[38;2;166;227;161mtion/json'[38;2;147;153;178m -[38;2;235;160;172md[38;2;205;214;244m [38;2;166;227;161m'{}'[39m
+[2m  └ {"schema_version":1,"transport":"filesystem","principal_id":"HOUMAO-alice-review",[0m
+    [2m"address":"alice-review@houmao.localhost","unread_only":false,"message_count":4,"u[0m
+[2m    … +121 lines[0m
+    [2m[{"address":"alice-review@houmao.localhost","display_name":null,"principal_id":"HO[0m
+    [2mUMAO-alice-review"}],"cc":[],"reply_to":[],"attachments":[]}]}[0m
+
+[2m──────────────────────────────────────────────────────────────────────────────────────[0m
+
+[2m• [0mThere’s one unread continuation candidate for this round and it’s a concrete review
+  task from [38;5;6malice-story[39m. I’m reading chapter 2, the canonical prior chapter, and the
+  updated character sheets now so I can produce the requested consistency report and
+  reply back before marking the mail read.
+
+[2m• [0;1mUpdated Plan[0m
+[2m  └ [3mProcessing the single unread review request end to end for this mailbox round.[0m
+    □ [1m[38;5;6mRead chapter 2, prior chapter, and updated character sheets to gather continuity[0m
+      [1m[38;5;6mand characterization context[0m
+    □ [2mWrite the structured consistency report to the requested review file[0m
+    □ [2mReply to alice-story with the review path and verdict, then mark the processed[0m
+      [2mmessage read[0m
+
+[1m[38;2;128;128;128m•[0m [1m[38;2;167;167;167mW[38;2;138;138;138mo[38;2;128;128;128mrking[0m [2m(47s • esc to interrupt)[0m
+
+[2m•[0m [1mExplored[0m
+[2m  └ [0m[38;5;6mRead[39m 02-see-it-properly.md[2m, [0mthe-red-silence.md[2m, [0mcommander-reyes.md[2m, [0mpetrov.md[2m, [0myuki.md[2m, [0mdr-oko
+nkwo.md
+
+[2m─ Worked for 1m 16s ──────────────────────────────────────────────────────────────────────────────
+──────────────────[0m
+
+[2m• [0mI’ve got the chapter context now. The draft reads very cohesive against chapter 1 and the update
+d sheets, so I’m
+  writing the review as a mostly-confirmatory report with one small operational question rather th
+an forcing issues
+  that aren’t really there.
+
+[2m• [0mI’m adding the review file now at the requested location, then I’ll send the result mail back to
+ [38;5;6malice-story[39m and
+  only after that mark the processed message read.
+
+[2m• [0;1mAdded[0m story/review/20260409-chapter-02-see-it-properly.md ([38;5;2m+37[39m [38;5;1m-0[39m)
+[48;2;33;58;43m    [2m 1 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mtight[39m
+    [2m 2 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m 3 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m#[38;2;243;139;168m [38;2;148;226;213mChapter 2 Consistency Review: See It Properly[39m
+    [2m 4 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m 5 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m##[38;2;250;179;135m [38;2;148;226;213mContinuity[39m
+    [2m 6 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m 7 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mThis chapter tracks cleanly from [38;2;147;153;178m`[38;2;205;214;244mstory/the-red-silence.md[38;2;147;153;178m`[38;2;205;214;244m. Petrov's earlier line, "I wan
+t to see it proper[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mly," is paid off directly and naturally by the EVA sequence. The delayed Earth-response lo
+gic also remains c[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43monsistent: chapter 1 establishes a fourteen-minute one-way delay, and chapter 2's "twenty-
+eight-minute round[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43m trip" framing correctly reflects the first true post-landing exchange. Reyes turning Eart
+h's voice down in[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mchapter 1 also carries forward credibly into the crew's sleepless, emotionally managed nig
+ht before the EVA.[39m[49m
+[48;2;33;58;43m    [2m 8 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m 9 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m##[38;2;250;179;135m [38;2;148;226;213mCharacter Consistency[39m
+    [2m10 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m11 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mPetrov is strongly on-model here. His ritualized technical precision, awe toward Mars as a
+ "pristine machine[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43m," private poetic interiority, and instinct to switch into Russian when language breaks al
+l align with his s[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mheet. Reyes also stays consistent: she is procedural, spare, protective, and emotionally c
+ompressed, but her[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43m use of "Viktor" lands exactly as the kind of small, meaningful crack in protocol her shee
+t describes. Yuki'[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43ms flat, precise confirmations under stress and her quiet telemetry as a form of presence r
+emain fully in cha[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mracter. Okonkwo's quiet mentoring presence around Yuki also fits the established crew dyna
+mic.[39m[49m
+[48;2;33;58;43m    [2m12 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m13 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m##[38;2;250;179;135m [38;2;148;226;213mInternal Consistency[39m
+    [2m14 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m15 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mThe chapter's physical and procedural logic is coherent on its own terms. Suit checks, dep
+ressurization, lad[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mder descent, first-contact hesitation, telemetry support, and the shift from ceremonial th
+reshold to technic[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mal task all follow in a believable order. Petrov's brief protocol overrun on the final run
+g reads as charact[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mer-revealing rather than structurally implausible, and nothing in the scene contradicts a
+previously stated[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mrule of the mission.[39m
+    [2m16 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m17 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m##[38;2;250;179;135m [38;2;148;226;213mTone[39m
+    [2m18 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m19 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mThe tonal register matches chapter 1 well: literary, restrained, sensory, and serious with
+out becoming melod[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mramatic. The prose remains attentive to physical detail while letting the crew's emotional
+ states emerge thr[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mough compression rather than overt declaration. Petrov's point of view differs from Yuki's
+ in texture, but n[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mot in a way that breaks the book's voice; it feels like an intentional modulation through
+character rather t[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mhan a tonal drift.[39m
+    [2m20 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m21 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m##[38;2;250;179;135m [38;2;148;226;213mIssues List[39m
+    [2m22 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m23 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m###[38;2;249;226;175m [38;2;148;226;213mBreaks the story[39m
+    [2m24 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m25 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mNone found in this pass.[39m
+    [2m26 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m27 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m###[38;2;249;226;175m [38;2;148;226;213mNoticeable[39m
+    [2m28 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m29 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mNone found in this pass.[39m
+    [2m30 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m31 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m###[38;2;249;226;175m [38;2;148;226;213mMinor[39m
+    [2m32 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m33 [0m[38;5;2m[48;2;33;58;43m+[38;2;205;214;244mNone found in this pass.[39m
+    [2m34 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m35 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m##[38;2;250;179;135m [38;2;148;226;213mOpen Questions[39m
+    [2m36 [0m[38;5;2m[48;2;33;58;43m+[39m
+    [2m37 [0m[38;5;2m[48;2;33;58;43m+[38;2;147;153;178m-[38;2;205;214;244m Yuki is being suited during Petrov's check but is later reading telemetry from inside th
+e ship. This is no[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43mt a contradiction, but a tiny clarifying beat could help if the intended staging is that s
+he is already prep[39m[49m
+[48;2;33;58;43m    [2m    [0m[38;2;205;214;244m[48;2;33;58;43maring for a follow-on EVA or is suited for operational redundancy.[39m
+
+[2m[49m──────────────────────────────────────────────────────────────────────────────────────────────────
+──────────────────[0m
+
+[2m• [0mThe review file is in place. I’m validating the reply payload shape against the live gateway now
+ so I can send the
+  completion note back to [38;5;6malice-story[39m cleanly rather than guessing at the contract.
+
+[1m[38;5;2m•[0m [1mRan[0m [38;2;137;180;250mcurl[38;2;147;153;178m -[38;2;235;160;172msS[38;2;147;153;178m -[38;2;235;160;172mX[38;2;205;214;244m POST http://127.0.0.1:38003/v1/mail/reply[38;2;147;153;178m -[38;2;235;160;172mH[38;2;205;214;244m [38;2;166;227;161m'content-type: application/json'[38;2;147;153;178m -[38;2;235;160;172md
+[38;2;205;214;244m [38;2;166;227;161m'{}'[39m
+[2m  └ {"detail":[{"type":"missing","loc":["body","message_ref"],"msg":"Field required","input":{}},[0m
+    [2m{"type":"missing","loc":["body","body_content"],"msg":"Field required","input":{}}]}[0m
+
+[1m[38;5;2m•[0m [1mRan[0m [38;2;137;180;250mcurl[38;2;147;153;178m -[38;2;235;160;172msS[38;2;147;153;178m -[38;2;235;160;172mX[38;2;205;214;244m POST http://127.0.0.1:38003/v1/mail/reply[38;2;147;153;178m -[38;2;235;160;172mH[38;2;205;214;244m [38;2;166;227;161m'content-type: application/json'[38;2;147;153;178m -[38;2;235;160;172md
+[38;2;205;214;244m @- [38;2;148;226;213m<<[38;2;166;227;161m'[38;2;203;166;247mEOF[38;2;166;227;161m'[39m
+[2m  │ [0m[38;2;166;227;161m{"message_ref":"filesystem:msg-20260409T112032Z-b66e8f44f5c94b4abfa0948a9a9c9928","body_conten
+t":"/data1/[39m
+[2m  │ [0m[38;2;166;227;161mhuangzhe/code/agentsys/story/review/20260409-chapter-02-see-it-properly.md\nVerdict: tight"}[39m
+[2m  │ … +1 lines[0m
+[2m  └ {"schema_version":1,"operation":"reply","transport":"filesystem","principal_id":"HOUMAO-alice-
+review","address":[0m
+    [2m"alice-review@houmao.localhost","message":[0m
+[2m    … +6 lines[0m
+    [2m[{"address":"alice-story@houmao.localhost","display_name":null,"principal_id":"HOUMAO-alice-st
+ory"}],"cc":[0m
+    [2m[],"reply_to":[],"attachments":[]}}[0m
+
+[2m──────────────────────────────────────────────────────────────────────────────────────────────────
+──────────────────[0m
+
+[2m• [0mThe result reply has been delivered successfully. I’m marking only the processed source message
+read now and
+  leaving the rest of the mailbox untouched.
+
+[1m[38;5;2m•[0m [1mRan[0m [38;2;137;180;250mcurl[38;2;147;153;178m -[38;2;235;160;172msS[38;2;147;153;178m -[38;2;235;160;172mX[38;2;205;214;244m POST http://127.0.0.1:38003/v1/mail/state[38;2;147;153;178m -[38;2;235;160;172mH[38;2;205;214;244m [38;2;166;227;161m'content-type: application/json'[38;2;147;153;178m -[38;2;235;160;172md
+[38;2;205;214;244m [38;2;166;227;161m'{}'[39m
+[2m  └ {"detail":[{"type":"missing","loc":["body","message_ref"],"msg":"Field required","input":{}}]}
+
+[0;1m[38;5;2m•[0m [1mRan[0m [38;2;137;180;250mcurl[38;2;147;153;178m -[38;2;235;160;172msS[38;2;147;153;178m -[38;2;235;160;172mX[38;2;205;214;244m POST http://127.0.0.1:38003/v1/mail/state[38;2;147;153;178m -[38;2;235;160;172mH[38;2;205;214;244m [38;2;166;227;161m'content-type: application/json'[38;2;147;153;178m -[38;2;235;160;172md
+[38;2;205;214;244m [38;2;166;227;161m'{"message_ref":[39m
+[2m  │ [0m[38;2;166;227;161m"filesystem:msg-20260409T112032Z-b66e8f44f5c94b4abfa0948a9a9c9928"}'[39m
+[2m  └ {"schema_version":1,"transport":"filesystem","principal_id":"HOUMAO-alice-review","address":"a
+lice-review@houmao[0m
+    [2m.localhost","message_ref":"filesystem:msg-20260409T112032Z-b66e8f44f5c94b4abfa0948a9a9c9928","
+read":true}[0m
+
+[2m• [0;1mUpdated Plan[0m
+[2m  └ [3mCompleted the selected unread review task, sent the result mail, and marked only that processe
+d message read.[0m
+    ✔ [2;9mRead chapter 2, prior chapter, and updated character sheets to gather continuity and charact
+erization context[0m
+    ✔ [2;9mWrite the structured consistency report to the requested review file[0m
+    ✔ [2;9mReply to alice-story with the review path and verdict, then mark the processed message read[0m
+
+[2m──────────────────────────────────────────────────────────────────────────────────────────────────
+──────────────────[0m
+
+[2m• [0mProcessed the single unread mailbox task for this round.
+
+  I reviewed chapter 2 against chapter 1 plus the updated character sheets, saved the report at [38;5;6mst
+ory/[39m
+  [38;5;6mreview/20260409-chapter-02-see-it-properly.md[39m, and replied to [38;5;6malice-story@houmao.localhost[39m with
+the path and
+  verdict: [38;5;6mtight[39m.
+
+  The source message [38;5;6mfilesystem:msg-20260409T112032Z-b66e8f44f5c94b4abfa0948a9a9c9928[39m was then mar
+ked read. Stopping
+  here and waiting for the next notification.
+
+
+[1m›[0m [2mRun /review on my current changes[0m
+
+[2m  gpt-5.4 high · 90% left · /data1/huangzhe/code/agentsys[0m

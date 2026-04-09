@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+import reactivex
 from reactivex import abc
+from reactivex.disposable import SerialDisposable
 from reactivex.scheduler import HistoricalScheduler
 from reactivex.subject import Subject
 
@@ -83,6 +85,14 @@ class _LostTurnAnchor:
     reason: str
 
 
+@dataclass(frozen=True)
+class _StaleActiveRecoveryCandidate:
+    """Recovery candidate for one stale active tracked state."""
+
+    signature: str
+    active_reasons: tuple[str, ...]
+
+
 class LiveSessionTracker:
     """Own one tracked session's in-memory live state and recent history."""
 
@@ -95,6 +105,7 @@ class LiveSessionTracker:
         stability_threshold_seconds: float,
         completion_stability_seconds: float,
         unknown_to_stalled_timeout_seconds: float,
+        stale_active_recovery_seconds: float = 5.0,
         tracking_debug_sink: TrackingDebugSink | None = None,
     ) -> None:
         """Initialize the live session tracker."""
@@ -105,6 +116,7 @@ class LiveSessionTracker:
         self.m_stability_threshold_seconds = stability_threshold_seconds
         self.m_completion_stability_seconds = completion_stability_seconds
         self.m_unknown_to_stalled_timeout_seconds = unknown_to_stalled_timeout_seconds
+        self.m_stale_active_recovery_seconds = stale_active_recovery_seconds
         self.m_tracking_debug_sink = tracking_debug_sink
         self.m_lock = threading.RLock()
         self.m_scheduler = HistoricalScheduler()
@@ -145,10 +157,14 @@ class LiveSessionTracker:
         self.m_lost_turn_anchor: _LostTurnAnchor | None = None
         self.m_anchor_should_expire_after_publish = False
         self.m_last_published_turn_anchor_id: int | None = None
+        self.m_pending_stale_active_recovery: SerialDisposable = SerialDisposable()
+        self.m_pending_stale_active_recovery_signature: str | None = None
+        self.m_recovered_stale_active_signature: str | None = None
         self.m_last_state = _build_initial_state(
             identity=identity,
             completion_stability_seconds=completion_stability_seconds,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
+            stale_active_recovery_seconds=stale_active_recovery_seconds,
         )
         self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
 
@@ -211,6 +227,7 @@ class LiveSessionTracker:
             and observed_tool_version == self.m_tracker_observed_tool_version
         ):
             return False
+        self._cancel_stale_active_recovery_locked(reason="tracker_rebuilt")
         self.m_tracker_session.close()
         self.m_tracker_app_id = tracker_app_id
         self.m_tracker_observed_tool_version = observed_tool_version
@@ -346,6 +363,7 @@ class LiveSessionTracker:
                 tool=self.m_identity.tool,
                 observed_tool_version=self.m_identity.observed_tool_version,
             )
+            self._cancel_stale_active_recovery_locked(reason="input_submitted")
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
             self.m_tracker_session.on_input_submitted()
@@ -573,6 +591,19 @@ class LiveSessionTracker:
                 observed_at_utc=observed_at_utc,
             )
             turn = HoumaoTrackedTurn(phase=tracker_state.turn_phase)
+            stale_active_candidate = _build_stale_active_recovery_candidate(
+                parsed_surface=parsed_surface,
+                diagnostics=diagnostics,
+                surface=surface,
+                turn=turn,
+                tracker_state=tracker_state,
+                active_turn_anchor_present=self.m_active_turn_anchor is not None,
+            )
+            stale_active_recovered = self._update_stale_active_recovery_locked(
+                candidate=stale_active_candidate,
+                monotonic_ts=monotonic_ts,
+                cycle_seq=cycle_seq,
+            )
             self._emit_debug(
                 stream="tracker-public-state",
                 event_type="public_state_built",
@@ -594,6 +625,39 @@ class LiveSessionTracker:
                     "signal_notes": list(tracker_state.notes),
                 },
             )
+            if stale_active_recovered:
+                surface = surface.model_copy(update={"ready_posture": "yes"})
+                turn = turn.model_copy(update={"phase": "ready"})
+                operator_state = operator_state.model_copy(
+                    update={
+                        "status": "ready",
+                        "readiness_state": "ready",
+                        "detail": (
+                            "Tracker recovered a stale active phase after "
+                            f"{self.m_stale_active_recovery_seconds:.1f} seconds of stable "
+                            "submit-ready posture."
+                        ),
+                        "updated_at_utc": observed_at_utc,
+                    }
+                )
+                self._emit_debug(
+                    stream="tracker-recovery",
+                    event_type="stale_active_recovery_applied",
+                    monotonic_ts=monotonic_ts,
+                    cycle_seq=cycle_seq,
+                    data={
+                        "recovery_signature_sha1": _sha1_text(
+                            stale_active_candidate.signature
+                            if stale_active_candidate is not None
+                            else None
+                        ),
+                        "active_reasons": list(
+                            stale_active_candidate.active_reasons
+                            if stale_active_candidate is not None
+                            else ()
+                        ),
+                    },
+                )
             stability = self._build_stability(
                 diagnostics=diagnostics,
                 parsed_surface=parsed_surface,
@@ -625,6 +689,7 @@ class LiveSessionTracker:
                     completion_candidate_elapsed_seconds=reduction.completion_candidate_elapsed_seconds,
                     unknown_to_stalled_timeout_seconds=self.m_unknown_to_stalled_timeout_seconds,
                     completion_stability_seconds=self.m_completion_stability_seconds,
+                    stale_active_recovery_seconds=self.m_stale_active_recovery_seconds,
                 ),
                 lifecycle_authority=lifecycle_authority,
                 stability=stability,
@@ -772,6 +837,109 @@ class LiveSessionTracker:
             self.m_last_readiness_snapshot = self.m_readiness_snapshot_queue.popleft()
         while self.m_completion_snapshot_queue:
             self.m_last_completion_snapshot = self.m_completion_snapshot_queue.popleft()
+
+    def _update_stale_active_recovery_locked(
+        self,
+        *,
+        candidate: _StaleActiveRecoveryCandidate | None,
+        monotonic_ts: float,
+        cycle_seq: int,
+    ) -> bool:
+        """Refresh stale-active recovery timing and return whether recovery applies now."""
+
+        if candidate is None:
+            self._cancel_stale_active_recovery_locked(
+                reason="candidate_cleared",
+                monotonic_ts=monotonic_ts,
+                cycle_seq=cycle_seq,
+            )
+            return False
+        if self.m_recovered_stale_active_signature == candidate.signature:
+            return True
+        if self.m_pending_stale_active_recovery_signature == candidate.signature:
+            return False
+        self._cancel_stale_active_recovery_locked(
+            reason="candidate_replaced",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=cycle_seq,
+        )
+        self.m_pending_stale_active_recovery_signature = candidate.signature
+        self.m_pending_stale_active_recovery.disposable = reactivex.timer(
+            timedelta(seconds=self.m_stale_active_recovery_seconds),
+            scheduler=self.m_scheduler,
+        ).subscribe(
+            lambda _unused: self._handle_stale_active_recovery_timer(
+                candidate_signature=candidate.signature
+            )
+        )
+        self._emit_debug(
+            stream="tracker-recovery",
+            event_type="stale_active_recovery_armed",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=cycle_seq,
+            data={
+                "recovery_signature_sha1": _sha1_text(candidate.signature),
+                "active_reasons": list(candidate.active_reasons),
+                "recovery_seconds": self.m_stale_active_recovery_seconds,
+            },
+        )
+        return False
+
+    def _handle_stale_active_recovery_timer(self, *, candidate_signature: str) -> None:
+        """Mark one stale-active candidate signature as recovered."""
+
+        with self.m_lock:
+            if self.m_pending_stale_active_recovery_signature != candidate_signature:
+                self._emit_debug(
+                    stream="tracker-recovery",
+                    event_type="stale_active_recovery_timer_skipped",
+                    monotonic_ts=self.m_last_scheduler_monotonic,
+                    data={
+                        "reason": "candidate_signature_mismatch",
+                        "pending_signature_sha1": _sha1_text(
+                            self.m_pending_stale_active_recovery_signature
+                        ),
+                        "timer_signature_sha1": _sha1_text(candidate_signature),
+                    },
+                )
+                return
+            self.m_pending_stale_active_recovery_signature = None
+            self.m_recovered_stale_active_signature = candidate_signature
+            self._emit_debug(
+                stream="tracker-recovery",
+                event_type="stale_active_recovery_timer_fired",
+                monotonic_ts=self.m_last_scheduler_monotonic,
+                data={"recovery_signature_sha1": _sha1_text(candidate_signature)},
+            )
+
+    def _cancel_stale_active_recovery_locked(
+        self,
+        *,
+        reason: str,
+        monotonic_ts: float | None = None,
+        cycle_seq: int | None = None,
+    ) -> None:
+        """Cancel or clear stale-active recovery state."""
+
+        had_pending = self.m_pending_stale_active_recovery_signature is not None
+        had_recovered = self.m_recovered_stale_active_signature is not None
+        self.m_pending_stale_active_recovery.dispose()
+        self.m_pending_stale_active_recovery = SerialDisposable()
+        self.m_pending_stale_active_recovery_signature = None
+        self.m_recovered_stale_active_signature = None
+        if not had_pending and not had_recovered:
+            return
+        self._emit_debug(
+            stream="tracker-recovery",
+            event_type="stale_active_recovery_cleared",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=cycle_seq,
+            data={
+                "reason": reason,
+                "had_pending": had_pending,
+                "had_recovered": had_recovered,
+            },
+        )
 
     def _build_stability(
         self,
@@ -969,6 +1137,7 @@ def _build_initial_state(
     identity: HoumaoTrackedSessionIdentity,
     completion_stability_seconds: float,
     unknown_to_stalled_timeout_seconds: float,
+    stale_active_recovery_seconds: float,
 ) -> HoumaoTerminalStateResponse:
     """Return the initial unknown state for a newly admitted tracked session."""
 
@@ -1016,6 +1185,7 @@ def _build_initial_state(
             completion_candidate_elapsed_seconds=None,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             completion_stability_seconds=completion_stability_seconds,
+            stale_active_recovery_seconds=stale_active_recovery_seconds,
         ),
         lifecycle_authority=HoumaoLifecycleAuthorityMetadata(
             completion_authority="unanchored_background",
@@ -1394,6 +1564,54 @@ def _anchor_loss_reason(
     if parse_status == "parse_error":
         return "Parsed surface became unavailable before the anchored cycle reached a terminal outcome."
     return "Anchored completion monitoring lost its authoritative parsed surface before terminal outcome."
+
+
+def _build_stale_active_recovery_candidate(
+    *,
+    parsed_surface: HoumaoParsedSurface | None,
+    diagnostics: HoumaoTrackedDiagnostics,
+    surface: HoumaoTrackedSurface,
+    turn: HoumaoTrackedTurn,
+    tracker_state: TrackedStateSnapshot,
+    active_turn_anchor_present: bool,
+) -> _StaleActiveRecoveryCandidate | None:
+    """Return one stale-active recovery candidate when the state is submit-ready but stuck active."""
+
+    if active_turn_anchor_present:
+        return None
+    if parsed_surface is None or diagnostics.availability != "available":
+        return None
+    if not _is_submit_ready(parsed_surface):
+        return None
+    if surface.accepting_input != "yes" or surface.editing_input != "no":
+        return None
+    if turn.phase != "active":
+        return None
+    active_reasons = tracker_state.active_reasons
+    if active_reasons and not set(active_reasons).issubset({"status_row"}):
+        return None
+    signature_payload = json.dumps(
+        {
+            "parsed_surface": {
+                "availability": parsed_surface.availability,
+                "business_state": parsed_surface.business_state,
+                "input_mode": parsed_surface.input_mode,
+                "ui_context": parsed_surface.ui_context,
+                "normalized_projection_text": parsed_surface.normalized_projection_text,
+            },
+            "surface": surface.model_dump(mode="json"),
+            "turn_phase": turn.phase,
+            "last_turn_result": tracker_state.last_turn_result,
+            "last_turn_source": tracker_state.last_turn_source,
+            "active_reasons": list(active_reasons),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return _StaleActiveRecoveryCandidate(
+        signature=hashlib.sha1(signature_payload.encode("utf-8")).hexdigest(),
+        active_reasons=active_reasons,
+    )
 
 
 def _message_excerpt(message: str) -> str | None:

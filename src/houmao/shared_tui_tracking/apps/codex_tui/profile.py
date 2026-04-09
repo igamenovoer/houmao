@@ -23,6 +23,7 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.prompt_behavior import (
     CodexPromptBehaviorVariantV0_116_X,
     FallbackCodexPromptBehaviorVariant,
     build_prompt_area_snapshot,
+    latest_turn_live_edge_lines,
     latest_turn_lines,
     prompt_behavior_notes,
 )
@@ -107,11 +108,12 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             surface=surface,
             prompt_index=prompt_snapshot.prompt_index,
         )
+        live_edge_lines = latest_turn_live_edge_lines(surface=surface)
         prompt_classification = self.m_prompt_behavior_variant.classify(prompt_snapshot)
         blocking_overlay = has_blocking_overlay(surface)
         activity = detect_activity(
-            surface=surface,
             latest_turn_lines=latest_turn_region_lines,
+            live_edge_lines=live_edge_lines,
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
         )
@@ -219,9 +221,10 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             surface=surface,
             prompt_index=prompt_snapshot.prompt_index,
         )
+        live_edge_lines = latest_turn_live_edge_lines(surface=surface)
         activity = detect_activity(
-            surface=surface,
             latest_turn_lines=latest_turn_region_lines,
+            live_edge_lines=live_edge_lines,
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
         )
