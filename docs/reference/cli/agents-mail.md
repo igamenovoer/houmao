@@ -7,7 +7,7 @@ This is the **operator-facing CLI** for ordinary mailbox follow-up. The matching
 - `houmao-agent-email-comms` — ordinary shared-mailbox operations and the no-gateway fallback path. This is the canonical mailbox-operations skill paired with the `agents mail` family below.
 - `houmao-process-emails-via-gateway` — round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL.
 
-For the narrative tour of all twelve packaged system skills, see the [System Skills Overview](../../getting-started/system-skills-overview.md).
+For the narrative tour of every packaged system skill, see the [System Skills Overview](../../getting-started/system-skills-overview.md).
 
 ```
 houmao-mgr agents mail [OPTIONS] COMMAND [ARGS]...

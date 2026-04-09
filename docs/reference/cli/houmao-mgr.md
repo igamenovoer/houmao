@@ -145,6 +145,14 @@ Cleanup targeting rules:
 - Launch-profile-stored fields that flow through the manifest into runtime launch resolution include managed-agent identity defaults, working directory, auth override selected by display name, prompt-mode override, durable env records, declarative mailbox config, headless and gateway posture, the managed-header policy, and the prompt overlay. The stored auth relationship is catalog-backed, so later auth rename stays valid. Prompt composition order is source role prompt → prompt overlay resolution → launch appendix append when present → structured render into `<houmao_system_prompt>` → backend-specific role injection.
 - For the conceptual model that ties `agents launch --launch-profile` to easy `project easy profile` and to the broader launch-profile object family, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
+`agents prompt` request-scoped headless execution overrides:
+
+- `agents prompt` accepts optional `--model TEXT` and `--reasoning-level INTEGER` request-scoped headless execution overrides. `--model` is a tool-agnostic name that resolves through the provider mapping used by launch-owned model selection. `--reasoning-level` uses Houmao's normalized `1..10` scale rather than a vendor-native knob.
+- The override flags apply to exactly the submitted prompt. They do not mutate launch profiles, recipes, specialists, manifests, stored easy profiles, or any other live session defaults, and they do not persist beyond the submission.
+- When the resolved target is a TUI-backed session, the command rejects `--model` and `--reasoning-level` clearly rather than silently dropping them. Only request-scoped headless prompt routes accept the overrides.
+- Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden. Supplying neither leaves the launch-resolved defaults in effect.
+- The same override contract applies to `agents turn submit` and `agents gateway prompt`; for the dedicated per-command option tables, see [agents turn](agents-turn.md#submit) and [agents gateway](agents-gateway.md#prompt). The managed-agent HTTP payload shape is described in [Managed Agent API](../managed_agent_api.md).
+
 ### `mailbox` — Local filesystem mailbox administration
 
 ```
@@ -214,6 +222,93 @@ houmao-mgr brains build [OPTIONS]
 `HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path and selects the overlay directory directly for CI or controlled automation. `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` affects ambient discovery only when no explicit overlay root is set: `ancestor` is the default nearest-ancestor lookup bounded by the Git repository, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`. When env selection or discovery wins, `houmao-config.toml` inside that overlay is the discovery anchor and `agents/` under the same overlay is the compatibility projection that current file-tree consumers read from the catalog-backed overlay.
 
 When `--preset` resolves to a recipe that carries `launch.env_records`, `brains build` projects those records as durable non-credential launch env alongside the selected auth bundle. Those env records come from specialist launch config, not from one-off instance launch input.
+
+### `credentials` — Dedicated credential management
+
+```
+houmao-mgr credentials [OPTIONS] COMMAND [ARGS]...
+```
+
+`houmao-mgr credentials` is the first-class top-level credential-management surface for Claude, Codex, and Gemini. It is the canonical entry point for managing credential contents and names, either through the active Houmao project overlay or through a plain agent-definition directory selected with `--agent-def-dir <path>`.
+
+For a project-scoped view that always targets the active overlay without an explicit selector, use the [`project credentials`](#project-repo-local-houmao-project-overlays) wrapper — see `project credentials <tool> ...` below. Both surfaces share semantics, and the project-scoped wrapper is the preferred entry point when an active overlay is present.
+
+#### Tool subcommands
+
+| Subcommand | Description |
+|---|---|
+| `claude` | Manage Claude credentials through either the active project overlay or a selected plain agent-definition directory. |
+| `codex` | Manage Codex credentials through either the active project overlay or a selected plain agent-definition directory. |
+| `gemini` | Manage Gemini credentials through either the active project overlay or a selected plain agent-definition directory. |
+
+Each tool subcommand exposes the same CRUD verbs:
+
+| Verb | Description |
+|---|---|
+| `list` | List credential names for one supported tool. |
+| `get` | Inspect one credential safely as structured data. `--name` is required. |
+| `add` | Create one credential. `--name` is required plus the tool-specific credential input flags. |
+| `set` | Update one existing credential. `--name` is required; only supplied input flags are updated, other stored fields are preserved. |
+| `remove` | Remove one credential by `--name`. |
+| `rename` | Rename one credential from `--name` to `--to`. For project-overlay credentials the underlying auth-profile identity is preserved; stored launch-profile auth relationships remain valid after rename. |
+
+#### Target selector
+
+Every `credentials <tool> ...` verb accepts one selector:
+
+| Option | Description |
+|---|---|
+| `--project` | Resolve credentials through the active Houmao project overlay. Default when no selector is supplied and an overlay is discoverable. |
+| `--agent-def-dir DIRECTORY` | Manage credentials in the selected plain agent-definition directory instead of a project overlay. This is the escape hatch for tool homes that do not use a Houmao project overlay. |
+
+`--project` and `--agent-def-dir` are mutually exclusive. When `--agent-def-dir` is supplied, the command operates on the filesystem-backed `tools/<tool>/auth/<name>/` layout inside that agent-definition directory. When `--project` is supplied (or defaulted), the command operates on the catalog-backed project overlay with display-name semantics and opaque bundle refs under `.houmao/content/auth/<tool>/<bundle-ref>/`.
+
+#### Per-tool credential input flags
+
+The per-tool input flags on `credentials <tool> add` and `credentials <tool> set` mirror the Click decorators in `src/houmao/srv_ctrl/commands/credentials.py` and stay aligned with the corresponding `project credentials` surface.
+
+**Claude (`credentials claude add|set`)**:
+
+| Option | Description |
+|---|---|
+| `--api-key TEXT` | Value for `ANTHROPIC_API_KEY`. |
+| `--auth-token TEXT` | Value for `ANTHROPIC_AUTH_TOKEN`. |
+| `--oauth-token TEXT` | Value for `CLAUDE_CODE_OAUTH_TOKEN`. |
+| `--base-url TEXT` | Value for `ANTHROPIC_BASE_URL`. |
+| `--model TEXT` | Value for `ANTHROPIC_MODEL`. |
+| `--small-fast-model TEXT` | Value for `ANTHROPIC_SMALL_FAST_MODEL`. |
+| `--subagent-model TEXT` | Value for `CLAUDE_CODE_SUBAGENT_MODEL`. |
+| `--default-opus-model TEXT`, `--default-sonnet-model TEXT`, `--default-haiku-model TEXT` | Vendor-native default-model env overrides for Claude. |
+| `--config-dir DIRECTORY` | Optional Claude config dir to import vendor login state from (`.credentials.json` plus companion `.claude.json` when present). |
+| `--state-template-file FILE` | Optional Claude bootstrap state template JSON stored alongside the credential bundle. This is bootstrap state, not a credential-providing method. |
+
+Cross-reference: see [Claude Vendor Login Files](../claude-vendor-login-files.md) for the file-handling rules and the local smoke-validation workflow.
+
+**Codex (`credentials codex add|set`)**:
+
+| Option | Description |
+|---|---|
+| `--api-key TEXT` | Value for `OPENAI_API_KEY`. |
+| `--base-url TEXT` | Value for `OPENAI_BASE_URL`. |
+| `--org-id TEXT` | Value for `OPENAI_ORG_ID`. |
+| `--auth-json FILE` | Optional Codex `auth.json` login-state file stored in the credential bundle. |
+
+**Gemini (`credentials gemini add|set`)**:
+
+| Option | Description |
+|---|---|
+| `--api-key TEXT` | Value for `GEMINI_API_KEY`. |
+| `--google-api-key TEXT` | Value for `GOOGLE_API_KEY`. |
+| `--base-url TEXT` | Value for `GOOGLE_GEMINI_BASE_URL`. |
+| `--use-vertex-ai` | Store `GOOGLE_GENAI_USE_VERTEXAI=true` in the credential bundle env file. |
+| `--oauth-creds FILE` | Optional Gemini CLI `oauth_creds.json` file stored in the credential bundle. |
+
+Notes:
+
+- `credentials` is the supported credential-management surface. The retired `project agents tools <tool> auth ...` CRUD subtree is no longer maintained; use `credentials ...` or `project credentials ...` instead.
+- `add` and `set` are patch-preserving: setting one input flag does not implicitly delete other stored fields on the same credential. Refreshing `--config-dir` replaces the imported Claude vendor login files as one maintained set.
+- Auth-owned model env on Claude is separate from launch-owned model selection. Use `credentials claude add|set --model <value>` only when you need to pin `ANTHROPIC_MODEL` in the credential bundle; use the launch-owned `--model` on `agents launch` / `project easy specialist create` / `project easy profile create` / `project agents launch-profiles add` when you are selecting a Houmao launch-time model through the provider mapping.
+- For the agent-driven workflow that wraps this surface, see the packaged [`houmao-credential-mgr`](../../getting-started/system-skills-overview.md) system skill. For the easy-lane credential notes exposed through `project easy specialist create` and `project credentials`, see the `project credentials claude add|set` notes under the [`project`](#project-repo-local-houmao-project-overlays) command group below.
 
 ### `system-skills` — Packaged Houmao-owned skill installation for resolved tool homes
 
@@ -312,7 +407,6 @@ Project overlay notes:
 | `launch-profiles list|get|add|set|remove` | Manage explicit recipe-backed reusable birth-time launch profiles projected under `agents/launch-profiles/<name>.yaml`. See the dedicated section below for the field set. |
 | `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
 | `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
-| `tools <tool> auth list|get|add|set|rename|remove` | Manage project-local auth bundles through catalog-backed auth profiles. The CLI stays display-name-oriented, while `.houmao/content/auth/<tool>/<bundle-ref>/` and `.houmao/agents/tools/<tool>/auth/<bundle-ref>/` use opaque bundle refs internally. |
 
 Low-level boundary notes:
 
@@ -320,7 +414,7 @@ Low-level boundary notes:
 - `recipes ...` (canonical) and `presets ...` (compatibility alias) own named recipe structure, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference. Both surfaces administer the same `.houmao/agents/presets/<name>.yaml` files.
 - `launch-profiles ...` owns reusable recipe-backed birth-time launch configuration, including managed-agent identity defaults, working directory, auth override by display name, prompt-mode override, durable env records, declarative mailbox config, launch posture, and an optional prompt overlay. The stored auth relationship resolves through auth-profile identity, so later auth rename does not break existing launch profiles. For the shared semantic model that ties these to easy profiles, see [Launch Profiles](../../getting-started/launch-profiles.md).
 - Managed launches prepend a short Houmao-owned prompt header by default. `houmao-mgr` is the canonical direct Houmao interface named by that header, and the stored launch-profile policy plus launch-time flags determine whether the header is enabled for a given launch. See [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md) for what the header contains and the prompt composition order.
-- `tools <tool> auth ...` owns auth-bundle contents and auth display-name rename. Use that surface when the task is changing env vars, auth files, or the user-facing auth name inside the bundle rather than which bundle a recipe selects. Do not infer semantics from the projected auth directory basename.
+- Credential CRUD is no longer part of `project agents tools <tool> ...`. Use the dedicated [`credentials`](#credentials-dedicated-credential-management) and [`project credentials`](#project-repo-local-houmao-project-overlays) command families for add, set, rename, remove, get, and list on Claude, Codex, and Gemini credentials. `project agents tools <tool> get` and `tools <tool> setups ...` remain focused on tool subtree inspection and setup bundle maintenance.
 
 `project agents recipes` notes:
 

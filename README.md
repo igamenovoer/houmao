@@ -76,11 +76,13 @@ command -v tmux
 
 | Entrypoint | Purpose | Status |
 |---|---|---|
-| `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, server control | **Active** |
+| `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, credential management, server control | **Active** |
 | `houmao-server` | Houmao-owned REST server for managed-agent session lifecycle | **Stabilizing — usable for the documented surfaces** |
 | `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **Stabilizing — usable for the documented surfaces** |
 | `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
 | `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
+
+`houmao-mgr` exposes a dedicated top-level `credentials` command group for Claude, Codex, and Gemini credential CRUD, alongside the project-scoped `project credentials` wrapper. See the [`credentials`](docs/reference/cli/houmao-mgr.md#credentials-dedicated-credential-management) section of the CLI reference for the full surface.
 
 ```bash
 houmao-mgr --help
@@ -243,7 +245,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-For the 5-minute walkthrough of all twelve skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
+For the 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
 
 ## Full Documentation
 

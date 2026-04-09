@@ -27,7 +27,7 @@ houmao-mgr agents turn submit [OPTIONS]
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
-The override flags affect only the submitted turn. They do not rewrite the stored manifest or future turns for the managed headless agent.
+The override flags affect only the submitted turn. They do not rewrite the stored manifest or future turns for the managed headless agent. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden. Because `agents turn submit` targets managed headless routes directly, TUI-target rejection does not apply here — but the same overrides are rejected clearly when reached through `agents prompt` or `agents gateway prompt` for a TUI-backed target.
 
 ### `status`
 

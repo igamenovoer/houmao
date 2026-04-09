@@ -211,6 +211,8 @@ For pair-managed `houmao_server_rest` sessions, operators normally reach this ro
 
 `POST /houmao/agents/{agent_ref}/gateway/requests` proxies live gateway `submit_prompt` and `interrupt` requests. It rejects the request explicitly when no eligible live gateway is attached instead of silently falling back to the transport-neutral `/requests` surface. For `submit_prompt`, the same optional headless-only `execution.model` shape is accepted here and rejected with HTTP `422` for TUI-backed targets.
 
+`POST /houmao/agents/{agent_ref}/gateway/control/prompt` is the immediate "send now or refuse now" gateway-control surface. It accepts the same optional headless-only `execution.model.name` plus optional `execution.model.reasoning.level` (`1..10`) payload as the queued `submit_prompt` surface, applies the override to exactly the current prompt admission, and rejects the request with HTTP `422` when the resolved target is TUI-backed. Partial overrides merge with launch-resolved defaults through the shared headless resolution helper.
+
 `POST /houmao/agents/{agent_ref}/gateway/control/send-keys` proxies the live gateway raw control-input route. It carries the same `<[key-name]>` grammar and `escape_special_keys` behavior as the direct gateway `POST /v1/control/send-keys` contract.
 
 `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` proxy the live gateway notifier control surface for that managed agent. These routes require a live attached gateway; they return HTTP `503` when no live gateway is currently attached or when the live gateway health check fails.
