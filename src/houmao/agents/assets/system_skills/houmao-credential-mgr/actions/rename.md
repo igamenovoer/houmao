@@ -1,26 +1,28 @@
 # Rename Credential
 
-Use this action only when the user wants to rename one existing project-local auth bundle without changing its underlying stored auth identity.
+Use this action only when the user wants to rename one existing credential.
 
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the tool family, current auth display name, and new auth display name from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the tool family, current name, or new name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
-4. Run `project agents tools <tool> auth rename --name <old> --to <new>`.
-5. Report the renamed auth display name, previous display name, and any diagnostic metadata returned by the command.
+2. Recover the tool family, current credential name, new credential name, and target from the current prompt first and recent chat context second when they were stated explicitly.
+3. If any of those inputs are still missing, ask the user before proceeding.
+4. Run the selected command.
+5. Report the renamed credential name, previous name, and any diagnostic metadata returned by the command.
 
 ## Command Shape
 
-Use:
+Use one of:
 
 ```text
-<chosen houmao-mgr launcher> project agents tools <tool> auth rename --name <old> --to <new>
+<chosen houmao-mgr launcher> project credentials <tool> rename --name <old> --to <new>
+<chosen houmao-mgr launcher> credentials <tool> rename --agent-def-dir <path> --name <old> --to <new>
 ```
 
 ## Guardrails
 
-- Do not guess which tool or auth bundle the user meant.
-- Do not treat rename as env or auth-file mutation; use `auth set` for content changes.
-- Do not present auth rename as requiring manual directory moves or launch-profile rewrites.
-- Do not imply that any returned auth path is a user-facing identity surface; projected auth directory basenames are opaque implementation detail.
+- Do not guess which tool, target, or credential the user meant.
+- Do not treat rename as env or auth-file mutation; use `set` for content changes.
+- Do not present project-backed rename as requiring manual directory moves or launch-profile rewrites.
+- Do not present direct-dir rename as metadata-only; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.
+- Do not imply that any returned auth path is always a user-facing identity surface.

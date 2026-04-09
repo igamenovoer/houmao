@@ -31,7 +31,7 @@ This packaged skill does not cover:
 - `houmao-mgr project easy specialist ...`
 - `houmao-mgr project easy instance ...`
 - `houmao-mgr agents launch|join|list|stop|cleanup`
-- `houmao-mgr project agents tools <tool> auth list|get|add|set|rename|remove` when the user wants auth-bundle management rather than which bundle one recipe references
+- `houmao-mgr project credentials <tool> list|get|add|set|rename|remove` or `houmao-mgr credentials <tool> ... --agent-def-dir <path>` when the user wants credential management rather than which bundle one recipe references
 - direct hand-editing under `.houmao/agents/`
 - retired `houmao-mgr project agents roles scaffold`
 - retired `houmao-mgr project agents roles presets ...`

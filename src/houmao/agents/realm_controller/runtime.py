@@ -163,6 +163,7 @@ from .loaders import RolePackage, load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
+    default_mailbox_address,
     default_mailbox_principal_id,
     mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
@@ -571,7 +572,11 @@ class RuntimeSessionController:
                 address,
                 field_name="address",
             )
-            or f"{effective_principal_id}@agents.localhost"
+            or default_mailbox_address(
+                tool=self.launch_plan.tool,
+                role_name=self.role_name,
+                agent_identity=self.agent_identity,
+            )
         )
         working_directory = self.launch_plan.working_directory.resolve()
         if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):

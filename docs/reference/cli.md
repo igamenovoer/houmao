@@ -70,8 +70,9 @@ Within that pair, `houmao-mgr` is split deliberately:
 - `server` is the server lifecycle and server-session family
 - `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
+- `credentials` is the first-class credential-management family for the active project overlay or an explicit plain agent-definition directory
 - `system-skills` is the Houmao-owned skill installer for resolved Claude, Codex, or Gemini homes outside managed launch or join
-- `project` is the repo-local Houmao overlay family with `agents`, `easy`, and `mailbox` views
+- `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `easy`, and `mailbox` views
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots
 - `admin` is the local maintenance family
 
@@ -81,7 +82,8 @@ The repo-local `project` tree is intentionally split by user view:
     - `project agents roles ...` for prompt-only role management,
     - `project agents recipes ...` (canonical) and `project agents presets ...` (compatibility alias) for named recipe administration under `.houmao/agents/presets/<name>.yaml`,
     - `project agents launch-profiles ...` for explicit recipe-backed reusable birth-time launch profiles under `.houmao/agents/launch-profiles/<name>.yaml`,
-    - `project agents tools <tool> ...` for adapter, setup, and auth-bundle administration, including display-name-oriented `auth rename`.
+    - `project agents tools <tool> ...` for adapter and setup administration under `.houmao/agents/tools/<tool>/`,
+- `credentials ...` is the supported credential-management family. Use `project credentials <tool> ...` for the active overlay or `credentials <tool> ... --agent-def-dir <path>` for a plain agent-definition directory.
 - `project easy ...` is the higher-level specialist, easy-profile, and instance surface. It includes `project easy specialist ...`, `project easy profile ...` (specialist-backed reusable birth-time profiles), and `project easy instance ...` (the runtime lifecycle surface that accepts `--specialist` or `--profile` on `instance launch`).
 - `project mailbox ...` is the project-scoped wrapper over the generic mailbox-root commands.
 

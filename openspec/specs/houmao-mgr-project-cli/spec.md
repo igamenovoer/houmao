@@ -12,14 +12,39 @@ At minimum, that family SHALL include:
 - `status`
 - `agents`
 - `easy`
+- `credentials`
 - `mailbox`
 
 The `project` family SHALL be presented as a local operator workflow for repo-local Houmao state rather than as a pair-authority or server-backed control surface.
 
 #### Scenario: Operator sees the project command family
 - **WHEN** an operator runs `houmao-mgr project --help`
-- **THEN** the help output lists `init`, `status`, `agents`, `easy`, and `mailbox`
+- **THEN** the help output lists `init`, `status`, `agents`, `easy`, `credentials`, and `mailbox`
 - **AND THEN** the help output presents `project` as a local project-overlay workflow
+
+### Requirement: `houmao-mgr project credentials` provides explicit project-scoped credential management
+`houmao-mgr project credentials <tool>` SHALL expose:
+
+- `list`
+- `get`
+- `add`
+- `set`
+- `rename`
+- `remove`
+
+`project credentials` SHALL always resolve the active project overlay and SHALL use the project-backed credential behavior defined for project-local catalog-backed auth profiles.
+
+`project credentials` SHALL NOT require `--agent-def-dir` because its target is the active project overlay by definition.
+
+#### Scenario: Operator sees the project-scoped credential verbs for one tool
+- **WHEN** an operator runs `houmao-mgr project credentials claude --help`
+- **THEN** the help output presents `list`, `get`, `add`, `set`, `rename`, and `remove`
+- **AND THEN** those commands are described as project-scoped credential management for the active overlay
+
+#### Scenario: Project credential add uses the active overlay
+- **WHEN** an operator runs `houmao-mgr project credentials codex add --name work --api-key sk-test`
+- **THEN** the command resolves the active project overlay
+- **AND THEN** it creates a project-local catalog-backed Codex credential in that overlay
 
 ### Requirement: `houmao-mgr project init` bootstraps one repo-local `.houmao` overlay
 `houmao-mgr project init` SHALL resolve the target overlay root in this order:
@@ -233,25 +258,25 @@ When no project overlay is discovered under the selected overlay root, the comma
 - **AND THEN** it reports `cwd_only` as the effective overlay discovery mode
 
 ### Requirement: Maintained project-local source creation flows bootstrap the active overlay on demand
-Maintained `houmao-mgr project agents ...` commands that create or update project-local tool, auth, role, or preset state SHALL resolve the active overlay through the shared ensure-or-bootstrap project-aware resolver instead of requiring a previously initialized overlay.
+Maintained `houmao-mgr project agents ...` and `houmao-mgr project credentials ...` commands that create or update project-local tool, credential, role, or preset state SHALL resolve the active overlay through the shared ensure-or-bootstrap project-aware resolver instead of requiring a previously initialized overlay.
 
 When no active project overlay exists for the caller and no stronger overlay selection override applies, these commands SHALL ensure the selected overlay exists before writing project-local state.
 
 At minimum, this requirement SHALL apply to:
 
 - `houmao-mgr project agents tools <tool> setups add`
-- `houmao-mgr project agents tools <tool> auth add`
-- `houmao-mgr project agents tools <tool> auth set`
+- `houmao-mgr project credentials <tool> add`
+- `houmao-mgr project credentials <tool> set`
 - `houmao-mgr project agents roles init`
 - `houmao-mgr project agents roles set`
 - `houmao-mgr project agents presets add`
 - `houmao-mgr project agents presets set`
 
-#### Scenario: Tool auth add bootstraps the missing overlay on demand
+#### Scenario: Project credential add bootstraps the missing overlay on demand
 - **WHEN** no active project overlay exists
-- **AND WHEN** an operator runs `houmao-mgr project agents tools codex auth add --name personal --api-key sk-test`
-- **THEN** the command ensures `<cwd>/.houmao` exists before writing the auth bundle
-- **AND THEN** the resulting auth bundle is stored under that active project overlay
+- **AND WHEN** an operator runs `houmao-mgr project credentials codex add --name personal --api-key sk-test`
+- **THEN** the command ensures `<cwd>/.houmao` exists before writing the project-local credential
+- **AND THEN** the resulting project-local credential is stored under that active project overlay
 
 #### Scenario: Role init uses the env-selected overlay when bootstrapping
 - **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
@@ -271,9 +296,9 @@ At minimum, this requirement SHALL apply to:
 - `houmao-mgr project agents tools <tool> setups list`
 - `houmao-mgr project agents tools <tool> setups get`
 - `houmao-mgr project agents tools <tool> setups remove`
-- `houmao-mgr project agents tools <tool> auth list`
-- `houmao-mgr project agents tools <tool> auth get`
-- `houmao-mgr project agents tools <tool> auth remove`
+- `houmao-mgr project credentials <tool> list`
+- `houmao-mgr project credentials <tool> get`
+- `houmao-mgr project credentials <tool> remove`
 - `houmao-mgr project agents roles list`
 - `houmao-mgr project agents roles get`
 - `houmao-mgr project agents roles remove`

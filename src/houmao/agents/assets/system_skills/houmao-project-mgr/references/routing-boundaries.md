@@ -12,7 +12,7 @@ Use this reference when a project-related task is close to another renamed Houma
 ## Route To Other Renamed Skills
 
 - `houmao-specialist-mgr` for `project easy specialist ...`, `project easy profile ...`, and easy `project easy instance launch|stop`
-- `houmao-credential-mgr` for `project agents tools <tool> auth list|get|add|set|rename|remove`
+- `houmao-credential-mgr` for `project credentials <tool> list|get|add|set|rename|remove` and `credentials <tool> ... --agent-def-dir <path>`
 - `houmao-agent-definition` for `project agents roles ...` and `project agents recipes ...`
 - `houmao-agent-instance` for general live-agent lifecycle after project-scoped routing
 - `houmao-mailbox-mgr` for `mailbox ...`, `project mailbox ...`, and `agents mailbox ...`

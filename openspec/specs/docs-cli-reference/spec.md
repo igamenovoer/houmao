@@ -5,7 +5,7 @@ Define the documentation requirements for Houmao CLI reference content.
 ## Requirements
 ### Requirement: houmao-mgr reference documents all command groups
 
-The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `mailbox`, `project`, and `server`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
+The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `credentials`, `mailbox`, `project`, and `server`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
 
 The CLI reference SHALL make the major nested managed-agent and project command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
 
@@ -16,6 +16,7 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 - `agents mailbox`,
 - `agents cleanup`,
 - `project agents`,
+- `project credentials`,
 - `project easy`,
 - `project mailbox`,
 - `admin cleanup`.
@@ -31,15 +32,15 @@ When the CLI reference documents `agents gateway`, that coverage SHALL include t
 
 The `brains build` options table in the CLI reference SHALL reflect the current live CLI flag names: `--preset`, `--setup`, and `--auth`. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
 
-When the `houmao-mgr` reference describes Claude credential lanes for `project easy specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed `project agents tools claude auth` flag names (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
+When the `houmao-mgr` reference describes Claude credential lanes for `project easy specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed dedicated credential-management flag names used by `project credentials claude` and `credentials claude --agent-def-dir <path>` (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
 
 #### Scenario: Reader finds current agent lifecycle and project command groups
 - **WHEN** a reader looks up `houmao-mgr`
-- **THEN** they find documented subcommands for `agents`, `brains`, `mailbox`, `project`, `server`, and `admin`
+- **THEN** they find documented subcommands for `agents`, `brains`, `credentials`, `mailbox`, `project`, `server`, and `admin`
 - **AND THEN** the CLI reference does not present removed or outdated project group names such as `agent-tools` as the supported public project surface
 
 #### Scenario: Reader can discover nested managed-agent and project command families
-- **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project easy`, `project mailbox`, or `admin cleanup`
+- **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project credentials`, `project easy`, `project mailbox`, or `admin cleanup`
 - **THEN** the CLI reference provides a direct path to formal reference coverage for those nested families
 - **AND THEN** the reader does not need to reconstruct those command surfaces only from source code or scattered prose pages
 
@@ -75,9 +76,34 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 
 #### Scenario: Reader sees correct Claude auth flag-name distinction
 - **WHEN** a reader looks up Claude credential lanes in the `houmao-mgr` reference
-- **THEN** the page shows that `project agents tools claude auth` uses `--auth-token`, `--oauth-token`, `--config-dir`
+- **THEN** the page shows that `project credentials claude` and `credentials claude --agent-def-dir <path>` use `--auth-token`, `--oauth-token`, `--config-dir`
 - **AND THEN** the page shows that `project easy specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
 - **AND THEN** the page states that both surfaces accept the same credential semantics
+
+
+### Requirement: CLI reference documents the dedicated credential-management families
+The CLI reference SHALL document the dedicated credential-management families for `houmao-mgr`.
+
+At minimum, that coverage SHALL include:
+
+- the top-level `credentials` command family,
+- the project-scoped `project credentials` wrapper,
+- the supported tool lanes `claude`, `codex`, and `gemini`,
+- the supported verbs `list`, `get`, `add`, `set`, `rename`, and `remove`,
+- the target-selection model for project-backed versus `--agent-def-dir` usage,
+- the removal of credential CRUD from `project agents tools <tool>`.
+
+The `houmao-mgr` reference SHALL position `credentials` as the first-class credential-management surface and SHALL position `project credentials` as the explicit project-scoped wrapper.
+
+#### Scenario: Reader can find the dedicated top-level credential family
+- **WHEN** a reader looks up `houmao-mgr`
+- **THEN** the CLI reference documents `credentials` as a supported top-level command family
+- **AND THEN** the page explains when to use `credentials ...` versus `project credentials ...`
+
+#### Scenario: Reader sees that credential CRUD moved out of project agents tools
+- **WHEN** a reader checks the CLI reference for project-local tool management
+- **THEN** the reference explains that `project agents tools <tool>` remains for tool inspection and setup bundles
+- **AND THEN** the reference directs credential CRUD to `credentials ...` or `project credentials ...`
 
 ### Requirement: houmao-server reference documents serve and query commands
 
@@ -244,15 +270,15 @@ The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be re
 - **AND THEN** the page notes which `houmao-mgr` commands are compatible with the passive-server
 
 ### Requirement: CLI reference distinguishes Claude credential inputs from the optional state template
-The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both:
+The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both the dedicated credential-management surface and the easy-specialist surface:
 
-- `project agents tools claude auth ...`
+- `project credentials claude ...` or `credentials claude ... --agent-def-dir <path>`
 - `project easy specialist create --tool claude`
 
 When the reference documents Claude-specific flags, it SHALL make clear that `claude_state.template.json` or `--claude-state-template-file` is optional runtime bootstrap state and not itself a credential-providing method.
 
 #### Scenario: Reader sees the Claude state template documented separately in the CLI reference
-- **WHEN** a reader looks up the Claude project-auth or easy-specialist options in `docs/reference/cli/houmao-mgr.md`
+- **WHEN** a reader looks up the Claude credential-management or easy-specialist options in `docs/reference/cli/houmao-mgr.md`
 - **THEN** the page distinguishes credential-providing Claude inputs from the optional state-template input
 - **AND THEN** it does not present the state-template input as one of the ways to authenticate Claude
 
@@ -306,7 +332,7 @@ That page SHALL explain that `houmao-project-mgr` covers project overlay discove
 That page SHALL explain that neighboring renamed packaged skills keep their current ownership boundaries:
 
 - `houmao-specialist-mgr` owns easy specialist and easy profile authoring plus easy `launch|stop`
-- `houmao-credential-mgr` owns project-local auth bundle CRUD
+- `houmao-credential-mgr` owns dedicated credential-management routing and CRUD
 - `houmao-agent-definition` owns low-level roles and recipes
 - `houmao-agent-instance` owns generic managed-agent lifecycle after project-scoped routing
 - `houmao-mailbox-mgr` owns mailbox-administration guidance

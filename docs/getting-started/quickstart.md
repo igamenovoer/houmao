@@ -117,11 +117,11 @@ This higher-level flow persists semantic state in the catalog and snapshots payl
 .houmao/agents/skills/notes/
 ```
 
-Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. For example, add, inspect, rename, or remove auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, manage prompt-only roles with `houmao-mgr project agents roles ...`, manage named recipes with `houmao-mgr project agents recipes ...`, or manage explicit recipe-backed launch profiles with `houmao-mgr project agents launch-profiles ...`.
+Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. Credential management now has its own concern-oriented entry points: use `houmao-mgr project credentials <tool> ...` for the active overlay or `houmao-mgr credentials <tool> ... --agent-def-dir <path>` for a plain agent-definition directory. Use `houmao-mgr project agents roles ...` for prompt-only roles, `houmao-mgr project agents recipes ...` for named recipes, or `houmao-mgr project agents launch-profiles ...` for explicit recipe-backed launch profiles.
 
 Gemini note:
 
-- `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini` both support `--api-key`, optional `--base-url`, and optional OAuth credentials via `--oauth-creds` or `--gemini-oauth-creds`.
+- `project credentials gemini add|set` and `project easy specialist create --tool gemini` both support `--api-key`, optional `--base-url`, and optional OAuth credentials via `--oauth-creds` or `--gemini-oauth-creds`.
 - OAuth-backed managed Gemini homes inject the supported Google-login selector automatically, so fresh runtime homes do not depend on a user-global Gemini `settings.json`.
 - Houmao-owned Gemini skills now project into `.gemini/skills/`; `.agents/skills/` is only Gemini's upstream alias surface and is not the Houmao-managed root.
 - `project easy specialist create --tool gemini` now persists unattended launch posture by default; keep `--no-unattended` for explicit `as_is`.

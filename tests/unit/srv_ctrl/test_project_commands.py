@@ -78,13 +78,14 @@ def _project_auth_root(repo_root: Path, *, tool: str, name: str) -> Path:
     return profile.resolved_projection_path(overlay)
 
 
-def test_project_help_mentions_agents_easy_and_mailbox() -> None:
+def test_project_help_mentions_agents_credentials_easy_and_mailbox() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
     assert result.exit_code == 0
     assert "init" in result.output
     assert "status" in result.output
     assert "agents" in result.output
+    assert "credentials" in result.output
     assert "easy" in result.output
     assert "mailbox" in result.output
     assert "agent-tools" not in result.output
@@ -98,6 +99,33 @@ def test_project_agents_tools_help_mentions_supported_tools() -> None:
     assert "claude" in result.output
     assert "codex" in result.output
     assert "gemini" in result.output
+
+
+def test_project_credentials_help_mentions_supported_tools_and_verbs() -> None:
+    group_result = CliRunner().invoke(cli, ["project", "credentials", "--help"])
+
+    assert group_result.exit_code == 0
+    assert "claude" in group_result.output
+    assert "codex" in group_result.output
+    assert "gemini" in group_result.output
+
+    tool_result = CliRunner().invoke(cli, ["project", "credentials", "claude", "--help"])
+    assert tool_result.exit_code == 0
+    assert "list" in tool_result.output
+    assert "get" in tool_result.output
+    assert "add" in tool_result.output
+    assert "set" in tool_result.output
+    assert "rename" in tool_result.output
+    assert "remove" in tool_result.output
+
+
+def test_project_agents_tool_help_no_longer_mentions_auth() -> None:
+    result = CliRunner().invoke(cli, ["project", "agents", "tools", "claude", "--help"])
+
+    assert result.exit_code == 0
+    assert "get" in result.output
+    assert "setups" in result.output
+    assert "auth" not in result.output
 
 
 def test_project_agents_roles_help_mentions_verbs() -> None:
@@ -451,7 +479,7 @@ def test_project_status_reports_cwd_only_mode_against_cwd_overlay_candidate(
     )
 
 
-def test_project_agents_tool_auth_add_bootstraps_missing_overlay(
+def test_project_credentials_add_bootstraps_missing_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -464,10 +492,8 @@ def test_project_agents_tool_auth_add_bootstraps_missing_overlay(
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "codex",
-            "auth",
             "add",
             "--name",
             "personal",
@@ -533,7 +559,7 @@ def test_project_agents_role_list_fails_without_bootstrapping_missing_overlay(
     assert not (repo_root / ".houmao").exists()
 
 
-def test_project_agents_tools_auth_get_and_setups_flow(
+def test_project_credentials_get_and_project_tool_setups_flow(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -553,10 +579,8 @@ def test_project_agents_tools_auth_get_and_setups_flow(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "claude",
-                "auth",
                 "add",
                 "--name",
                 "work",
@@ -573,10 +597,8 @@ def test_project_agents_tools_auth_get_and_setups_flow(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "codex",
-                "auth",
                 "add",
                 "--name",
                 "personal",
@@ -593,10 +615,8 @@ def test_project_agents_tools_auth_get_and_setups_flow(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "gemini",
-                "auth",
                 "add",
                 "--name",
                 "vertex",
@@ -643,7 +663,7 @@ def test_project_agents_tools_auth_get_and_setups_flow(
 
     get_auth_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "claude", "auth", "get", "--name", "work"],
+        ["project", "credentials", "claude", "get", "--name", "work"],
     )
     assert get_auth_result.exit_code == 0
     get_auth_payload = json.loads(get_auth_result.output)
@@ -655,7 +675,7 @@ def test_project_agents_tools_auth_get_and_setups_flow(
 
     gemini_get_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "gemini", "auth", "get", "--name", "vertex"],
+        ["project", "credentials", "gemini", "get", "--name", "vertex"],
     )
     assert gemini_get_result.exit_code == 0
     gemini_get_payload = json.loads(gemini_get_result.output)
@@ -1191,7 +1211,7 @@ def test_project_easy_specialist_create_can_persist_as_is_opt_out(
     assert preset_payload["launch"] == {"prompt_mode": "as_is"}
 
 
-def test_project_agents_gemini_auth_set_preserves_api_key_when_updating_base_url(
+def test_project_credentials_gemini_set_preserves_api_key_when_updating_base_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1206,10 +1226,8 @@ def test_project_agents_gemini_auth_set_preserves_api_key_when_updating_base_url
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "gemini",
-            "auth",
             "add",
             "--name",
             "proxy",
@@ -1231,10 +1249,8 @@ def test_project_agents_gemini_auth_set_preserves_api_key_when_updating_base_url
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "gemini",
-            "auth",
             "set",
             "--name",
             "proxy",
@@ -1252,10 +1268,8 @@ def test_project_agents_gemini_auth_set_preserves_api_key_when_updating_base_url
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "gemini",
-            "auth",
             "set",
             "--name",
             "proxy",
@@ -1266,7 +1280,7 @@ def test_project_agents_gemini_auth_set_preserves_api_key_when_updating_base_url
     assert env_file.read_text(encoding="utf-8").splitlines() == ["GEMINI_API_KEY=sk-gemini"]
 
 
-def test_project_agents_gemini_auth_add_supports_oauth_only_bundle(
+def test_project_credentials_gemini_add_supports_oauth_only_bundle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1283,10 +1297,8 @@ def test_project_agents_gemini_auth_add_supports_oauth_only_bundle(
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "gemini",
-            "auth",
             "add",
             "--name",
             "personal",
@@ -1305,7 +1317,7 @@ def test_project_agents_gemini_auth_add_supports_oauth_only_bundle(
     assert oauth_bundle_file.read_text(encoding="utf-8") == '{"refresh_token": "token"}\n'
 
 
-def test_project_agents_claude_auth_add_supports_oauth_only_bundle(
+def test_project_credentials_claude_add_supports_oauth_only_bundle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1320,10 +1332,8 @@ def test_project_agents_claude_auth_add_supports_oauth_only_bundle(
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "claude",
-            "auth",
             "add",
             "--name",
             "oauth-only",
@@ -1343,7 +1353,7 @@ def test_project_agents_claude_auth_add_supports_oauth_only_bundle(
 
     get_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "claude", "auth", "get", "--name", "oauth-only"],
+        ["project", "credentials", "claude", "get", "--name", "oauth-only"],
     )
     assert get_result.exit_code == 0, get_result.output
     payload = json.loads(get_result.output)
@@ -1354,7 +1364,7 @@ def test_project_agents_claude_auth_add_supports_oauth_only_bundle(
     }
 
 
-def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clearing_other_values(
+def test_project_credentials_claude_set_refreshes_config_dir_import_without_clearing_other_values(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1373,10 +1383,8 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "claude",
-            "auth",
             "add",
             "--name",
             "vendor-login",
@@ -1409,10 +1417,8 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "claude",
-            "auth",
             "set",
             "--name",
             "vendor-login",
@@ -1443,7 +1449,7 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
 
     get_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "claude", "auth", "get", "--name", "vendor-login"],
+        ["project", "credentials", "claude", "get", "--name", "vendor-login"],
     )
     assert get_result.exit_code == 0, get_result.output
     payload = json.loads(get_result.output)
@@ -1457,10 +1463,8 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "claude",
-            "auth",
             "set",
             "--name",
             "vendor-login",
@@ -1473,7 +1477,7 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
     assert (files_root / "claude_state.template.json").is_file()
 
 
-def test_project_agents_auth_rename_preserves_identity_and_updates_launch_profile_display_name(
+def test_project_credentials_rename_preserves_identity_and_updates_launch_profile_display_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1513,10 +1517,8 @@ def test_project_agents_auth_rename_preserves_identity_and_updates_launch_profil
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "codex",
-                "auth",
                 "add",
                 "--name",
                 "work",
@@ -1529,7 +1531,7 @@ def test_project_agents_auth_rename_preserves_identity_and_updates_launch_profil
 
     initial_auth_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "codex", "auth", "get", "--name", "work"],
+        ["project", "credentials", "codex", "get", "--name", "work"],
     )
     assert initial_auth_result.exit_code == 0, initial_auth_result.output
     initial_auth_payload = json.loads(initial_auth_result.output)
@@ -1557,10 +1559,8 @@ def test_project_agents_auth_rename_preserves_identity_and_updates_launch_profil
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "codex",
-            "auth",
             "rename",
             "--name",
             "work",
@@ -1578,13 +1578,13 @@ def test_project_agents_auth_rename_preserves_identity_and_updates_launch_profil
 
     old_auth_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "codex", "auth", "get", "--name", "work"],
+        ["project", "credentials", "codex", "get", "--name", "work"],
     )
     assert old_auth_result.exit_code != 0
 
     renamed_auth_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "codex", "auth", "get", "--name", "breakglass"],
+        ["project", "credentials", "codex", "get", "--name", "breakglass"],
     )
     assert renamed_auth_result.exit_code == 0, renamed_auth_result.output
     renamed_auth_payload = json.loads(renamed_auth_result.output)
@@ -1600,7 +1600,7 @@ def test_project_agents_auth_rename_preserves_identity_and_updates_launch_profil
     assert launch_profile_payload["defaults"]["auth"] == "breakglass"
 
 
-def test_project_easy_specialist_get_derives_current_auth_display_name_after_auth_rename(
+def test_project_easy_specialist_get_derives_current_auth_display_name_after_credential_rename(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1637,7 +1637,7 @@ def test_project_easy_specialist_get_derives_current_auth_display_name_after_aut
 
     initial_auth_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "codex", "auth", "get", "--name", "work"],
+        ["project", "credentials", "codex", "get", "--name", "work"],
     )
     assert initial_auth_result.exit_code == 0, initial_auth_result.output
     initial_auth_payload = json.loads(initial_auth_result.output)
@@ -1646,10 +1646,8 @@ def test_project_easy_specialist_get_derives_current_auth_display_name_after_aut
         cli,
         [
             "project",
-            "agents",
-            "tools",
+            "credentials",
             "codex",
-            "auth",
             "rename",
             "--name",
             "work",
@@ -2551,10 +2549,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "codex",
-                "auth",
                 "add",
                 "--name",
                 "alice-creds",
@@ -2693,10 +2689,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "codex",
-                "auth",
                 "add",
                 "--name",
                 "reviewer-creds",
@@ -2785,10 +2779,8 @@ def test_project_easy_profile_crud_round_trip(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "codex",
-                "auth",
                 "add",
                 "--name",
                 "alice-creds",
@@ -2912,10 +2904,8 @@ def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "codex",
-                "auth",
                 "add",
                 "--name",
                 "alice-creds",
@@ -3028,10 +3018,8 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
             cli,
             [
                 "project",
-                "agents",
-                "tools",
+                "credentials",
                 "codex",
-                "auth",
                 "add",
                 "--name",
                 "alice-creds",

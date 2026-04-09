@@ -339,7 +339,7 @@ Low-level boundary notes:
 - `launch-profiles remove` deletes one launch-profile resource without deleting the referenced recipe.
 - Launch profiles authored here are recipe-backed and explicit. They are stored as the same kind of catalog object that backs easy `project easy profile ...`, but the explicit lane keeps the lower-level launch contract visible by intent.
 
-`project agents tools claude auth add|set` notes:
+`project credentials claude add|set` notes:
 
 - Claude supports maintained auth inputs `--api-key`, `--auth-token`, `--oauth-token`, optional `--config-dir`, optional `--base-url`, and optional model-selection env values.
 - `--config-dir` imports Claude vendor login state from a maintained Claude config root by copying `.credentials.json` and companion `.claude.json` when present.
@@ -372,12 +372,12 @@ Low-level boundary notes:
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
 - maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility recipe projected under `.houmao/agents/presets/`, including Gemini's headless-only easy lane.
 - specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
-- Claude credential lanes use the same credential semantics in both `project agents tools claude auth add|set` and `project easy specialist create --tool claude`, but the flag names differ: the tools surface uses unprefixed names (`--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`) while the easy-specialist surface uses prefixed names (`--api-key`, `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`, `--base-url`). Model selection on the easy surface is now unified under `--model` plus optional `--reasoning-level`, with `--claude-model` retained only as a compatibility alias for `--model`.
+- Claude credential lanes use the same credential semantics in both `project credentials claude add|set` and `project easy specialist create --tool claude`, but the flag names differ: the dedicated credential surface uses unprefixed names (`--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`) while the easy-specialist surface uses prefixed names (`--api-key`, `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`, `--base-url`). Model selection on the easy surface is now unified under `--model` plus optional `--reasoning-level`, with `--claude-model` retained only as a compatibility alias for `--model`.
 - Claude auth bundle updates are patch-preserving: setting `--claude-oauth-token`, `--claude-config-dir`, or `--base-url` does not implicitly delete other stored Claude auth inputs, and refreshing `--claude-config-dir` replaces the imported vendor login files as one maintained set. `--claude-model` no longer writes auth-owned model env; it resolves into launch-owned model selection.
 - `--claude-state-template-file` remains optional Claude bootstrap state and is not itself a credential-providing method on the easy-specialist surface.
 - The maintained vendor-login lane is still directory-based. Pass `--config-dir` or `--claude-config-dir`, not separate `.credentials.json` or `.claude.json` file flags.
 - Detailed vendor-native model tuning belongs in the relevant specialist or credential skill documentation rather than the core CLI reference.
-- Gemini credential lanes use the same project-tool contract in both `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini`: `--api-key`, optional `--base-url`, and optional `--oauth-creds` or `--gemini-oauth-creds`.
+- Gemini credential lanes use the same contract in both `project credentials gemini add|set` and `project easy specialist create --tool gemini`: `--api-key`, optional `--base-url`, and optional `--oauth-creds` or `--gemini-oauth-creds`.
 - Gemini auth bundle updates are patch-preserving: setting `--base-url` or `--oauth-creds` does not implicitly delete other Gemini auth inputs that were already stored.
 - The project-local catalog is the source of truth; `agents/` under the active overlay root is a compatibility projection that is materialized as needed.
 
@@ -386,7 +386,7 @@ Low-level boundary notes:
 - `--name` and `--specialist` are required. The named profile targets exactly one existing specialist.
 - Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), managed-header flags (`--managed-header`, `--no-managed-header`), and prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`).
 - The persisted easy profile lives in the shared catalog launch-profile family with `profile_lane=easy_profile` and `source_kind=specialist`. It projects into the same compatibility tree (`.houmao/agents/launch-profiles/<name>.yaml`) used by explicit launch profiles.
-- `--auth <name>` is display-name-oriented at the CLI, but the stored easy-profile relationship resolves through auth-profile identity so later `project agents tools <tool> auth rename` continues to work.
+- `--auth <name>` is display-name-oriented at the CLI, but the stored easy-profile relationship resolves through auth-profile identity so later `project credentials <tool> rename` continues to work.
 - Omitting both managed-header flags on `project easy profile create` stores `inherit`, which falls back to the default enabled managed-header behavior later at launch time.
 - When no active project overlay exists for the caller, `project easy profile create` ensures `<cwd>/.houmao` exists before persisting the profile (matching the `project easy specialist create` bootstrap behavior).
 - `project easy profile remove` removes only the profile definition. It does not remove the specialist that the profile referenced.

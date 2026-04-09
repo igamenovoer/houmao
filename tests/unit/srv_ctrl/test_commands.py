@@ -132,6 +132,7 @@ def test_top_level_command_inventory_exposes_new_native_surface() -> None:
         "admin",
         "agents",
         "brains",
+        "credentials",
         "mailbox",
         "project",
         "server",
@@ -443,8 +444,8 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
     assert "mailbox" in result.output
     assert "init" in result.output
     assert "status" in result.output
+    assert "credentials" in result.output
     assert "agent-tools" not in result.output
-    assert "credential" not in result.output
 
 
 def test_agents_mailbox_help_mentions_late_registration_surface() -> None:

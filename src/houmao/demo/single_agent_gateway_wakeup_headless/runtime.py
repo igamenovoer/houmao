@@ -296,10 +296,8 @@ def import_project_auth_from_fixture(
         auth_operation = "add"
     command = [
         "project",
-        "agents",
-        "tools",
+        "credentials",
         tool,
-        "auth",
         auth_operation,
         "--name",
         tool_parameters.auth_name,

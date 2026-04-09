@@ -45,6 +45,24 @@ The create action within that packaged skill SHALL describe the documented proje
 - **THEN** the skill tells the user that further agent management should go through `houmao-agent-instance`
 - **AND THEN** it does not imply that `houmao-specialist-mgr` is the canonical surface for generic live managed-agent lifecycle
 
+### Requirement: `houmao-create-specialist` treats credential defaults as display-name defaults only
+The create action within the packaged `houmao-specialist-mgr` skill SHALL treat `--credential` as the operator-facing auth display name used for selection or creation rather than as an implied storage-path key.
+
+When the user omits `--credential`, the skill MAY continue using `<specialist-name>-creds` as the documented display-name default without implying that the resulting auth profile must use the same basename for managed content or compatibility projection storage.
+
+The create guidance SHALL NOT describe auth rename, auth storage paths, or auth directory basenames as something the operator must coordinate manually for specialist creation.
+
+#### Scenario: Installed skill presents the default credential as a display-name default
+- **WHEN** an agent follows the create path inside the installed `houmao-specialist-mgr` skill
+- **THEN** the skill states that `--credential` defaults to `<specialist-name>-creds`
+- **AND THEN** it does not imply that the auth profile's storage path basename must equal that display name
+
+#### Scenario: Existing auth profile display name still satisfies specialist create
+- **WHEN** the current prompt or recent conversation establishes specialist name and tool
+- **AND WHEN** the skill confirms that an auth profile with the intended display name already exists for that tool
+- **THEN** the skill allows specialist creation to proceed without re-entering auth inputs
+- **AND THEN** it does not require the agent to inspect or reason about the auth profile's opaque storage path
+
 ### Requirement: `houmao-create-specialist` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-specialist-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
@@ -154,3 +172,32 @@ The create action SHALL NOT present `claude_state.template.json` as one of the w
 - **WHEN** an agent reads the create guidance inside the installed `houmao-specialist-mgr` skill
 - **THEN** the skill distinguishes Claude credential-providing methods from the optional Claude state-template input
 - **AND THEN** it does not describe `claude_state.template.json` as a Claude credential lane
+
+### Requirement: `houmao-create-specialist` explains filesystem mailbox behavior on specialist-backed easy launch
+When the packaged `houmao-specialist-mgr` skill describes `project easy instance launch` with filesystem mailbox support, the launch guidance SHALL distinguish launch-time mailbox flags from profile-create declarative mailbox fields.
+
+At minimum, that launch guidance SHALL state that `project easy instance launch` does not accept profile-create declarative mailbox fields such as `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url`.
+
+The launch guidance SHALL state that the supported launch-time filesystem mailbox inputs are `--mail-transport filesystem`, `--mail-root`, and optional `--mail-account-dir`.
+
+The launch guidance SHALL state that the managed-agent instance name seeds the ordinary filesystem mailbox identity for launch-owned mailbox bootstrap when mailbox support is enabled and no explicit private mailbox directory override changes the storage path.
+
+The launch guidance SHALL explain that `--mail-account-dir` is a private filesystem mailbox directory that is symlinked into the shared mailbox root and therefore MUST live outside that shared root.
+
+The launch guidance SHALL warn that manual preregistration of the same address under the same mailbox root can collide with the launch's safe mailbox bootstrap for that instance.
+
+#### Scenario: Specialist launch guidance excludes profile-only mailbox fields
+- **WHEN** an agent reads the specialist-manager launch action for mailbox-enabled `project easy instance launch`
+- **THEN** the skill states that launch-time filesystem mailbox support uses only the documented launch flags
+- **AND THEN** it does not present `--mail-address` or `--mail-principal-id` as supported `project easy instance launch` flags
+
+#### Scenario: Specialist launch guidance explains private mailbox directory placement
+- **WHEN** an agent reads the specialist-manager launch action for `--mail-account-dir`
+- **THEN** the skill explains that the path is a private mailbox directory symlinked into the shared root
+- **AND THEN** it states that the private mailbox directory must live outside the shared mailbox root
+
+#### Scenario: Specialist launch guidance warns about preregistering the same address
+- **WHEN** an agent reads the specialist-manager launch action for launch-owned filesystem mailbox binding
+- **AND WHEN** the intended mailbox address follows the ordinary managed-agent identity pattern for the same mailbox root
+- **THEN** the skill warns that preregistering that same address can make safe launch bootstrap fail
+- **AND THEN** it tells the reader to let launch own that address unless they are intentionally using a different manual-registration or late-binding lane

@@ -35,7 +35,7 @@ Houmao currently ships **twelve** system skills. They split into four concern gr
 |---|---|---|
 | `houmao-project-mgr` | Project overlay lifecycle, `.houmao/` layout explanation, project-aware command-effect guidance, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing. | `houmao-mgr project init`, `houmao-mgr project status`, `houmao-mgr project agents launch-profiles ...`, `houmao-mgr project easy instance list|get|stop` |
 | `houmao-specialist-mgr` | Create, list, inspect, remove easy specialists; create, list, inspect, remove easy profiles; launch and stop easy instances from either source. | `houmao-mgr project easy specialist ...`, `houmao-mgr project easy profile ...`, `houmao-mgr project easy instance launch|stop` |
-| `houmao-credential-mgr` | Add, update, inspect, rename, and remove project-local tool auth bundles for Claude, Codex, and Gemini. Manages auth bundle contents and display names, not stored profile-level auth overrides. | `houmao-mgr project agents tools <tool> auth list|get|add|set|rename|remove` |
+| `houmao-credential-mgr` | Add, update, inspect, rename, and remove credentials for Claude, Codex, and Gemini in either the active project overlay or an explicit plain agent-definition directory. Manages credential contents and names, not stored profile-level auth overrides. | `houmao-mgr project credentials <tool> list|get|add|set|rename|remove` / `houmao-mgr credentials <tool> ... --agent-def-dir <path>` |
 
 ### Agent definition and instance management
 

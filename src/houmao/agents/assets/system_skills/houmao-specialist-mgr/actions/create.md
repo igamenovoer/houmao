@@ -35,7 +35,7 @@ Use this action only when the user wants to create or replace one reusable easy 
    - Claude: `references/claude-credential-lookup.md`
    - Codex: `references/codex-credential-lookup.md`
    - Gemini: `references/gemini-credential-lookup.md`
-8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same chosen `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
+8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same chosen `houmao-mgr` launcher for `project credentials <tool> get --name <credential>` or `list` when you need that confirmation.
 9. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
    - do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless one of the supported credential-source modes is explicitly active
    - ask the user in Markdown for the missing auth inputs instead of guessing

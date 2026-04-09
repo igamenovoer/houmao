@@ -1,5 +1,9 @@
 # Send A New Message
 
+Use this action for ordinary managed-agent outbound shared mailbox messages.
+
+If the caller is acting as operator and needs to leave an operator-origin note in a managed agent mailbox, use `actions/post.md` instead of ordinary `send`.
+
 Use `POST /v1/mail/send` to create one new outbound shared mailbox message.
 
 ```bash

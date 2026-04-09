@@ -9,6 +9,7 @@ At minimum, that native tree SHALL include:
 - `server`
 - `agents`
 - `brains`
+- `credentials`
 - `admin`
 - `mailbox`
 - `project`
@@ -28,7 +29,7 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 
 #### Scenario: Native help surface shows the new top-level command families
 - **WHEN** an operator runs `houmao-mgr --help`
-- **THEN** the help output includes `server`, `agents`, `brains`, `admin`, `mailbox`, `project`, and `system-skills`
+- **THEN** the help output includes `server`, `agents`, `brains`, `credentials`, `admin`, `mailbox`, `project`, and `system-skills`
 - **AND THEN** the help output does NOT include `cao` or top-level `launch`
 
 #### Scenario: Bare invocation prints help instead of raising an exception
@@ -59,6 +60,17 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 - **THEN** the printed help output includes `https://igamenovoer.github.io/houmao/`
 - **AND THEN** the operator can discover the published docs site without already knowing a subcommand
 
+
+### Requirement: `houmao-mgr` exposes `credentials` as a top-level native command family
+`houmao-mgr` SHALL expose `credentials` as a top-level native command family in the supported root command tree.
+
+The root help surface SHALL present `credentials` as the first-class Houmao-owned credential-management family rather than as a nested projection-maintenance detail.
+
+#### Scenario: Native help surface shows the credentials command family
+- **WHEN** an operator runs `houmao-mgr --help`
+- **THEN** the help output includes `credentials` among the supported top-level command families
+- **AND THEN** the help output presents `credentials` as the supported credential-management surface
+
 ### Requirement: `houmao-mgr project` exposes repo-local project views
 When `houmao-mgr` exposes the repo-local `project` command family, that family SHALL include:
 
@@ -66,14 +78,15 @@ When `houmao-mgr` exposes the repo-local `project` command family, that family S
 - `status`
 - `agents`
 - `easy`
+- `credentials`
 - `mailbox`
 
-The `project` help surface SHALL present those subtrees as repo-local views over project source management, high-level project authoring, and project-scoped mailbox operations.
+The `project` help surface SHALL present those subtrees as repo-local views over project source management, high-level project authoring, project-scoped credential management, and project-scoped mailbox operations.
 
 #### Scenario: Project help shows the project views
 - **WHEN** an operator runs `houmao-mgr project --help`
-- **THEN** the help output lists `init`, `status`, `agents`, `easy`, and `mailbox`
-- **AND THEN** the help output does not present `agent-tools` or `credential` as the supported public project command family
+- **THEN** the help output lists `init`, `status`, `agents`, `easy`, `credentials`, and `mailbox`
+- **AND THEN** the help output does not present `agent-tools` as the supported public project command family
 
 ### Requirement: `houmao-mgr server` accepts passive server pair authorities
 `houmao-mgr server` lifecycle commands SHALL accept a supported pair authority whose `GET /health` reports `houmao_service == "houmao-passive-server"` in addition to `houmao-server`.

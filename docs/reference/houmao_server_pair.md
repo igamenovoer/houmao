@@ -23,7 +23,7 @@ Representative usage:
 houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
 houmao-mgr project init
-houmao-mgr project agents tools codex auth add --name default --api-key your-api-key-here
+houmao-mgr project credentials codex add --name default --api-key your-api-key-here
 houmao-mgr project easy specialist create \
   --name gpu \
   --system-prompt "You are a GPU specialist." \
@@ -57,7 +57,7 @@ houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 
 Gemini note:
 
-- Project-local Gemini auth bundles now support `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, and `oauth_creds.json` through `houmao-mgr project agents tools gemini auth add|set`.
+- Project-local Gemini auth bundles now support `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, and `oauth_creds.json` through `houmao-mgr project credentials gemini add|set`.
 - `houmao-mgr project easy specialist create --tool gemini` exposes the same maintained Gemini inputs through `--api-key`, optional `--base-url`, and `--gemini-oauth-creds`.
 - Managed Gemini homes resume follow-up headless turns with the persisted Gemini `session_id` in the same recorded working directory instead of relying on `--resume latest`.
 

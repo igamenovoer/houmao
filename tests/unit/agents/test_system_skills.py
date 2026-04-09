@@ -410,6 +410,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project easy profile remove --name <name>" in remove_action
     assert "project easy instance launch --profile <profile>" in launch_action
     assert "project easy profile get --name <profile>" in launch_action
+    assert "does not accept declarative mailbox fields such as `--mail-address`" in launch_action
+    assert "`--name` seeds the managed-agent mailbox address and principal id" in launch_action
+    assert (
+        "private filesystem mailbox directory that the launch symlinks into the shared root"
+        in launch_action
+    )
+    assert "was preregistered manually already, launch-time safe registration can fail" in launch_action
     assert "whether it was launched from a specialist or from an easy profile" in stop_action
     assert "command -v houmao-mgr" in manage_credentials_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
@@ -421,7 +428,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/add.md" in manage_credentials_skill
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
-    assert "project agents tools <tool> auth ..." in manage_credentials_skill
+    assert "project credentials <tool> ..." in manage_credentials_skill
+    assert "credentials <tool> ... --agent-def-dir <path>" in manage_credentials_skill
     assert "project easy profile ..." in manage_credentials_skill
     assert "project agents launch-profiles ..." in manage_credentials_skill
     assert (
@@ -439,8 +447,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in credentials_get_action
     )
     assert "<chosen houmao-mgr launcher>" in credentials_get_action
-    assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
-    assert "Do not bypass `auth get`" in credentials_get_action
+    assert "project credentials <tool> get --name <name>" in credentials_get_action
+    assert "credentials <tool> get --agent-def-dir <path> --name <name>" in credentials_get_action
+    assert "Do not bypass `get`" in credentials_get_action
     assert (
         "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
     )
@@ -715,6 +724,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_mode_reference_path = mailbox_mgr_references / "mode-vocabulary.md"
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
+    mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
+    touring_setup = touring_setup_path.read_text(encoding="utf-8")
     discover_action = discover_action_path.read_text(encoding="utf-8")
     interrupt_action = interrupt_action_path.read_text(encoding="utf-8")
     reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
@@ -757,6 +768,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr agents mailbox ..." in mailbox_mgr_skill
+    assert "manual mailbox-account administration" in mailbox_mgr_skill
+    assert "mailbox registration may be owned by the later `project easy instance launch` step" in mailbox_mgr_skill
+    assert "route to `actions/agent-binding-register.md` instead" in mailbox_mgr_skill
     assert mailbox_init_action_path.is_file()
     assert mailbox_register_action_path.is_file()
     assert mailbox_messages_get_action_path.is_file()
@@ -770,6 +784,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         in mailbox_init_action_path.read_text(encoding="utf-8")
     )
     assert "<chosen houmao-mgr launcher>" in mailbox_init_action_path.read_text(encoding="utf-8")
+    assert "manually administered filesystem mailbox registration" in mailbox_register_action
+    assert "for a new specialist-backed easy instance" in mailbox_register_action
+    assert (
+        "may own mailbox registration instead of preregistering that address here"
+        in mailbox_register_action
+    )
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill
@@ -842,6 +862,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "references/question-style.md" in touring_skill
     assert "houmao-project-mgr" in touring_skill
     assert "houmao-agent-instance" in touring_skill
+    assert "distinguish mailbox-root bootstrap from mailbox-account creation" in touring_setup
+    assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
+    assert "initialize the shared mailbox root now" in touring_question_style
+    assert "created by the later launch step" in touring_question_style
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
     assert "authoring/render-loop-graph.md" in pairwise_loop_skill
     assert "operating/start.md" in pairwise_loop_skill

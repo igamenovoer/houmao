@@ -28,20 +28,30 @@ This packaged skill does not cover:
 
 ## Workflow
 
-1. Identify whether the user wants mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, or late mailbox binding for one existing managed agent.
+1. Identify whether the user wants mailbox-root lifecycle, manual mailbox-account lifecycle, structural mailbox inspection, or late mailbox binding for one existing managed agent.
 2. Select the maintained lane:
    - arbitrary filesystem mailbox root -> `houmao-mgr mailbox ...`
    - project overlay mailbox root -> `houmao-mgr project mailbox ...`
    - existing local managed-agent late binding -> `houmao-mgr agents mailbox ...`
-3. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-4. Choose one `houmao-mgr` launcher for the current turn:
+3. Keep mailbox ownership boundaries explicit:
+   - use `mailbox init|status|repair|cleanup` to manage the shared mailbox root itself
+   - use `mailbox register|unregister` or `project mailbox register|unregister` for manual mailbox-account administration under that root
+   - use `agents mailbox ...` when the task is adding or changing mailbox support for an already-running local managed agent
+   - when the user is preparing a new specialist-backed easy instance whose ordinary mailbox address will be derived from the managed-agent name under the same root, explain that mailbox registration may be owned by the later `project easy instance launch` step rather than by manual preregistration here
+4. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
+5. Keep mailbox identity guidance explicit when the user needs help choosing values:
+   - ordinary principal ids use the canonical `HOUMAO-<agentname>` form
+   - ordinary managed-agent mailbox addresses use `<agentname>@houmao.localhost`
+   - mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` are reserved for Houmao-owned system principals rather than ordinary managed-agent mailbox addresses
+   - when the user has not specified a mailbox domain, recommend `houmao.localhost`
+6. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
    - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-5. Reuse that same chosen launcher for the selected mailbox-admin action.
-6. Load exactly one action page for the task you need to complete.
-7. Report the result from the command that ran and keep mailbox-admin routing boundaries explicit.
+7. Reuse that same chosen launcher for the selected mailbox-admin action.
+8. Load exactly one action page for the task you need to complete.
+9. Report the result from the command that ran and keep mailbox-admin routing boundaries explicit.
 
 ## Actions
 
@@ -82,6 +92,9 @@ This packaged skill does not cover:
 - Use `actions/agent-binding-status.md`, `actions/agent-binding-register.md`, or `actions/agent-binding-unregister.md` only when the task is late mailbox binding for one existing local managed agent.
 - Use the project mailbox lane when the operator explicitly wants `.houmao/mailbox` or the current active project overlay mailbox root.
 - Use the arbitrary mailbox-root lane when the task targets one explicit filesystem mailbox root outside the project mailbox default.
+- Treat `project mailbox register` as manual mailbox-account administration, not as the default preparation step for every future mailbox-enabled easy launch.
+- When the task is preparing a new specialist-backed easy instance whose same-root ordinary mailbox address will be derived from the managed-agent instance name, explain that the later `project easy instance launch --mail-transport filesystem --mail-root ...` step may own that address instead of preregistering it here.
+- When the task is attaching mailbox support to an already-running local managed agent, route to `actions/agent-binding-register.md` instead of treating it as generic account registration.
 - Treat Stalwart as a transport/bootstrap boundary, not as a peer `houmao-mgr mailbox ...` administration lane.
 
 ## Guardrails
@@ -90,7 +103,9 @@ This packaged skill does not cover:
 - Do not route ordinary mailbox send, reply, check, read, mark-read, or live mailbox discovery through this skill.
 - Do not route gateway notifier, reminder, or other live gateway-only state through this skill.
 - Do not invent `houmao-mgr mailbox ...` filesystem root or account CRUD for Stalwart.
+- Do not teach manual preregistration of the same `<agent-name>@houmao.localhost` address as the default precursor to same-root specialist-backed easy launch.
 - Do not present structural message inspection as the same thing as actor-scoped unread or read follow-up state.
+- Do not suggest `HOUMAO-<agentname>@houmao.localhost` as the ordinary mailbox-address pattern for a managed agent.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not hand-edit mailbox-root files when the maintained `houmao-mgr` surfaces already cover the task.

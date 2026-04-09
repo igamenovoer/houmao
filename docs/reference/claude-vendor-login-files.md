@@ -25,7 +25,7 @@ Pass the Claude config root directory, not the individual files.
 Low-level auth bundle import:
 
 ```bash
-houmao-mgr project agents tools claude auth add \
+houmao-mgr project credentials claude add \
   --name official-login \
   --config-dir ~/.claude
 ```

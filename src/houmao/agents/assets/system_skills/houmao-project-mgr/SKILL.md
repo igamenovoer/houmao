@@ -24,7 +24,7 @@ This packaged skill does not cover:
 - `houmao-mgr project easy specialist ...`
 - `houmao-mgr project easy profile ...`
 - `houmao-mgr project easy instance launch`
-- `houmao-mgr project agents tools <tool> auth ...`
+- `houmao-mgr project credentials <tool> ...`
 - `houmao-mgr project agents roles ...`
 - `houmao-mgr project agents recipes ...`
 - `houmao-mgr project mailbox ...`

@@ -38,9 +38,17 @@ Do you want to set up a project-local mailbox now?
 
 This lets managed agents in this project send and receive shared mail through the project mailbox.
 
+The first decision is usually whether you only want to initialize the shared mailbox root now, or whether you also want to create one manually named mailbox account right away.
+
+If you plan to launch specialist-backed agents with ordinary addresses such as `<agent-name>@houmao.localhost`, that per-agent mailbox can usually be created by the later launch step instead of by preregistering every agent address now.
+
 Examples:
-- address: `HOUMAO-research@agents.localhost`
+- address: `research@houmao.localhost`
 - principal id: `HOUMAO-research`
+
+Mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` are reserved for Houmao-owned system principals, so `HOUMAO-research@houmao.localhost` is not the ordinary managed-agent mailbox-address pattern.
+
+Recommended default: initialize the mailbox root now, skip manual per-agent account registration unless you already know you need one shared or manually named mailbox account.
 
 You can skip this now and come back later.
 ```
@@ -72,6 +80,7 @@ Common first actions:
 - send a normal prompt
 - watch live gateway or TUI state
 - send a mailbox message
+- if the gateway is up and mailbox accounts are set up, enable automatic email notification so the agent can check unread mail automatically
 - create a reminder
 - create another specialist and launch a second agent
 ```
