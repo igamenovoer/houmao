@@ -17,7 +17,7 @@ from houmao.agents.brain_builder import (
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
-from houmao.agents.system_skills import load_system_skill_install_state
+from houmao.agents.system_skills import discover_installed_system_skills
 
 
 def _write(path: Path, content: str) -> None:
@@ -262,14 +262,13 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
-    install_state = load_system_skill_install_state(tool="codex", home_path=home)
-    assert install_state is not None
-    assert tuple(record.name for record in install_state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home)
+    assert tuple(record.name for record in installed_records) == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
         "houmao-touring",
+        "houmao-mailbox-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",

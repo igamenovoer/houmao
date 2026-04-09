@@ -17,10 +17,10 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SystemSkillCatalogError,
     SystemSkillInstallError,
+    discover_installed_system_skills,
     install_system_skills_for_home,
     load_system_skill_catalog,
     load_system_skill_catalog_from_paths,
-    load_system_skill_install_state,
     resolve_auto_install_skill_selection,
     resolve_system_skill_selection,
     system_skill_state_path_for_home,
@@ -43,6 +43,12 @@ def _packaged_skill_asset_root(skill_name: str) -> Path:
     return (
         Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills" / skill_name
     ).resolve()
+
+
+def _assert_legacy_state_removed(home_path: Path) -> None:
+    state_path = system_skill_state_path_for_home(home_path)
+    assert not state_path.exists()
+    assert not state_path.is_symlink()
 
 
 def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults() -> None:
@@ -187,7 +193,7 @@ cli_default_sets = ["mailbox-core"]
         )
 
 
-def test_install_system_skills_for_home_records_state_and_preserves_user_content(
+def test_install_system_skills_for_home_projects_selected_skills_and_preserves_user_content(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
@@ -201,7 +207,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         skill_names=("houmao-agent-email-comms",),
     )
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
     project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
     project_mgr_actions = home_path / "skills/houmao-project-mgr/actions"
     project_mgr_references = home_path / "skills/houmao-project-mgr/references"
@@ -222,10 +228,8 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "houmao-credential-mgr",
         "houmao-agent-definition",
     )
-    assert state is not None
-    assert state.schema_version == SYSTEM_SKILL_STATE_SCHEMA_VERSION
-    assert tuple(record.name for record in state.installed_skills) == result.resolved_skill_names
-    assert tuple(record.projection_mode for record in state.installed_skills) == (
+    assert tuple(record.name for record in installed_records) == result.resolved_skill_names
+    assert tuple(record.projection_mode for record in installed_records) == (
         "copy",
         "copy",
         "copy",
@@ -233,6 +237,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "copy",
         "copy",
     )
+    _assert_legacy_state_removed(home_path)
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
@@ -814,16 +819,16 @@ def test_install_system_skills_for_home_supports_explicit_symlink_projection(
     )
 
     installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
 
     assert result.projection_mode == "symlink"
     assert installed_skill_dir.is_symlink()
     assert installed_skill_dir.readlink().is_absolute()
     assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
     assert (installed_skill_dir / "SKILL.md").is_file()
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("symlink",)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(
@@ -886,26 +891,29 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
     assert not installed_skill_dir.is_symlink()
     assert (installed_skill_dir / "SKILL.md").is_file()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)
 
 
-def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Path) -> None:
+def test_install_system_skills_for_home_replaces_existing_current_skill_path_without_state(
+    tmp_path: Path,
+) -> None:
     home_path = (tmp_path / "codex-home").resolve()
     conflicting_skill_path = home_path / "skills/houmao-agent-email-comms/SKILL.md"
     _write(conflicting_skill_path, "user-authored collision\n")
 
-    with pytest.raises(
-        SystemSkillInstallError,
-        match="Refusing to overwrite non-owned system-skill path",
-    ):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-agent-email-comms",),
-        )
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-agent-email-comms",),
+    )
+
+    replaced_skill = conflicting_skill_path.read_text(encoding="utf-8")
+    assert "user-authored collision" not in replaced_skill
+    assert "Use Houmao's unified email communication skill" in replaced_skill
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
@@ -966,17 +974,17 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
     assert not (home_path / "skills/mailbox").exists()
     assert not (home_path / "skills/project").exists()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         "skills/houmao-process-emails-via-gateway",
         "skills/houmao-specialist-mgr",
     )
-    assert tuple(record.name for record in state.installed_skills) == (
+    assert tuple(record.name for record in installed_records) == (
         "houmao-process-emails-via-gateway",
         "houmao-specialist-mgr",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
+    assert tuple(record.projection_mode for record in installed_records) == ("copy", "copy")
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_recorded_skills(
@@ -1030,22 +1038,16 @@ def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_r
 
     assert result.projected_relative_dirs == (".gemini/skills/houmao-specialist-mgr",)
     assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / ".gemini/skills/houmao-agent-instance/SKILL.md").is_file()
     assert not (home_path / ".agents/skills/houmao-specialist-mgr").exists()
-    assert not (home_path / ".agents/skills/houmao-agent-instance").exists()
-    assert not (home_path / ".agents/skills").exists()
+    assert (home_path / ".agents/skills/houmao-agent-instance/SKILL.md").is_file()
 
-    state = load_system_skill_install_state(tool="gemini", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == (
-        "houmao-specialist-mgr",
-        "houmao-agent-instance",
-    )
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="gemini", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         ".gemini/skills/houmao-specialist-mgr",
-        ".gemini/skills/houmao-agent-instance",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
@@ -1089,13 +1091,13 @@ def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert not (home_path / "skills/houmao-create-specialist").exists()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         "skills/houmao-specialist-mgr",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)
 
 
 @pytest.mark.parametrize(
@@ -1151,10 +1153,10 @@ def test_install_system_skills_for_home_migrates_superseded_current_skill_owned_
     assert (home_path / f"skills/{current_name}/SKILL.md").is_file()
     assert not (home_path / f"skills/{legacy_name}").exists()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == (current_name,)
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == (current_name,)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         f"skills/{current_name}",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)

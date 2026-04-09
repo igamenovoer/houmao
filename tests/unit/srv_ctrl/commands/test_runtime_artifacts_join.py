@@ -18,7 +18,7 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.realm_controller.registry_storage import JOINED_REGISTRY_SENTINEL_LEASE_TTL
 from houmao.agents.realm_controller.runtime import resume_runtime_session
 from houmao.agents.realm_controller import runtime as runtime_module
-from houmao.agents.system_skills import load_system_skill_install_state
+from houmao.agents.system_skills import discover_installed_system_skills
 from houmao.srv_ctrl.commands import runtime_artifacts as runtime_artifacts_module
 
 
@@ -460,14 +460,13 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         in gateway_skill
     )
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
-    install_state = load_system_skill_install_state(tool="codex", home_path=codex_home)
-    assert install_state is not None
-    assert tuple(record.name for record in install_state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=codex_home)
+    assert tuple(record.name for record in installed_records) == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
         "houmao-touring",
+        "houmao-mailbox-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",

@@ -228,7 +228,7 @@ Install or inspect the packaged current Houmao-owned `houmao-*` skill set for re
 | Subcommand | Description |
 |---|---|
 | `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
-| `status` | Show whether one resolved tool home has Houmao-owned install state and which skills are recorded there. |
+| `status` | Show which current Houmao-owned system skills are installed in one resolved tool home by scanning the live filesystem. |
 | `install` | Install the CLI-default set list, explicit named sets, explicit skills, or any combination of those into one resolved tool home. |
 
 Operational notes:
@@ -241,10 +241,14 @@ Operational notes:
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
 - repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
 - the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
-- each target home records Houmao-owned install state under `.houmao/system-skills/install-state.json`
+- install and status are stateless with respect to ownership bookkeeping; they use live current paths plus an explicit legacy migration map
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).
+
+Startup note:
+
+- `houmao-mgr` builds one root Click command tree at process startup, so a stale import in any registered command group can block `houmao-mgr --version`, root help, and unrelated subcommands before dispatch
 
 ### `project` — Repo-local Houmao project overlays
 

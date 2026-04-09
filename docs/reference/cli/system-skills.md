@@ -122,30 +122,23 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 
 That means Houmao-owned mailbox, touring, and user-control skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
 
-## Install State And Ownership
+## Stateless Ownership And Legacy Cleanup
 
-Each target tool home stores Houmao-owned install state under:
+The shared installer no longer treats `.houmao/system-skills/install-state.json` as the ownership contract.
 
-```text
-<tool-home>/.houmao/system-skills/install-state.json
-```
+Instead, Houmao treats an explicit path set as replaceable for each selected current skill:
 
-That file records:
+- the current tool-native target path for that skill
+- known flat legacy aliases for that current skill
+- documented retired family or Gemini alias paths for that current skill
 
-- target tool
-- installed skill names
-- packaged asset subpaths
-- projected relative directories
-- projection modes
-- content digests
-
-Houmao uses that state to make reinstall idempotent and to distinguish Houmao-owned paths from unrelated user-authored content already present in the same tool home.
+That keeps reinstall idempotent without reserving every `houmao-*` directory in the target home.
 
 Collision policy:
 
-- if the projected Houmao-owned path does not exist, install it
-- if it exists and is already recorded as Houmao-owned, replace it safely
-- if it exists but is not recorded as Houmao-owned, fail closed rather than overwriting it
+- if the current or legacy Houmao-owned path is part of the selected skill's explicit replaceable set, install may remove and replace it
+- unrelated content outside that explicit current and legacy path set is preserved
+- successful reinstall removes an obsolete `.houmao/system-skills/install-state.json` file if one is still present from older versions
 
 ## `list`
 
@@ -177,11 +170,10 @@ pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 
 - target tool
 - resolved target home
-- whether Houmao-owned install state exists
-- installed Houmao-owned skill names recorded for that home
-- the recorded projection mode for each installed skill
+- installed current Houmao-owned skill names discovered in that home
+- the inferred projection mode for each installed current skill (`copy` or `symlink`)
 
-If the home has never been touched by the shared installer, `status` reports that install state is missing and does not claim any Houmao-owned skills are installed there.
+If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. If a stale legacy install-state file exists but the current packaged skill paths do not, `status` ignores that file.
 
 ## `install`
 
@@ -224,6 +216,7 @@ Projection rules:
 - symlink installs use the absolute filesystem path of the packaged skill asset as the symlink target
 - if the packaged skill asset is not backed by a stable real filesystem directory, `--symlink` fails explicitly instead of falling back to copied projection
 - `--symlink` is a local-machine convenience mode; if the Python environment or installed package path moves, reinstall the skills to refresh the symlink targets
+- reinstall may also remove exact legacy Houmao-owned skill aliases for the selected current skills and delete an obsolete legacy install-state file
 
 ## Internal Auto-Install Behavior
 
