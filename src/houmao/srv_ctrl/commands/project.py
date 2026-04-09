@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
+import tempfile
 from typing import Any, cast
 
 import click
@@ -34,7 +35,7 @@ from houmao.agents.model_selection import (
 )
 from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
 from houmao.agents.realm_controller.manifest import load_session_manifest
-from houmao.project.catalog import ProjectCatalog
+from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog
 from houmao.project.easy import (
     SpecialistMetadata,
     TOOL_PROVIDER_MAP,
@@ -332,7 +333,7 @@ def remove_claude_project_setup_command(name: str) -> None:
 
 @claude_tool_group.group(name="auth")
 def claude_auth_group() -> None:
-    """Manage Claude auth bundles under `.houmao/agents/tools/claude/auth/`."""
+    """Manage project-local Claude auth profiles."""
 
 
 @claude_auth_group.command(name="list")
@@ -356,6 +357,15 @@ def remove_claude_project_auth_command(name: str) -> None:
     """Remove one project-local Claude auth bundle."""
 
     _emit_tool_auth_remove(tool="claude", name=name)
+
+
+@claude_auth_group.command(name="rename")
+@click.option("--name", required=True, help="Existing auth bundle name.")
+@click.option("--to", "new_name", required=True, help="New auth bundle name.")
+def rename_claude_project_auth_command(name: str, new_name: str) -> None:
+    """Rename one project-local Claude auth profile."""
+
+    _emit_tool_auth_rename(tool="claude", name=name, new_name=new_name)
 
 
 @claude_auth_group.command(name="add")
@@ -644,7 +654,7 @@ def remove_codex_project_setup_command(name: str) -> None:
 
 @codex_tool_group.group(name="auth")
 def codex_auth_group() -> None:
-    """Manage Codex auth bundles under `.houmao/agents/tools/codex/auth/`."""
+    """Manage project-local Codex auth profiles."""
 
 
 @codex_auth_group.command(name="list")
@@ -668,6 +678,15 @@ def remove_codex_project_auth_command(name: str) -> None:
     """Remove one project-local Codex auth bundle."""
 
     _emit_tool_auth_remove(tool="codex", name=name)
+
+
+@codex_auth_group.command(name="rename")
+@click.option("--name", required=True, help="Existing auth bundle name.")
+@click.option("--to", "new_name", required=True, help="New auth bundle name.")
+def rename_codex_project_auth_command(name: str, new_name: str) -> None:
+    """Rename one project-local Codex auth profile."""
+
+    _emit_tool_auth_rename(tool="codex", name=name, new_name=new_name)
 
 
 @codex_auth_group.command(name="add")
@@ -805,7 +824,7 @@ def remove_gemini_project_setup_command(name: str) -> None:
 
 @gemini_tool_group.group(name="auth")
 def gemini_auth_group() -> None:
-    """Manage Gemini auth bundles under `.houmao/agents/tools/gemini/auth/`."""
+    """Manage project-local Gemini auth profiles."""
 
 
 @gemini_auth_group.command(name="list")
@@ -829,6 +848,15 @@ def remove_gemini_project_auth_command(name: str) -> None:
     """Remove one project-local Gemini auth bundle."""
 
     _emit_tool_auth_remove(tool="gemini", name=name)
+
+
+@gemini_auth_group.command(name="rename")
+@click.option("--name", required=True, help="Existing auth bundle name.")
+@click.option("--to", "new_name", required=True, help="New auth bundle name.")
+def rename_gemini_project_auth_command(name: str, new_name: str) -> None:
+    """Rename one project-local Gemini auth profile."""
+
+    _emit_tool_auth_rename(tool="gemini", name=name, new_name=new_name)
 
 
 @gemini_auth_group.command(name="add")
@@ -2305,6 +2333,11 @@ def create_easy_specialist_command(
         launch_mapping["model"] = model_payload
     if persistent_env_records:
         launch_mapping["env_records"] = dict(persistent_env_records)
+    auth_profile = _load_auth_profile_or_click(
+        overlay=overlay,
+        tool=tool_name,
+        name=credential_name,
+    )
 
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
     preset_name = _canonical_preset_name(
@@ -2344,17 +2377,17 @@ def create_easy_specialist_command(
         preset_name=preset_name,
         tool=tool_name,
         provider=TOOL_PROVIDER_MAP[tool_name],
-        credential_name=credential_name,
+        auth_profile=auth_profile,
         role_name=specialist_name,
         setup_name=setup_name,
         prompt_path=system_prompt_path,
-        auth_path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
         skill_paths=tuple(imported_skills),
         setup_path=setup_path,
         launch_mapping=launch_mapping,
         mailbox_mapping=None,
         extra_mapping=None,
     )
+    materialize_project_agent_catalog_projection(overlay)
     metadata_path = metadata.metadata_path or overlay.catalog_path
     emit(
         {
@@ -2368,9 +2401,7 @@ def create_easy_specialist_command(
             "generated": {
                 "role_prompt": str(system_prompt_path),
                 "preset": str(preset_path),
-                "auth": str(
-                    _auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name)
-                ),
+                "auth": str(auth_profile.resolved_projection_path(overlay)),
                 "skills": [str(path) for path in imported_skills],
             },
             "auth_result": auth_result,
@@ -3208,17 +3239,48 @@ def _emit_tool_auth_remove(*, tool: str, name: str) -> None:
 
     overlay = _resolve_existing_project_overlay()
     resolved_name = _require_non_empty_name(name, field_name="--name")
-    target_path = _auth_bundle_root(overlay=overlay, tool=tool, name=resolved_name)
-    if not target_path.is_dir():
-        raise click.ClickException(f"Auth bundle not found: {target_path}")
-    shutil.rmtree(target_path)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    try:
+        removed = catalog.remove_auth_profile(tool=tool, name=resolved_name)
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    materialize_project_agent_catalog_projection(overlay)
     emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
-            "name": resolved_name,
+            "name": removed.display_name,
+            "bundle_ref": removed.bundle_ref,
             "removed": True,
-            "path": str(target_path),
+            "path": str(removed.resolved_projection_path(overlay)),
+        }
+    )
+
+
+def _emit_tool_auth_rename(*, tool: str, name: str, new_name: str) -> None:
+    """Rename one auth profile and emit the updated metadata."""
+
+    overlay = _resolve_existing_project_overlay()
+    resolved_name = _require_non_empty_name(name, field_name="--name")
+    resolved_new_name = _require_non_empty_name(new_name, field_name="--to")
+    catalog = ProjectCatalog.from_overlay(overlay)
+    try:
+        renamed = catalog.rename_auth_profile(
+            tool=tool,
+            name=resolved_name,
+            new_name=resolved_new_name,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    materialize_project_agent_catalog_projection(overlay)
+    emit(
+        {
+            "project_root": str(overlay.project_root),
+            "tool": tool,
+            "name": renamed.display_name,
+            "previous_name": resolved_name,
+            "bundle_ref": renamed.bundle_ref,
+            "path": str(renamed.resolved_projection_path(overlay)),
         }
     )
 
@@ -3235,10 +3297,45 @@ def _list_tool_setup_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[
 def _list_tool_bundle_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[str]:
     """Return the existing auth bundle names for one tool."""
 
-    auth_root = (_tool_root(overlay=overlay, tool=tool) / "auth").resolve()
-    if not auth_root.is_dir():
-        return []
-    return sorted(path.name for path in auth_root.iterdir() if path.is_dir())
+    return [
+        profile.display_name
+        for profile in ProjectCatalog.from_overlay(overlay).list_auth_profiles(tool=tool)
+    ]
+
+
+def _load_auth_profile_or_click(
+    *,
+    overlay: HoumaoProjectOverlay,
+    tool: str,
+    name: str,
+) -> AuthProfileCatalogEntry:
+    """Load one auth profile or raise one operator-facing error."""
+
+    resolved_name = _require_non_empty_name(name, field_name="--name")
+    try:
+        return ProjectCatalog.from_overlay(overlay).load_auth_profile(tool=tool, name=resolved_name)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _load_auth_profile_optional(
+    *,
+    overlay: HoumaoProjectOverlay,
+    tool: str,
+    name: str,
+) -> AuthProfileCatalogEntry | None:
+    """Load one auth profile when present."""
+
+    try:
+        return ProjectCatalog.from_overlay(overlay).load_auth_profile(tool=tool, name=name)
+    except FileNotFoundError:
+        return None
+
+
+def _auth_source_root(*, overlay: HoumaoProjectOverlay, profile: AuthProfileCatalogEntry) -> Path:
+    """Return the authoritative managed-content root for one auth profile."""
+
+    return profile.content_ref.resolve(overlay)
 
 
 def _tool_root(*, overlay: HoumaoProjectOverlay, tool: str) -> Path:
@@ -3684,7 +3781,7 @@ def _write_project_auth_bundle(
     clear_env_names: set[str],
     clear_file_sources: set[str],
 ) -> dict[str, object]:
-    """Create or update one tool-local auth bundle inside the project overlay."""
+    """Create or update one catalog-backed auth profile inside the project overlay."""
 
     resolved_name = _require_non_empty_name(name, field_name="--name")
     adapter = _load_overlay_tool_adapter(overlay=overlay, tool=tool)
@@ -3712,12 +3809,15 @@ def _write_project_auth_bundle(
             f"Provide at least one change for `{tool}` (new value, compatible auth file, or clear flag)."
         )
 
-    auth_bundle_root = _auth_bundle_root(overlay=overlay, tool=tool, name=resolved_name)
-    bundle_exists = auth_bundle_root.is_dir()
-    if operation == "add" and bundle_exists:
-        raise click.ClickException(f"Auth bundle already exists: {auth_bundle_root}")
-    if operation == "set" and not bundle_exists:
-        raise click.ClickException(f"Auth bundle not found: {auth_bundle_root}")
+    existing_profile = _load_auth_profile_optional(overlay=overlay, tool=tool, name=resolved_name)
+    if operation == "add" and existing_profile is not None:
+        raise click.ClickException(
+            f"Auth profile `{tool}/{resolved_name}` already exists in `{overlay.catalog_path}`."
+        )
+    if operation == "set" and existing_profile is None:
+        raise click.ClickException(
+            f"Auth profile `{tool}/{resolved_name}` was not found: {overlay.catalog_path}"
+        )
 
     unsupported_env_keys = sorted(
         (set(env_values) | clear_env_names) - set(adapter.auth_env_allowlist)
@@ -3736,53 +3836,81 @@ def _write_project_auth_bundle(
             f"Unsupported auth file(s) for `{tool}` auth bundles: {', '.join(unsupported_file_sources)}"
         )
 
-    existing_env_values = _load_existing_env_values(
-        _auth_bundle_env_file(overlay=overlay, tool=tool, name=resolved_name)
-    )
-    merged_env_values = dict(existing_env_values)
-    merged_env_values.update(env_values)
-    for env_name in clear_env_names:
-        merged_env_values.pop(env_name, None)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    with tempfile.TemporaryDirectory(prefix=f"houmao-auth-{tool}-") as temp_dir:
+        temp_auth_root = Path(temp_dir).resolve() / "auth"
+        if existing_profile is not None:
+            shutil.copytree(_auth_source_root(overlay=overlay, profile=existing_profile), temp_auth_root)
+        else:
+            temp_auth_root.mkdir(parents=True, exist_ok=True)
+        env_file_path = (temp_auth_root / adapter.auth_env_source).resolve()
+        files_root = (temp_auth_root / adapter.auth_files_dir).resolve()
+        existing_env_values = _load_existing_env_values(env_file_path)
+        merged_env_values = dict(existing_env_values)
+        merged_env_values.update(env_values)
+        for env_name in clear_env_names:
+            merged_env_values.pop(env_name, None)
 
-    env_file_path = _auth_bundle_env_file(overlay=overlay, tool=tool, name=resolved_name)
-    files_root = (auth_bundle_root / adapter.auth_files_dir).resolve()
-    env_file_path.parent.mkdir(parents=True, exist_ok=True)
-    files_root.mkdir(parents=True, exist_ok=True)
+        env_file_path.parent.mkdir(parents=True, exist_ok=True)
+        files_root.mkdir(parents=True, exist_ok=True)
+        for source_name in clear_file_sources:
+            target_path = (files_root / source_name).resolve()
+            if target_path.is_dir():
+                shutil.rmtree(target_path)
+            elif target_path.exists():
+                target_path.unlink()
 
-    for source_name in clear_file_sources:
-        target_path = (files_root / source_name).resolve()
-        if target_path.is_dir():
-            shutil.rmtree(target_path)
-        elif target_path.exists():
-            target_path.unlink()
+        for source_name, source_path in file_sources.items():
+            destination_path = (files_root / source_name).resolve()
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path.resolve(), destination_path)
 
-    for source_name, source_path in file_sources.items():
-        destination_path = (files_root / source_name).resolve()
-        shutil.copy2(source_path.resolve(), destination_path)
+        for mapping in adapter.auth_file_mappings:
+            if mapping.required and not (files_root / mapping.source).exists():
+                raise click.ClickException(
+                    f"Missing required auth file `{mapping.source}` for `{tool}` bundle "
+                    f"`{resolved_name}`."
+                )
 
-    for mapping in adapter.auth_file_mappings:
-        if mapping.required and not (files_root / mapping.source).exists():
-            raise click.ClickException(
-                f"Missing required auth file `{mapping.source}` for `{tool}` bundle `{resolved_name}`."
+        env_file_path.write_text(
+            _render_env_file(env_values=merged_env_values, allowlist=adapter.auth_env_allowlist),
+            encoding="utf-8",
+        )
+        try:
+            stored_profile = (
+                catalog.create_auth_profile_from_source(
+                    tool=tool,
+                    display_name=resolved_name,
+                    source_path=temp_auth_root,
+                )
+                if operation == "add"
+                else catalog.update_auth_profile_from_source(
+                    tool=tool,
+                    display_name=resolved_name,
+                    source_path=temp_auth_root,
+                )
             )
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
 
-    env_file_path.write_text(
-        _render_env_file(env_values=merged_env_values, allowlist=adapter.auth_env_allowlist),
-        encoding="utf-8",
-    )
+    materialize_project_agent_catalog_projection(overlay)
+    auth_bundle_root = stored_profile.resolved_projection_path(overlay)
+    projection_env_file = (auth_bundle_root / adapter.auth_env_source).resolve()
+    projection_files_root = (auth_bundle_root / adapter.auth_files_dir).resolve()
     return {
         "operation": operation,
         "project_root": str(overlay.project_root),
         "tool": tool,
         "name": resolved_name,
+        "bundle_ref": stored_profile.bundle_ref,
         "path": str(auth_bundle_root),
-        "env_file": str(env_file_path),
+        "env_file": str(projection_env_file),
         "written_env_vars": [
             env_name for env_name in adapter.auth_env_allowlist if env_name in merged_env_values
         ],
         "cleared_env_vars": sorted(clear_env_names),
         "written_files": [
-            str((files_root / source_name).resolve()) for source_name in sorted(file_sources)
+            str((projection_files_root / source_name).resolve()) for source_name in sorted(file_sources)
         ],
         "cleared_files": sorted(clear_file_sources),
     }
@@ -3796,22 +3924,20 @@ def _describe_project_auth_bundle(
 ) -> dict[str, object]:
     """Return one structured auth-bundle description with redacted secret values."""
 
-    resolved_name = _require_non_empty_name(name, field_name="--name")
+    profile = _load_auth_profile_or_click(overlay=overlay, tool=tool, name=name)
     adapter = _load_overlay_tool_adapter(overlay=overlay, tool=tool)
-    auth_bundle_root = _auth_bundle_root(overlay=overlay, tool=tool, name=resolved_name)
-    if not auth_bundle_root.is_dir():
-        raise click.ClickException(f"Auth bundle not found: {auth_bundle_root}")
-
-    env_file_path = _auth_bundle_env_file(overlay=overlay, tool=tool, name=resolved_name)
-    env_values = _load_existing_env_values(env_file_path)
-    files_root = (auth_bundle_root / adapter.auth_files_dir).resolve()
+    auth_bundle_root = profile.resolved_projection_path(overlay)
+    source_root = _auth_source_root(overlay=overlay, profile=profile)
+    env_values = _load_existing_env_values((source_root / adapter.auth_env_source).resolve())
+    files_root = (source_root / adapter.auth_files_dir).resolve()
 
     return {
         "project_root": str(overlay.project_root),
         "tool": tool,
-        "name": resolved_name,
+        "name": profile.display_name,
+        "bundle_ref": profile.bundle_ref,
         "path": str(auth_bundle_root),
-        "env_file": str(env_file_path),
+        "env_file": str((auth_bundle_root / adapter.auth_env_source).resolve()),
         "env": {
             env_name: _describe_env_value(env_name=env_name, env_values=env_values)
             for env_name in adapter.auth_env_allowlist
@@ -3842,7 +3968,11 @@ def _ensure_specialist_auth_bundle(
 ) -> dict[str, object]:
     """Create, update, or reuse one auth bundle for specialist compilation."""
 
-    auth_root = _auth_bundle_root(overlay=overlay, tool=tool, name=credential_name)
+    existing_profile = _load_auth_profile_optional(
+        overlay=overlay,
+        tool=tool,
+        name=credential_name,
+    )
     if tool == "claude":
         env_values = _compact_env_values(
             {
@@ -3886,13 +4016,14 @@ def _ensure_specialist_auth_bundle(
     if tool != "claude":
         clear_file_sources = set()
 
-    if auth_root.is_dir():
+    if existing_profile is not None:
         if not env_values and not file_sources:
             return {
                 "operation": "reuse",
                 "tool": tool,
                 "name": credential_name,
-                "path": str(auth_root),
+                "bundle_ref": existing_profile.bundle_ref,
+                "path": str(existing_profile.resolved_projection_path(overlay)),
             }
         return _write_project_auth_bundle(
             overlay=overlay,
@@ -4671,6 +4802,7 @@ def _store_launch_profile_from_cli(
         managed_agent_name=resolved_agent_name,
         managed_agent_id=resolved_agent_id,
         workdir=resolved_workdir,
+        auth_tool=source.tool,
         auth_name=resolved_auth,
         memory_dir=resolved_memory_dir,
         memory_disabled=resolved_memory_disabled,
@@ -4969,6 +5101,9 @@ def _load_overlay_tool_adapter(*, overlay: HoumaoProjectOverlay, tool: str) -> T
 def _auth_bundle_root(*, overlay: HoumaoProjectOverlay, tool: str, name: str) -> Path:
     """Return the root directory for one tool-local auth bundle."""
 
+    profile = _load_auth_profile_optional(overlay=overlay, tool=tool, name=name)
+    if profile is not None:
+        return profile.resolved_projection_path(overlay)
     return (_tool_root(overlay=overlay, tool=tool) / "auth" / name).resolve()
 
 

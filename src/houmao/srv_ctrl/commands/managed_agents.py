@@ -2059,10 +2059,17 @@ def _resume_controller_from_record(record: LiveAgentRegistryRecordV2) -> Runtime
         )
     agent_def_dir = Path(agent_def_dir_raw).expanduser().resolve()
     manifest_path = Path(record.runtime.manifest_path).expanduser().resolve()
-    return resume_runtime_session(
-        agent_def_dir=agent_def_dir,
-        session_manifest_path=manifest_path,
-    )
+    try:
+        return resume_runtime_session(
+            agent_def_dir=agent_def_dir,
+            session_manifest_path=manifest_path,
+        )
+    except SessionManifestError as exc:
+        tracked_name = record.agent_name or record.agent_id or record.terminal.session_name
+        raise click.ClickException(
+            f"Managed agent `{tracked_name}` is registered in the shared registry but "
+            f"its runtime metadata is unusable: {exc}"
+        ) from exc
 
 
 def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoManagedAgentIdentity:

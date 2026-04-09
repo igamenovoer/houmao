@@ -54,7 +54,7 @@ The result is a fully resolved `LaunchPlan` that a backend can execute without f
 
 When a managed agent was launched from a reusable launch profile (either an easy `project easy profile` or an explicit `project agents launch-profiles`), the build manifest carries launch-profile-derived inputs into run-phase resolution. At minimum, the following profile-owned values reach the manifest before `build_launch_plan` consumes it:
 
-- effective auth selection (by bundle name; secrets remain in the auth bundle, never inline),
+- effective auth selection (rendered by auth display name; secrets remain in the auth bundle, never inline, and stored relationships resolve through auth-profile identity),
 - operator prompt-mode intent (`unattended` or `as_is`),
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal, Stalwart-only fields when applicable),

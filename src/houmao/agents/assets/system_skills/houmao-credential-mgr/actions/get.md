@@ -5,10 +5,10 @@ Use this action only when the user wants to inspect one project-local auth bundl
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the tool family and bundle name from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the tool family or bundle name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
+2. Recover the tool family and auth display name from the current prompt first and recent chat context second when they were stated explicitly.
+3. If the tool family or auth display name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
 4. Run `project agents tools <tool> auth get --name <name>`.
-5. Report the structured bundle details returned by the command.
+5. Report the structured auth-profile details returned by the command. If diagnostic `bundle_ref` or projected path data is returned, keep it secondary to the operator-facing display name.
 
 ## Command Shape
 

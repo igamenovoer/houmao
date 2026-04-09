@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.version import get_version
 
 from .admin import admin_group
@@ -48,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
     except click.ClickException as exc:
         exc.show()
         return exc.exit_code
+    except SessionManifestError as exc:
+        rendered = click.ClickException(str(exc))
+        rendered.show()
+        return rendered.exit_code
     except click.Abort:
         click.echo("Aborted!", err=True)
         return 1

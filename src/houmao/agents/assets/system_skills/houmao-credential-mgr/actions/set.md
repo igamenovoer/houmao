@@ -5,8 +5,8 @@ Use this action only when the user wants to update one existing project-local au
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the tool family, bundle name, and explicit supported changes from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the tool family or bundle name is still missing, ask the user in Markdown before proceeding. Prefer a compact table when the tool lane or several required fields are missing.
+2. Recover the tool family, auth display name, and explicit supported changes from the current prompt first and recent chat context second when they were stated explicitly.
+3. If the tool family or auth display name is still missing, ask the user in Markdown before proceeding. Prefer a compact table when the tool lane or several required fields are missing.
 4. If no supported change is present yet, ask the user for the missing explicit change instead of guessing.
 5. If the requested "credential change" is actually a stored easy-profile or explicit launch-profile `--auth` override change, stop and route it as profile authoring instead of running `auth set`.
 6. Run `project agents tools <tool> auth set --name <name> ...`.
@@ -36,9 +36,9 @@ Supported tool-specific changes:
 
 ## Guardrails
 
-- Do not guess the tool family, bundle name, or mutation.
+- Do not guess the tool family, auth display name, or mutation.
 - Do not continue with set when the user has not provided any explicit supported change.
 - Do not invent unsupported clear flags or fake symmetric behavior across tools.
 - Do not dump raw secret values while explaining the update result.
-- Do not use `auth set` when the requested change is only to repoint a reusable easy profile or explicit launch profile at a different auth bundle name.
+- Do not use `auth set` when the requested change is only to repoint a reusable easy profile or explicit launch profile at a different auth display name.
 - Do not route update requests through `add` or direct file editing when `set` is the supported patch-style surface.

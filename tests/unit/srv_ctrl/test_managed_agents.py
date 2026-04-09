@@ -173,6 +173,46 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
     assert target.identity == identity
 
 
+def test_resolve_managed_agent_target_wraps_stale_local_runtime_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-1234",
+        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
+        runtime=SimpleNamespace(
+            agent_def_dir=str((tmp_path / "agent-def").resolve()),
+            manifest_path="/tmp/missing-manifest.json",
+            session_root=str((tmp_path / "session-root").resolve()),
+        ),
+        terminal=SimpleNamespace(session_name="gpu-session"),
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (record, None),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
+        lambda **kwargs: (_ for _ in ()).throw(
+            SessionManifestError("Session manifest not found: /tmp/missing-manifest.json")
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    message = str(exc_info.value)
+    assert "Managed agent `gpu` is registered in the shared registry" in message
+    assert "its runtime metadata is unusable" in message
+    assert "Session manifest not found: /tmp/missing-manifest.json" in message
+
+
 def test_resolve_managed_agent_target_rejects_prefixed_agent_name_selector() -> None:
     with pytest.raises(click.ClickException, match="raw creation-time name"):
         resolve_managed_agent_target(agent_id=None, agent_name="HOUMAO-gpu", port=None)

@@ -1,12 +1,14 @@
 ---
 name: houmao-credential-mgr
-description: Use Houmao's supported project-local auth-bundle workflow to list, inspect, add, update, or remove credentials with the correct `houmao-mgr` launcher for the current environment. This skill manages auth bundles themselves, not stored profile-level auth overrides.
+description: Use Houmao's supported project-local auth-bundle workflow to list, inspect, add, update, rename, or remove credentials with the correct `houmao-mgr` launcher for the current environment. This skill manages auth bundles themselves, not stored profile-level auth overrides.
 license: MIT
 ---
 
 # Houmao Credential Manager
 
-Use this Houmao skill when you need to manage project-local tool auth bundles through `houmao-mgr project agents tools <tool> auth ...` instead of hand-editing `.houmao/agents/tools/`.
+Use this Houmao skill when you need to manage project-local tool auth bundles through `houmao-mgr project agents tools <tool> auth ...` instead of hand-editing `.houmao/content/auth/` or `.houmao/agents/tools/`.
+
+Auth bundle names are mutable operator-facing display names resolved through the project catalog. The projected directory names under `.houmao/agents/tools/<tool>/auth/` are opaque implementation detail and are not a supported identity surface.
 
 The trigger word `houmao` is intentional. Use the `houmao-credential-mgr` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -18,6 +20,7 @@ This packaged skill covers exactly these `project agents tools <tool> auth` acti
 - `get`
 - `add`
 - `set`
+- `rename`
 - `remove`
 
 This packaged skill does not cover:
@@ -32,11 +35,12 @@ This packaged skill does not cover:
 - `houmao-mgr project mailbox ...`
 - `houmao-mgr agents cleanup mailbox`
 - `houmao-mgr admin cleanup runtime ...`
+- direct filesystem editing under `.houmao/content/auth/`
 - direct filesystem editing under `.houmao/agents/tools/`
 
 ## Workflow
 
-1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, or `remove`.
+1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `rename`, or `remove`.
 2. If the request is really about changing which auth bundle a reusable profile stores for later launches, stop and route it before continuing:
    - easy-profile auth override work belongs to `houmao-specialist-mgr`
    - explicit launch-profile auth override work belongs to the supported `houmao-mgr project agents launch-profiles add|set --auth ...` or `--clear-auth` surface, not to auth-bundle CRUD
@@ -52,6 +56,7 @@ This packaged skill does not cover:
    - `actions/get.md`
    - `actions/add.md`
    - `actions/set.md`
+   - `actions/rename.md`
    - `actions/remove.md`
 7. Follow the selected action page and report the result from the command that ran.
 
@@ -70,6 +75,7 @@ This packaged skill does not cover:
 - Use `actions/get.md` only when the user wants to inspect one auth bundle safely through redacted CLI output.
 - Use `actions/add.md` only when the user wants to create one new auth bundle.
 - Use `actions/set.md` only when the user wants to update one existing auth bundle.
+- Use `actions/rename.md` only when the user wants to rename one existing auth bundle without changing its underlying stored auth identity.
 - Use `actions/remove.md` only when the user wants to remove one existing auth bundle.
 - When the user wants to change the stored `--auth` override on an easy profile or explicit launch profile, do not use this skill's action pages; that is profile authoring rather than auth-bundle mutation.
 
@@ -81,6 +87,7 @@ This packaged skill does not cover:
 - Do not print raw secret values or raw auth-file contents when `auth get` already provides safe redacted inspection.
 - Do not treat changing an easy profile or explicit launch profile `--auth` override as `auth add|set|remove`.
 - Do not imply that auth-bundle CRUD automatically rewrites stored auth references on specialists, easy profiles, explicit launch profiles, or live instances.
+- Do not imply that auth rename requires manual directory moves or that projected auth directory basenames are meaningful.
 - Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool's `auth` surface does not actually support.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.

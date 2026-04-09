@@ -10,11 +10,13 @@ import pytest
 import yaml
 
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.project.catalog import ProjectCatalog
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR,
     PROJECT_OVERLAY_DIR_ENV_VAR,
     bootstrap_project_overlay,
     bootstrap_project_overlay_at_root,
+    require_project_overlay,
 )
 from houmao.server.models import (
     HoumaoManagedAgentActionResponse,
@@ -66,6 +68,14 @@ def _make_claude_config_dir(root: Path, name: str, *, token_suffix: str) -> Path
         encoding="utf-8",
     )
     return config_dir
+
+
+def _project_auth_root(repo_root: Path, *, tool: str, name: str) -> Path:
+    """Resolve one projected auth root from its operator-facing display name."""
+
+    overlay = require_project_overlay(repo_root)
+    profile = ProjectCatalog.from_overlay(overlay).load_auth_profile(tool=tool, name=name)
+    return profile.resolved_projection_path(overlay)
 
 
 def test_project_help_mentions_agents_easy_and_mailbox() -> None:
@@ -468,17 +478,7 @@ def test_project_agents_tool_auth_add_bootstraps_missing_overlay(
 
     assert result.exit_code == 0, result.output
     assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
-    assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "personal"
-        / "env"
-        / "vars.env"
-    ).is_file()
+    assert (_project_auth_root(repo_root, tool="codex", name="personal") / "env" / "vars.env").is_file()
 
 
 def test_project_agents_tool_get_fails_without_bootstrapping_missing_overlay(
@@ -1047,13 +1047,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
         repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     ).is_file()
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "researcher-creds"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
         / "files"
         / "auth.json"
     ).is_file()
@@ -1084,13 +1078,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "researcher-creds"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
         / "files"
         / "auth.json"
     ).is_file()
@@ -1233,17 +1221,7 @@ def test_project_agents_gemini_auth_set_preserves_api_key_when_updating_base_url
     )
     assert add_result.exit_code == 0, add_result.output
 
-    env_file = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "gemini"
-        / "auth"
-        / "proxy"
-        / "env"
-        / "vars.env"
-    )
+    env_file = _project_auth_root(repo_root, tool="gemini", name="proxy") / "env" / "vars.env"
     assert env_file.read_text(encoding="utf-8").splitlines() == [
         "GEMINI_API_KEY=sk-gemini",
         "GOOGLE_GEMINI_BASE_URL=https://gemini.example.test",
@@ -1319,13 +1297,7 @@ def test_project_agents_gemini_auth_add_supports_oauth_only_bundle(
 
     assert result.exit_code == 0, result.output
     oauth_bundle_file = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "gemini"
-        / "auth"
-        / "personal"
+        _project_auth_root(repo_root, tool="gemini", name="personal")
         / "files"
         / "oauth_creds.json"
     )
@@ -1363,17 +1335,7 @@ def test_project_agents_claude_auth_add_supports_oauth_only_bundle(
     )
 
     assert result.exit_code == 0, result.output
-    env_file = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "oauth-only"
-        / "env"
-        / "vars.env"
-    )
+    env_file = _project_auth_root(repo_root, tool="claude", name="oauth-only") / "env" / "vars.env"
     assert env_file.read_text(encoding="utf-8").splitlines() == [
         "CLAUDE_CODE_OAUTH_TOKEN=oauth-token-123",
         "ANTHROPIC_BASE_URL=https://claude.example.test",
@@ -1430,7 +1392,7 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
     )
     assert add_result.exit_code == 0, add_result.output
 
-    auth_root = repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "vendor-login"
+    auth_root = _project_auth_root(repo_root, tool="claude", name="vendor-login")
     files_root = auth_root / "files"
     assert json.loads((files_root / ".credentials.json").read_text(encoding="utf-8")) == {
         "claudeAiOauth": {"accessToken": "vendor-alpha"}
@@ -1511,6 +1473,211 @@ def test_project_agents_claude_auth_set_refreshes_config_dir_import_without_clea
     assert (files_root / "claude_state.template.json").is_file()
 
 
+def test_project_agents_auth_rename_preserves_identity_and_updates_launch_profile_display_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            ["project", "agents", "roles", "init", "--name", "reviewer"],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "recipes",
+                "add",
+                "--name",
+                "reviewer-codex-default",
+                "--role",
+                "reviewer",
+                "--tool",
+                "codex",
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "tools",
+                "codex",
+                "auth",
+                "add",
+                "--name",
+                "work",
+                "--api-key",
+                "sk-openai",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    initial_auth_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "codex", "auth", "get", "--name", "work"],
+    )
+    assert initial_auth_result.exit_code == 0, initial_auth_result.output
+    initial_auth_payload = json.loads(initial_auth_result.output)
+    initial_projection_path = Path(initial_auth_payload["path"])
+    assert initial_projection_path.is_dir()
+
+    add_profile_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "reviewer-default",
+            "--recipe",
+            "reviewer-codex-default",
+            "--auth",
+            "work",
+        ],
+    )
+    assert add_profile_result.exit_code == 0, add_profile_result.output
+
+    rename_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "codex",
+            "auth",
+            "rename",
+            "--name",
+            "work",
+            "--to",
+            "breakglass",
+        ],
+    )
+    assert rename_result.exit_code == 0, rename_result.output
+    rename_payload = json.loads(rename_result.output)
+    assert rename_payload["previous_name"] == "work"
+    assert rename_payload["name"] == "breakglass"
+    assert rename_payload["bundle_ref"] == initial_auth_payload["bundle_ref"]
+    assert Path(rename_payload["path"]) == initial_projection_path
+    assert initial_projection_path.is_dir()
+
+    old_auth_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "codex", "auth", "get", "--name", "work"],
+    )
+    assert old_auth_result.exit_code != 0
+
+    renamed_auth_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "codex", "auth", "get", "--name", "breakglass"],
+    )
+    assert renamed_auth_result.exit_code == 0, renamed_auth_result.output
+    renamed_auth_payload = json.loads(renamed_auth_result.output)
+    assert renamed_auth_payload["bundle_ref"] == initial_auth_payload["bundle_ref"]
+    assert Path(renamed_auth_payload["path"]) == initial_projection_path
+
+    launch_profile_result = runner.invoke(
+        cli,
+        ["project", "agents", "launch-profiles", "get", "--name", "reviewer-default"],
+    )
+    assert launch_profile_result.exit_code == 0, launch_profile_result.output
+    launch_profile_payload = json.loads(launch_profile_result.output)
+    assert launch_profile_payload["defaults"]["auth"] == "breakglass"
+
+
+def test_project_easy_specialist_get_derives_current_auth_display_name_after_auth_rename(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--system-prompt",
+            "You are a precise repo researcher.",
+            "--tool",
+            "codex",
+            "--credential",
+            "work",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    initial_auth_result = runner.invoke(
+        cli,
+        ["project", "agents", "tools", "codex", "auth", "get", "--name", "work"],
+    )
+    assert initial_auth_result.exit_code == 0, initial_auth_result.output
+    initial_auth_payload = json.loads(initial_auth_result.output)
+
+    rename_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "tools",
+            "codex",
+            "auth",
+            "rename",
+            "--name",
+            "work",
+            "--to",
+            "breakglass",
+        ],
+    )
+    assert rename_result.exit_code == 0, rename_result.output
+    rename_payload = json.loads(rename_result.output)
+    assert rename_payload["bundle_ref"] == initial_auth_payload["bundle_ref"]
+
+    specialist_result = runner.invoke(
+        cli,
+        ["project", "easy", "specialist", "get", "--name", "researcher"],
+    )
+    assert specialist_result.exit_code == 0, specialist_result.output
+    specialist_payload = json.loads(specialist_result.output)
+    assert specialist_payload["credential"] == "breakglass"
+
+    recipe_result = runner.invoke(
+        cli,
+        ["project", "agents", "recipes", "get", "--name", "researcher-codex-default"],
+    )
+    assert recipe_result.exit_code == 0, recipe_result.output
+    recipe_payload = json.loads(recipe_result.output)
+    assert recipe_payload["auth"] == "breakglass"
+
+
 def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1542,13 +1709,7 @@ def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
 
     assert result.exit_code == 0, result.output
     env_file = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "claude"
-        / "auth"
-        / "claude-reviewer-creds"
+        _project_auth_root(repo_root, tool="claude", name="claude-reviewer-creds")
         / "env"
         / "vars.env"
     )
@@ -1598,9 +1759,7 @@ def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_
     )
 
     assert result.exit_code == 0, result.output
-    auth_root = (
-        repo_root / ".houmao" / "agents" / "tools" / "claude" / "auth" / "claude-imported-creds"
-    )
+    auth_root = _project_auth_root(repo_root, tool="claude", name="claude-imported-creds")
     assert json.loads((auth_root / "files" / ".credentials.json").read_text(encoding="utf-8")) == {
         "claudeAiOauth": {"accessToken": "vendor-gamma"}
     }
@@ -1717,13 +1876,7 @@ def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
 
     assert result.exit_code == 0, result.output
     env_file = (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "gemini"
-        / "auth"
-        / "gemini-reviewer-creds"
+        _project_auth_root(repo_root, tool="gemini", name="gemini-reviewer-creds")
         / "env"
         / "vars.env"
     )
@@ -1732,13 +1885,7 @@ def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
         "GOOGLE_GEMINI_BASE_URL=https://gemini.example.test",
     ]
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "gemini"
-        / "auth"
-        / "gemini-reviewer-creds"
+        _project_auth_root(repo_root, tool="gemini", name="gemini-reviewer-creds")
         / "files"
         / "oauth_creds.json"
     ).is_file()
@@ -1860,13 +2007,7 @@ def test_project_easy_specialist_create_prompts_before_replacing_existing_specia
         "prompt_mode": "unattended"
     }
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "researcher-creds"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
         / "files"
         / "auth.json"
     ).is_file()
@@ -2002,13 +2143,7 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
         "prompt_mode": "unattended"
     }
     assert (
-        repo_root
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "codex"
-        / "auth"
-        / "researcher-creds"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
         / "files"
         / "auth.json"
     ).is_file()
@@ -2411,6 +2546,26 @@ def test_project_agents_launch_profiles_crud_round_trip(
         ).exit_code
         == 0
     )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "tools",
+                "codex",
+                "auth",
+                "add",
+                "--name",
+                "alice-creds",
+                "--api-key",
+                "sk-openai",
+                "--auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
 
     add_result = runner.invoke(
         cli,
@@ -2533,6 +2688,27 @@ def test_project_agents_launch_profiles_crud_round_trip(
     list_payload = json.loads(list_result.output)
     assert [item["name"] for item in list_payload["launch_profiles"]] == ["alice"]
 
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "tools",
+                "codex",
+                "auth",
+                "add",
+                "--name",
+                "reviewer-creds",
+                "--api-key",
+                "sk-openai",
+                "--auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
     set_result = runner.invoke(
         cli,
         [
@@ -2604,7 +2780,26 @@ def test_project_easy_profile_crud_round_trip(
         ).exit_code
         == 0
     )
-
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "tools",
+                "codex",
+                "auth",
+                "add",
+                "--name",
+                "alice-creds",
+                "--api-key",
+                "sk-openai",
+                "--auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
     create_result = runner.invoke(
         cli,
         [
@@ -2718,6 +2913,26 @@ def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
             [
                 "project",
                 "agents",
+                "tools",
+                "codex",
+                "auth",
+                "add",
+                "--name",
+                "alice-creds",
+                "--api-key",
+                "sk-openai",
+                "--auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
                 "launch-profiles",
                 "add",
                 "--name",
@@ -2803,6 +3018,26 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
                 "--api-key",
                 "sk-openai",
                 "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "tools",
+                "codex",
+                "auth",
+                "add",
+                "--name",
+                "alice-creds",
+                "--api-key",
+                "sk-openai",
+                "--auth-json",
                 str(auth_json_path),
             ],
         ).exit_code

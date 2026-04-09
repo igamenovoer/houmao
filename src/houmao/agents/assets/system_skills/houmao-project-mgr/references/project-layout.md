@@ -25,7 +25,9 @@ Use this reference when the question is how project-local Houmao files are organ
 
 - `catalog.sqlite` is the canonical semantic store for project-local specialists, roles, recipes, launch profiles, and managed content references.
 - `content/` stores the file-backed payloads those semantic objects refer to.
+- `content/auth/<tool>/<opaque-bundle-ref>/` stores auth payloads by opaque bundle ref rather than by the operator-facing auth display name.
 - `agents/` is the compatibility projection materialized from the catalog and managed content when file-tree consumers need it.
+- `agents/tools/<tool>/auth/<opaque-bundle-ref>/` is likewise a derived projection keyed by opaque refs; user-facing auth names live in the catalog and CLI output instead of these directory basenames.
 
 ## Bootstrap Defaults
 

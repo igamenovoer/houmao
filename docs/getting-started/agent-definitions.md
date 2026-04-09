@@ -1,6 +1,6 @@
 # Agent Definition Directory
 
-The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named recipes, shared launch profiles, and tool-scoped setup/auth bundles.
+The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named recipes, shared launch profiles, and tool-scoped setup/auth bundles. Auth display names are catalog metadata; the file-backed auth trees use opaque bundle refs internally.
 
 For repo-local workflows, the supported path is `houmao-mgr project init`, which creates:
 
@@ -64,7 +64,7 @@ Maintained project-aware local-state commands reuse that same active overlay for
     │   │       ├── setups/
     │   │       │   └── <setup>/...
     │   │       └── auth/
-    │   │           └── <auth>/...
+    │   │           └── <opaque-bundle-ref>/...
     │   └── compatibility-profiles/   # optional, created only when explicitly enabled
     └── mailbox/                      # optional, created only when mailbox workflows are enabled
 ```
@@ -125,9 +125,9 @@ The tool adapter defines how Houmao projects setup files, skills, and auth mater
 
 Secret-free setup bundles for one tool. The canonical file-backed payloads live under `.houmao/content/setups/`; the `.houmao/agents/tools/<tool>/setups/` tree is the compatibility projection that builders and runtime currently consume.
 
-### `tools/<tool>/auth/<auth>/`
+### `tools/<tool>/auth/<bundle-ref>/`
 
-Local-only auth bundles for one tool. The canonical file-backed payloads live under `.houmao/content/auth/`; the `.houmao/agents/tools/<tool>/auth/<name>/` tree is the compatibility projection that legacy file-based flows still read.
+Local-only auth bundles for one tool. The canonical file-backed payloads live under `.houmao/content/auth/<tool>/<bundle-ref>/`; the `.houmao/agents/tools/<tool>/auth/<bundle-ref>/` tree is the compatibility projection that legacy file-based flows still read. The operator-facing auth name is stored separately in the catalog and can be renamed without changing these directory basenames.
 
 ### `compatibility-profiles/`
 
@@ -149,7 +149,7 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 | `.houmao/agents/launch-profiles/` | ❌ No | Repo-local launch-profile projection |
 | `.houmao/agents/tools/<tool>/adapter.yaml` | ❌ No | Local copy of the tool projection and launch contract |
 | `.houmao/agents/tools/<tool>/setups/` | ❌ No | Local copy of secret-free setup bundles |
-| `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles |
+| `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles projected by opaque bundle ref |
 | `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata, not created by default |
 | `.houmao/mailbox/` | ❌ No | Optional project-local mailbox root |
 

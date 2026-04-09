@@ -5,10 +5,10 @@ Use this action only when the user wants to remove one existing project-local au
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the tool family and bundle name from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the tool family or bundle name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
+2. Recover the tool family and auth display name from the current prompt first and recent chat context second when they were stated explicitly.
+3. If the tool family or auth display name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
 4. Run `project agents tools <tool> auth remove --name <name>`.
-5. Report the removed auth bundle name and path returned by the command.
+5. Report the removed auth display name and any diagnostic path returned by the command. Do not treat the projected auth path basename as meaningful identity.
 
 ## Command Shape
 

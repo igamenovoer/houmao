@@ -53,7 +53,7 @@ Key options:
 | `--name` | Required | Specialist name. Used as the role name and default credential name. |
 | `--tool` | Required | Tool lane: `claude`, `codex`, or `gemini`. |
 | `--system-prompt` / `--system-prompt-file` | None | Inline prompt text or path to a prompt markdown file. |
-| `--credential` | `<name>-creds` | Auth bundle name. Defaults to `<specialist-name>-creds`. |
+| `--credential` | `<name>-creds` | Auth display name. Defaults to `<specialist-name>-creds`. |
 | `--api-key` | None | API key for the selected tool. |
 | `--setup` | `default` | Preset setup name within the tool's setup bundles. |
 | `--with-skill` | None | Repeatable. Path to a skill directory (must contain `SKILL.md`). |
@@ -129,7 +129,7 @@ Key options:
 | `--agent-name` | None | Optional default managed-agent name; lets later `instance launch --profile` omit `--name`. |
 | `--agent-id` | None | Optional default managed-agent id. |
 | `--workdir` | None | Optional default working directory. |
-| `--auth` | None | Optional default auth bundle override. |
+| `--auth` | None | Optional default auth display-name override. The stored relationship resolves through auth-profile identity, so later auth rename stays valid. |
 | `--prompt-mode` | None | Optional `unattended` or `as_is` operator prompt-mode override. |
 | `--env-set` | None | Repeatable durable launch env record (`NAME=value`). |
 | `--mail-transport` | None | Optional declarative mailbox transport (`filesystem` or `stalwart`). |
@@ -173,7 +173,7 @@ houmao-mgr project easy instance launch \
 houmao-mgr project easy instance launch --profile reviewer-default
 ```
 
-When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
+When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. Auth remains user-facing by display name even though the stored profile resolves it through auth-profile identity. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
 
 Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, `--managed-header` or `--no-managed-header`, and `--append-system-prompt-text` or `--append-system-prompt-file` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 
@@ -230,7 +230,7 @@ houmao-mgr project easy instance get --name reviewer-1
 houmao-mgr project easy instance stop --name reviewer-1
 ```
 
-`project easy instance list` and `project easy instance get` report the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable. Inspection output never includes secret credential values inline; auth is reported by bundle name only.
+`project easy instance list` and `project easy instance get` report the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable. Inspection output never includes secret credential values inline; auth is reported by display name only.
 
 ## Storage Layout
 
@@ -240,7 +240,7 @@ Easy-lane data is stored across the project overlay as follows:
 |---|---|
 | `.houmao/catalog.sqlite` | Specialist metadata, easy-profile metadata, and references to managed content. Both easy profiles and explicit launch profiles share the same catalog launch-profile family. |
 | `.houmao/content/prompts/<name>.md` | System prompt file (and prompt-overlay text files when an easy profile uses `--prompt-overlay-file`). |
-| `.houmao/content/auth/<tool>/<credential>/` | Auth bundle directory tree. |
+| `.houmao/content/auth/<tool>/<opaque-bundle-ref>/` | Auth bundle directory tree stored by opaque bundle ref. The user-facing auth display name lives in the catalog. |
 | `.houmao/content/skills/<skill>/` | Skill directory copies. |
 | `.houmao/agents/roles/<name>/` | Generated role projection with `system-prompt.md`. |
 | `.houmao/agents/presets/<recipe>.yaml` | Generated recipe projection (also addressable through the `presets` compatibility-alias CLI). |

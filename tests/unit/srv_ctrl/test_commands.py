@@ -14,6 +14,7 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlErrorV1,
     GatewayReminderCreateResultV1,
@@ -259,6 +260,23 @@ def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
 
     assert exit_code == 1
     assert "expected notifier failure" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_session_manifest_error_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        lambda **kwargs: (_ for _ in ()).throw(SessionManifestError("expected missing manifest")),
+    )
+
+    exit_code = main(["agents", "stop", "--agent-id", "agent-123"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "expected missing manifest" in captured.err
     assert "Traceback" not in captured.err
 
 

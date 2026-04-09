@@ -68,6 +68,7 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
     catalog = ProjectCatalog.from_overlay(overlay)
     report = catalog.validate_integrity()
     assert report.missing_content == ()
+    auth_profile = catalog.load_auth_profile(tool="codex", name="researcher-creds")
 
     connection = sqlite3.connect(overlay.catalog_path)
     try:
@@ -77,7 +78,7 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
         assert specialist_row == (
             "researcher",
             "prompts/researcher.md",
-            "auth/codex/researcher-creds",
+            auth_profile.content_ref.relative_path,
         )
         preset_row = connection.execute(
             "SELECT preset_name, role_name, tool, setup_name, auth_name FROM v_presets"
@@ -181,6 +182,16 @@ def test_project_catalog_persists_and_projects_launch_profiles(
     bootstrap_project_overlay(repo_root)
     overlay = require_project_overlay(repo_root)
     catalog = ProjectCatalog.from_overlay(overlay)
+    auth_source = (tmp_path / "alice-creds").resolve()
+    (auth_source / "env").mkdir(parents=True, exist_ok=True)
+    (auth_source / "files").mkdir(parents=True, exist_ok=True)
+    (auth_source / "env" / "vars.env").write_text("OPENAI_API_KEY=sk-openai\n", encoding="utf-8")
+    (auth_source / "files" / "auth.json").write_text('{"logged_in": true}\n', encoding="utf-8")
+    catalog.create_auth_profile_from_source(
+        tool="codex",
+        display_name="alice-creds",
+        source_path=auth_source,
+    )
 
     profile = catalog.store_launch_profile(
         name="alice",
@@ -190,6 +201,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         managed_agent_name="alice",
         managed_agent_id="agent-alice",
         workdir="/repos/alice",
+        auth_tool="codex",
         auth_name="alice-creds",
         memory_dir="/shared/alice-memory",
         memory_disabled=False,
