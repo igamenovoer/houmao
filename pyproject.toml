@@ -141,7 +141,7 @@ test = { cmd = "python -m pytest tests/unit", description = "Run destination uni
 test-runtime = { cmd = "python -m pytest tests/unit/agents tests/unit/cao", description = "Run runtime-focused unit suites" }
 build-dist = { cmd = "python -m build --sdist --wheel", description = "Build sdist and wheel artifacts" }
 check-dist = { cmd = "python -m twine check dist/*", description = "Validate built package metadata" }
-install-global-tool = { cmd = "uv tool install --force .", description = "Install the current checkout as a global uv tool, replacing any existing houmao tool install" }
+install-global-tool = { cmd = "uv tool install --force --editable .", description = "Install the current checkout as a global editable uv tool, replacing any existing houmao tool install" }
 
 [tool.pixi.feature.pg-hosting.dependencies]
 postgresql = ">=18.3,<19"

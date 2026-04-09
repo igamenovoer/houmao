@@ -40,6 +40,10 @@ description = "Low-level project-local role and preset definition management ski
 asset_subpath = "houmao-agent-loop-pairwise"
 description = "Pairwise loop planning and master-run control skill for user-controlled agents."
 
+[skills.houmao-agent-loop-relay]
+asset_subpath = "houmao-agent-loop-relay"
+description = "Relay loop planning and master-run control skill for user-controlled agents."
+
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
 description = "Managed agent instance lifecycle skill."
@@ -87,6 +91,7 @@ skills = [
   "houmao-credential-mgr",
   "houmao-agent-definition",
   "houmao-agent-loop-pairwise",
+  "houmao-agent-loop-relay",
 ]
 
 [sets.agent-instance]

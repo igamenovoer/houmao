@@ -315,7 +315,9 @@ Admission conflicts such as an already-active headless turn or reconciliation-re
 
 Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
 
-Interrupt requests that target a managed agent with no active interruptible work SHALL return an explicit transport-neutral no-op response rather than pretending that an interrupt was delivered.
+Interrupt requests that target a managed TUI agent SHALL deliver one best-effort `Escape` interrupt signal whenever the resolved TUI control path is reachable, even when coarse tracked TUI state does not currently report active interruptible work.
+
+Interrupt requests that target a managed headless agent with no active interruptible work SHALL return an explicit transport-neutral no-op response rather than pretending that an interrupt was delivered.
 
 #### Scenario: Attached TUI prompt request uses the same server route through gateway-backed control
 - **WHEN** a caller submits a `submit_prompt` managed-agent request for a managed TUI agent with an eligible attached live gateway
@@ -332,6 +334,13 @@ Interrupt requests that target a managed agent with no active interruptible work
 - **THEN** `houmao-server` accepts that request through the same managed-agent request surface
 - **AND THEN** whether the interrupt is delivered through an attached gateway or a direct fallback path remains an implementation detail rather than a caller-visible API split
 
+#### Scenario: TUI interrupt ignores delayed idle tracking
+- **WHEN** a caller submits an `interrupt` managed-agent request for a managed TUI agent
+- **AND WHEN** the resolved TUI control path is reachable
+- **AND WHEN** coarse tracked TUI state currently reports `idle` or another non-active phase
+- **THEN** `houmao-server` still dispatches one best-effort `Escape` interrupt signal
+- **AND THEN** the server does not convert that request into a transport-neutral no-op solely because tracked TUI state lagged the visible live surface
+
 #### Scenario: Busy headless prompt admission returns conflict semantics
 - **WHEN** a caller submits a `submit_prompt` managed-agent request for a managed headless agent that already has one active managed execution
 - **THEN** `houmao-server` rejects that admission with HTTP `409`
@@ -347,8 +356,8 @@ Interrupt requests that target a managed agent with no active interruptible work
 - **THEN** `houmao-server` uses direct fallback only when that fallback is still supported and safe for that agent
 - **AND THEN** otherwise the request is rejected with the existing `409` or `503` semantics rather than being silently accepted against an inoperable gateway
 
-#### Scenario: Interrupt with no active work returns explicit no-op detail
-- **WHEN** a caller submits an `interrupt` managed-agent request for a managed agent with no active interruptible work
+#### Scenario: Headless interrupt with no active work returns explicit no-op detail
+- **WHEN** a caller submits an `interrupt` managed-agent request for a managed headless agent with no active interruptible work
 - **THEN** `houmao-server` returns the same transport-neutral accepted response family with explicit no-op detail
 - **AND THEN** the caller is not forced to guess whether the interrupt request was delivered or ignored
 
@@ -734,3 +743,4 @@ Normal managed-headless interrupt and terminate behavior SHALL NOT destroy the s
 - **WHEN** `houmao-server` interrupts or terminates a managed headless turn whose process identity can no longer be controlled directly
 - **THEN** any tmux-facing fallback targets the stable `agent` surface in window 0
 - **AND THEN** `houmao-server` does not destroy that stable primary surface as normal turn control
+
