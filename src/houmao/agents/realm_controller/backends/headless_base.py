@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.model_mapping_policy import temporary_project_model_config
+from houmao.agents.model_selection import ModelConfig
 from houmao.cao.no_proxy import inject_loopback_no_proxy_env
 
 from ..agent_identity import AGENT_DEF_DIR_ENV_VAR, AGENT_MANIFEST_PATH_ENV_VAR
@@ -133,6 +135,7 @@ class HeadlessInteractiveSession:
         *,
         turn_artifact_dir_name: str | None = None,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
     ) -> list[SessionEvent]:
         """Send one prompt turn to the headless backend."""
 
@@ -145,29 +148,35 @@ class HeadlessInteractiveSession:
             prompt=prompt,
             session_selection=session_selection,
         )
-        env = os.environ.copy()
-        env.update(self._plan.env)
-        env[self._plan.home_env_var] = str(self._plan.home_path)
-        inject_loopback_no_proxy_env(env)
+        with temporary_project_model_config(
+            home_path=self._plan.home_path,
+            tool=self._plan.tool,
+            model_config=execution_model,
+        ) as execution_env:
+            env = os.environ.copy()
+            env.update(self._plan.env)
+            env.update(execution_env)
+            env[self._plan.home_env_var] = str(self._plan.home_path)
+            inject_loopback_no_proxy_env(env)
 
-        run_kwargs: dict[str, Any] = {
-            "command": command,
-            "env": env,
-            "cwd": self._plan.working_directory,
-            "turn_index": turn_index,
-            "output_format": self._output_format,
-            "provider": self._provider,
-            "display_style": self._display_style,
-            "display_detail": self._display_detail,
-            "tmux_session_name": session_name,
-            "turn_artifacts_root": self._turn_artifacts_root,
-        }
-        if turn_artifact_dir_name is not None:
-            run_kwargs["turn_artifact_dir_name"] = turn_artifact_dir_name
+            run_kwargs: dict[str, Any] = {
+                "command": command,
+                "env": env,
+                "cwd": self._plan.working_directory,
+                "turn_index": turn_index,
+                "output_format": self._output_format,
+                "provider": self._provider,
+                "display_style": self._display_style,
+                "display_detail": self._display_detail,
+                "tmux_session_name": session_name,
+                "turn_artifacts_root": self._turn_artifacts_root,
+            }
+            if turn_artifact_dir_name is not None:
+                run_kwargs["turn_artifact_dir_name"] = turn_artifact_dir_name
 
-        run_result = self._runner.run(
-            **run_kwargs,
-        )
+            run_result = self._runner.run(
+                **run_kwargs,
+            )
 
         if run_result.returncode != 0:
             message = run_result.stderr.strip() or "headless command failed"

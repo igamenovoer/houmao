@@ -252,7 +252,7 @@ The reminder timer path does not add a new public request kind. Reminders are re
 
 The notifier reminder path also does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
 
-`POST /v1/requests` stays the semantic queued prompt surface. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
+`POST /v1/requests` stays the semantic queued prompt surface. For headless targets, both this route and `POST /v1/control/prompt` also accept an optional request-scoped `execution.model` object with normalized `name` plus optional `reasoning.level`. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
 
 Representative prompt submission:
 
@@ -261,7 +261,15 @@ Representative prompt submission:
   "schema_version": 1,
   "kind": "submit_prompt",
   "payload": {
-    "prompt": "hello"
+    "prompt": "hello",
+    "execution": {
+      "model": {
+        "name": "claude-3-7-sonnet",
+        "reasoning": {
+          "level": 7
+        }
+      }
+    }
   }
 }
 ```
@@ -282,6 +290,7 @@ Representative accepted response:
 Observable current error semantics:
 
 - malformed request payloads return HTTP `422` from FastAPI validation,
+- TUI-backed prompt targets reject `execution.model` with HTTP `422` instead of silently ignoring it,
 - reconciliation-blocked admission returns HTTP `409`,
 - unavailable managed-agent admission returns HTTP `503`.
 
@@ -408,7 +417,12 @@ Representative request:
 {
   "schema_version": 1,
   "prompt": "hello",
-  "force": false
+  "force": false,
+  "execution": {
+    "model": {
+      "name": "claude-3-7-sonnet"
+    }
+  }
 }
 ```
 
@@ -457,8 +471,10 @@ Current behavior:
 - TUI-backed sessions (`cao_rest`, `houmao_server_rest`, and `local_interactive`) require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
 - TUI-backed sessions accept `chat_session.mode = "new"` as a reset-then-send workflow that submits `/clear`, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
 - TUI-backed sessions reject explicit `chat_session.mode = "auto" | "current" | "tool_last_or_new" | "exact"` with HTTP `422`
+- TUI-backed sessions also reject any `execution.model` override with HTTP `422`
 - native local headless sessions require no active gateway-managed execution and no queued gateway work before prompt dispatch unless `force=true`
 - native headless sessions accept `chat_session.mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"`; `chat_session.id` is required only for `mode = "exact"`
+- native headless sessions accept optional `execution.model.name` plus optional `execution.model.reasoning.level`; the effective value merges with launch-resolved defaults for the current turn only and does not persist after the prompt completes
 - omitted headless `chat_session` means `mode = "auto"`, which resolves in order as pending `next_prompt_override`, pinned `current`, persisted `startup_default`, then fresh `new`
 - `chat_session.mode = "current"` fails explicitly when the managed session has no pinned current provider session
 - server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`

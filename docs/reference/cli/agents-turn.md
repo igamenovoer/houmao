@@ -21,9 +21,13 @@ houmao-mgr agents turn submit [OPTIONS]
 | Option | Description |
 |---|---|
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
+| `--model TEXT` | Request-scoped headless execution model override for this turn only. |
+| `--reasoning-level INTEGER` | Optional normalized `1..10` reasoning override for this turn only. |
 | `--port INTEGER` | Houmao pair authority port to use. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
+
+The override flags affect only the submitted turn. They do not rewrite the stored manifest or future turns for the managed headless agent.
 
 ### `status`
 

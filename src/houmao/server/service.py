@@ -22,6 +22,7 @@ from urllib import error, parse, request
 from fastapi import HTTPException, Response
 from pydantic import BaseModel
 
+from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayChatSessionSelectorV1,
@@ -1300,6 +1301,11 @@ class HoumaoServerService:
             prompt=request_model.prompt,
             turn_id=request_model.turn_id,
             chat_session=request_model.chat_session,
+            execution_model=(
+                request_model.execution.to_model_config()
+                if request_model.execution is not None
+                else None
+            ),
         )
         detail = (
             f"Managed headless prompt `{request_model.turn_id}` dispatched."
@@ -2158,6 +2164,14 @@ class HoumaoServerService:
             request_id: str,
         ) -> HoumaoManagedAgentRequestAcceptedResponse:
             if isinstance(request_model, HoumaoManagedAgentSubmitPromptRequest):
+                if request_model.execution is not None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Execution overrides are only supported for headless managed-agent "
+                            "prompt routes."
+                        ),
+                    )
                 self._invoke_live_gateway(
                     lambda: client.create_request(
                         GatewayRequestCreateV1(
@@ -2324,7 +2338,10 @@ class HoumaoServerService:
                 accepted = self._submit_headless_turn_via_gateway(
                     handle=handle,
                     client=client,
-                    request_model=HoumaoHeadlessTurnRequest(prompt=request_model.prompt),
+                    request_model=HoumaoHeadlessTurnRequest(
+                        prompt=request_model.prompt,
+                        execution=request_model.execution,
+                    ),
                 )
                 return self._headless_request_accepted_response(
                     tracked_agent_id=tracked_agent_id,
@@ -2911,6 +2928,14 @@ class HoumaoServerService:
         terminal_path = parse.quote(terminal_id, safe="")
 
         if isinstance(request_model, HoumaoManagedAgentSubmitPromptRequest):
+            if request_model.execution is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Execution overrides are only supported for headless managed-agent "
+                        "prompt routes."
+                    ),
+                )
             proxy_response = self.proxy(
                 method="POST",
                 path=f"/terminals/{terminal_path}/input",
@@ -3051,6 +3076,11 @@ class HoumaoServerService:
                 "turn_id": turn_record.turn_id,
                 "prompt": request_model.prompt,
                 "chat_session": request_model.chat_session,
+                "execution_model": (
+                    request_model.execution.to_model_config()
+                    if request_model.execution is not None
+                    else None
+                ),
             },
             daemon=True,
             name=f"houmao-headless-turn-{tracked_agent_id}-{turn_record.turn_id}",
@@ -3118,6 +3148,7 @@ class HoumaoServerService:
                             prompt=request_model.prompt,
                             turn_id=turn_record.turn_id,
                             chat_session=request_model.chat_session,
+                            execution=request_model.execution,
                         ),
                     )
                 )
@@ -3228,7 +3259,10 @@ class HoumaoServerService:
                 )
             accepted = self._submit_headless_turn_direct(
                 handle=handle,
-                request_model=HoumaoHeadlessTurnRequest(prompt=request_model.prompt),
+                request_model=HoumaoHeadlessTurnRequest(
+                    prompt=request_model.prompt,
+                    execution=request_model.execution,
+                ),
             )
             return self._headless_request_accepted_response(
                 tracked_agent_id=tracked_agent_id,
@@ -3973,6 +4007,7 @@ class HoumaoServerService:
         turn_id: str,
         prompt: str,
         chat_session: GatewayChatSessionSelectorV1 | None,
+        execution_model: ModelConfig | None,
     ) -> None:
         """Execute one accepted headless turn in a background thread."""
 
@@ -4005,25 +4040,15 @@ class HoumaoServerService:
                 handle=handle,
                 chat_session=chat_session,
             )
-            if session_selection is None:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                )
-            else:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                    session_selection=session_selection,
-                )
+            controller.send_prompt(
+                prompt,
+                session_selection=session_selection,
+                turn_artifact_dir_name=turn_id,
+                execution_model=execution_model,
+            )
         except Exception as exc:
             error_detail = f"{type(exc).__name__}: {exc}"
         finally:
-            try:
-                controller.persist_manifest()
-            except Exception as exc:
-                if error_detail is None:
-                    error_detail = f"{type(exc).__name__}: {exc}"
             handle.set_active_thread(None)
             self._refresh_headless_turn_record(
                 tracked_agent_id=tracked_agent_id,
@@ -4038,6 +4063,7 @@ class HoumaoServerService:
         prompt: str,
         turn_id: str | None,
         chat_session: GatewayChatSessionSelectorV1 | None,
+        execution_model: ModelConfig | None,
     ) -> None:
         """Execute one direct headless prompt on the server-owned controller."""
 
@@ -4058,23 +4084,14 @@ class HoumaoServerService:
             chat_session=chat_session,
         )
         try:
-            if session_selection is None:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                )
-            else:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                    session_selection=session_selection,
-                )
+            controller.send_prompt(
+                prompt,
+                session_selection=session_selection,
+                turn_artifact_dir_name=turn_id,
+                execution_model=execution_model,
+            )
         except Exception as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        try:
-            controller.persist_manifest()
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     def _headless_turn_session_selection_for_request(
         self,

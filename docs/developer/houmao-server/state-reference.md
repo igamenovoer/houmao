@@ -30,6 +30,8 @@ The selection entry point remains `select_tracked_turn_signal_detector(tool=...,
 
 The shipped Codex tracker contract is currently one `codex_tui` v1 profile. Profile-specific frame details such as latest-turn-region signatures remain private to that profile rather than widening the shared normalized signal contract.
 
+For Codex, current activity is intentionally derived from the live edge of the visible surface rather than from arbitrary full scrollback. Prompt-scoped latest-turn reasoning still drives interruption matching, success context, and temporal transcript-growth hints.
+
 **Why this matters:** Different tools yield different `unknown` vs `yes`/`no` distributions for the same underlying conditions. The `unsupported_tool` fallback is intentionally conservative — it produces more `unknown` values because it lacks tool-specific prompt and activity patterns. A `ready_posture=unknown` from an unsupported tool does not mean the same thing as `ready_posture=unknown` from the Claude detector.
 
 ---
@@ -173,13 +175,15 @@ Whether the visible surface looks ready for an immediate submit — the prompt i
 
 **Derivation:** Raw-text detector profiles emit `yes` when a prompt is visible, the surface is not actively working, and no ambiguous overlay is present. Claude and Codex use their own prompt/activity heuristics; fallback profiles stay conservative.
 
+In the live server contract, `ready_posture=yes` may also appear after host-owned stale-active recovery for an unanchored session that stayed submit-ready through the configured recovery window. That recovery corrects a stuck active posture; it is not itself a success verdict.
+
 **Operational implications:** The terminal is ready to receive and begin processing a new prompt. This is the ideal state for sending input via `POST /houmao/terminals/{terminal_id}/input`.
 
 #### `no`
 
 **Intuitive meaning:** The TUI is actively working or its input is closed.
 
-**Derivation:** Detector profiles emit `no` when the raw surface clearly shows active work or a blocked prompt. The Claude profile still prefers `unknown` over `no` when the posture is not confidently classifiable.
+**Derivation:** Detector profiles emit `no` when the raw surface clearly shows active work or a blocked prompt. For Codex this can come from a current working status row, in-flight tool cell, or temporal transcript growth. The Claude profile still prefers `unknown` over `no` when the posture is not confidently classifiable.
 
 **Operational implications:** Do not send new prompts. The TUI is either processing a turn or in a state that cannot accept submissions.
 
@@ -187,7 +191,7 @@ Whether the visible surface looks ready for an immediate submit — the prompt i
 
 **Intuitive meaning:** The detector cannot confidently determine whether the TUI is ready for submission.
 
-**Derivation:** Common causes: no prompt is visible, the footer shows an interrupt indicator (suggesting active work), ambiguous interactive UI is present (menus, selection boxes, permission prompts), or the tool is unsupported.
+**Derivation:** Common causes: no prompt is visible, the surface is blocked by ambiguous interactive UI (menus, selection boxes, permission prompts), or the tool is unsupported.
 
 **Operational implications:** Do not assume readiness. Wait for `ready_posture=yes` before sending input.
 
@@ -216,7 +220,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** The TUI appears ready for another turn — no active work is in progress, and the surface looks ready for submission.
 
-**Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server publishes that tracker-owned turn posture together with separate server-owned diagnostics and lifecycle metadata.
+**Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server can also publish `ready` after stale-active recovery when an unanchored session has remained submit-ready for the configured recovery window without stronger live evidence.
 
 **Operational implications:** It is safe to send a new prompt via `POST /houmao/terminals/{terminal_id}/input`. The terminal is idle and waiting for the next instruction.
 
@@ -224,7 +228,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** A turn is currently in flight — the agent is working on a prompt.
 
-**Derivation:** The standalone tracker session returns `active` when explicit input has armed tracker authority or when the detector reports active evidence such as thinking lines, tool activity, or interruptable work footers.
+**Derivation:** The standalone tracker session returns `active` when explicit input has armed tracker authority or when the detector reports active evidence. For Codex that evidence can include a current `• Working (... esc to interrupt)` status row, an in-flight tool cell, or temporal transcript growth even when no spinner is visible.
 
 **Operational implications:** Do not send new input — the agent is processing the current prompt. Poll for turn completion. You may observe `last_turn.result` changing to `success`, `interrupted`, or `known_failure` when the turn ends.
 

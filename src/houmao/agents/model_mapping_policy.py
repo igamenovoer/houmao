@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import json
 from pathlib import Path
 from typing import Any, TypeVar
 
-from houmao.agents.launch_policy.provider_hooks import set_json_key, set_toml_key
+from houmao.agents.launch_policy.provider_hooks import (
+    provider_state_mutation_lock,
+    set_json_key,
+    set_toml_key,
+)
+from houmao.agents.model_selection import ModelConfig
 
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
@@ -115,6 +122,102 @@ def project_reasoning_level(
         return mapping
 
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
+
+
+def project_model_name(
+    *,
+    home_path: Path,
+    tool: str,
+    model_name: str,
+    env_exports: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Project one normalized model name into the runtime home or launch env."""
+
+    stripped_model_name = model_name.strip()
+    if not stripped_model_name:
+        raise ValueError("model_name must not be empty")
+
+    if tool == "claude":
+        if env_exports is not None:
+            env_exports["ANTHROPIC_MODEL"] = stripped_model_name
+        return {
+            "surface": "env",
+            "env_var": "ANTHROPIC_MODEL",
+            "value": stripped_model_name,
+        }
+
+    if tool == "codex":
+        set_toml_key(
+            path=home_path / _CODEX_CONFIG_FILENAME,
+            key_path=("model",),
+            value=stripped_model_name,
+            repair_invalid=True,
+        )
+        return {
+            "surface": "toml",
+            "path": _CODEX_CONFIG_FILENAME,
+            "key_path": ["model"],
+            "value": stripped_model_name,
+        }
+
+    if tool == "gemini":
+        set_json_key(
+            path=home_path / _GEMINI_SETTINGS_PATH,
+            key_path=("model", "name"),
+            value=stripped_model_name,
+            repair_invalid=True,
+        )
+        return {
+            "surface": "json",
+            "path": str(_GEMINI_SETTINGS_PATH),
+            "key_path": ["model", "name"],
+            "value": stripped_model_name,
+        }
+
+    raise ValueError(f"Unsupported model-mapping tool {tool!r}")
+
+
+@contextmanager
+def temporary_project_model_config(
+    *,
+    home_path: Path,
+    tool: str,
+    model_config: ModelConfig | None,
+) -> Iterator[dict[str, str]]:
+    """Apply one effective model config for a single headless turn and then restore state."""
+
+    if model_config is None or model_config.is_empty():
+        yield {}
+        return
+
+    env_exports: dict[str, str] = {}
+    mutated_paths = _mutated_model_config_paths(
+        home_path=home_path,
+        tool=tool,
+        model_config=model_config,
+    )
+    with provider_state_mutation_lock(home_path):
+        snapshots = {
+            path: path.read_text(encoding="utf-8") if path.exists() else None for path in mutated_paths
+        }
+        try:
+            if model_config.name is not None:
+                project_model_name(
+                    home_path=home_path,
+                    tool=tool,
+                    model_name=model_config.name,
+                    env_exports=env_exports,
+                )
+            if model_config.reasoning is not None:
+                project_reasoning_level(
+                    home_path=home_path,
+                    tool=tool,
+                    requested_level=model_config.reasoning.level,
+                    model_name=model_config.name,
+                )
+            yield env_exports
+        finally:
+            _restore_model_config_paths(snapshots)
 
 
 def _resolve_gemini_reasoning_mapping(
@@ -303,3 +406,34 @@ def _write_json_mapping(path: Path, payload: dict[str, Any]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _mutated_model_config_paths(
+    *,
+    home_path: Path,
+    tool: str,
+    model_config: ModelConfig,
+) -> tuple[Path, ...]:
+    """Return the runtime-home files mutated by one effective model projection."""
+
+    if tool == "claude":
+        if model_config.reasoning is None:
+            return ()
+        return (home_path / _CLAUDE_SETTINGS_FILENAME,)
+    if tool == "codex":
+        return (home_path / _CODEX_CONFIG_FILENAME,)
+    if tool == "gemini":
+        return (home_path / _GEMINI_SETTINGS_PATH,)
+    raise ValueError(f"Unsupported model-mapping tool {tool!r}")
+
+
+def _restore_model_config_paths(snapshots: dict[Path, str | None]) -> None:
+    """Restore previously captured runtime-home file contents."""
+
+    for path, prior_content in snapshots.items():
+        if prior_content is None:
+            if path.exists():
+                path.unlink()
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(prior_content, encoding="utf-8")

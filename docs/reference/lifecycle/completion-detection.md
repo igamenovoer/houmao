@@ -50,9 +50,9 @@ stateDiagram-v2
 
 ## Overview
 
-The completion detection subsystem builds on the TUI tracking state machine to provide turn-level lifecycle awareness. It observes the stream of `TrackedStateSnapshot` values and derives higher-level assessments: whether the agent surface is **ready** for new input, and whether a logical **turn** has **completed**.
+The completion detection subsystem builds on parsed-surface observations to provide turn-level lifecycle awareness. It observes a stream of `LifecycleObservation` values and derives higher-level assessments: whether the surface is **ready** for new input, and whether a logical **turn** has **completed**.
 
-Two ReactiveX pipelines form the core of this subsystem — one for readiness detection and one for anchored completion detection. Both pipelines consume tracked state and emit structured snapshot objects that downstream consumers (such as automated prompt submission logic) can act on.
+Two ReactiveX pipelines form the core of this subsystem — one for readiness detection and one for anchored completion detection. Both pipelines consume parsed lifecycle observations and emit structured snapshot objects that downstream consumers (such as automated prompt submission logic) can act on.
 
 ## TurnAnchor Concept
 
@@ -88,7 +88,7 @@ Determines how completion is assessed. The authority mode controls whether compl
 
 ### LifecycleObservation
 
-One lifecycle observation sample, combining the tracked state snapshot with lifecycle-level metadata such as the active turn anchor and accumulated evidence.
+One lifecycle observation sample derived from parsed surface state, carrying lifecycle-level metadata such as normalized projection text, parser classification axes, and accumulated evidence timing.
 
 ### PostSubmitEvidence
 
@@ -98,20 +98,21 @@ Evidence collected after prompt submission. Tracks what the pipeline has observe
 
 ### `build_readiness_pipeline()`
 
-Constructs a ReactiveX pipeline that observes tracked state and emits `ReadinessSnapshot` values.
+Constructs a ReactiveX pipeline that observes `LifecycleObservation` values and emits `ReadinessSnapshot` values.
 
 The readiness pipeline monitors the agent surface for transitions into a state where new input can be submitted. It considers:
 
-- Whether the surface is accepting input (`surface_accepting_input`).
-- Whether the surface is in a ready posture (`surface_ready_posture`).
-- Whether the turn phase has returned to `ready`.
-- Stability of the surface state — a surface that is flickering between ready and active is not considered reliably ready.
+- Parsed availability (`availability`).
+- Parsed business state (`business_state`).
+- Parsed input mode (`input_mode`).
+- Parsed UI context (`ui_context`).
+- Stability of the parsed observation stream, including unknown-to-stalled timing.
 
 The pipeline debounces transient readiness signals and requires stable confirmation before emitting a ready snapshot, preventing premature prompt submission during brief pauses in agent output.
 
 ### `build_anchored_completion_pipeline()`
 
-Constructs a ReactiveX pipeline that observes tracked state anchored to a turn start and emits `AnchoredCompletionSnapshot` values.
+Constructs a ReactiveX pipeline that observes `LifecycleObservation` values anchored to a turn start and emits `AnchoredCompletionSnapshot` values.
 
 The completion pipeline tracks the full lifecycle of a single turn:
 
@@ -121,13 +122,14 @@ The completion pipeline tracks the full lifecycle of a single turn:
 4. **Completed** — The surface has been stably ready for long enough after activity, confirming the turn is done.
 5. **Terminal states** — `failed`, `blocked`, or `stalled` if the turn encounters errors, permission blocks, or prolonged inactivity.
 
-The pipeline requires that activity evidence is observed before it will accept a ready surface as a completion signal. This prevents the initial ready state (before the agent begins processing) from being misinterpreted as turn completion.
+The pipeline requires that post-submit evidence is observed before it will accept a ready parsed surface as a completion signal. This prevents the initial ready state (before the agent begins processing) from being misinterpreted as turn completion.
 
 ## Composition with TUI Tracking
 
-The lifecycle pipelines do not directly observe the TUI pane. Instead, they subscribe to the `TrackedStateSnapshot` stream produced by the TUI tracking state machine (via `TuiTrackerSession` or `StreamStateReducer`). This layered architecture keeps concerns separated:
+The lifecycle pipelines do not directly observe the TUI pane. Instead, live hosts derive `LifecycleObservation` values from parsed surfaces and feed those into the ReactiveX kernel. This layered architecture keeps concerns separated:
 
-- **TUI tracking** is responsible for parsing pane content, detecting signals, and producing stable tracked state.
-- **Lifecycle detection** is responsible for interpreting tracked state transitions in the context of turn anchors and emitting actionable readiness/completion assessments.
+- **Shared TUI tracking** is responsible for raw pane signal detection and producing tracker-owned `surface` / `turn` / `last_turn` state.
+- **Official parsing** is responsible for structured parsed-surface axes such as business state, input mode, and normalized projection text.
+- **Lifecycle detection** is responsible for interpreting parsed-surface observations in the context of turn anchors and emitting actionable readiness/completion assessments.
 
-This separation allows the same lifecycle pipelines to work with any tool-specific detector, as long as the detector produces valid `TrackedStateSnapshot` values.
+This separation allows the same lifecycle pipelines to work with any parser that produces valid `LifecycleObservation` values without forcing lifecycle timing to reuse raw-snapshot detector state as its direct input.

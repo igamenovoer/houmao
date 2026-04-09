@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 import pytest
 from pydantic import ValidationError
 
+import houmao.agents.realm_controller.gateway_service as gateway_service_module
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
     StalwartMailboxResolvedConfig,
@@ -37,6 +38,9 @@ from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
     GatewayCurrentInstanceV1,
     GatewayControlInputRequestV1,
+    GatewayExecutionModelReasoningV1,
+    GatewayExecutionModelV1,
+    GatewayExecutionOverrideV1,
     GatewayMailCheckRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailPostRequestV1,
@@ -90,6 +94,10 @@ from houmao.agents.realm_controller.runtime import (
     _same_session_gateway_is_alive,
     _same_session_gateway_shell_command,
 )
+
+
+if not hasattr(gateway_service_module, "HeadlessInteractiveSession"):
+    gateway_service_module.HeadlessInteractiveSession = object
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.cao.rest_client import CaoApiError
@@ -690,6 +698,59 @@ def test_gateway_service_routes_local_interactive_prompts_through_runtime_contro
     assert fake_session.prompt_calls == [("hello", "turn-local-123")]
     assert fake_controller.persist_manifest_calls == [False]
     assert _FakeGatewayTrackingRuntime.m_stopped_session_ids == ["local-interactive-1"]
+
+
+def test_gateway_service_rejects_execution_override_for_local_interactive_prompt_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    runtime.start()
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            runtime.control_prompt(
+                GatewayPromptControlRequestV1(
+                    prompt="hello",
+                    execution=GatewayExecutionOverrideV1(
+                        model=GatewayExecutionModelV1(name="claude-3-7-sonnet")
+                    ),
+                )
+            )
+    finally:
+        runtime.shutdown()
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["error_code"] == "invalid_execution"
 
 
 def test_gateway_service_exposes_foreground_tmux_execution_metadata(
@@ -1392,6 +1453,12 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
                 payload=GatewayRequestPayloadSubmitPromptV1(
                     prompt="hello",
                     turn_id="turn-server-123",
+                    execution=GatewayExecutionOverrideV1(
+                        model=GatewayExecutionModelV1(
+                            name="claude-3-7-sonnet",
+                            reasoning=GatewayExecutionModelReasoningV1(level=6),
+                        )
+                    ),
                 ),
             )
         )
@@ -1402,6 +1469,12 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
         runtime.shutdown()
 
     assert fake_client.prompt_calls == ["hello"]
+    assert getattr(fake_client.request_models[0], "execution") == GatewayExecutionOverrideV1(
+        model=GatewayExecutionModelV1(
+            name="claude-3-7-sonnet",
+            reasoning=GatewayExecutionModelReasoningV1(level=6),
+        )
+    )
 
 
 def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is_closed(
@@ -2489,14 +2562,23 @@ class _FakeGatewayHeadlessSession:
             },
         )()
         self.prompt_calls: list[tuple[str, str | None]] = []
+        self.execution_models: list[object | None] = []
+        self.session_selections: list[object | None] = []
         self.block_prompt = block_prompt
         self.started_event = threading.Event()
         self.release_event = threading.Event()
 
     def send_prompt(
-        self, prompt: str, *, turn_artifact_dir_name: str | None = None
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str | None = None,
+        session_selection: object | None = None,
+        execution_model: object | None = None,
     ) -> list[object]:
         self.prompt_calls.append((prompt, turn_artifact_dir_name))
+        self.session_selections.append(session_selection)
+        self.execution_models.append(execution_model)
         self.started_event.set()
         if self.block_prompt:
             self.release_event.wait(timeout=5.0)
@@ -2515,9 +2597,37 @@ class _FakeGatewayHeadlessController:
         self.interrupted_event = threading.Event()
         self.send_input_calls: list[tuple[str, bool]] = []
         self.send_input_event = threading.Event()
+        self.send_prompt_calls: list[dict[str, object]] = []
 
     def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         self.persist_manifest_calls.append(refresh_registry)
+
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        session_selection: object | None = None,
+        turn_artifact_dir_name: str | None = None,
+        execution_model: object | None = None,
+        refresh_registry: bool = True,
+    ) -> list[object]:
+        self.send_prompt_calls.append(
+            {
+                "prompt": prompt,
+                "session_selection": session_selection,
+                "turn_artifact_dir_name": turn_artifact_dir_name,
+                "execution_model": execution_model,
+                "refresh_registry": refresh_registry,
+            }
+        )
+        result = self.backend_session.send_prompt(
+            prompt,
+            turn_artifact_dir_name=turn_artifact_dir_name,
+            session_selection=session_selection,
+            execution_model=execution_model,
+        )
+        self.persist_manifest(refresh_registry=refresh_registry)
+        return result
 
     def interrupt(self) -> SessionControlResult:
         self.interrupt_calls += 1
@@ -2546,6 +2656,7 @@ class _FakeManagedPairClient:
         self.pair_authority_kind = pair_authority_kind
         self.block_prompt = block_prompt
         self.prompt_calls: list[str] = []
+        self.request_models: list[object] = []
         self.started_event = threading.Event()
         self.release_event = threading.Event()
 
@@ -2596,6 +2707,7 @@ class _FakeManagedPairClient:
         agent_ref: str,
         request_model: object,
     ) -> HoumaoManagedAgentRequestAcceptedResponse:
+        self.request_models.append(request_model)
         request_kind = getattr(request_model, "request_kind", "submit_prompt")
         prompt = getattr(request_model, "prompt", None)
         if isinstance(prompt, str):
@@ -4611,7 +4723,12 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
             self.prompt_calls: list[tuple[str, str | None]] = []
 
         def send_prompt(
-            self, prompt: str, *, turn_artifact_dir_name: str | None = None
+            self,
+            prompt: str,
+            *,
+            turn_artifact_dir_name: str | None = None,
+            session_selection: object | None = None,
+            execution_model: object | None = None,
         ) -> list[object]:
             self.prompt_calls.append((prompt, turn_artifact_dir_name))
             if (

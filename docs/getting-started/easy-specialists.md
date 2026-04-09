@@ -62,6 +62,8 @@ Key options:
 | `--model` | None | Optional launch-owned default model name. |
 | `--reasoning-level` | None | Optional Houmao-defined launch-owned reasoning level on the normalized `1..10` scale. |
 
+Those two flags set the **launch-owned default** model selection that is written into the specialist-backed launch profile. After the agent is already running, headless prompt routes also support one-turn overrides through `houmao-mgr agents prompt`, `houmao-mgr agents gateway prompt`, and `houmao-mgr agents turn submit` with the same `--model` plus optional `--reasoning-level` shape. Those runtime overrides apply only to the submitted headless turn and never rewrite the specialist, launch profile, or persisted manifest defaults.
+
 Claude-specific auth inputs now support four maintained credential lanes plus separate optional bootstrap state:
 
 - API-key lane: `--api-key`

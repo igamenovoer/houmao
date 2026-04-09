@@ -13,7 +13,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
     canonical_headless_event_artifact_path,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -22,6 +22,9 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
+    GatewayExecutionModelV1,
+    GatewayExecutionModelReasoningV1,
+    GatewayExecutionOverrideV1,
     GatewayMailActionResponseV1,
     GatewayMailNotifierStatusV1,
     GatewayMailStateResponseV1,
@@ -173,9 +176,25 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
     assert target.identity == identity
 
 
-def test_resolve_managed_agent_target_wraps_stale_local_runtime_metadata(
+@pytest.mark.parametrize(
+    ("resume_error_type", "resume_error_detail"),
+    [
+        (
+            SessionManifestError,
+            "Session manifest not found: /tmp/missing-manifest.json",
+        ),
+        (
+            BackendExecutionError,
+            "Tmux-backed resume requires existing tmux session `gpu-session` but it is "
+            "unavailable: no server running on /tmp/tmux-stale/default",
+        ),
+    ],
+)
+def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    resume_error_type: type[Exception],
+    resume_error_detail: str,
 ) -> None:
     record = SimpleNamespace(
         agent_name="gpu",
@@ -196,7 +215,7 @@ def test_resolve_managed_agent_target_wraps_stale_local_runtime_metadata(
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
         lambda **kwargs: (_ for _ in ()).throw(
-            SessionManifestError("Session manifest not found: /tmp/missing-manifest.json")
+            resume_error_type(resume_error_detail)
         ),
     )
     monkeypatch.setattr(
@@ -209,8 +228,8 @@ def test_resolve_managed_agent_target_wraps_stale_local_runtime_metadata(
 
     message = str(exc_info.value)
     assert "Managed agent `gpu` is registered in the shared registry" in message
-    assert "its runtime metadata is unusable" in message
-    assert "Session manifest not found: /tmp/missing-manifest.json" in message
+    assert "its local tmux-backed runtime authority is no longer live or otherwise unusable" in message
+    assert resume_error_detail in message
 
 
 def test_resolve_managed_agent_target_rejects_prefixed_agent_name_selector() -> None:
@@ -1285,8 +1304,10 @@ class _FakePassivePairClient:
         self.state_calls: list[str] = []
         self.detail_calls: list[str] = []
         self.turn_calls: list[tuple[str, str]] = []
+        self.turn_request_models: list[object] = []
         self.gateway_control_calls: list[tuple[str, str, bool]] = []
         self.gateway_prompt_calls: list[tuple[str, str, bool]] = []
+        self.gateway_prompt_request_models: list[object] = []
         self.gateway_tui_state_calls: list[str] = []
         self.gateway_tui_history_calls: list[str] = []
         self.gateway_tui_note_prompt_calls: list[tuple[str, str]] = []
@@ -1318,6 +1339,7 @@ class _FakePassivePairClient:
         request_model: object,
     ) -> HoumaoHeadlessTurnAcceptedResponse:
         self.turn_calls.append((agent_ref, getattr(request_model, "prompt")))
+        self.turn_request_models.append(request_model)
         return self.m_turn
 
     def attach_managed_agent_gateway(
@@ -1357,6 +1379,7 @@ class _FakePassivePairClient:
                 getattr(request_model, "force"),
             )
         )
+        self.gateway_prompt_request_models.append(request_model)
         return HoumaoManagedAgentGatewayPromptControlResponse(
             sent=True,
             forced=getattr(request_model, "force"),
@@ -1503,6 +1526,32 @@ def test_submit_headless_turn_uses_passive_pair_client() -> None:
     assert client.turn_calls == [("published-alpha", "hello")]
 
 
+def test_submit_headless_turn_passes_execution_override_to_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    submit_headless_turn(
+        target,
+        prompt="hello",
+        model="claude-3-7-sonnet",
+        reasoning_level=7,
+    )
+
+    request_model = client.turn_request_models[0]
+    execution = getattr(request_model, "execution")
+    assert execution == GatewayExecutionOverrideV1(
+        model=GatewayExecutionModelV1(
+            name="claude-3-7-sonnet",
+            reasoning=GatewayExecutionModelReasoningV1(level=7),
+        )
+    )
+
+
 def test_gateway_send_keys_uses_passive_pair_client() -> None:
     client = _FakePassivePairClient()
     target = ManagedAgentTarget(
@@ -1532,6 +1581,33 @@ def test_gateway_prompt_uses_passive_pair_client() -> None:
     assert response.sent is True
     assert response.forced is True
     assert client.gateway_prompt_calls == [("published-alpha", "hello", True)]
+
+
+def test_gateway_prompt_passes_execution_override_to_passive_pair_client() -> None:
+    client = _FakePassivePairClient()
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=client.m_state.identity,
+        client=client,
+    )
+
+    gateway_prompt(
+        target,
+        prompt="hello",
+        force=True,
+        model="claude-3-7-sonnet",
+        reasoning_level=6,
+    )
+
+    request_model = client.gateway_prompt_request_models[0]
+    execution = getattr(request_model, "execution")
+    assert execution == GatewayExecutionOverrideV1(
+        model=GatewayExecutionModelV1(
+            name="claude-3-7-sonnet",
+            reasoning=GatewayExecutionModelReasoningV1(level=6),
+        )
+    )
 
 
 def test_gateway_tui_commands_use_passive_pair_client() -> None:
@@ -1951,13 +2027,13 @@ def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
 
 
 def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
-    calls: list[str] = []
+    calls: list[tuple[str, dict[str, object]]] = []
     target = ManagedAgentTarget(
         mode="local",
         agent_ref="agent-joined",
         identity=_managed_identity(),
         controller=SimpleNamespace(
-            send_prompt=lambda prompt: calls.append(prompt),
+            send_prompt=lambda prompt, **kwargs: calls.append((prompt, kwargs)),
             interrupt=lambda: SessionControlResult(status="ok", action="interrupt", detail="done"),
         ),
     )
@@ -1969,7 +2045,19 @@ def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
     assert prompt_response.request_kind == "submit_prompt"
     assert interrupt_response.success is True
     assert interrupt_response.detail == "done"
-    assert calls == ["hello"]
+    assert calls == [("hello", {"execution_model": None})]
+
+
+def test_prompt_managed_agent_rejects_execution_override_for_tui_target() -> None:
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="agent-joined",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(send_prompt=lambda prompt, **kwargs: None),
+    )
+
+    with pytest.raises(click.ClickException, match="Execution overrides are only supported"):
+        prompt_managed_agent(target, prompt="hello", model="claude-3-7-sonnet")
 
 
 def test_server_interrupt_uses_transport_neutral_request_route() -> None:
@@ -2116,9 +2204,9 @@ def test_submit_headless_turn_uses_local_runtime_controller(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="codex_headless")
-    calls: list[str] = []
+    calls: list[tuple[str, dict[str, object]]] = []
     controller = SimpleNamespace(
-        send_prompt=lambda prompt: calls.append(prompt),
+        send_prompt=lambda prompt, **kwargs: calls.append((prompt, kwargs)),
         launch_plan=launch_plan,
         manifest_path=(tmp_path / "session-root" / "manifest.json").resolve(),
     )
@@ -2153,4 +2241,12 @@ def test_submit_headless_turn_uses_local_runtime_controller(
 
     assert response.success is True
     assert response.turn_id == "turn-0001"
-    assert calls == ["summarize"]
+    assert calls == [
+        (
+            "summarize",
+            {
+                "turn_artifact_dir_name": "turn-0001",
+                "execution_model": None,
+            },
+        )
+    ]
