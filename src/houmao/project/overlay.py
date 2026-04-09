@@ -26,6 +26,7 @@ PROJECT_EASY_DIRNAME = "easy"
 PROJECT_RUNTIME_DIRNAME = "runtime"
 PROJECT_JOBS_DIRNAME = "jobs"
 PROJECT_MAILBOX_DIRNAME = "mailbox"
+PROJECT_MEMORY_DIRNAME = "memory"
 PROJECT_OVERLAY_DIR_ENV_VAR = "HOUMAO_PROJECT_OVERLAY_DIR"
 PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR = "HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE"
 DEFAULT_AGENT_DEF_DIR = Path(".houmao") / "agents"
@@ -94,6 +95,12 @@ class HoumaoProjectOverlay:
         """Return the project-local mailbox root."""
 
         return (self.overlay_root / PROJECT_MAILBOX_DIRNAME).resolve()
+
+    @property
+    def memory_root(self) -> Path:
+        """Return the project-local managed memory root."""
+
+        return (self.overlay_root / PROJECT_MEMORY_DIRNAME).resolve()
 
 
 @dataclass(frozen=True)

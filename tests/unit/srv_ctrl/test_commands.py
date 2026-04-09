@@ -16,6 +16,10 @@ from houmao.agents.realm_controller.agent_identity import (
 )
 from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlErrorV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderListV1,
+    GatewayReminderSendKeysV1,
+    GatewayReminderV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.errors import LaunchPolicyResolutionError
@@ -347,11 +351,12 @@ def test_agents_gateway_status_plain_renders_fields_from_pydantic_payload(
     assert "2" in result.output
 
 
-def test_agents_gateway_help_mentions_send_keys_and_mail_notifier() -> None:
+def test_agents_gateway_help_mentions_send_keys_reminders_and_mail_notifier() -> None:
     result = CliRunner().invoke(cli, ["agents", "gateway", "--help"])
 
     assert result.exit_code == 0
     assert "send-keys" in result.output
+    assert "reminders" in result.output
     assert "tui" in result.output
     assert "mail-notifier" in result.output
 
@@ -373,6 +378,17 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
     assert "status" in result.output
     assert "enable" in result.output
     assert "disable" in result.output
+
+
+def test_agents_gateway_reminders_help_mentions_subcommands() -> None:
+    result = CliRunner().invoke(cli, ["agents", "gateway", "reminders", "--help"])
+
+    assert result.exit_code == 0
+    assert "list" in result.output
+    assert "get" in result.output
+    assert "create" in result.output
+    assert "set" in result.output
+    assert "remove" in result.output
 
 
 def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
@@ -1136,6 +1152,263 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
     assert json.loads(result.output) == {"enabled": True, "interval_seconds": 60}
 
 
+def test_agents_gateway_reminders_create_with_explicit_selector_builds_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_list_reminders",
+        lambda resolved_target: (
+            captured.setdefault("list_target", resolved_target),
+            GatewayReminderListV1(
+                effective_reminder_id="greminder-current",
+                reminders=[
+                    GatewayReminderV1(
+                        reminder_id="greminder-current",
+                        mode="one_off",
+                        delivery_kind="prompt",
+                        title="current",
+                        prompt="current prompt",
+                        ranking=-10,
+                        paused=False,
+                        selection_state="effective",
+                        delivery_state="scheduled",
+                        created_at_utc="2026-04-09T00:00:00+00:00",
+                        next_due_at_utc="2026-04-09T00:05:00+00:00",
+                    ),
+                    GatewayReminderV1(
+                        reminder_id="greminder-lower",
+                        mode="one_off",
+                        delivery_kind="prompt",
+                        title="lower",
+                        prompt="lower prompt",
+                        ranking=5,
+                        paused=False,
+                        selection_state="blocked",
+                        delivery_state="scheduled",
+                        created_at_utc="2026-04-09T00:00:01+00:00",
+                        next_due_at_utc="2026-04-09T00:10:00+00:00",
+                        blocked_by_reminder_id="greminder-current",
+                    ),
+                ],
+            ),
+        )[1],
+    )
+
+    def _create_reminders(resolved_target: object, *, payload: object) -> GatewayReminderCreateResultV1:
+        captured["create_target"] = resolved_target
+        captured["payload"] = payload
+        return GatewayReminderCreateResultV1(
+            effective_reminder_id="greminder-new",
+            reminders=[
+                GatewayReminderV1(
+                    reminder_id="greminder-new",
+                    mode="one_off",
+                    delivery_kind="send_keys",
+                    title="Dismiss dialog",
+                    send_keys=GatewayReminderSendKeysV1(
+                        sequence="<[Escape]>",
+                        ensure_enter=False,
+                    ),
+                    ranking=-11,
+                    paused=False,
+                    selection_state="effective",
+                    delivery_state="scheduled",
+                    created_at_utc="2026-04-09T00:00:02+00:00",
+                    next_due_at_utc="2026-04-09T00:00:07+00:00",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_create_reminders",
+        _create_reminders,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "reminders",
+            "create",
+            "--agent-name",
+            "gpu",
+            "--pair-port",
+            "9889",
+            "--title",
+            "Dismiss dialog",
+            "--mode",
+            "one_off",
+            "--sequence",
+            "<[Escape]>",
+            "--no-ensure-enter",
+            "--before-all",
+            "--start-after-seconds",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["resolve_kwargs"] == {
+        "agent_id": None,
+        "agent_name": "gpu",
+        "port": 9889,
+    }
+    assert captured["list_target"] is target
+    assert captured["create_target"] is target
+    payload = captured["payload"]
+    definition = payload.reminders[0]
+    assert definition.ranking == -11
+    assert definition.prompt is None
+    assert definition.send_keys is not None
+    assert definition.send_keys.sequence == "<[Escape]>"
+    assert definition.send_keys.ensure_enter is False
+    assert definition.start_after_seconds == 5
+    assert json.loads(result.output)["effective_reminder_id"] == "greminder-new"
+
+
+def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+    existing = GatewayReminderV1(
+        reminder_id="greminder-edit",
+        mode="repeat",
+        delivery_kind="prompt",
+        title="existing title",
+        prompt="existing prompt",
+        ranking=5,
+        paused=False,
+        selection_state="blocked",
+        delivery_state="scheduled",
+        created_at_utc="2026-04-09T00:00:00+00:00",
+        next_due_at_utc="2026-04-09T01:00:00+00:00",
+        interval_seconds=300,
+        blocked_by_reminder_id="greminder-current",
+    )
+    reminder_lists = iter(
+        [
+            GatewayReminderListV1(
+                effective_reminder_id="greminder-current",
+                reminders=[
+                    GatewayReminderV1(
+                        reminder_id="greminder-current",
+                        mode="one_off",
+                        delivery_kind="prompt",
+                        title="current",
+                        prompt="current prompt",
+                        ranking=-10,
+                        paused=False,
+                        selection_state="effective",
+                        delivery_state="scheduled",
+                        created_at_utc="2026-04-09T00:00:01+00:00",
+                        next_due_at_utc="2026-04-09T00:05:00+00:00",
+                    ),
+                    existing,
+                ],
+            ),
+            GatewayReminderListV1(
+                effective_reminder_id="greminder-edit",
+                reminders=[
+                    GatewayReminderV1(
+                        reminder_id="greminder-edit",
+                        mode="repeat",
+                        delivery_kind="prompt",
+                        title="existing title",
+                        prompt="existing prompt",
+                        ranking=-11,
+                        paused=False,
+                        selection_state="effective",
+                        delivery_state="scheduled",
+                        created_at_utc="2026-04-09T00:00:00+00:00",
+                        next_due_at_utc="2026-04-09T01:00:00+00:00",
+                        interval_seconds=300,
+                    )
+                ],
+            ),
+        ]
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_get_reminder",
+        lambda resolved_target, *, reminder_id: (
+            captured.setdefault("get_target", resolved_target),
+            captured.setdefault("get_reminder_id", reminder_id),
+            existing,
+        )[2],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_list_reminders",
+        lambda resolved_target: (
+            captured.setdefault("list_targets", []).append(resolved_target),
+            next(reminder_lists),
+        )[1],
+    )
+
+    def _put_reminder(resolved_target: object, *, reminder_id: str, payload: object) -> GatewayReminderV1:
+        captured["put_target"] = resolved_target
+        captured["put_reminder_id"] = reminder_id
+        captured["put_payload"] = payload
+        return GatewayReminderV1(
+            reminder_id="greminder-edit",
+            mode="repeat",
+            delivery_kind="prompt",
+            title="existing title",
+            prompt="existing prompt",
+            ranking=-11,
+            paused=False,
+            selection_state="effective",
+            delivery_state="scheduled",
+            created_at_utc="2026-04-09T00:00:00+00:00",
+            next_due_at_utc="2026-04-09T01:00:00+00:00",
+            interval_seconds=300,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_put_reminder",
+        _put_reminder,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-plain",
+            "agents",
+            "gateway",
+            "reminders",
+            "set",
+            "--agent-name",
+            "gpu",
+            "--reminder-id",
+            "greminder-edit",
+            "--before-all",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = captured["put_payload"]
+    assert payload.title == "existing title"
+    assert payload.prompt == "existing prompt"
+    assert payload.mode == "repeat"
+    assert payload.ranking == -11
+    assert payload.deliver_at_utc == "2026-04-09T01:00:00+00:00"
+    assert payload.interval_seconds == 300
+    assert "effective_reminder_id" in result.output
+    assert "greminder-edit" in result.output
+
+
 def test_agents_gateway_tui_state_inside_tmux_uses_current_session_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1848,6 +2121,8 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             managed_agent_id="agent-alice",
             workdir=str(project_root / "profile-workdir"),
             auth_name="alice-creds",
+            memory_dir="/shared/alice-memory",
+            memory_disabled=False,
             model_name=None,
             reasoning_level=None,
             operator_prompt_mode="unattended",
@@ -1923,6 +2198,10 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
     assert captured["auth"] == "breakglass"
     assert captured["provider"] == "codex"
     assert captured["working_directory"] == runtime_workdir
+    assert captured["memory_dir"] is None
+    assert captured["no_memory_dir"] is False
+    assert captured["launch_profile_memory_dir"] == "/shared/alice-memory"
+    assert captured["launch_profile_memory_disabled"] is False
     assert captured["source_working_directory"] == project_root
     assert captured["source_agent_def_dir"] == source_agent_def_dir
     assert captured["headless"] is True
@@ -1973,6 +2252,8 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
                 managed_agent_id=None,
                 workdir=None,
                 auth_name=None,
+                memory_dir=None,
+                memory_disabled=False,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2008,6 +2289,94 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
 
     assert result.exit_code != 0
     assert "conflicts with launch profile" in result.output
+
+
+def test_agents_launch_memory_dir_override_wins_over_profile_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    invocation_directory = tmp_path.resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    recipe_path = (source_agent_def_dir / "recipe.yaml").resolve()
+    recipe_path.parent.mkdir(parents=True, exist_ok=True)
+    recipe_path.write_text("role: researcher\n", encoding="utf-8")
+    monkeypatch.chdir(invocation_directory)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
+        lambda **kwargs: SimpleNamespace(project_overlay=SimpleNamespace(project_root=tmp_path)),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
+        lambda **kwargs: SimpleNamespace(
+            entry=SimpleNamespace(
+                name="alice",
+                profile_lane="launch_profile",
+                source_kind="recipe",
+                source_name="researcher-codex-default",
+                managed_agent_name="alice",
+                managed_agent_id="agent-alice",
+                workdir=None,
+                auth_name=None,
+                memory_dir=None,
+                memory_disabled=True,
+                model_name=None,
+                reasoning_level=None,
+                operator_prompt_mode=None,
+                env_payload={},
+                mailbox_payload=None,
+                posture_payload={},
+                managed_header_policy="inherit",
+                prompt_overlay_mode=None,
+            ),
+            source_exists=True,
+            recipe_path=recipe_path,
+            provider="codex",
+            recipe_name="researcher-codex-default",
+            prompt_overlay_text=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-1234",
+                tmux_session_name="alice-session",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--launch-profile",
+            "alice",
+            "--provider",
+            "codex",
+            "--memory-dir",
+            str((tmp_path / "shared" / "alice-memory").resolve()),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["memory_dir"] == (tmp_path / "shared" / "alice-memory").resolve()
+    assert captured["no_memory_dir"] is False
+    assert captured["launch_profile_memory_disabled"] is True
 
 
 def test_agents_launch_help_mentions_force_mode() -> None:
@@ -2101,6 +2470,8 @@ def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
                 managed_agent_id="agent-alice",
                 workdir=None,
                 auth_name=None,
+                memory_dir=None,
+                memory_disabled=False,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2250,6 +2621,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
             "jobs_root": str(working_directory / ".houmao" / "jobs"),
             "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
+            "memory_dir": None,
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),
@@ -2406,6 +2778,7 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
             "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
             "jobs_root": str(working_directory / ".houmao" / "jobs"),
             "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
+            "memory_dir": None,
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),

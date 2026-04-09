@@ -12,6 +12,10 @@ description = "Unified mailbox operations and fallback guidance skill."
 asset_subpath = "houmao-adv-usage-pattern"
 description = "Advanced Houmao workflow composition skill layered on top of direct-operation skills."
 
+[skills.houmao-touring]
+asset_subpath = "houmao-touring"
+description = "Manual guided touring skill for first-time or re-orienting Houmao users."
+
 [skills.houmao-mailbox-mgr]
 asset_subpath = "houmao-mailbox-mgr"
 description = "Filesystem mailbox administration and late mailbox-binding skill."
@@ -65,6 +69,12 @@ skills = [
   "houmao-adv-usage-pattern",
 ]
 
+[sets.touring]
+description = "Manual guided touring skill for first-time Houmao workflows."
+skills = [
+  "houmao-touring",
+]
+
 [sets.user-control]
 description = "User-controlled agent-management system skills."
 skills = [
@@ -93,6 +103,6 @@ skills = [
 ]
 
 [auto_install]
-managed_launch_sets = ["mailbox-full", "advanced-usage", "user-control", "agent-messaging", "agent-gateway"]
-managed_join_sets = ["mailbox-full", "advanced-usage", "user-control", "agent-messaging", "agent-gateway"]
-cli_default_sets = ["mailbox-full", "advanced-usage", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]
+managed_launch_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-messaging", "agent-gateway"]
+managed_join_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-messaging", "agent-gateway"]
+cli_default_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]

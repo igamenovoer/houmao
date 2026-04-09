@@ -12,14 +12,15 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_AGENT_INSTANCE,
     SYSTEM_SKILL_SET_ADVANCED_USAGE,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
+    SYSTEM_SKILL_SET_TOURING,
     SYSTEM_SKILL_SET_USER_CONTROL,
     SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SystemSkillCatalogError,
     SystemSkillInstallError,
+    discover_installed_system_skills,
     install_system_skills_for_home,
     load_system_skill_catalog,
     load_system_skill_catalog_from_paths,
-    load_system_skill_install_state,
     resolve_auto_install_skill_selection,
     resolve_system_skill_selection,
     system_skill_state_path_for_home,
@@ -44,6 +45,12 @@ def _packaged_skill_asset_root(skill_name: str) -> Path:
     ).resolve()
 
 
+def _assert_legacy_state_removed(home_path: Path) -> None:
+    state_path = system_skill_state_path_for_home(home_path)
+    assert not state_path.exists()
+    assert not state_path.is_symlink()
+
+
 def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults() -> None:
     catalog = load_system_skill_catalog()
 
@@ -52,6 +59,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
@@ -65,6 +73,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "mailbox-core",
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -73,6 +82,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
+        SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
         SYSTEM_SKILL_SET_AGENT_GATEWAY,
@@ -80,6 +90,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.managed_join_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
+        SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
         SYSTEM_SKILL_SET_AGENT_GATEWAY,
@@ -87,6 +98,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
+        SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
         SYSTEM_SKILL_SET_AGENT_INSTANCE,
         SYSTEM_SKILL_SET_AGENT_MESSAGING,
@@ -103,6 +115,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
             "mailbox-core",
             "mailbox-full",
             "advanced-usage",
+            "touring",
             "user-control",
             "agent-messaging",
             "agent-gateway",
@@ -115,6 +128,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -137,6 +151,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -178,7 +193,7 @@ cli_default_sets = ["mailbox-core"]
         )
 
 
-def test_install_system_skills_for_home_records_state_and_preserves_user_content(
+def test_install_system_skills_for_home_projects_selected_skills_and_preserves_user_content(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
@@ -192,7 +207,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         skill_names=("houmao-agent-email-comms",),
     )
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
     project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
     project_mgr_actions = home_path / "skills/houmao-project-mgr/actions"
     project_mgr_references = home_path / "skills/houmao-project-mgr/references"
@@ -213,10 +228,8 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "houmao-credential-mgr",
         "houmao-agent-definition",
     )
-    assert state is not None
-    assert state.schema_version == SYSTEM_SKILL_STATE_SCHEMA_VERSION
-    assert tuple(record.name for record in state.installed_skills) == result.resolved_skill_names
-    assert tuple(record.projection_mode for record in state.installed_skills) == (
+    assert tuple(record.name for record in installed_records) == result.resolved_skill_names
+    assert tuple(record.projection_mode for record in installed_records) == (
         "copy",
         "copy",
         "copy",
@@ -224,6 +237,7 @@ def test_install_system_skills_for_home_records_state_and_preserves_user_content
         "copy",
         "copy",
     )
+    _assert_legacy_state_removed(home_path)
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
@@ -531,10 +545,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
     advanced_usage_path = home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
     advanced_usage_patterns = home_path / "skills/houmao-adv-usage-pattern/patterns"
+    touring_path = home_path / "skills/houmao-touring/SKILL.md"
+    touring_branches = home_path / "skills/houmao-touring/branches"
+    touring_references = home_path / "skills/houmao-touring/references"
 
     assert result.selected_set_names == (
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -546,6 +564,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -558,6 +577,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
     assert advanced_usage_path.is_file()
+    assert touring_path.is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
@@ -567,6 +587,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
+    touring_skill = touring_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
@@ -597,6 +618,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         advanced_usage_patterns / "self-notification-via-reminders.md"
     )
     self_notification_mail_path = advanced_usage_patterns / "self-wakeup-via-self-mail.md"
+    pairwise_edge_loop_pattern_path = (
+        advanced_usage_patterns / "pairwise-edge-loop-via-gateway-and-mailbox.md"
+    )
+    relay_loop_pattern_path = advanced_usage_patterns / "relay-loop-via-gateway-and-mailbox.md"
+    touring_orient_path = touring_branches / "orient.md"
+    touring_setup_path = touring_branches / "setup-project-and-mailbox.md"
+    touring_author_launch_path = touring_branches / "author-and-launch.md"
+    touring_live_ops_path = touring_branches / "live-operations.md"
+    touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
+    touring_question_style_path = touring_references / "question-style.md"
     mailbox_init_action_path = mailbox_mgr_actions / "init.md"
     mailbox_register_action_path = mailbox_mgr_actions / "register.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
@@ -614,6 +645,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
     self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
     self_notification_mail = self_notification_mail_path.read_text(encoding="utf-8")
+    pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
+    relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
+    touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
 
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
@@ -692,9 +726,19 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/reminders.md" in agent_gateway_skill
     assert "actions/mail-notifier.md" in agent_gateway_skill
     assert "patterns/self-notification.md" in advanced_usage_skill
+    assert "patterns/pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_usage_skill
+    assert "patterns/relay-loop-via-gateway-and-mailbox.md" in advanced_usage_skill
+    assert "manual guided tour skill" in touring_skill
+    assert "Use this Houmao skill only when the user explicitly asks for `houmao-touring`" in touring_skill
+    assert "branches/orient.md" in touring_skill
+    assert "branches/lifecycle-follow-up.md" in touring_skill
+    assert "references/question-style.md" in touring_skill
+    assert "houmao-project-mgr" in touring_skill
+    assert "houmao-agent-instance" in touring_skill
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
+    assert "houmao-mgr agents gateway reminders list|get|create|set|remove" in agent_gateway_skill
     assert "command -v houmao-mgr" in agent_gateway_skill
     assert "uv tool run --from houmao houmao-mgr" in agent_gateway_skill
     assert gateway_lifecycle_action_path.is_file()
@@ -707,6 +751,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert self_notification_pattern_path.is_file()
     assert self_notification_reminders_path.is_file()
     assert self_notification_mail_path.is_file()
+    assert pairwise_edge_loop_pattern_path.is_file()
+    assert relay_loop_pattern_path.is_file()
+    assert touring_orient_path.is_file()
+    assert touring_setup_path.is_file()
+    assert touring_author_launch_path.is_file()
+    assert touring_live_ops_path.is_file()
+    assert touring_lifecycle_path.is_file()
+    assert touring_question_style_path.is_file()
     assert "HOUMAO_AGENT_ID" in gateway_discover_action
     assert (
         "Use the `houmao-mgr` launcher already chosen by the top-level skill."
@@ -717,6 +769,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "/v1/reminders" in gateway_reminders_action
     assert "send_keys" in gateway_reminders_action
     assert "ensure_enter" in gateway_reminders_action
+    assert "agents gateway reminders create" in gateway_reminders_action
+    assert "--before-all" in gateway_reminders_action
+    assert "--after-all" in gateway_reminders_action
     assert "paused effective reminder still blocks" in gateway_reminders_action
     assert "process-local in-memory state" in gateway_reminders_action
     assert "/houmao/agents/{agent_ref}/gateway/reminders" in gateway_http_reference
@@ -734,6 +789,21 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "does not survive gateway shutdown or restart" in self_notification_reminders
     assert "must survive gateway shutdown or restart" in self_notification_mail
     assert "later rounds may reprioritize against external incoming mail" in self_notification_mail
+    assert "each delegation edge should close locally" in advanced_usage_skill
+    assert "ownership should keep moving forward across agents" in advanced_usage_skill
+    assert "edge_loop_id" in pairwise_edge_loop_pattern
+    assert "parent_edge_loop_id" in pairwise_edge_loop_pattern
+    assert "ask the user for that value" in pairwise_edge_loop_pattern
+    assert "one repeating supervisor reminder as the live loop clock" in pairwise_edge_loop_pattern
+    assert "Subject: [edge-result] edge_loop=<edge_loop_id>" in pairwise_edge_loop_pattern
+    assert "HOUMAO_JOB_DIR" in relay_loop_pattern
+    assert "Do not use `HOUMAO_MEMORY_DIR` as the default home" in relay_loop_pattern
+    assert "ask the user for that parameter" in relay_loop_pattern
+    assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
+    assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
+    assert "A specialist is a reusable agent template" in touring_question_style
+    assert "You can skip this now and come back later." in touring_question_style
+    assert "stop `research`" in touring_question_style
     assert "POST /houmao/agents/{agent_ref}/gateway/control/prompt" in reset_context_action
     assert 'chat_session.mode = "new"' in reset_context_action
     assert "houmao-process-emails-via-gateway" in mail_action
@@ -753,16 +823,16 @@ def test_install_system_skills_for_home_supports_explicit_symlink_projection(
     )
 
     installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
 
     assert result.projection_mode == "symlink"
     assert installed_skill_dir.is_symlink()
     assert installed_skill_dir.readlink().is_absolute()
     assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
     assert (installed_skill_dir / "SKILL.md").is_file()
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("symlink",)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(
@@ -825,26 +895,29 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
     assert not installed_skill_dir.is_symlink()
     assert (installed_skill_dir / "SKILL.md").is_file()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)
 
 
-def test_install_system_skills_for_home_rejects_non_owned_collision(tmp_path: Path) -> None:
+def test_install_system_skills_for_home_replaces_existing_current_skill_path_without_state(
+    tmp_path: Path,
+) -> None:
     home_path = (tmp_path / "codex-home").resolve()
     conflicting_skill_path = home_path / "skills/houmao-agent-email-comms/SKILL.md"
     _write(conflicting_skill_path, "user-authored collision\n")
 
-    with pytest.raises(
-        SystemSkillInstallError,
-        match="Refusing to overwrite non-owned system-skill path",
-    ):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-agent-email-comms",),
-        )
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-agent-email-comms",),
+    )
+
+    replaced_skill = conflicting_skill_path.read_text(encoding="utf-8")
+    assert "user-authored collision" not in replaced_skill
+    assert "Use Houmao's unified email communication skill" in replaced_skill
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
@@ -905,17 +978,17 @@ def test_install_system_skills_for_home_migrates_previous_owned_family_paths(
     assert not (home_path / "skills/mailbox").exists()
     assert not (home_path / "skills/project").exists()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         "skills/houmao-process-emails-via-gateway",
         "skills/houmao-specialist-mgr",
     )
-    assert tuple(record.name for record in state.installed_skills) == (
+    assert tuple(record.name for record in installed_records) == (
         "houmao-process-emails-via-gateway",
         "houmao-specialist-mgr",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
+    assert tuple(record.projection_mode for record in installed_records) == ("copy", "copy")
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_recorded_skills(
@@ -969,22 +1042,16 @@ def test_install_system_skills_for_home_migrates_legacy_gemini_owned_paths_for_r
 
     assert result.projected_relative_dirs == (".gemini/skills/houmao-specialist-mgr",)
     assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / ".gemini/skills/houmao-agent-instance/SKILL.md").is_file()
     assert not (home_path / ".agents/skills/houmao-specialist-mgr").exists()
-    assert not (home_path / ".agents/skills/houmao-agent-instance").exists()
-    assert not (home_path / ".agents/skills").exists()
+    assert (home_path / ".agents/skills/houmao-agent-instance/SKILL.md").is_file()
 
-    state = load_system_skill_install_state(tool="gemini", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == (
-        "houmao-specialist-mgr",
-        "houmao-agent-instance",
-    )
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="gemini", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         ".gemini/skills/houmao-specialist-mgr",
-        ".gemini/skills/houmao-agent-instance",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy", "copy")
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)
 
 
 def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
@@ -1028,13 +1095,13 @@ def test_install_system_skills_for_home_migrates_renamed_specialist_owned_path(
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert not (home_path / "skills/houmao-create-specialist").exists()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == ("houmao-specialist-mgr",)
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         "skills/houmao-specialist-mgr",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)
 
 
 @pytest.mark.parametrize(
@@ -1090,10 +1157,10 @@ def test_install_system_skills_for_home_migrates_superseded_current_skill_owned_
     assert (home_path / f"skills/{current_name}/SKILL.md").is_file()
     assert not (home_path / f"skills/{legacy_name}").exists()
 
-    state = load_system_skill_install_state(tool="codex", home_path=home_path)
-    assert state is not None
-    assert tuple(record.name for record in state.installed_skills) == (current_name,)
-    assert tuple(record.projected_relative_dir for record in state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+    assert tuple(record.name for record in installed_records) == (current_name,)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
         f"skills/{current_name}",
     )
-    assert tuple(record.projection_mode for record in state.installed_skills) == ("copy",)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)

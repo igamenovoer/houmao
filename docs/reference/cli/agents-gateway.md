@@ -8,14 +8,14 @@ houmao-mgr agents gateway [OPTIONS] COMMAND [ARGS]...
 
 ## Scope Note
 
-This CLI covers gateway lifecycle, prompt and interrupt control, raw send-keys, TUI inspection, and mail-notifier control.
+This CLI covers gateway lifecycle, prompt and interrupt control, raw send-keys, TUI inspection, reminder control, and mail-notifier control.
 
-It does not currently expose a `reminders` subcommand family.
+Reminder operations are available through `houmao-mgr agents gateway reminders ...`.
 
-- gateway reminders are direct live HTTP routes at `/v1/reminders`
-- prompt reminders and send-keys reminders both stay on that HTTP-only surface
-- there is no supported `houmao-mgr agents gateway reminders ...` CLI surface
-- there is no managed-agent `/houmao/agents/{agent_ref}/gateway/reminders` projection
+- prompt reminders and send-keys reminders both use the same `reminders` subgroup
+- the subgroup follows the same selector rules as the rest of `agents gateway`
+- `--pair-port` works through the managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` proxy
+- direct `/v1/reminders` remains the lower-level live gateway contract underneath the CLI
 
 Use [Gateway Reminders](../gateway/operations/reminders.md) for the reminder behavior model and [Protocol And State Contracts](../gateway/contracts/protocol-and-state.md) for the exact HTTP payloads.
 
@@ -119,6 +119,137 @@ houmao-mgr agents gateway send-keys [OPTIONS]
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway raw control input. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+### `reminders`
+
+Gateway reminder lifecycle and inspection commands.
+
+```
+houmao-mgr agents gateway reminders [OPTIONS] COMMAND [ARGS]...
+```
+
+| Subcommand | Description |
+|---|---|
+| `list` | Show the live gateway reminder set for one managed agent. |
+| `get` | Show one live gateway reminder for one managed agent. |
+| `create` | Create one live gateway reminder for one managed agent. |
+| `set` | Update one live gateway reminder for one managed agent. |
+| `remove` | Delete one live gateway reminder for one managed agent. |
+
+Reminder ranking stays numeric:
+
+- `--ranking <int>` uses an exact rank
+- `--before-all` computes one less than the smallest current live ranking
+- `--after-all` computes one more than the largest current live ranking
+
+Create requires exactly one of those ranking modes. `set` preserves the current ranking unless one of them is supplied.
+
+#### `reminders list`
+
+Show the live reminder set, including `effective_reminder_id` and the current blocked-versus-effective ordering.
+
+```
+houmao-mgr agents gateway reminders list [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for reminder listing. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `reminders get`
+
+Show one live reminder while also reporting the set's current `effective_reminder_id`.
+
+```
+houmao-mgr agents gateway reminders get [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--reminder-id TEXT` | Reminder id to inspect. **Required.** |
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for reminder lookup. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `reminders create`
+
+Create one live reminder through the managed-agent gateway surface.
+
+```
+houmao-mgr agents gateway reminders create [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--title TEXT` | Reminder title used for inspection and reporting. **Required.** |
+| `--mode [one_off\|repeat]` | Reminder mode. **Required.** |
+| `--prompt TEXT` | Prompt text to submit when the reminder fires. |
+| `--sequence TEXT` | Raw send-keys sequence for reminder delivery. |
+| `--ensure-enter / --no-ensure-enter` | For send-keys reminders, ensure one trailing Enter unless explicitly disabled. Default: `--ensure-enter`. |
+| `--ranking INTEGER` | Explicit numeric ranking. Lower numbers win. |
+| `--before-all` | Compute ranking as one less than the smallest current reminder ranking. |
+| `--after-all` | Compute ranking as one more than the largest current reminder ranking. |
+| `--paused / --no-paused` | Create the reminder paused or active. Default: `--no-paused`. |
+| `--start-after-seconds FLOAT` | Relative delivery delay in seconds. |
+| `--deliver-at-utc TEXT` | Absolute UTC delivery timestamp. |
+| `--interval-seconds FLOAT` | Repeat cadence in seconds. Required for repeat reminders. |
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for reminder creation. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `reminders set`
+
+Patch one reminder through the CLI surface. The CLI fetches the current reminder, applies only supplied overrides, then sends the full replacement payload to the gateway.
+
+```
+houmao-mgr agents gateway reminders set [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--reminder-id TEXT` | Reminder id to update. **Required.** |
+| `--title TEXT` | Replacement reminder title. |
+| `--mode [one_off\|repeat]` | Replacement reminder mode. |
+| `--prompt TEXT` | Replacement prompt text. |
+| `--sequence TEXT` | Replacement send-keys sequence. |
+| `--ensure-enter / --no-ensure-enter` | For send-keys reminders, override the trailing Enter behavior. |
+| `--ranking INTEGER` | Replacement numeric ranking. Lower numbers win. |
+| `--before-all` | Recompute ranking as one less than the smallest competing reminder ranking. |
+| `--after-all` | Recompute ranking as one more than the largest competing reminder ranking. |
+| `--paused / --no-paused` | Override the paused state without restating the full reminder. |
+| `--start-after-seconds FLOAT` | Reset next delivery to a relative delay in seconds. |
+| `--deliver-at-utc TEXT` | Reset next delivery to an absolute UTC timestamp. |
+| `--interval-seconds FLOAT` | Replacement repeat cadence in seconds. |
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for reminder update. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+#### `reminders remove`
+
+Delete one live reminder by id.
+
+```
+houmao-mgr agents gateway reminders remove [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--reminder-id TEXT` | Reminder id to delete. **Required.** |
+| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
+| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
+| `--pair-port INTEGER` | Houmao pair authority port override for reminder deletion. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 

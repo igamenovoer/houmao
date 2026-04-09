@@ -138,10 +138,11 @@ Cleanup targeting rules:
 - `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides for the Houmao-managed prompt header. For what the header contains and the full prompt composition order, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
 - When neither managed-header flag is supplied, `agents launch` inherits managed-header policy from the selected launch profile when one is present; otherwise it falls back to the default enabled behavior.
 - Direct managed-header override wins over stored launch-profile policy for the current launch only and does not rewrite the stored profile.
+- `--append-system-prompt-text` and `--append-system-prompt-file` are mutually exclusive one-shot prompt appendix inputs. They append after launch-profile overlay resolution for the current launch only and never rewrite the source role prompt or the stored launch profile.
 - `agents launch` accepts `--workdir` to override the launched agent runtime cwd; when omitted, the runtime cwd defaults to the invocation cwd. When the launch source resolves from a Houmao project, that source project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
 - `agents launch` accepts `--model` and `--reasoning-level` as launch-owned model-selection flags. `--model` is a tool-agnostic name that resolves through the provider mapping. `--reasoning-level` uses Houmao's normalized `1..10` scale rather than a vendor-native knob. Both apply to the current launch only and do not rewrite the stored launch profile.
 - `--provider` defaults from the resolved launch-profile recipe when one tool family is determined by that source. Supplying `--provider` together with `--launch-profile` is accepted only when it matches the resolved source; otherwise the command fails clearly before build.
-- Launch-profile-stored fields that flow through the manifest into runtime launch resolution include managed-agent identity defaults, working directory, auth override by name, prompt-mode override, durable env records, declarative mailbox config, headless and gateway posture, the managed-header policy, and the prompt overlay. Prompt composition order is source role prompt → prompt overlay resolution → managed-header prepend → backend-specific role injection.
+- Launch-profile-stored fields that flow through the manifest into runtime launch resolution include managed-agent identity defaults, working directory, auth override by name, prompt-mode override, durable env records, declarative mailbox config, headless and gateway posture, the managed-header policy, and the prompt overlay. Prompt composition order is source role prompt → prompt overlay resolution → launch appendix append when present → structured render into `<houmao_system_prompt>` → backend-specific role injection.
 - For the conceptual model that ties `agents launch --launch-profile` to easy `project easy profile` and to the broader launch-profile object family, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
 ### `mailbox` — Local filesystem mailbox administration
@@ -227,7 +228,7 @@ Install or inspect the packaged current Houmao-owned `houmao-*` skill set for re
 | Subcommand | Description |
 |---|---|
 | `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
-| `status` | Show whether one resolved tool home has Houmao-owned install state and which skills are recorded there. |
+| `status` | Show which current Houmao-owned system skills are installed in one resolved tool home by scanning the live filesystem. |
 | `install` | Install the CLI-default set list, explicit named sets, explicit skills, or any combination of those into one resolved tool home. |
 
 Operational notes:
@@ -240,10 +241,14 @@ Operational notes:
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
 - repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
 - the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
-- each target home records Houmao-owned install state under `.houmao/system-skills/install-state.json`
+- install and status are stateless with respect to ownership bookkeeping; they use live current paths plus an explicit legacy migration map
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).
+
+Startup note:
+
+- `houmao-mgr` builds one root Click command tree at process startup, so a stale import in any registered command group can block `houmao-mgr --version`, root help, and unrelated subcommands before dispatch
 
 ### `project` — Repo-local Houmao project overlays
 
@@ -397,6 +402,7 @@ Low-level boundary notes:
 - Force mode never becomes part of specialist metadata or easy-profile storage.
 - `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides. They win over the stored easy-profile managed-header policy for the current launch only and never rewrite the stored easy profile.
 - When neither managed-header flag is supplied, easy-instance launch inherits policy from the selected profile when one is present; otherwise it falls back to the default enabled behavior.
+- `--append-system-prompt-text` and `--append-system-prompt-file` are mutually exclusive one-shot appendix inputs. They append after any resolved easy-profile prompt overlay and never rewrite the stored specialist or easy profile.
 - Easy-instance inspection (`project easy instance list` and `project easy instance get`) reports the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable.
 - `--name` is the managed-agent instance name and also seeds the default filesystem mailbox identity when mailbox association is enabled.
 - unless `--no-gateway` is supplied, the easy surface now requests launch-time gateway attach by default on loopback (`127.0.0.1`) with a system-assigned port.

@@ -1679,6 +1679,7 @@ def _fake_joined_session_artifacts(
         session_root=Path("/tmp/runtime"),
         agent_name=agent_name,
         agent_id=agent_id,
+        memory_dir=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}"),
         runtime_root=Path("/tmp/runtime"),
         jobs_root=Path("/tmp/project/.houmao/jobs"),
         runtime_root_detail="Selected runtime root from the explicit `--runtime-root` override.",

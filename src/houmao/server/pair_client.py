@@ -13,6 +13,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayStatusV1,
 )
 from houmao.cao.models import CaoSuccessResponse
@@ -38,6 +44,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -232,6 +239,41 @@ class PairAuthorityClientProtocol(Protocol):
     ) -> GatewayMailNotifierStatusV1:
         """Disable managed-agent gateway mail-notifier state."""
 
+    def list_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+    ) -> GatewayReminderListV1:
+        """Return the live managed-agent gateway reminder set."""
+
+    def create_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+        request_model: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        """Create live managed-agent gateway reminders."""
+
+    def get_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1:
+        """Return one live managed-agent gateway reminder."""
+
+    def put_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+        request_model: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        """Replace one live managed-agent gateway reminder."""
+
+    def delete_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        """Delete one live managed-agent gateway reminder."""
+
     def get_managed_agent_mail_status(
         self,
         agent_ref: str,
@@ -257,6 +299,13 @@ class PairAuthorityClientProtocol(Protocol):
         request_model: HoumaoManagedAgentMailSendRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Send managed-agent mail."""
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Post operator-origin managed-agent mail."""
 
     def reply_managed_agent_mail(
         self,

@@ -1,8 +1,8 @@
-"""Managed launch prompt-header helpers."""
+"""Managed launch prompt-composition helpers."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 from houmao.agents.realm_controller.agent_identity import (
@@ -15,6 +15,25 @@ from houmao.agents.realm_controller.agent_identity import (
 ManagedHeaderPolicy = Literal["inherit", "enabled", "disabled"]
 ManagedHeaderResolutionSource = Literal["default", "launch_profile", "launch_override"]
 MANAGED_PROMPT_HEADER_VERSION = 1
+HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1
+
+
+@dataclass(frozen=True)
+class ManagedLaunchPromptSection:
+    """One rendered prompt section within the Houmao system-prompt layout."""
+
+    tag: str
+    text: str
+    attributes: dict[str, str] = field(default_factory=dict)
+    children: tuple["ManagedLaunchPromptSection", ...] = ()
+
+
+@dataclass(frozen=True)
+class ManagedLaunchPromptPayload:
+    """Rendered prompt text plus secret-free layout metadata."""
+
+    prompt: str
+    layout: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -123,6 +142,51 @@ def compose_prompt_overlay(
     return f"{base_prompt.rstrip()}\n\n{overlay_text.rstrip()}".rstrip()
 
 
+def _normalize_prompt_text(value: str | None) -> str | None:
+    """Return one prompt fragment with trailing space trimmed when non-empty."""
+
+    if value is None:
+        return None
+    normalized = value.rstrip()
+    if not normalized.strip():
+        return None
+    return normalized
+
+
+def _escape_xml_attribute(value: str) -> str:
+    """Escape one XML attribute value for deterministic prompt rendering."""
+
+    return (
+        value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+
+
+def _render_prompt_section(section: ManagedLaunchPromptSection) -> str:
+    """Render one section into the Houmao-owned XML-like prompt layout."""
+
+    attributes = "".join(
+        f' {key}="{_escape_xml_attribute(value)}"'
+        for key, value in sorted(section.attributes.items())
+    )
+    opening_tag = f"<{section.tag}{attributes}>"
+    if section.children:
+        content = "\n".join(_render_prompt_section(child) for child in section.children)
+    else:
+        content = section.text.rstrip()
+    return f"{opening_tag}\n{content}\n</{section.tag}>"
+
+
+def _layout_metadata_for_section(section: ManagedLaunchPromptSection) -> dict[str, Any]:
+    """Return one secret-free metadata payload for a rendered prompt section."""
+
+    payload: dict[str, Any] = {"kind": section.tag}
+    if section.attributes:
+        payload["attributes"] = dict(sorted(section.attributes.items()))
+    if section.children:
+        payload["sections"] = [_layout_metadata_for_section(child) for child in section.children]
+    return payload
+
+
 def render_managed_prompt_header(
     *,
     agent_name: str,
@@ -131,7 +195,6 @@ def render_managed_prompt_header(
     """Render the Houmao-managed prompt header for one managed launch."""
 
     return (
-        "[HOUMAO MANAGED HEADER]\n\n"
         "You are running as a Houmao-managed agent.\n"
         f"Managed agent name: {agent_name}\n"
         f"Managed agent id: {agent_id}\n\n"
@@ -144,8 +207,98 @@ def render_managed_prompt_header(
         "- avoid relying on ad hoc probing of tmux state, random files, or unsupported internal "
         "paths when a supported Houmao interface exists\n\n"
         "For ordinary domain work, follow the task normally. Use Houmao-specific guidance and "
-        "interfaces when the task is actually about Houmao-managed capabilities.\n\n"
-        "[HOUMAO MANAGED HEADER END]"
+        "interfaces when the task is actually about Houmao-managed capabilities."
+    )
+
+
+def compose_managed_launch_prompt_payload(
+    *,
+    base_prompt: str,
+    overlay_mode: str | None,
+    overlay_text: str | None,
+    appendix_text: str | None = None,
+    managed_header_enabled: bool,
+    agent_name: str,
+    agent_id: str,
+) -> ManagedLaunchPromptPayload:
+    """Compose the structured effective launch prompt for one managed launch."""
+
+    normalized_base_prompt = _normalize_prompt_text(base_prompt)
+    normalized_overlay_text = _normalize_prompt_text(overlay_text)
+    normalized_appendix_text = _normalize_prompt_text(appendix_text)
+
+    body_sections: list[ManagedLaunchPromptSection] = []
+    if overlay_mode == "replace" and normalized_overlay_text is not None:
+        body_sections.append(
+            ManagedLaunchPromptSection(
+                tag="launch_profile_overlay",
+                text=normalized_overlay_text,
+                attributes={"mode": "replace"},
+            )
+        )
+    else:
+        if normalized_base_prompt is not None:
+            body_sections.append(
+                ManagedLaunchPromptSection(
+                    tag="role_prompt",
+                    text=normalized_base_prompt,
+                )
+            )
+        if normalized_overlay_text is not None:
+            overlay_attributes = {"mode": "append"} if overlay_mode == "append" else {}
+            body_sections.append(
+                ManagedLaunchPromptSection(
+                    tag="launch_profile_overlay",
+                    text=normalized_overlay_text,
+                    attributes=overlay_attributes,
+                )
+            )
+    if normalized_appendix_text is not None:
+        body_sections.append(
+            ManagedLaunchPromptSection(
+                tag="launch_appendix",
+                text=normalized_appendix_text,
+                attributes={"source": "launch_option"},
+            )
+        )
+
+    root_sections: list[ManagedLaunchPromptSection] = []
+    if managed_header_enabled:
+        root_sections.append(
+            ManagedLaunchPromptSection(
+                tag="managed_header",
+                text=render_managed_prompt_header(
+                    agent_name=agent_name,
+                    agent_id=agent_id,
+                ),
+            )
+        )
+    if body_sections:
+        root_sections.append(
+            ManagedLaunchPromptSection(
+                tag="prompt_body",
+                text="",
+                children=tuple(body_sections),
+            )
+        )
+
+    layout = {
+        "version": HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION,
+        "root_tag": "houmao_system_prompt",
+        "sections": [_layout_metadata_for_section(section) for section in root_sections],
+    }
+    if not root_sections:
+        return ManagedLaunchPromptPayload(prompt="", layout=layout)
+
+    root = ManagedLaunchPromptSection(
+        tag="houmao_system_prompt",
+        text="",
+        attributes={"version": str(HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION)},
+        children=tuple(root_sections),
+    )
+    return ManagedLaunchPromptPayload(
+        prompt=_render_prompt_section(root).rstrip(),
+        layout=layout,
     )
 
 
@@ -154,26 +307,22 @@ def compose_managed_launch_prompt(
     base_prompt: str,
     overlay_mode: str | None,
     overlay_text: str | None,
+    appendix_text: str | None = None,
     managed_header_enabled: bool,
     agent_name: str,
     agent_id: str,
 ) -> str:
     """Compose the effective launch prompt for one managed launch."""
 
-    effective_prompt = compose_prompt_overlay(
+    return compose_managed_launch_prompt_payload(
         base_prompt=base_prompt,
         overlay_mode=overlay_mode,
         overlay_text=overlay_text,
-    )
-    if not managed_header_enabled:
-        return effective_prompt
-    header = render_managed_prompt_header(
+        appendix_text=appendix_text,
+        managed_header_enabled=managed_header_enabled,
         agent_name=agent_name,
         agent_id=agent_id,
-    )
-    if not effective_prompt:
-        return header
-    return f"{header}\n\n{effective_prompt}".rstrip()
+    ).prompt
 
 
 def managed_prompt_header_metadata(

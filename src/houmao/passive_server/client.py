@@ -11,6 +11,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayStatusV1,
 )
 from houmao.cao.models import CaoSuccessResponse
@@ -364,6 +370,81 @@ class PassiveServerClient(HoumaoServerClient):
             "DELETE",
             f"/houmao/agents/{escaped}/gateway/mail-notifier",
             GatewayMailNotifierStatusV1,
+        )
+
+    def list_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+    ) -> GatewayReminderListV1:
+        """Call passive gateway reminder listing for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/reminders",
+            GatewayReminderListV1,
+        )
+
+    def create_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+        request_model: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        """Call passive gateway reminder creation for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/reminders",
+            GatewayReminderCreateResultV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def get_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1:
+        """Call passive gateway reminder lookup for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        reminder_escaped = parse.quote(reminder_id, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/reminders/{reminder_escaped}",
+            GatewayReminderV1,
+        )
+
+    def put_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+        request_model: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        """Call passive gateway reminder update for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        reminder_escaped = parse.quote(reminder_id, safe="")
+        return self._request_root_model(
+            "PUT",
+            f"/houmao/agents/{escaped}/gateway/reminders/{reminder_escaped}",
+            GatewayReminderV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def delete_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        """Call passive gateway reminder deletion for one managed agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        reminder_escaped = parse.quote(reminder_id, safe="")
+        return self._request_root_model(
+            "DELETE",
+            f"/houmao/agents/{escaped}/gateway/reminders/{reminder_escaped}",
+            GatewayReminderDeleteResultV1,
         )
 
     def get_managed_agent_mail_status(

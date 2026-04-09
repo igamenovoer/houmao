@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from click.testing import CliRunner
 
+from houmao.agents.system_skills import system_skill_state_path_for_home
 from houmao.srv_ctrl.commands.main import cli
+from houmao.version import get_version
 
 _DEFAULT_SET_NAMES = [
     "mailbox-full",
     "advanced-usage",
+    "touring",
     "user-control",
     "agent-instance",
     "agent-messaging",
@@ -19,6 +25,7 @@ _CATALOG_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-adv-usage-pattern",
+    "houmao-touring",
     "houmao-mailbox-mgr",
     "houmao-project-mgr",
     "houmao-specialist-mgr",
@@ -33,6 +40,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-email-comms",
     "houmao-mailbox-mgr",
     "houmao-adv-usage-pattern",
+    "houmao-touring",
     "houmao-project-mgr",
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
@@ -43,6 +51,27 @@ _DEFAULT_RESOLVED_SKILLS = [
 ]
 
 
+def _run_houmao_mgr_module(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run the package module entrypoint through a fresh Python subprocess."""
+
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    pythonpath_entries = [str(repo_root / "src")]
+    existing_pythonpath = env.get("PYTHONPATH")
+    if existing_pythonpath:
+        pythonpath_entries.append(existing_pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+    return subprocess.run(
+        [sys.executable, "-m", "houmao.srv_ctrl", *args],
+        cwd=(repo_root if cwd is None else cwd.resolve()),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+
 def test_system_skills_help_lists_commands() -> None:
     result = CliRunner().invoke(cli, ["system-skills", "--help"])
 
@@ -50,6 +79,42 @@ def test_system_skills_help_lists_commands() -> None:
     assert "list" in result.output
     assert "install" in result.output
     assert "status" in result.output
+
+
+def test_houmao_mgr_module_version_starts_successfully() -> None:
+    result = _run_houmao_mgr_module("--version")
+
+    assert result.returncode == 0, result.stderr
+    assert get_version() in result.stdout
+
+
+def test_houmao_mgr_module_system_skills_help_starts_successfully() -> None:
+    result = _run_houmao_mgr_module("system-skills", "--help")
+
+    assert result.returncode == 0, result.stderr
+    assert "install" in result.stdout
+    assert "status" in result.stdout
+
+
+def test_houmao_mgr_module_system_skills_install_starts_successfully(tmp_path: Path) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    result = _run_houmao_mgr_module(
+        "--print-json",
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home_path),
+        "--skill",
+        "houmao-specialist-mgr",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["resolved_skills"] == ["houmao-specialist-mgr"]
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
 
 
 def test_system_skills_install_help_omits_removed_default_flag() -> None:
@@ -69,6 +134,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "mailbox-core",
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-instance",
         "agent-messaging",
@@ -78,6 +144,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["managed_launch_sets"] == [
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-messaging",
         "agent-gateway",
@@ -85,6 +152,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["managed_join_sets"] == [
         "mailbox-full",
         "advanced-usage",
+        "touring",
         "user-control",
         "agent-messaging",
         "agent-gateway",
@@ -108,6 +176,8 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         record for record in payload["sets"] if record["name"] == "advanced-usage"
     )
     assert advanced_usage_record["skills"] == ["houmao-adv-usage-pattern"]
+    touring_record = next(record for record in payload["sets"] if record["name"] == "touring")
+    assert touring_record["skills"] == ["houmao-touring"]
     user_control_record = next(
         record for record in payload["sets"] if record["name"] == "user-control"
     )
@@ -155,6 +225,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-touring/SKILL.md").is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
@@ -179,19 +250,14 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
     assert status_payload["home_path"] == str(home_path)
-    assert status_payload["state_exists"] is True
-    assert status_payload["installed_skills"] == install_payload["resolved_skills"]
+    assert status_payload["installed_skills"] == _CATALOG_SKILLS
     assert status_payload["installed_skill_records"] == [
         {
             "name": skill_name,
-            "projected_relative_dir": relative_dir,
+            "projected_relative_dir": f"skills/{skill_name}",
             "projection_mode": "copy",
         }
-        for skill_name, relative_dir in zip(
-            install_payload["resolved_skills"],
-            install_payload["projected_relative_dirs"],
-            strict=True,
-        )
+        for skill_name in _CATALOG_SKILLS
     ]
 
 
@@ -323,7 +389,6 @@ def test_system_skills_status_reports_missing_state_for_project_default_home(
     payload = json.loads(result.output)
     assert payload["tool"] == "codex"
     assert payload["home_path"] == str(expected_home)
-    assert payload["state_exists"] is False
     assert payload["installed_skills"] == []
     assert payload["installed_skill_records"] == []
 
@@ -361,7 +426,6 @@ def test_system_skills_status_reports_env_redirect_home_when_omitted(tmp_path: P
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
     assert status_payload["home_path"] == str(home_path)
-    assert status_payload["state_exists"] is True
     assert status_payload["installed_skills"] == ["houmao-specialist-mgr"]
 
 
@@ -413,6 +477,52 @@ def test_system_skills_install_supports_symlink_mode_and_status_reports_it(tmp_p
             "projection_mode": "symlink",
         }
     ]
+
+
+def test_system_skills_status_ignores_stale_legacy_state_without_current_paths(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    state_path = system_skill_state_path_for_home(home_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "tool": "codex",
+                "installed_at": "2026-04-09T00:00:00Z",
+                "installed_skills": [
+                    {
+                        "name": "houmao-specialist-mgr",
+                        "asset_subpath": "houmao-specialist-mgr",
+                        "projected_relative_dir": "skills/houmao-specialist-mgr",
+                        "projection_mode": "copy",
+                        "content_digest": "stale",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["installed_skills"] == []
+    assert status_payload["installed_skill_records"] == []
 
 
 def test_system_skills_install_rejects_removed_default_flag() -> None:

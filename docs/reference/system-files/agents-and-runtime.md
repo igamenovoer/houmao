@@ -1,6 +1,6 @@
 # Agents And Runtime
 
-This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, and overlay-local job directories.
+This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, overlay-local job directories, and optional durable managed memory directories.
 
 ## Runtime Root Overview
 
@@ -38,6 +38,9 @@ Representative default layout:
             gateway.pid
 
 <active-overlay>/
+  memory/
+    agents/
+      <agent-id>/
   jobs/
     <session-id>/
 ```
@@ -164,11 +167,30 @@ If the maintained command context already has an active project overlay, this sc
 - The gateway subtree belongs to the same logical runtime-managed session, but not every file under it has the same stability promise.
 - The overlay-local `job_dir` is intentionally separate from the durable runtime root so operators can redirect it to a scratch filesystem without relocating the runtime root itself.
 
+## Overlay-Local Managed Memory Directories
+
+Tmux-backed managed sessions may also bind one optional durable memory directory. When memory is enabled in the default `auto` mode, Houmao resolves it under the active overlay:
+
+```text
+<active-overlay>/memory/agents/<agent-id>/
+```
+
+| Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
+| --- | --- | --- | --- | --- | --- |
+| `<active-overlay>/memory/agents/<agent-id>/` or one explicit operator-selected absolute path | managed launch/join resolution when memory is enabled | the managed agent and the operator | Durable notebook/archive area for arbitrary source material, logs, downloads, notes, and extracted knowledge | Stable discovery contract only; internal contents are intentionally opaque to Houmao | Stop and cleanup flows do not delete this directory or validate its internal layout |
+
+The runtime persists the resolved result in `manifest.json` under `runtime.memory_binding` plus `runtime.memory_dir` and publishes `HOUMAO_MEMORY_DIR=<absolute-path>` into the live tmux session environment only when memory is enabled.
+
+If the operator chooses `--no-memory-dir` or the selected launch profile stores disabled memory binding, Houmao creates no memory directory and omits `HOUMAO_MEMORY_DIR`.
+
+Important boundary: Houmao owns path selection, manifest/env publication, and inspection visibility. Houmao does not define required subdirectories, file names, Markdown conventions, or metadata sidecars inside the memory directory.
+
 ## Related References
 
 - [Session Lifecycle](../run-phase/session-lifecycle.md): Behavior, targeting, and recovery semantics layered on top of these files.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol and queue behavior for the nested `gateway/` subtree.
 - [Stalwart Setup And First Session](../mailbox/operations/stalwart-setup-and-first-session.md): Operator-facing mailbox path for the `stalwart` transport.
+- [Managed Memory Dirs](../../getting-started/managed-memory-dirs.md): Operator-facing guide for default paths, explicit sharing, and disabled memory binding.
 - [Operator Preparation](operator-preparation.md): Writable-path, ignore-rule, and cleanup guidance for these path families.
 
 ## Source References

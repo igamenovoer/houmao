@@ -1,12 +1,25 @@
 # Managed Launch Prompt Header
 
-The **managed launch prompt header** is a short, deterministic block of Houmao-owned text that is prepended to every managed launch's effective prompt by default. It identifies the agent as Houmao-managed, names `houmao-mgr` as the canonical interface, and tells the model to prefer Houmao-supported workflows when the task touches managed runtime, gateway, mailbox, or lifecycle behavior.
+The **managed launch prompt header** is a short, deterministic block of Houmao-owned text that is rendered into every managed launch's effective prompt by default. For launches that use the current structured prompt contract, the effective prompt is rooted at `<houmao_system_prompt>` and the header lives inside a top-level `<managed_header>` section. It identifies the agent as Houmao-managed, names `houmao-mgr` as the canonical interface, and tells the model to prefer Houmao-supported workflows when the task touches managed runtime, gateway, mailbox, or lifecycle behavior.
 
 This page documents what the header is, when it is added, how it composes with the rest of the launch prompt, and how to opt out per launch or via stored launch profiles.
 
 ## What the Header Contains
 
-The header text is rendered by `render_managed_prompt_header()` in [`src/houmao/agents/managed_prompt_header.py`](../../../src/houmao/agents/managed_prompt_header.py) and is stable across launches. It is delimited by literal `[HOUMAO MANAGED HEADER]` and `[HOUMAO MANAGED HEADER END]` markers and includes:
+The header text is rendered by `render_managed_prompt_header()` in [`src/houmao/agents/managed_prompt_header.py`](../../../src/houmao/agents/managed_prompt_header.py) and is stable across launches. `compose_managed_launch_prompt_payload()` wraps that text into the shared `<houmao_system_prompt>` layout, for example:
+
+```xml
+<houmao_system_prompt version="1">
+<managed_header>
+...
+</managed_header>
+<prompt_body>
+...
+</prompt_body>
+</houmao_system_prompt>
+```
+
+The header content includes:
 
 - a one-line statement that the agent is running as a Houmao-managed agent,
 - the resolved managed agent name,
@@ -16,9 +29,9 @@ The header text is rendered by `render_managed_prompt_header()` in [`src/houmao/
 - guidance to treat Houmao-owned manifests, runtime metadata, and supported service interfaces as authoritative rather than probing tmux state or unsupported internal paths,
 - a closing reminder that ordinary domain work should still proceed normally — the Houmao guidance only applies when the task is actually about managed capabilities.
 
-The header is part of the prompt body delivered to the underlying CLI tool. It is not a separate transport channel, RPC, or out-of-band signal. The model sees it the same way it would see any other system prompt content.
+The structured prompt is part of the prompt body delivered to the underlying CLI tool. It is not a separate transport channel, RPC, or out-of-band signal. The model sees it the same way it would see any other system prompt content.
 
-The header is versioned. The current version is `MANAGED_PROMPT_HEADER_VERSION = 1` and is recorded in the manifest-persisted managed-header metadata alongside the resolved policy and identity, so future versions can be tracked through manifest provenance.
+The header is versioned. The current header version is `MANAGED_PROMPT_HEADER_VERSION = 1`, and the current structured prompt-layout version is `HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1`. Both are recorded through secret-free manifest metadata so future prompt changes can be tracked through build provenance.
 
 ## Why the Header Exists
 
@@ -28,22 +41,24 @@ The managed header centralizes that baseline. It is short on purpose so it does 
 
 ## Prompt Composition Order
 
-The managed header sits between launch-profile prompt-overlay resolution and backend role injection. The full composition order is:
+The managed header now participates in a section-based prompt composer. The full composition order is:
 
 ```mermaid
 flowchart LR
     A["Source role prompt<br/>(roles/&lt;role&gt;/system-prompt.md)"] --> B
     B["Prompt-overlay resolution<br/>(launch-profile append/replace,<br/>when present)"] --> C
-    C["Managed header prepend<br/>(when enabled)"] --> D
-    D["Backend role injection<br/>(per-tool method)"]
+    C["Launch appendix append<br/>(one-shot `--append-system-prompt-*`,<br/>when present)"] --> D
+    D["Structured render<br/>`&lt;houmao_system_prompt&gt;`"] --> E
+    E["Backend role injection<br/>(per-tool method)"]
 ```
 
 1. **Source role prompt.** The role's `system-prompt.md` content is loaded as the base prompt.
 2. **Prompt-overlay resolution.** When the resolved launch profile carries a prompt overlay, it is composed onto the base prompt with mode `append` or `replace`. Append concatenates with a blank-line separator; replace substitutes the overlay text.
-3. **Managed header prepend.** When the managed header is enabled for this launch, the rendered header is prepended to the effective prompt with a blank-line separator. The header always lives at the very top of the effective prompt body.
-4. **Backend role injection.** The per-backend role-injection plan delivers that final composed prompt to the underlying CLI tool. See [Role Injection](role-injection.md) for the per-backend mechanism (`native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, etc.).
+3. **Launch appendix append.** When `houmao-mgr agents launch` or `houmao-mgr project easy instance launch` receives `--append-system-prompt-text` or `--append-system-prompt-file`, that one-shot appendix is appended after overlay resolution for the current launch only. It never rewrites the source role prompt or a stored profile.
+4. **Structured render.** Houmao renders the effective prompt into `<houmao_system_prompt>`. When enabled, `<managed_header>` appears before `<prompt_body>`. Inside `<prompt_body>`, section order is `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` when those sections participate. If overlay mode is `replace`, `<role_prompt>` is omitted.
+5. **Backend role injection.** The per-backend role-injection plan delivers that final composed prompt to the underlying CLI tool. See [Role Injection](role-injection.md) for the per-backend mechanism (`native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, etc.).
 
-The composition is implemented by `compose_managed_launch_prompt()` in `managed_prompt_header.py`. When the header is disabled, that function returns the post-overlay prompt unchanged.
+The composition is implemented by `compose_managed_launch_prompt_payload()` and `compose_managed_launch_prompt()` in `managed_prompt_header.py`. When no header or prompt-body sections participate, the rendered effective prompt is empty.
 
 ## Default Policy and Per-Launch Opt-Out
 
@@ -61,6 +76,8 @@ The launch-time flags are exposed on every supported managed launch surface:
 |---|---|---|
 | `houmao-mgr agents launch` | `--managed-header` / `--no-managed-header` | Mutually exclusive. Wins over the resolved launch profile when one is selected. |
 | `houmao-mgr project easy instance launch` | `--managed-header` / `--no-managed-header` | Mutually exclusive. Wins over the stored easy-profile policy when launching from `--profile`. |
+
+Those same launch surfaces also accept one-shot prompt appendix input through `--append-system-prompt-text` and `--append-system-prompt-file`. Those options are mutually exclusive, append after overlay resolution inside `<prompt_body>`, and do not rewrite stored launch profiles or easy profiles.
 
 For full flag-level coverage, see the [`houmao-mgr` CLI reference](../cli/houmao-mgr.md) section on `agents launch` source-selector and launch-profile rules.
 
@@ -96,9 +113,9 @@ The launch-time flags never rewrite the stored policy. A `--no-managed-header` l
 
 ## Verifying the Header for One Launch
 
-Each managed launch records the resolved managed-header decision in its session manifest. To inspect a live or stopped session's manifest-persisted decision, use `houmao-mgr agents state --agent-name <name>` or read the manifest under the runtime home directly. The resolved decision includes whether the header was enabled, the resolution source, the stored policy at resolution time, and the resolved managed agent name and id used to render the header text.
+Each managed launch records the resolved managed-header decision in its session manifest. New launches also persist `inputs.houmao_system_prompt_layout`, which records the structured prompt root and section order without storing secrets. To inspect a live or stopped session's manifest-persisted decision, use `houmao-mgr agents state --agent-name <name>` or read the manifest under the runtime home directly. The resolved decision includes whether the header was enabled, the resolution source, the stored policy at resolution time, and the resolved managed agent name and id used to render the header text.
 
-When troubleshooting whether an agent is acting as if it has the header context, the canonical check is the manifest-persisted managed-header metadata, not the live TUI.
+When troubleshooting whether an agent is acting as if it has the header context, the canonical checks are the manifest-persisted managed-header metadata and, for new launches, the persisted `houmao_system_prompt_layout` section list rather than the live TUI.
 
 ## See Also
 

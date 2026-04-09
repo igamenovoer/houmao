@@ -6,6 +6,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderDefinitionV1,
+    GatewayReminderPutV1,
+    GatewayReminderSendKeysV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
 from houmao.passive_server.client import PassiveServerClient
@@ -1145,6 +1149,122 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
         {
             "method": "DELETE",
             "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
+            "kwargs": {},
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("client_type", "base_url"),
+    [
+        (HoumaoServerClient, "http://127.0.0.1:9889"),
+        (PassiveServerClient, "http://127.0.0.1:9891"),
+    ],
+)
+def test_pair_clients_gateway_reminder_routes(client_type, base_url, monkeypatch) -> None:
+    client = client_type(base_url)
+    recorded: list[dict[str, object]] = []
+    create_request = GatewayReminderCreateBatchV1(
+        reminders=[
+            GatewayReminderDefinitionV1(
+                mode="one_off",
+                title="Check inbox",
+                prompt="Review the inbox now.",
+                ranking=0,
+                start_after_seconds=60,
+            )
+        ]
+    )
+    update_request = GatewayReminderPutV1(
+        mode="one_off",
+        title="Check inbox later",
+        send_keys=GatewayReminderSendKeysV1(sequence="<[Escape]>", ensure_enter=False),
+        ranking=-1,
+        deliver_at_utc="2026-04-09T12:00:00+00:00",
+    )
+    list_payload = {
+        "schema_version": 1,
+        "effective_reminder_id": "greminder-1",
+        "reminders": [
+            {
+                "schema_version": 1,
+                "reminder_id": "greminder-1",
+                "mode": "one_off",
+                "delivery_kind": "prompt",
+                "title": "Check inbox",
+                "prompt": "Review the inbox now.",
+                "send_keys": None,
+                "ranking": 0,
+                "paused": False,
+                "selection_state": "effective",
+                "delivery_state": "scheduled",
+                "created_at_utc": "2026-04-09T00:00:00+00:00",
+                "next_due_at_utc": "2026-04-09T00:01:00+00:00",
+                "interval_seconds": None,
+                "last_started_at_utc": None,
+                "blocked_by_reminder_id": None,
+            }
+        ],
+    }
+    detail_payload = list_payload["reminders"][0] | {"title": "Check inbox later", "ranking": -1}
+    delete_payload = {
+        "schema_version": 1,
+        "status": "ok",
+        "action": "delete_reminder",
+        "reminder_id": "greminder-1",
+        "deleted": True,
+        "detail": "deleted",
+    }
+
+    def _request_root_model(method: str, path: str, model: type[object], **kwargs):
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        if method == "GET" and path.endswith("/gateway/reminders"):
+            return model.model_validate(list_payload)
+        if method == "POST":
+            return model.model_validate(list_payload)
+        if method == "PUT":
+            return model.model_validate(detail_payload)
+        if method == "DELETE":
+            return model.model_validate(delete_payload)
+        return model.model_validate(detail_payload)
+
+    monkeypatch.setattr(client, "_request_root_model", _request_root_model)
+
+    reminders = client.list_managed_agent_gateway_reminders("HOUMAO gpu/1")
+    created = client.create_managed_agent_gateway_reminders("HOUMAO gpu/1", create_request)
+    detail = client.get_managed_agent_gateway_reminder("HOUMAO gpu/1", "greminder-1")
+    updated = client.put_managed_agent_gateway_reminder("HOUMAO gpu/1", "greminder-1", update_request)
+    deleted = client.delete_managed_agent_gateway_reminder("HOUMAO gpu/1", "greminder-1")
+
+    assert reminders.effective_reminder_id == "greminder-1"
+    assert created.reminders[0].reminder_id == "greminder-1"
+    assert detail.reminder_id == "greminder-1"
+    assert updated.ranking == -1
+    assert deleted.reminder_id == "greminder-1"
+    assert recorded == [
+        {
+            "method": "GET",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/reminders",
+            "kwargs": {},
+        },
+        {
+            "method": "POST",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/reminders",
+            "kwargs": {"json_body": create_request.model_dump(mode="json")},
+        },
+        {
+            "method": "GET",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/reminders/greminder-1",
+            "kwargs": {},
+        },
+        {
+            "method": "PUT",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/reminders/greminder-1",
+            "kwargs": {"json_body": update_request.model_dump(mode="json")},
+        },
+        {
+            "method": "DELETE",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/reminders/greminder-1",
             "kwargs": {},
         },
     ]

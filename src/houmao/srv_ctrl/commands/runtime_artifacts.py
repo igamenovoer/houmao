@@ -10,6 +10,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.memory_dir import (
+    HOUMAO_MEMORY_DIR_ENV_VAR,
+    ResolvedMemoryBinding,
+    ensure_memory_dir,
+    resolve_effective_memory_binding,
+)
 from houmao.agents.native_launch_resolver import resolve_native_launch_target, tool_for_provider
 from houmao.agents.system_skills import install_system_skills_for_home
 from houmao.owned_paths import HOUMAO_JOB_DIR_ENV_VAR
@@ -109,6 +115,7 @@ class JoinedSessionArtifacts:
     session_root: Path
     agent_name: str
     agent_id: str
+    memory_dir: Path | None
     runtime_root: Path
     jobs_root: Path
     runtime_root_detail: str
@@ -124,6 +131,8 @@ def materialize_joined_launch(
     runtime_root: Path | None,
     agent_name: str,
     agent_id: str | None,
+    memory_dir: Path | None = None,
+    no_memory_dir: bool = False,
     provider: str,
     headless: bool,
     tmux_session_name: str,
@@ -206,10 +215,24 @@ def materialize_joined_launch(
             session_id=session_id,
         )
         job_dir.mkdir(parents=True, exist_ok=True)
+        resolved_memory_binding = resolve_effective_memory_binding(
+            overlay_root=project_roots.overlay_root,
+            agent_id=resolved_agent_id,
+            explicit_memory_dir=memory_dir,
+            disable_memory_dir=no_memory_dir,
+        )
+        ensure_memory_dir(resolved_memory_binding)
         launch_plan = replace(
             launch_plan,
-            env={**launch_plan.env, HOUMAO_JOB_DIR_ENV_VAR: str(job_dir.resolve())},
-            env_var_names=sorted({*launch_plan.env_var_names, HOUMAO_JOB_DIR_ENV_VAR}),
+            env=_launch_plan_env_with_memory_and_job_dir(
+                launch_plan=launch_plan,
+                job_dir=job_dir,
+                memory_binding=resolved_memory_binding,
+            ),
+            env_var_names=_launch_plan_env_var_names_with_memory_and_job_dir(
+                launch_plan=launch_plan,
+                memory_binding=resolved_memory_binding,
+            ),
         )
         manifest_payload = build_session_manifest_payload(
             SessionManifestRequest(
@@ -228,6 +251,8 @@ def materialize_joined_launch(
                 tmux_session_name=tmux_session_name,
                 session_id=session_id,
                 job_dir=job_dir,
+                memory_binding=resolved_memory_binding.kind,
+                memory_dir=resolved_memory_binding.directory,
                 agent_def_dir=agent_def_dir,
                 registry_generation_id=new_registry_generation_id(),
                 registry_launch_authority="runtime",
@@ -273,12 +298,24 @@ def materialize_joined_launch(
         set_tmux_session_environment(
             session_name=tmux_session_name,
             env_vars={
-                AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
-                AGENT_ID_ENV_VAR: resolved_agent_id,
-                AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
-                HOUMAO_JOB_DIR_ENV_VAR: str(job_dir),
+                **{
+                    AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
+                    AGENT_ID_ENV_VAR: resolved_agent_id,
+                    AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
+                    HOUMAO_JOB_DIR_ENV_VAR: str(job_dir),
+                },
+                **(
+                    {HOUMAO_MEMORY_DIR_ENV_VAR: str(resolved_memory_binding.directory)}
+                    if resolved_memory_binding.directory is not None
+                    else {}
+                ),
             },
         )
+        if resolved_memory_binding.directory is None:
+            unset_tmux_session_environment(
+                session_name=tmux_session_name,
+                variable_names=[HOUMAO_MEMORY_DIR_ENV_VAR],
+            )
         published_tmux_env = True
 
         published_at = datetime.now(UTC)
@@ -308,6 +345,7 @@ def materialize_joined_launch(
             session_root=session_root,
             agent_name=normalized_agent_name,
             agent_id=resolved_agent_id,
+            memory_dir=resolved_memory_binding.directory,
             runtime_root=resolved_runtime_root,
             jobs_root=job_dir.parent.resolve(),
             runtime_root_detail=describe_runtime_root_selection(explicit_root=runtime_root),
@@ -339,6 +377,7 @@ def materialize_joined_launch(
                                 AGENT_ID_ENV_VAR,
                                 AGENT_DEF_DIR_ENV_VAR,
                                 HOUMAO_JOB_DIR_ENV_VAR,
+                                HOUMAO_MEMORY_DIR_ENV_VAR,
                             ]
                             if published_tmux_env
                             else []
@@ -349,6 +388,37 @@ def materialize_joined_launch(
                 pass
         shutil.rmtree(session_root, ignore_errors=True)
         raise
+
+
+def _launch_plan_env_with_memory_and_job_dir(
+    *,
+    launch_plan: LaunchPlan,
+    job_dir: Path,
+    memory_binding: ResolvedMemoryBinding,
+) -> dict[str, str]:
+    """Return one launch env mapping with job-dir and memory bindings applied."""
+
+    updated_env = dict(launch_plan.env)
+    updated_env[HOUMAO_JOB_DIR_ENV_VAR] = str(job_dir.resolve())
+    updated_env.pop(HOUMAO_MEMORY_DIR_ENV_VAR, None)
+    if memory_binding.directory is not None:
+        updated_env[HOUMAO_MEMORY_DIR_ENV_VAR] = str(memory_binding.directory.resolve())
+    return updated_env
+
+
+def _launch_plan_env_var_names_with_memory_and_job_dir(
+    *,
+    launch_plan: LaunchPlan,
+    memory_binding: ResolvedMemoryBinding,
+) -> list[str]:
+    """Return launch env-var names after job-dir and memory binding injection."""
+
+    updated_names = set(launch_plan.env_var_names)
+    updated_names.add(HOUMAO_JOB_DIR_ENV_VAR)
+    updated_names.discard(HOUMAO_MEMORY_DIR_ENV_VAR)
+    if memory_binding.directory is not None:
+        updated_names.add(HOUMAO_MEMORY_DIR_ENV_VAR)
+    return sorted(updated_names)
 
 
 def _safe_role_name(value: str) -> str:

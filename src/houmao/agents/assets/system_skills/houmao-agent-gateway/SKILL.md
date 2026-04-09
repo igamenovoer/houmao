@@ -25,11 +25,12 @@ Supported surfaces for this skill include:
 - `houmao-mgr agents gateway attach|detach|status`
 - `houmao-mgr agents gateway prompt|interrupt|send-keys`
 - `houmao-mgr agents gateway tui state|history|watch|note-prompt`
+- `houmao-mgr agents gateway reminders list|get|create|set|remove`
 - `houmao-mgr agents gateway mail-notifier status|enable|disable`
 - `houmao-mgr agents mail resolve-live`
 - live gateway env vars `HOUMAO_AGENT_GATEWAY_HOST`, `HOUMAO_AGENT_GATEWAY_PORT`, `HOUMAO_GATEWAY_PROTOCOL_VERSION`, and `HOUMAO_GATEWAY_STATE_PATH`
 - live gateway HTTP routes under `/v1/status`, `/v1/requests`, `/v1/control/*`, `/v1/reminders`, and `/v1/mail-notifier`
-- pair-managed HTTP routes under `/houmao/agents/{agent_ref}/gateway*`
+- pair-managed HTTP routes under `/houmao/agents/{agent_ref}/gateway*`, including `/gateway/reminders*`
 
 This packaged skill does not cover:
 
@@ -97,5 +98,5 @@ This packaged skill does not cover:
 - Do not teach `HOUMAO_GATEWAY_ATTACH_PATH` or `HOUMAO_GATEWAY_ROOT` as supported current-session discovery.
 - Do not scrape live gateway env for shared mailbox work when `houmao-mgr agents mail resolve-live` is the supported exact `gateway.base_url` resolver.
 - Do not describe `/v1/reminders` as durable across gateway stop or restart.
-- Do not invent unsupported pair-managed reminder routes under `/houmao/agents/{agent_ref}/gateway/reminders`.
+- Do not invent reminder surfaces beyond the supported `houmao-mgr agents gateway reminders ...`, `/houmao/agents/{agent_ref}/gateway/reminders...`, and direct `/v1/reminders` routes.
 - Do not restate transport-specific mailbox detail here; delegate that to the mailbox skill family.

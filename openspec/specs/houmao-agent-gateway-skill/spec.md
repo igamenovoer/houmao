@@ -14,8 +14,9 @@ That skill SHALL instruct agents and operators to handle gateway-specific work t
 - `houmao-mgr agents gateway prompt|interrupt`
 - `houmao-mgr agents gateway send-keys`
 - `houmao-mgr agents gateway tui state|history|watch|note-prompt`
+- `houmao-mgr agents gateway reminders list|get|create|set|remove`
 - `houmao-mgr agents gateway mail-notifier status|enable|disable`
-- managed-agent HTTP routes under `/houmao/agents/{agent_ref}/gateway...`
+- managed-agent HTTP routes under `/houmao/agents/{agent_ref}/gateway...`, including gateway reminder routes when the task is operating through pair-managed authority
 - direct live gateway HTTP only when the exact live `{gateway.base_url}` is already available and the task genuinely needs a gateway-only surface such as `/v1/status`, `/v1/reminders`, or `/v1/mail-notifier`
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
@@ -38,7 +39,7 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 #### Scenario: Installed skill points the caller at the supported gateway surfaces
 - **WHEN** an agent or operator opens the installed `houmao-agent-gateway` skill
-- **THEN** the skill directs the caller to the supported gateway lifecycle, discovery, gateway-only control, and reminder surfaces
+- **THEN** the skill directs the caller to the supported gateway lifecycle, reminder, notifier, and gateway-only control surfaces
 - **AND THEN** it does not redirect the caller to unrelated live-agent lifecycle, ordinary messaging, or transport-local mailbox repair work
 
 #### Scenario: Installed skill routes to action-specific local guidance
@@ -129,8 +130,9 @@ The packaged `houmao-agent-gateway` skill SHALL select commands by gateway-speci
 
 - use `houmao-mgr agents gateway attach|detach|status` or `/houmao/agents/{agent_ref}/gateway...` for gateway lifecycle and summary state,
 - use `houmao-mgr agents gateway mail-notifier ...` or `/houmao/agents/{agent_ref}/gateway/mail-notifier` for unread-mail notifier control,
-- use direct `{gateway.base_url}/v1/reminders...` only for reminder creation, inspection, update, and cancellation because the current implementation does not project those operations through a higher-level CLI or managed-agent route,
-- treat reminder delivery through direct live gateway routes as supporting both semantic `prompt` reminders and raw `send_keys` reminders,
+- use `houmao-mgr agents gateway reminders list|get|create|set|remove` or `/houmao/agents/{agent_ref}/gateway/reminders...` for reminder creation, inspection, update, and cancellation,
+- use direct `{gateway.base_url}/v1/reminders...` only when the task genuinely requires the low-level live reminder HTTP contract and the exact live base URL is already available from supported discovery,
+- treat reminder delivery through the supported reminder surfaces as supporting both semantic `prompt` reminders and raw `send_keys` reminders,
 - use direct `{gateway.base_url}/v1/...` only when the task genuinely requires a gateway-only lower-level surface and the exact live base URL is already available from supported discovery.
 
 The packaged `houmao-agent-gateway` skill SHALL delegate ordinary prompt turns, mailbox routing, ordinary mailbox work, or transport-specific mailbox work to:
@@ -141,15 +143,16 @@ The packaged `houmao-agent-gateway` skill SHALL delegate ordinary prompt turns, 
 
 The skill SHALL prefer the managed-agent seam first when it already satisfies the current task and SHALL treat direct gateway listener URLs as the lower-level gateway-only path.
 
-#### Scenario: Reminders use the direct live gateway route family
+#### Scenario: Reminders use the native gateway reminder surfaces when available
 - **WHEN** the user asks to create, inspect, update, or cancel live gateway reminders
-- **THEN** the skill directs the caller to the live `{gateway.base_url}/v1/reminders...` route family
-- **AND THEN** it does not misdescribe reminders as a current `houmao-mgr agents gateway ...` subcommand or as a managed-agent API projection that does not exist yet
+- **THEN** the skill directs the caller to `houmao-mgr agents gateway reminders ...` or the matching `/houmao/agents/{agent_ref}/gateway/reminders...` projection when pair-managed authority is in use
+- **AND THEN** it does not misdescribe reminders as an HTTP-only workflow when the supported higher-level reminder surfaces already exist
 
-#### Scenario: Send-keys reminders stay on the reminder HTTP surface
-- **WHEN** the user asks for a reminder that should send exact raw keys such as `<[Escape]>` or a slash-command submission
-- **THEN** the skill describes that as a `send_keys` reminder on the direct live `/v1/reminders` surface
-- **AND THEN** it does not invent a separate reminder CLI family for that workflow
+#### Scenario: Direct live reminder HTTP stays the lower-level contract
+- **WHEN** the user asks to debug or inspect the exact live reminder HTTP contract
+- **AND WHEN** the exact current `gateway.base_url` is already available from supported discovery
+- **THEN** the skill may direct the caller to the live `{gateway.base_url}/v1/reminders...` route family
+- **AND THEN** it keeps that direct route family positioned as the lower-level contract rather than the first-choice operator surface
 
 #### Scenario: Ordinary prompt or mailbox work delegates away from the gateway skill
 - **WHEN** the task is one normal prompt turn, one transport-neutral interrupt, or mailbox work rather than gateway lifecycle or gateway-only service control
@@ -194,4 +197,3 @@ The skill SHALL NOT describe reminders or mail-notifier as durable queued work t
 - **WHEN** a caller reads the notifier guidance in the packaged gateway skill
 - **THEN** the skill presents `mail-notifier` as unread-mail reminder control through the gateway mailbox facade
 - **AND THEN** it does not describe notifier control as the generic answer for arbitrary unfinished-job persistence
-

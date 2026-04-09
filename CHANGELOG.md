@@ -4,6 +4,33 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.4.2] - 2026-04-09
+
+### Added
+
+- **Gateway reminders CLI**: `houmao-mgr agents gateway reminders` now exposes the live gateway ranked reminder surface end-to-end as `list`, `get`, `create`, `update`, `pause`, `resume`, and `delete` subcommands, routed through the local pair-server gateway proxy on both `houmao-server` and `houmao-passive-server`. Documented in the refreshed [agents-gateway CLI reference](docs/reference/cli/agents-gateway.md), in the gateway reminders operations page, and in the `houmao-agent-gateway` system skill.
+- **Managed agent memory directories**: managed launches now project a per-agent memory directory under the runtime home and expose it through `HOUMAO_MEMORY_DIR`. The directory is recorded in the session manifest, surfaced via `houmao-mgr agents` listings, cleaned up by `admin cleanup`, and documented in the new [Managed memory directories](docs/getting-started/managed-memory-dirs.md) guide and updated agents-and-runtime reference. Specs: `agent-memory-dir`, plus updates to `brain-launch-runtime`, `houmao-mgr-agents-launch`, `houmao-mgr-agents-join`, and `houmao-mgr-project-easy-cli`.
+- **Launch-time system prompt appendix**: every managed launch can now carry a Houmao-owned system-prompt appendix appended after the standard managed-launch header. The appendix copy lives under `managed_prompt_header.py`, is exposed through the run-phase managed-prompt-header reference, and is recorded against the launch plan so reruns and `agents join` see the same effective prompt.
+- **`houmao-touring` system skill**: a new packaged manual guided-tour skill that inspects current Houmao state, explains the posture in plain language, and routes work into the appropriate maintained Houmao skill. Brings the packaged catalog to **twelve** skills.
+- **Pairwise driver-worker edge-loop pattern**: the `houmao-adv-usage-pattern` skill gains a second supported pattern at `patterns/pairwise-edge-loop-via-gateway-and-mailbox.md` for delegation rounds where each edge closes locally between exactly two agents. The `SKILL.md` chooser now distinguishes it from the existing forward relay-loop pattern.
+- **Forward relay-loop pattern**: the `houmao-adv-usage-pattern` skill also ships the supported relay-loop pattern at `patterns/relay-loop-via-gateway-and-mailbox.md` for multi-agent loops where work can transit across additional live-gateway agents before a downstream egress returns the final result to a more distant origin.
+- **Passive-server gateway proxy**: `houmao-passive-server` and `houmao-server` both expose a uniform pair-server gateway proxy surface (`pair_client.py`, `service.py`, `app.py`) used by the new gateway reminders CLI; documented in the new `passive-server-gateway-proxy` spec.
+
+### Changed
+
+- **System skills install internals**: `houmao-mgr system-skills install` and the underlying `system_skills.py` projection layer were resynced so renamed packaged identifiers, the new `houmao-touring` skill, the new advanced-usage pattern files, and the gateway-reminders skill updates project consistently into managed and external tool homes. CLI reference docs (`system-skills.md`, `houmao-mgr.md`) were refreshed alongside the changes.
+- **Gateway-first mailbox runtime support**: `mailbox_runtime_support.py`, `runtime_artifacts.py`, and the project-aware command surface picked up the memory-dir wiring, the prompt-appendix wiring, and the gateway-reminders manifest fields so existing managed-agent operations and `admin cleanup` continue to behave correctly across the new launch-time inputs.
+
+### Fixed
+
+- **Codex bootstrap migrates the `model` key**: `_ensure_codex_model_migration_state` now rewrites the runtime config `model` key to `gpt-5.4` when the existing value is the migration source `gpt-5.3-codex`, instead of only recording a `notice.model_migrations` entry. Unattended Codex launches no longer keep invoking the deprecated model after bootstrap. Backed by the existing `tests/unit/agents/realm_controller/test_codex_bootstrap.py` cases that have always expected this behavior.
+- **System skills install + CLI startup backports**: a backport sweep on `houmao-mgr system-skills install` and the CLI startup path repairs handling of the renamed packaged identifiers and the new pattern/skill assets, paired with refreshed `system-skills` and `houmao-mgr` reference pages.
+
+### Notes
+
+- This is a patch release on top of `v0.4.1`. It bundles the new gateway reminders CLI, managed memory directories, launch-time prompt appendix, the `houmao-touring` skill, the two `houmao-adv-usage-pattern` loop patterns, the codex bootstrap migration fix, and the system-skills install backport. The patch label is kept for continuity even though the contents include user-visible feature surfaces.
+- The `gh release create v0.4.2` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.4.1] - 2026-04-08
 
 ### Added

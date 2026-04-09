@@ -24,10 +24,12 @@ _SYSTEM_SKILL_LEGACY_STATE_SCHEMA_VERSION = 1
 SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
 SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
 SYSTEM_SKILL_SET_ADVANCED_USAGE = "advanced-usage"
+SYSTEM_SKILL_SET_TOURING = "touring"
 SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
 SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
 SYSTEM_SKILL_SET_AGENT_MESSAGING = "agent-messaging"
 SYSTEM_SKILL_SET_AGENT_GATEWAY = "agent-gateway"
+SYSTEM_SKILL_TOURING = "houmao-touring"
 SYSTEM_SKILL_SPECIALIST_MGR = "houmao-specialist-mgr"
 SYSTEM_SKILL_CREDENTIAL_MGR = "houmao-credential-mgr"
 SYSTEM_SKILL_AGENT_DEFINITION = "houmao-agent-definition"
@@ -41,12 +43,28 @@ _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "gemini": ".gemini/skills",
 }
 _SYSTEM_SKILL_RENAMED_FROM: dict[str, tuple[str, ...]] = {
+    "houmao-agent-email-comms": (
+        "houmao-email-via-agent-gateway",
+        "houmao-email-via-filesystem",
+        "houmao-email-via-stalwart",
+    ),
     SYSTEM_SKILL_SPECIALIST_MGR: ("houmao-manage-specialist", "houmao-create-specialist"),
     SYSTEM_SKILL_CREDENTIAL_MGR: ("houmao-manage-credentials",),
     SYSTEM_SKILL_AGENT_DEFINITION: ("houmao-manage-agent-definition",),
     SYSTEM_SKILL_AGENT_INSTANCE: ("houmao-manage-agent-instance",),
 }
 _SYSTEM_SKILL_STATE_RELATIVE_PATH = Path(".houmao/system-skills/install-state.json")
+_SYSTEM_SKILL_LEGACY_MAILBOX_SKILLS = frozenset(
+    {
+        "houmao-process-emails-via-gateway",
+        "houmao-agent-email-comms",
+    }
+)
+_SYSTEM_SKILL_LEGACY_PROJECT_SKILLS = frozenset(
+    {
+        SYSTEM_SKILL_SPECIALIST_MGR,
+    }
+)
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
 SystemSkillProjectionMode = Literal["copy", "symlink"]
 
@@ -173,11 +191,19 @@ class SystemSkillInstallResult:
 
     tool: str
     home_path: Path
-    state_path: Path
     selected_set_names: tuple[str, ...]
     explicit_skill_names: tuple[str, ...]
     resolved_skill_names: tuple[str, ...]
     projected_relative_dirs: tuple[str, ...]
+    projection_mode: SystemSkillProjectionMode
+
+
+@dataclass(frozen=True)
+class InstalledSystemSkillStatusRecord:
+    """One current packaged skill discovered in a live tool home."""
+
+    name: str
+    projected_relative_dir: str
     projection_mode: SystemSkillProjectionMode
 
 
@@ -329,6 +355,43 @@ def project_system_skills_to_destination(
     )
 
 
+def discover_installed_system_skills(
+    *,
+    tool: str,
+    home_path: Path,
+) -> tuple[InstalledSystemSkillStatusRecord, ...]:
+    """Return current packaged skills discovered in one concrete tool home."""
+
+    catalog = load_system_skill_catalog()
+    resolved_home_path = home_path.resolve()
+    discovered: list[InstalledSystemSkillStatusRecord] = []
+    for skill_name in catalog.skill_names:
+        projected_relative_dir = projected_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        target_dir = resolved_home_path / projected_relative_dir
+        if target_dir.is_symlink():
+            discovered.append(
+                InstalledSystemSkillStatusRecord(
+                    name=skill_name,
+                    projected_relative_dir=projected_relative_dir,
+                    projection_mode="symlink",
+                )
+            )
+            continue
+        if not target_dir.is_dir():
+            continue
+        discovered.append(
+            InstalledSystemSkillStatusRecord(
+                name=skill_name,
+                projected_relative_dir=projected_relative_dir,
+                projection_mode="copy",
+            )
+        )
+    return tuple(discovered)
+
+
 def load_system_skill_install_state(
     *,
     tool: str,
@@ -456,86 +519,32 @@ def install_system_skills_for_home(
 
     resolved_home_path = home_path.resolve()
     resolved_home_path.mkdir(parents=True, exist_ok=True)
-    state_path = system_skill_state_path_for_home(resolved_home_path)
-    existing_state = load_system_skill_install_state(tool=tool, home_path=resolved_home_path)
-    existing_records = existing_state.records_by_name() if existing_state is not None else {}
-    owned_relative_dirs = (
-        existing_state.projected_relative_dirs() if existing_state is not None else set()
-    )
-
-    updated_records: dict[str, InstalledSystemSkillRecord] = dict(existing_records)
     projected_relative_dirs: list[str] = []
-    migrated_skill_names = _installed_skill_names_requiring_projection_refresh(
-        tool=tool,
-        existing_records=existing_records,
-        selected_skill_names=resolved_skill_names,
-    )
-    for skill_name in (*resolved_skill_names, *migrated_skill_names):
+    for skill_name in resolved_skill_names:
         skill_record = catalog.skills[skill_name]
         projected_relative_dir = projected_system_skill_relative_dir(
             tool=tool,
             skill_name=skill_name,
         )
-        if skill_name in resolved_skill_names:
-            projected_relative_dirs.append(projected_relative_dir)
-        target_dir = resolved_home_path / projected_relative_dir
-        prior_record = existing_records.get(skill_name)
-        superseded_records = _superseded_installed_records_for_skill(
-            existing_records=existing_records,
+        projected_relative_dirs.append(projected_relative_dir)
+        for replaceable_relative_dir in replaceable_system_skill_relative_dirs(
+            tool=tool,
             skill_name=skill_name,
-        )
-        _assert_target_path_is_installable(
-            target_dir=target_dir,
-            home_path=resolved_home_path,
-            owned_relative_dirs=owned_relative_dirs,
-        )
-        _remove_existing_path_if_present(target_dir)
-        _project_packaged_skill(
-            asset_subpath=skill_record.asset_subpath,
-            destination_root=target_dir,
-            projection_mode=projection_mode,
-        )
-        updated_records[skill_name] = InstalledSystemSkillRecord(
-            name=skill_name,
-            asset_subpath=skill_record.asset_subpath,
-            projected_relative_dir=projected_relative_dir,
-            content_digest=_packaged_skill_digest(skill_record.asset_subpath),
-            projection_mode=projection_mode,
-        )
-        if (
-            prior_record is not None
-            and prior_record.projected_relative_dir != projected_relative_dir
         ):
             _remove_previous_owned_path(
-                previous_relative_dir=prior_record.projected_relative_dir,
+                previous_relative_dir=replaceable_relative_dir,
                 home_path=resolved_home_path,
             )
-        for superseded_record in superseded_records:
-            _remove_previous_owned_path(
-                previous_relative_dir=superseded_record.projected_relative_dir,
-                home_path=resolved_home_path,
-            )
-            updated_records.pop(superseded_record.name, None)
-
-    merged_records = _merge_install_records(
-        existing_state=existing_state,
-        updated_records=updated_records,
-        newly_selected_skill_names=resolved_skill_names,
-    )
-    _write_system_skill_install_state(
-        path=state_path,
-        state=SystemSkillInstallState(
-            schema_version=SYSTEM_SKILL_STATE_SCHEMA_VERSION,
-            tool=tool,
-            installed_at=_utc_timestamp_now(),
-            installed_skills=merged_records,
-        ),
-    )
+        _project_packaged_skill(
+            asset_subpath=skill_record.asset_subpath,
+            destination_root=resolved_home_path / projected_relative_dir,
+            projection_mode=projection_mode,
+        )
+    _remove_obsolete_system_skill_state_file(home_path=resolved_home_path)
 
     return SystemSkillInstallResult(
         tool=tool,
         home_path=resolved_home_path,
-        state_path=state_path,
         selected_set_names=selected_set_names,
         explicit_skill_names=skill_names,
         resolved_skill_names=resolved_skill_names,
@@ -811,21 +820,46 @@ def _resolve_requested_set_names(
     return tuple(resolved)
 
 
-def _assert_target_path_is_installable(
+def replaceable_system_skill_relative_dirs(
     *,
-    target_dir: Path,
-    home_path: Path,
-    owned_relative_dirs: set[str],
-) -> None:
-    """Fail when one projected path collides with non-owned content."""
+    tool: str,
+    skill_name: str,
+) -> tuple[str, ...]:
+    """Return the exact current and legacy relative dirs replaceable for one skill."""
 
-    if not target_dir.exists() and not target_dir.is_symlink():
-        return
-    relative_dir = str(target_dir.relative_to(home_path.resolve()))
-    if relative_dir not in owned_relative_dirs:
-        raise SystemSkillInstallError(
-            f"Refusing to overwrite non-owned system-skill path `{target_dir}`."
-        )
+    relative_dirs: list[str] = []
+    current_and_legacy_names = _current_and_legacy_system_skill_names(skill_name)
+    flat_root = Path(system_skills_destination_for_tool(tool))
+    for visible_name in current_and_legacy_names:
+        relative_dirs.append(str(flat_root / visible_name))
+    for legacy_root in _legacy_system_skill_roots(tool=tool, skill_name=skill_name):
+        for visible_name in current_and_legacy_names:
+            relative_dirs.append(str(legacy_root / visible_name))
+    return tuple(dict.fromkeys(relative_dirs))
+
+
+def _current_and_legacy_system_skill_names(skill_name: str) -> tuple[str, ...]:
+    """Return one skill's current visible name followed by known legacy aliases."""
+
+    _system_skill_record_for_name(skill_name)
+    return (skill_name, *_SYSTEM_SKILL_RENAMED_FROM.get(skill_name, ()))
+
+
+def _legacy_system_skill_roots(*, tool: str, skill_name: str) -> tuple[Path, ...]:
+    """Return the legacy root directories replaceable for one current skill."""
+
+    roots: list[Path] = []
+    if tool == "gemini":
+        roots.append(Path(".agents/skills"))
+        if skill_name in _SYSTEM_SKILL_LEGACY_MAILBOX_SKILLS:
+            roots.append(Path(".agents/skills/mailbox"))
+        return tuple(roots)
+
+    if skill_name in _SYSTEM_SKILL_LEGACY_MAILBOX_SKILLS:
+        roots.append(Path("skills/mailbox"))
+    if skill_name in _SYSTEM_SKILL_LEGACY_PROJECT_SKILLS:
+        roots.append(Path("skills/project"))
+    return tuple(roots)
 
 
 def _merge_install_records(
@@ -891,6 +925,22 @@ def _write_system_skill_install_state(*, path: Path, state: SystemSkillInstallSt
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state.to_payload(), indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _remove_obsolete_system_skill_state_file(*, home_path: Path) -> None:
+    """Remove the legacy install-state file and empty namespace parents when present."""
+
+    state_path = system_skill_state_path_for_home(home_path)
+    if not state_path.exists() and not state_path.is_symlink():
+        return
+    _remove_existing_path_if_present(state_path)
+    parent = state_path.parent
+    resolved_home_path = home_path.resolve()
+    while parent != resolved_home_path and parent.exists() and parent.is_dir():
+        if any(parent.iterdir()):
+            break
+        parent.rmdir()
+        parent = parent.parent
 
 
 def _remove_previous_owned_path(*, previous_relative_dir: str, home_path: Path) -> None:

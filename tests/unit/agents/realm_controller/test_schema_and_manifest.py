@@ -133,6 +133,8 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
                 "working_directory": str(tmp_path),
                 "tmux_session_name": "HOUMAO-claude",
             },
+            memory_binding="exact",
+            memory_dir=(tmp_path / "memory" / "agent-a").resolve(),
         )
     )
 
@@ -148,6 +150,10 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.payload["tmux_session_name"] == "HOUMAO-claude"
     assert loaded.payload["registry_launch_authority"] == "runtime"
     assert loaded.payload["runtime"]["session_id"] == "sess-1"
+    assert loaded.payload["runtime"]["memory_binding"] == "exact"
+    assert loaded.payload["runtime"]["memory_dir"] == str(
+        (tmp_path / "memory" / "agent-a").resolve()
+    )
     assert loaded.payload["runtime"]["agent_pid"] is None
     assert loaded.payload["tmux"]["session_name"] == "HOUMAO-claude"
     assert loaded.payload["agent_launch_authority"]["primary_window_index"] == "0"

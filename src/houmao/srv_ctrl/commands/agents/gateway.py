@@ -7,9 +7,10 @@ import json
 from pathlib import Path
 import subprocess
 import time
-from typing import Callable, Literal, TypeVar
+from typing import Any, Callable, Literal, TypeVar
 
 import click
+from pydantic import ValidationError
 
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
@@ -23,6 +24,13 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayReminderCreateBatchV1,
+    GatewayReminderDefinitionV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
+)
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
@@ -50,6 +58,10 @@ from ..common import (
 )
 from ..output import emit
 from ..renderers.gateway import (
+    render_reminder_detail_fancy,
+    render_reminder_detail_plain,
+    render_reminder_list_fancy,
+    render_reminder_list_plain,
     render_gateway_status_fancy,
     render_gateway_status_plain,
     render_prompt_result_fancy,
@@ -61,10 +73,15 @@ from ..managed_agents import (
     _identity_from_controller,
     attach_gateway,
     detach_gateway,
+    gateway_create_reminders,
+    gateway_delete_reminder,
+    gateway_get_reminder,
+    gateway_list_reminders,
     gateway_mail_notifier_disable,
     gateway_mail_notifier_enable,
     gateway_mail_notifier_status,
     gateway_interrupt,
+    gateway_put_reminder,
     gateway_prompt,
     gateway_send_keys,
     gateway_status,
@@ -76,6 +93,11 @@ from ..managed_agents import (
 
 
 _FunctionT = TypeVar("_FunctionT", bound=Callable[..., object])
+_ReminderModelT = TypeVar(
+    "_ReminderModelT",
+    GatewayReminderDefinitionV1,
+    GatewayReminderPutV1,
+)
 
 
 @click.group(name="gateway")
@@ -552,6 +574,543 @@ def disable_gateway_mail_notifier_command(
         operation_name="mail-notifier disable",
     )
     emit(gateway_mail_notifier_disable(target))
+
+
+@gateway_group.group(name="reminders")
+def reminders_gateway_group() -> None:
+    """Gateway reminder lifecycle and inspection commands."""
+
+
+@reminders_gateway_group.command(name="list")
+@_current_session_option
+@_target_tmux_session_option
+@_gateway_pair_port_option(help_text="Houmao pair authority port override for reminder listing")
+@managed_agent_selector_options
+def list_gateway_reminders_command(
+    current_session: bool,
+    target_tmux_session: str | None,
+    pair_port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Show the live gateway reminder set for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        pair_port=pair_port,
+        current_session=current_session,
+        target_tmux_session=target_tmux_session,
+        operation_name="reminders list",
+    )
+    emit(
+        gateway_list_reminders(target),
+        plain_renderer=render_reminder_list_plain,
+        fancy_renderer=render_reminder_list_fancy,
+    )
+
+
+@reminders_gateway_group.command(name="get")
+@click.option("--reminder-id", required=True, help="Reminder id to inspect.")
+@_current_session_option
+@_target_tmux_session_option
+@_gateway_pair_port_option(help_text="Houmao pair authority port override for reminder lookup")
+@managed_agent_selector_options
+def get_gateway_reminder_command(
+    reminder_id: str,
+    current_session: bool,
+    target_tmux_session: str | None,
+    pair_port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Show one live gateway reminder for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        pair_port=pair_port,
+        current_session=current_session,
+        target_tmux_session=target_tmux_session,
+        operation_name="reminders get",
+    )
+    reminder = gateway_get_reminder(target, reminder_id=reminder_id)
+    effective_reminder_id = gateway_list_reminders(target).effective_reminder_id
+    _emit_reminder_detail(reminder, effective_reminder_id=effective_reminder_id)
+
+
+@reminders_gateway_group.command(name="create")
+@click.option("--title", required=True, help="Reminder title used for inspection and reporting.")
+@click.option(
+    "--mode",
+    required=True,
+    type=click.Choice(("one_off", "repeat"), case_sensitive=False),
+    help="Reminder mode.",
+)
+@click.option("--prompt", default=None, help="Prompt text to submit when the reminder fires.")
+@click.option("--sequence", default=None, help="Raw send-keys sequence for reminder delivery.")
+@click.option(
+    "--ensure-enter/--no-ensure-enter",
+    default=True,
+    show_default=True,
+    help="For send-keys reminders, ensure one trailing Enter unless explicitly disabled.",
+)
+@click.option(
+    "--ranking",
+    default=None,
+    type=int,
+    help="Explicit numeric ranking. Lower numbers win.",
+)
+@click.option(
+    "--before-all",
+    is_flag=True,
+    help="Compute ranking as one less than the smallest current reminder ranking.",
+)
+@click.option(
+    "--after-all",
+    is_flag=True,
+    help="Compute ranking as one more than the largest current reminder ranking.",
+)
+@click.option(
+    "--paused/--no-paused",
+    default=False,
+    show_default=True,
+    help="Create the reminder paused or active.",
+)
+@click.option(
+    "--start-after-seconds",
+    default=None,
+    type=click.FloatRange(min=0.0, min_open=True),
+    help="Relative delivery delay in seconds.",
+)
+@click.option(
+    "--deliver-at-utc",
+    default=None,
+    help="Absolute UTC delivery timestamp.",
+)
+@click.option(
+    "--interval-seconds",
+    default=None,
+    type=click.FloatRange(min=0.0, min_open=True),
+    help="Repeat cadence in seconds. Required for repeat reminders.",
+)
+@_current_session_option
+@_target_tmux_session_option
+@_gateway_pair_port_option(help_text="Houmao pair authority port override for reminder creation")
+@managed_agent_selector_options
+def create_gateway_reminder_command(
+    title: str,
+    mode: str,
+    prompt: str | None,
+    sequence: str | None,
+    ensure_enter: bool,
+    ranking: int | None,
+    before_all: bool,
+    after_all: bool,
+    paused: bool,
+    start_after_seconds: float | None,
+    deliver_at_utc: str | None,
+    interval_seconds: float | None,
+    current_session: bool,
+    target_tmux_session: str | None,
+    pair_port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Create one live gateway reminder for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        pair_port=pair_port,
+        current_session=current_session,
+        target_tmux_session=target_tmux_session,
+        operation_name="reminders create",
+    )
+    live_reminders = gateway_list_reminders(target)
+    ranking_value = _resolve_reminder_ranking_value(
+        live_reminders,
+        ranking=ranking,
+        before_all=before_all,
+        after_all=after_all,
+        require_choice=True,
+    )
+    definition = _build_create_reminder_definition(
+        title=title,
+        mode=mode,
+        prompt=prompt,
+        sequence=sequence,
+        ensure_enter=ensure_enter,
+        ranking=ranking_value,
+        paused=paused,
+        start_after_seconds=start_after_seconds,
+        deliver_at_utc=deliver_at_utc,
+        interval_seconds=interval_seconds,
+    )
+    emit(
+        gateway_create_reminders(
+            target,
+            payload=GatewayReminderCreateBatchV1(reminders=[definition]),
+        ),
+        plain_renderer=render_reminder_list_plain,
+        fancy_renderer=render_reminder_list_fancy,
+    )
+
+
+@reminders_gateway_group.command(name="set")
+@click.option("--reminder-id", required=True, help="Reminder id to update.")
+@click.option("--title", default=None, help="Replacement reminder title.")
+@click.option(
+    "--mode",
+    default=None,
+    type=click.Choice(("one_off", "repeat"), case_sensitive=False),
+    help="Replacement reminder mode.",
+)
+@click.option("--prompt", default=None, help="Replacement prompt text.")
+@click.option("--sequence", default=None, help="Replacement send-keys sequence.")
+@click.option(
+    "--ensure-enter/--no-ensure-enter",
+    default=None,
+    help="For send-keys reminders, override the trailing Enter behavior.",
+)
+@click.option(
+    "--ranking",
+    default=None,
+    type=int,
+    help="Replacement numeric ranking. Lower numbers win.",
+)
+@click.option(
+    "--before-all",
+    is_flag=True,
+    help="Recompute ranking as one less than the smallest competing reminder ranking.",
+)
+@click.option(
+    "--after-all",
+    is_flag=True,
+    help="Recompute ranking as one more than the largest competing reminder ranking.",
+)
+@click.option(
+    "--paused/--no-paused",
+    default=None,
+    help="Override the paused state without restating the full reminder.",
+)
+@click.option(
+    "--start-after-seconds",
+    default=None,
+    type=click.FloatRange(min=0.0, min_open=True),
+    help="Reset next delivery to a relative delay in seconds.",
+)
+@click.option(
+    "--deliver-at-utc",
+    default=None,
+    help="Reset next delivery to an absolute UTC timestamp.",
+)
+@click.option(
+    "--interval-seconds",
+    default=None,
+    type=click.FloatRange(min=0.0, min_open=True),
+    help="Replacement repeat cadence in seconds.",
+)
+@_current_session_option
+@_target_tmux_session_option
+@_gateway_pair_port_option(help_text="Houmao pair authority port override for reminder update")
+@managed_agent_selector_options
+def set_gateway_reminder_command(
+    reminder_id: str,
+    title: str | None,
+    mode: str | None,
+    prompt: str | None,
+    sequence: str | None,
+    ensure_enter: bool | None,
+    ranking: int | None,
+    before_all: bool,
+    after_all: bool,
+    paused: bool | None,
+    start_after_seconds: float | None,
+    deliver_at_utc: str | None,
+    interval_seconds: float | None,
+    current_session: bool,
+    target_tmux_session: str | None,
+    pair_port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Update one live gateway reminder for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        pair_port=pair_port,
+        current_session=current_session,
+        target_tmux_session=target_tmux_session,
+        operation_name="reminders set",
+    )
+    existing = gateway_get_reminder(target, reminder_id=reminder_id)
+    live_reminders = gateway_list_reminders(target)
+    ranking_value = _resolve_reminder_ranking_value(
+        live_reminders,
+        ranking=ranking,
+        before_all=before_all,
+        after_all=after_all,
+        require_choice=False,
+        exclude_reminder_id=reminder_id,
+    )
+    payload = _build_put_reminder_payload(
+        existing,
+        title=title,
+        mode=mode,
+        prompt=prompt,
+        sequence=sequence,
+        ensure_enter=ensure_enter,
+        ranking=ranking_value,
+        paused=paused,
+        start_after_seconds=start_after_seconds,
+        deliver_at_utc=deliver_at_utc,
+        interval_seconds=interval_seconds,
+    )
+    updated = gateway_put_reminder(target, reminder_id=reminder_id, payload=payload)
+    effective_reminder_id = gateway_list_reminders(target).effective_reminder_id
+    _emit_reminder_detail(updated, effective_reminder_id=effective_reminder_id)
+
+
+@reminders_gateway_group.command(name="remove")
+@click.option("--reminder-id", required=True, help="Reminder id to delete.")
+@_current_session_option
+@_target_tmux_session_option
+@_gateway_pair_port_option(help_text="Houmao pair authority port override for reminder deletion")
+@managed_agent_selector_options
+def remove_gateway_reminder_command(
+    reminder_id: str,
+    current_session: bool,
+    target_tmux_session: str | None,
+    pair_port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Delete one live gateway reminder for one managed agent."""
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        pair_port=pair_port,
+        current_session=current_session,
+        target_tmux_session=target_tmux_session,
+        operation_name="reminders remove",
+    )
+    emit(gateway_delete_reminder(target, reminder_id=reminder_id))
+
+
+def _resolve_reminder_ranking_value(
+    live_reminders: GatewayReminderListV1,
+    *,
+    ranking: int | None,
+    before_all: bool,
+    after_all: bool,
+    require_choice: bool,
+    exclude_reminder_id: str | None = None,
+) -> int | None:
+    """Resolve one concrete reminder ranking from CLI inputs and live reminder state."""
+
+    mode_count = int(ranking is not None) + int(before_all) + int(after_all)
+    if require_choice and mode_count != 1:
+        raise click.ClickException(
+            "Use exactly one of `--ranking`, `--before-all`, or `--after-all`."
+        )
+    if not require_choice and mode_count > 1:
+        raise click.ClickException(
+            "Use at most one of `--ranking`, `--before-all`, or `--after-all`."
+        )
+    if ranking is not None:
+        return ranking
+    if mode_count == 0:
+        return None
+
+    rankings = [
+        reminder.ranking
+        for reminder in live_reminders.reminders
+        if reminder.reminder_id != exclude_reminder_id
+    ]
+    if not rankings:
+        return 0
+    if before_all:
+        return min(rankings) - 1
+    return max(rankings) + 1
+
+
+def _build_create_reminder_definition(
+    *,
+    title: str,
+    mode: str,
+    prompt: str | None,
+    sequence: str | None,
+    ensure_enter: bool,
+    ranking: int,
+    paused: bool,
+    start_after_seconds: float | None,
+    deliver_at_utc: str | None,
+    interval_seconds: float | None,
+) -> GatewayReminderDefinitionV1:
+    """Build and validate one create payload from CLI fields."""
+
+    payload: dict[str, Any] = {
+        "title": title,
+        "mode": mode,
+        "ranking": ranking,
+        "paused": paused,
+        "start_after_seconds": start_after_seconds,
+        "deliver_at_utc": deliver_at_utc,
+        "interval_seconds": interval_seconds,
+    }
+    if sequence is not None:
+        payload["send_keys"] = {
+            "sequence": sequence,
+            "ensure_enter": ensure_enter,
+        }
+    else:
+        payload["prompt"] = prompt
+    return _validate_gateway_model(GatewayReminderDefinitionV1, payload)
+
+
+def _build_put_reminder_payload(
+    existing: GatewayReminderV1,
+    *,
+    title: str | None,
+    mode: str | None,
+    prompt: str | None,
+    sequence: str | None,
+    ensure_enter: bool | None,
+    ranking: int | None,
+    paused: bool | None,
+    start_after_seconds: float | None,
+    deliver_at_utc: str | None,
+    interval_seconds: float | None,
+) -> GatewayReminderPutV1:
+    """Build and validate one patch-like reminder update payload."""
+
+    if prompt is not None and sequence is not None:
+        raise click.ClickException("Use exactly one of `--prompt` or `--sequence`.")
+
+    payload = _mutable_reminder_payload(existing)
+    if title is not None:
+        payload["title"] = title
+    if mode is not None:
+        payload["mode"] = mode
+    if ranking is not None:
+        payload["ranking"] = ranking
+    if paused is not None:
+        payload["paused"] = paused
+
+    if prompt is not None:
+        payload["prompt"] = prompt
+        payload["send_keys"] = None
+    elif sequence is not None:
+        resolved_ensure_enter = (
+            ensure_enter
+            if ensure_enter is not None
+            else (existing.send_keys.ensure_enter if existing.send_keys is not None else True)
+        )
+        payload["prompt"] = None
+        payload["send_keys"] = {
+            "sequence": sequence,
+            "ensure_enter": resolved_ensure_enter,
+        }
+    elif ensure_enter is not None:
+        if not isinstance(payload.get("send_keys"), dict):
+            raise click.ClickException(
+                "`--ensure-enter/--no-ensure-enter` only applies to send-keys reminders."
+            )
+        payload["send_keys"] = {
+            **dict(payload["send_keys"]),
+            "ensure_enter": ensure_enter,
+        }
+
+    if start_after_seconds is not None:
+        payload["start_after_seconds"] = start_after_seconds
+        payload["deliver_at_utc"] = None
+    elif deliver_at_utc is not None:
+        payload["start_after_seconds"] = None
+        payload["deliver_at_utc"] = deliver_at_utc
+
+    resolved_mode = str(payload["mode"])
+    if resolved_mode == "one_off" and interval_seconds is None:
+        payload["interval_seconds"] = None
+    elif interval_seconds is not None:
+        payload["interval_seconds"] = interval_seconds
+
+    return _validate_gateway_model(GatewayReminderPutV1, payload)
+
+
+def _mutable_reminder_payload(existing: GatewayReminderV1) -> dict[str, Any]:
+    """Project one live reminder into its mutable PUT shape."""
+
+    payload: dict[str, Any] = {
+        "mode": existing.mode,
+        "title": existing.title,
+        "prompt": existing.prompt,
+        "send_keys": (
+            existing.send_keys.model_dump(mode="json") if existing.send_keys is not None else None
+        ),
+        "ranking": existing.ranking,
+        "paused": existing.paused,
+        "start_after_seconds": None,
+        "deliver_at_utc": existing.next_due_at_utc,
+        "interval_seconds": existing.interval_seconds,
+    }
+    return payload
+
+
+def _emit_reminder_detail(
+    reminder: GatewayReminderV1,
+    *,
+    effective_reminder_id: str | None,
+) -> None:
+    """Emit one reminder detail while preserving raw JSON output for `--print-json`."""
+
+    if _output_style() == "json":
+        emit(reminder)
+        return
+    emit(
+        {
+            "effective_reminder_id": effective_reminder_id,
+            "reminder": reminder.model_dump(mode="json"),
+        },
+        plain_renderer=render_reminder_detail_plain,
+        fancy_renderer=render_reminder_detail_fancy,
+    )
+
+
+def _output_style() -> str:
+    """Return the active CLI print style."""
+
+    ctx = click.get_current_context(silent=True)
+    if ctx is None or not isinstance(ctx.obj, dict):
+        return "plain"
+    output_context = ctx.obj.get("output")
+    style = getattr(output_context, "style", None)
+    return style if isinstance(style, str) else "plain"
+
+
+def _validate_gateway_model(
+    model_class: type[_ReminderModelT],
+    payload: dict[str, Any],
+) -> _ReminderModelT:
+    """Validate one reminder payload and translate pydantic errors into Click errors."""
+
+    try:
+        return model_class.model_validate(payload)
+    except ValidationError as exc:
+        raise click.ClickException(_format_validation_error(exc)) from exc
+
+
+def _format_validation_error(exc: ValidationError) -> str:
+    """Render one compact Click-facing validation error."""
+
+    messages: list[str] = []
+    for error in exc.errors():
+        location = ".".join(str(item) for item in error.get("loc", ()))
+        message = str(error.get("msg", "invalid value"))
+        messages.append(f"{location}: {message}" if location else message)
+    return "; ".join(messages)
 
 
 @dataclass(frozen=True)
