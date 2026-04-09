@@ -65,6 +65,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
         "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
@@ -133,6 +134,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -156,6 +158,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
         "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
@@ -219,6 +222,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
     manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
+    pairwise_loop_skill_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
+    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
+    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
@@ -227,9 +233,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
     )
     assert tuple(record.name for record in installed_records) == result.resolved_skill_names
     assert tuple(record.projection_mode for record in installed_records) == (
+        "copy",
         "copy",
         "copy",
         "copy",
@@ -245,10 +253,14 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
+    assert pairwise_loop_skill_path.is_file()
+    assert (pairwise_loop_authoring / "formulate-loop-plan.md").is_file()
+    assert (pairwise_loop_operating / "start.md").is_file()
     project_mgr_skill = project_mgr_path.read_text(encoding="utf-8")
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
+    pairwise_loop_skill = pairwise_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
     project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
@@ -479,6 +491,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "project agents recipes remove --name <recipe>"
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
+    assert "operating/start.md" in pairwise_loop_skill
+    assert (
+        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one pairwise loop run"
+        in pairwise_loop_skill
+    )
+    assert "Do not make the user agent the upstream driver of the execution loop." in pairwise_loop_skill
     assert list_action_path.is_file()
     assert get_action_path.is_file()
     assert remove_action_path.is_file()
@@ -548,6 +567,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_path = home_path / "skills/houmao-touring/SKILL.md"
     touring_branches = home_path / "skills/houmao-touring/branches"
     touring_references = home_path / "skills/houmao-touring/references"
+    pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
+    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
+    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
+    pairwise_loop_references = home_path / "skills/houmao-agent-loop-pairwise/references"
+    pairwise_loop_templates = home_path / "skills/houmao-agent-loop-pairwise/templates"
 
     assert result.selected_set_names == (
         "mailbox-full",
@@ -569,6 +593,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
         "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
@@ -582,12 +607,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
+    assert pairwise_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
     touring_skill = touring_path.read_text(encoding="utf-8")
+    pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
@@ -628,6 +655,19 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_live_ops_path = touring_branches / "live-operations.md"
     touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
     touring_question_style_path = touring_references / "question-style.md"
+    pairwise_loop_formulate_path = pairwise_loop_authoring / "formulate-loop-plan.md"
+    pairwise_loop_revise_path = pairwise_loop_authoring / "revise-loop-plan.md"
+    pairwise_loop_graph_path = pairwise_loop_authoring / "render-loop-graph.md"
+    pairwise_loop_start_path = pairwise_loop_operating / "start.md"
+    pairwise_loop_status_path = pairwise_loop_operating / "status.md"
+    pairwise_loop_stop_path = pairwise_loop_operating / "stop.md"
+    pairwise_loop_charter_path = pairwise_loop_references / "run-charter.md"
+    pairwise_loop_policy_path = pairwise_loop_references / "delegation-policy.md"
+    pairwise_loop_stop_modes_path = pairwise_loop_references / "stop-modes.md"
+    pairwise_loop_reporting_path = pairwise_loop_references / "reporting-contract.md"
+    pairwise_loop_plan_structure_path = pairwise_loop_references / "plan-structure.md"
+    pairwise_loop_single_template_path = pairwise_loop_templates / "single-file-plan.md"
+    pairwise_loop_bundle_template_path = pairwise_loop_templates / "bundle-plan.md"
     mailbox_init_action_path = mailbox_mgr_actions / "init.md"
     mailbox_register_action_path = mailbox_mgr_actions / "register.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
@@ -648,6 +688,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
     relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
+    pairwise_loop_formulate = pairwise_loop_formulate_path.read_text(encoding="utf-8")
+    pairwise_loop_graph = pairwise_loop_graph_path.read_text(encoding="utf-8")
+    pairwise_loop_start = pairwise_loop_start_path.read_text(encoding="utf-8")
+    pairwise_loop_status = pairwise_loop_status_path.read_text(encoding="utf-8")
+    pairwise_loop_stop = pairwise_loop_stop_path.read_text(encoding="utf-8")
+    pairwise_loop_policy = pairwise_loop_policy_path.read_text(encoding="utf-8")
+    pairwise_loop_single_template = pairwise_loop_single_template_path.read_text(encoding="utf-8")
+    pairwise_loop_bundle_template = pairwise_loop_bundle_template_path.read_text(encoding="utf-8")
 
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
@@ -735,6 +783,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "references/question-style.md" in touring_skill
     assert "houmao-project-mgr" in touring_skill
     assert "houmao-agent-instance" in touring_skill
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
+    assert "authoring/render-loop-graph.md" in pairwise_loop_skill
+    assert "operating/start.md" in pairwise_loop_skill
+    assert "operating/stop.md" in pairwise_loop_skill
+    assert "references/run-charter.md" in pairwise_loop_skill
+    assert "templates/single-file-plan.md" in pairwise_loop_skill
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
@@ -759,6 +813,19 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert touring_live_ops_path.is_file()
     assert touring_lifecycle_path.is_file()
     assert touring_question_style_path.is_file()
+    assert pairwise_loop_formulate_path.is_file()
+    assert pairwise_loop_revise_path.is_file()
+    assert pairwise_loop_graph_path.is_file()
+    assert pairwise_loop_start_path.is_file()
+    assert pairwise_loop_status_path.is_file()
+    assert pairwise_loop_stop_path.is_file()
+    assert pairwise_loop_charter_path.is_file()
+    assert pairwise_loop_policy_path.is_file()
+    assert pairwise_loop_stop_modes_path.is_file()
+    assert pairwise_loop_reporting_path.is_file()
+    assert pairwise_loop_plan_structure_path.is_file()
+    assert pairwise_loop_single_template_path.is_file()
+    assert pairwise_loop_bundle_template_path.is_file()
     assert "HOUMAO_AGENT_ID" in gateway_discover_action
     assert (
         "Use the `houmao-mgr` launcher already chosen by the top-level skill."
@@ -801,6 +868,15 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ask the user for that parameter" in relay_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
     assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
+    assert "No free delegation is allowed unless the plan says so explicitly." in pairwise_loop_formulate
+    assert "```mermaid" in pairwise_loop_graph
+    assert "The final plan must include one Mermaid fenced code block." in pairwise_loop_graph
+    assert "After the master accepts the run, the master owns liveness" in pairwise_loop_start
+    assert "Status is observational and does not keep the run alive." in pairwise_loop_status
+    assert "`interrupt-first` is the default stop posture for this skill." in pairwise_loop_stop
+    assert "delegate_freely_within_named_set" in pairwise_loop_policy
+    assert "# Mermaid Control Graph" in pairwise_loop_single_template
+    assert "scripts/README.md" in pairwise_loop_bundle_template
     assert "A specialist is a reusable agent template" in touring_question_style
     assert "You can skip this now and come back later." in touring_question_style
     assert "stop `research`" in touring_question_style

@@ -36,6 +36,10 @@ description = "Project-local credential management skill."
 asset_subpath = "houmao-agent-definition"
 description = "Low-level project-local role and preset definition management skill."
 
+[skills.houmao-agent-loop-pairwise]
+asset_subpath = "houmao-agent-loop-pairwise"
+description = "Pairwise loop planning and master-run control skill for user-controlled agents."
+
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
 description = "Managed agent instance lifecycle skill."
@@ -82,6 +86,7 @@ skills = [
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",
+  "houmao-agent-loop-pairwise",
 ]
 
 [sets.agent-instance]
