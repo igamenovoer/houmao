@@ -117,7 +117,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
                 target=headless_agent_pane_target_shared(
                     session_name=self._require_tmux_session_name()
                 ),
-                segments=parse_tmux_control_input_shared(sequence="<[C-c]>"),
+                segments=parse_tmux_control_input_shared(sequence="<[Escape]>"),
             )
         except (BackendExecutionError, TmuxCommandError, TmuxControlInputError) as exc:
             return SessionControlResult(
