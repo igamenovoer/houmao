@@ -156,6 +156,6 @@ Current source behavior:
 
 ## Source References
 
-- [`src/houmao/agents/realm_controller/gateway_service.py`](../../../src/houmao/agents/realm_controller/gateway_service.py)
-- [`src/houmao/agents/realm_controller/gateway_storage.py`](../../../src/houmao/agents/realm_controller/gateway_storage.py)
-- [`src/houmao/agents/realm_controller/assets/system_prompts/mailbox/mail-notifier.md`](../../../src/houmao/agents/realm_controller/assets/system_prompts/mailbox/mail-notifier.md)
+- [`src/houmao/agents/realm_controller/gateway_service.py`](../../../../src/houmao/agents/realm_controller/gateway_service.py)
+- [`src/houmao/agents/realm_controller/gateway_storage.py`](../../../../src/houmao/agents/realm_controller/gateway_storage.py)
+- [`src/houmao/agents/realm_controller/assets/system_prompts/mailbox/mail-notifier.md`](../../../../src/houmao/agents/realm_controller/assets/system_prompts/mailbox/mail-notifier.md)
