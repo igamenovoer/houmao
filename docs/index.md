@@ -12,7 +12,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional easy profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
 - [Managed Memory Dirs](getting-started/managed-memory-dirs.md): Durable per-agent memory roots, explicit shared paths, and `--no-memory-dir`.
-- [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of the eleven packaged Houmao-owned system skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
+- [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of the twelve packaged Houmao-owned system skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
 ## Reference
 

@@ -77,11 +77,11 @@ Within that pair, `houmao-mgr` is split deliberately:
 
 The repo-local `project` tree is intentionally split by user view:
 
-- `project agents ...` is the low-level filesystem-oriented surface for `.houmao/agents/`. It includes:
+- `project agents ...` is the low-level compatibility-projection surface for `.houmao/agents/`. Project-local semantic truth lives in `.houmao/catalog.sqlite` plus `.houmao/content/`, while `.houmao/agents/` remains the generated file-tree view used by current builders and runtime. It includes:
     - `project agents roles ...` for prompt-only role management,
     - `project agents recipes ...` (canonical) and `project agents presets ...` (compatibility alias) for named recipe administration under `.houmao/agents/presets/<name>.yaml`,
     - `project agents launch-profiles ...` for explicit recipe-backed reusable birth-time launch profiles under `.houmao/agents/launch-profiles/<name>.yaml`,
-    - `project agents tools <tool> ...` for adapter, setup, and auth-bundle administration.
+    - `project agents tools <tool> ...` for adapter, setup, and auth-bundle administration, including display-name-oriented `auth rename`.
 - `project easy ...` is the higher-level specialist, easy-profile, and instance surface. It includes `project easy specialist ...`, `project easy profile ...` (specialist-backed reusable birth-time profiles), and `project easy instance ...` (the runtime lifecycle surface that accepts `--specialist` or `--profile` on `instance launch`).
 - `project mailbox ...` is the project-scoped wrapper over the generic mailbox-root commands.
 

@@ -50,7 +50,7 @@ Key options:
 
 | Option | Default | Description |
 |---|---|---|
-| `--name` | Required | Specialist name. Used as the role name and default credential name. |
+| `--name` | Required | Specialist name. Used as the role name and default auth display name. |
 | `--tool` | Required | Tool lane: `claude`, `codex`, or `gemini`. |
 | `--system-prompt` / `--system-prompt-file` | None | Inline prompt text or path to a prompt markdown file. |
 | `--credential` | `<name>-creds` | Auth display name. Defaults to `<specialist-name>-creds`. |
