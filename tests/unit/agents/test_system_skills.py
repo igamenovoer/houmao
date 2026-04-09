@@ -738,6 +738,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
+    assert "houmao-mgr agents gateway reminders list|get|create|set|remove" in agent_gateway_skill
     assert "command -v houmao-mgr" in agent_gateway_skill
     assert "uv tool run --from houmao houmao-mgr" in agent_gateway_skill
     assert gateway_lifecycle_action_path.is_file()
@@ -768,6 +769,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "/v1/reminders" in gateway_reminders_action
     assert "send_keys" in gateway_reminders_action
     assert "ensure_enter" in gateway_reminders_action
+    assert "agents gateway reminders create" in gateway_reminders_action
+    assert "--before-all" in gateway_reminders_action
+    assert "--after-all" in gateway_reminders_action
     assert "paused effective reminder still blocks" in gateway_reminders_action
     assert "process-local in-memory state" in gateway_reminders_action
     assert "/houmao/agents/{agent_ref}/gateway/reminders" in gateway_http_reference

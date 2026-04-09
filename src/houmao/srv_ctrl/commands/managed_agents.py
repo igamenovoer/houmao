@@ -59,6 +59,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestPayloadInterruptV1,
     GatewayStatusV1,
 )
@@ -891,6 +897,115 @@ def gateway_tui_note_prompt(
     client = _require_live_gateway_client_for_controller(target.controller)
     try:
         return client.note_tui_prompt_submission(prompt=prompt)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_list_reminders(target: ManagedAgentTarget) -> GatewayReminderListV1:
+    """Return the live gateway reminder set for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(target.client.list_managed_agent_gateway_reminders, target.agent_ref)
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.list_reminders()
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_get_reminder(
+    target: ManagedAgentTarget,
+    *,
+    reminder_id: str,
+) -> GatewayReminderV1:
+    """Return one live gateway reminder for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.get_managed_agent_gateway_reminder,
+            target.agent_ref,
+            reminder_id,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.get_reminder(reminder_id=reminder_id)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_create_reminders(
+    target: ManagedAgentTarget,
+    *,
+    payload: GatewayReminderCreateBatchV1,
+) -> GatewayReminderCreateResultV1:
+    """Create one or more live gateway reminders for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.create_managed_agent_gateway_reminders,
+            target.agent_ref,
+            payload,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.create_reminders(payload)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_put_reminder(
+    target: ManagedAgentTarget,
+    *,
+    reminder_id: str,
+    payload: GatewayReminderPutV1,
+) -> GatewayReminderV1:
+    """Replace one live gateway reminder for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.put_managed_agent_gateway_reminder,
+            target.agent_ref,
+            reminder_id,
+            payload,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.put_reminder(reminder_id=reminder_id, payload=payload)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_delete_reminder(
+    target: ManagedAgentTarget,
+    *,
+    reminder_id: str,
+) -> GatewayReminderDeleteResultV1:
+    """Delete one live gateway reminder for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.delete_managed_agent_gateway_reminder,
+            target.agent_ref,
+            reminder_id,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.delete_reminder(reminder_id=reminder_id)
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 

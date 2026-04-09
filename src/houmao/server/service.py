@@ -33,6 +33,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessStartupDefaultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -141,6 +147,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -1338,6 +1345,58 @@ class HoumaoServerService:
         client = self._require_live_managed_gateway_client(agent_ref)
         return self._invoke_live_gateway(client.delete_mail_notifier)
 
+    def list_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+    ) -> GatewayReminderListV1:
+        """Return the live gateway reminder set for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(client.list_reminders)
+
+    def create_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+        request_model: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        """Create live gateway reminders for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.create_reminders(request_model))
+
+    def get_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1:
+        """Return one live gateway reminder for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.get_reminder(reminder_id=reminder_id))
+
+    def put_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+        request_model: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        """Replace one live gateway reminder for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(
+            lambda: client.put_reminder(reminder_id=reminder_id, payload=request_model)
+        )
+
+    def delete_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        """Delete one live gateway reminder for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.delete_reminder(reminder_id=reminder_id))
+
     def managed_agent_mail_status(self, agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         """Return pair-owned mailbox status for one managed agent."""
 
@@ -1378,6 +1437,17 @@ class HoumaoServerService:
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
         response = self._invoke_live_gateway(lambda: client.send_mail(request_model))
+        return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Post one operator-origin mailbox note for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.post_mail(request_model))
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
     def reply_managed_agent_mail(

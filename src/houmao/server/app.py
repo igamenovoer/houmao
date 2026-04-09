@@ -18,6 +18,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
@@ -49,6 +55,7 @@ from .models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -498,6 +505,43 @@ def create_app(
     ) -> GatewayMailNotifierStatusV1:
         return resolved_service.delete_managed_agent_gateway_mail_notifier(agent_ref)
 
+    @app.get("/houmao/agents/{agent_ref}/gateway/reminders")
+    def list_managed_agent_gateway_reminders(agent_ref: str) -> GatewayReminderListV1:
+        return resolved_service.list_managed_agent_gateway_reminders(agent_ref)
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/reminders")
+    def create_managed_agent_gateway_reminders(
+        agent_ref: str,
+        request_model: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        return resolved_service.create_managed_agent_gateway_reminders(agent_ref, request_model)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}")
+    def get_managed_agent_gateway_reminder(
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1:
+        return resolved_service.get_managed_agent_gateway_reminder(agent_ref, reminder_id)
+
+    @app.put("/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}")
+    def put_managed_agent_gateway_reminder(
+        agent_ref: str,
+        reminder_id: str,
+        request_model: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        return resolved_service.put_managed_agent_gateway_reminder(
+            agent_ref,
+            reminder_id,
+            request_model,
+        )
+
+    @app.delete("/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}")
+    def delete_managed_agent_gateway_reminder(
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        return resolved_service.delete_managed_agent_gateway_reminder(agent_ref, reminder_id)
+
     @app.get("/houmao/agents/{agent_ref}/mail/status")
     def managed_agent_mail_status(agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         return resolved_service.managed_agent_mail_status(agent_ref)
@@ -519,6 +563,13 @@ def create_app(
         request_model: HoumaoManagedAgentMailSendRequest,
     ) -> HoumaoManagedAgentMailActionResponse:
         return resolved_service.send_managed_agent_mail(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/post")
+    def post_managed_agent_mail(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        return resolved_service.post_managed_agent_mail(agent_ref, request_model)
 
     @app.post("/houmao/agents/{agent_ref}/mail/reply")
     def reply_managed_agent_mail(

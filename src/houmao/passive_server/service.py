@@ -30,6 +30,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -419,6 +425,96 @@ class PassiveServerService:
             return client.delete_mail_notifier()
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
+
+    def gateway_reminders(
+        self,
+        agent_ref: str,
+    ) -> GatewayReminderListV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/reminders` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.list_reminders()
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_create_reminders(
+        self,
+        agent_ref: str,
+        payload: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/reminders` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.create_reminders(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_get_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/reminders/{reminder_id}` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.get_reminder(reminder_id=reminder_id)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_put_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+        payload: GatewayReminderPutV1,
+    ) -> GatewayReminderV1 | tuple[int, dict[str, Any]]:
+        """Proxy `PUT /v1/reminders/{reminder_id}` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.put_reminder(reminder_id=reminder_id, payload=payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_delete_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1 | tuple[int, dict[str, Any]]:
+        """Proxy `DELETE /v1/reminders/{reminder_id}` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.delete_reminder(reminder_id=reminder_id)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_status(
         self, agent_ref: str

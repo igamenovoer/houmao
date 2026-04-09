@@ -13,6 +13,13 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderSendKeysV1,
+    GatewayReminderV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
@@ -157,6 +164,11 @@ class _AppServiceDouble:
         self.m_gateway_notifier_get_calls: list[str] = []
         self.m_gateway_notifier_put_calls: list[tuple[str, GatewayMailNotifierPutV1]] = []
         self.m_gateway_notifier_delete_calls: list[str] = []
+        self.m_gateway_reminders_get_calls: list[str] = []
+        self.m_gateway_reminders_create_calls: list[tuple[str, GatewayReminderCreateBatchV1]] = []
+        self.m_gateway_reminder_get_calls: list[tuple[str, str]] = []
+        self.m_gateway_reminder_put_calls: list[tuple[str, str, GatewayReminderPutV1]] = []
+        self.m_gateway_reminder_delete_calls: list[tuple[str, str]] = []
         self.m_mail_status_calls: list[str] = []
         self.m_mail_check_calls: list[tuple[str, HoumaoManagedAgentMailCheckRequest]] = []
         self.m_mail_send_calls: list[tuple[str, HoumaoManagedAgentMailSendRequest]] = []
@@ -644,6 +656,88 @@ class _AppServiceDouble:
             last_notification_at_utc=None,
             last_error=None,
         )
+
+    def list_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+    ) -> GatewayReminderListV1:
+        self.m_gateway_reminders_get_calls.append(agent_ref)
+        reminder = GatewayReminderV1(
+            reminder_id="greminder-1",
+            mode="one_off",
+            delivery_kind="prompt",
+            title="Check inbox",
+            prompt="Review the inbox now.",
+            ranking=0,
+            paused=False,
+            selection_state="effective",
+            delivery_state="scheduled",
+            created_at_utc="2026-04-09T00:00:00+00:00",
+            next_due_at_utc="2026-04-09T00:05:00+00:00",
+        )
+        return GatewayReminderListV1(
+            effective_reminder_id=reminder.reminder_id,
+            reminders=[reminder],
+        )
+
+    def create_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+        request_model: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        self.m_gateway_reminders_create_calls.append((agent_ref, request_model))
+        return self.list_managed_agent_gateway_reminders(agent_ref)
+
+    def get_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1:
+        self.m_gateway_reminder_get_calls.append((agent_ref, reminder_id))
+        return GatewayReminderV1(
+            reminder_id=reminder_id,
+            mode="one_off",
+            delivery_kind="prompt",
+            title="Check inbox",
+            prompt="Review the inbox now.",
+            ranking=0,
+            paused=False,
+            selection_state="effective",
+            delivery_state="scheduled",
+            created_at_utc="2026-04-09T00:00:00+00:00",
+            next_due_at_utc="2026-04-09T00:05:00+00:00",
+        )
+
+    def put_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+        request_model: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        self.m_gateway_reminder_put_calls.append((agent_ref, reminder_id, request_model))
+        return GatewayReminderV1(
+            reminder_id=reminder_id,
+            mode=request_model.mode,
+            delivery_kind="send_keys" if request_model.send_keys is not None else "prompt",
+            title=request_model.title,
+            prompt=request_model.prompt,
+            send_keys=request_model.send_keys,
+            ranking=request_model.ranking,
+            paused=request_model.paused,
+            selection_state="effective",
+            delivery_state="scheduled",
+            created_at_utc="2026-04-09T00:00:00+00:00",
+            next_due_at_utc="2026-04-09T00:05:00+00:00",
+            interval_seconds=request_model.interval_seconds,
+        )
+
+    def delete_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        self.m_gateway_reminder_delete_calls.append((agent_ref, reminder_id))
+        return GatewayReminderDeleteResultV1(reminder_id=reminder_id, detail="deleted")
 
     def managed_agent_mail_status(self, agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         self.m_mail_status_calls.append(agent_ref)
@@ -1184,6 +1278,31 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         "DELETE",
         app=app,
     )
+    gateway_reminders_list_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/reminders",
+        "GET",
+        app=app,
+    )
+    gateway_reminders_create_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/reminders",
+        "POST",
+        app=app,
+    )
+    gateway_reminder_get_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}",
+        "GET",
+        app=app,
+    )
+    gateway_reminder_put_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}",
+        "PUT",
+        app=app,
+    )
+    gateway_reminder_delete_route = _route(
+        "/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}",
+        "DELETE",
+        app=app,
+    )
     mail_status_route = _route("/houmao/agents/{agent_ref}/mail/status", "GET", app=app)
     mail_check_route = _route("/houmao/agents/{agent_ref}/mail/check", "POST", app=app)
     mail_send_route = _route("/houmao/agents/{agent_ref}/mail/send", "POST", app=app)
@@ -1294,6 +1413,58 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     )
     assert notifier_enabled.enabled is True
     assert gateway_notifier_delete_route.endpoint(agent_ref="claude-headless-1").enabled is False
+    assert (
+        gateway_reminders_list_route.endpoint(agent_ref="claude-headless-1").effective_reminder_id
+        == "greminder-1"
+    )
+    assert (
+        gateway_reminders_create_route.endpoint(
+            agent_ref="claude-headless-1",
+            request_model=GatewayReminderCreateBatchV1(
+                reminders=[
+                    {
+                        "mode": "one_off",
+                        "title": "Check inbox",
+                        "prompt": "Review the inbox now.",
+                        "ranking": 0,
+                        "start_after_seconds": 60,
+                    }
+                ]
+            ),
+        ).effective_reminder_id
+        == "greminder-1"
+    )
+    assert (
+        gateway_reminder_get_route.endpoint(
+            agent_ref="claude-headless-1",
+            reminder_id="greminder-1",
+        ).reminder_id
+        == "greminder-1"
+    )
+    assert (
+        gateway_reminder_put_route.endpoint(
+            agent_ref="claude-headless-1",
+            reminder_id="greminder-1",
+            request_model=GatewayReminderPutV1(
+                mode="one_off",
+                title="Check inbox later",
+                send_keys=GatewayReminderSendKeysV1(
+                    sequence="<[Escape]>",
+                    ensure_enter=False,
+                ),
+                ranking=-1,
+                deliver_at_utc="2026-04-09T12:00:00+00:00",
+            ),
+        ).ranking
+        == -1
+    )
+    assert (
+        gateway_reminder_delete_route.endpoint(
+            agent_ref="claude-headless-1",
+            reminder_id="greminder-1",
+        ).deleted
+        is True
+    )
     assert mail_status_route.endpoint(agent_ref="claude-headless-1").principal_id == "agent-1234"
     mail_check_response = mail_check_route.endpoint(
         agent_ref="claude-headless-1",

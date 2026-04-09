@@ -19,6 +19,13 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailStatusV1,
     GatewayMailboxMessageV1,
     GatewayMailboxParticipantV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderDefinitionV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.models import SessionEvent
@@ -427,6 +434,60 @@ def _stub_mail_notifier_status(
         last_poll_at_utc=None,
         last_notification_at_utc=None,
         last_error=None,
+    )
+
+
+def _stub_reminder(
+    *,
+    reminder_id: str = "greminder-1",
+    ranking: int = 0,
+    selection_state: str = "effective",
+    blocked_by_reminder_id: str | None = None,
+) -> GatewayReminderV1:
+    """Create a minimal valid GatewayReminderV1 for mocking."""
+
+    return GatewayReminderV1(
+        reminder_id=reminder_id,
+        mode="one_off",
+        delivery_kind="prompt",
+        title="Check inbox",
+        prompt="Review the inbox now.",
+        ranking=ranking,
+        paused=False,
+        selection_state=selection_state,  # type: ignore[arg-type]
+        delivery_state="scheduled",
+        created_at_utc="2026-04-09T00:00:00+00:00",
+        next_due_at_utc="2026-04-09T00:05:00+00:00",
+        blocked_by_reminder_id=blocked_by_reminder_id,
+    )
+
+
+def _stub_reminder_list() -> GatewayReminderListV1:
+    """Create a minimal valid GatewayReminderListV1 for mocking."""
+
+    reminder = _stub_reminder()
+    return GatewayReminderListV1(
+        effective_reminder_id=reminder.reminder_id,
+        reminders=[reminder],
+    )
+
+
+def _stub_reminder_create_result() -> GatewayReminderCreateResultV1:
+    """Create a minimal valid GatewayReminderCreateResultV1 for mocking."""
+
+    reminder = _stub_reminder()
+    return GatewayReminderCreateResultV1(
+        effective_reminder_id=reminder.reminder_id,
+        reminders=[reminder],
+    )
+
+
+def _stub_reminder_delete_result() -> GatewayReminderDeleteResultV1:
+    """Create a minimal valid GatewayReminderDeleteResultV1 for mocking."""
+
+    return GatewayReminderDeleteResultV1(
+        reminder_id="greminder-1",
+        detail="deleted",
     )
 
 
@@ -857,6 +918,129 @@ class TestGatewayMailNotifierEndpoint:
         with client:
             resp = client.get("/houmao/agents/abc123/gateway/mail-notifier")
         assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Gateway reminder endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayReminderEndpoints:
+    """Reminder proxy routes under `/houmao/agents/{agent_ref}/gateway/reminders...`."""
+
+    def test_list_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(GatewayClient, "list_reminders", return_value=_stub_reminder_list()):
+            resp = client.get("/houmao/agents/abc123/gateway/reminders")
+        assert resp.status_code == 200
+
+    def test_create_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        request_model = GatewayReminderCreateBatchV1(
+            reminders=[
+                GatewayReminderDefinitionV1(
+                    mode="one_off",
+                    title="Check inbox",
+                    prompt="Review the inbox now.",
+                    ranking=0,
+                    start_after_seconds=60,
+                )
+            ]
+        )
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "create_reminders",
+                return_value=_stub_reminder_create_result(),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/reminders",
+                json=request_model.model_dump(mode="json"),
+            )
+        assert resp.status_code == 200
+
+    def test_get_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with client, patch.object(GatewayClient, "get_reminder", return_value=_stub_reminder()):
+            resp = client.get("/houmao/agents/abc123/gateway/reminders/greminder-1")
+        assert resp.status_code == 200
+
+    def test_put_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        request_model = GatewayReminderPutV1(
+            mode="one_off",
+            title="Check inbox later",
+            prompt="Review the inbox later.",
+            ranking=1,
+            deliver_at_utc="2026-04-09T12:00:00+00:00",
+        )
+        with client, patch.object(GatewayClient, "put_reminder", return_value=_stub_reminder()):
+            resp = client.put(
+                "/houmao/agents/abc123/gateway/reminders/greminder-1",
+                json=request_model.model_dump(mode="json"),
+            )
+        assert resp.status_code == 200
+
+    def test_delete_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "delete_reminder",
+                return_value=_stub_reminder_delete_result(),
+            ),
+        ):
+            resp = client.delete("/houmao/agents/abc123/gateway/reminders/greminder-1")
+        assert resp.status_code == 200
+
+    def test_not_found_returns_404(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.get("/houmao/agents/unknown/gateway/reminders")
+        assert resp.status_code == 404
+
+    def test_no_gateway_returns_502(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent()])
+        with client:
+            resp = client.get("/houmao/agents/abc123/gateway/reminders")
+        assert resp.status_code == 502
+
+    def test_gateway_error_status_is_preserved(self, tmp_path: object) -> None:
+        agent = _agent_with_gateway()
+        client = _make_agent_client(tmp_path, [agent])
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "put_reminder",
+                side_effect=GatewayHttpError(
+                    method="PUT",
+                    url="http://127.0.0.1:9901/v1/reminders/greminder-1",
+                    status_code=409,
+                    detail="busy",
+                ),
+            ),
+        ):
+            resp = client.put(
+                "/houmao/agents/abc123/gateway/reminders/greminder-1",
+                json={
+                    "schema_version": 1,
+                    "mode": "one_off",
+                    "title": "later",
+                    "prompt": "later",
+                    "ranking": 0,
+                    "deliver_at_utc": "2026-04-09T12:00:00+00:00",
+                },
+            )
+        assert resp.status_code == 409
 
 
 # ---------------------------------------------------------------------------
