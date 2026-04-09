@@ -190,6 +190,38 @@ Each completed page SHALL follow the style of `docs/reference/cli/admin-cleanup.
 - **THEN** they find complete documentation for `submit`, `status`, `events`, `stdout`, and `stderr` with option tables
 - **AND THEN** the page is not truncated mid-content
 
+### Requirement: CLI reference documents the `agents gateway reminders` subgroup
+The CLI reference SHALL document `houmao-mgr agents gateway reminders` as a first-class subgroup of `agents gateway`.
+
+At minimum, that coverage SHALL include:
+
+- `list`
+- `get`
+- `create`
+- `set`
+- `remove`
+
+The `agents-gateway` reference page SHALL provide full option tables and brief usage guidance for those reminder commands.
+
+That reminder coverage SHALL explain:
+
+- the same managed-agent selector rules used by the rest of `agents gateway`,
+- that reminder commands work through pair-managed authority when `--pair-port` is used,
+- that ranking remains numeric,
+- that `--before-all` places a reminder ahead of the current minimum ranking,
+- that `--after-all` places a reminder after the current maximum ranking,
+- that direct `/v1/reminders` remains the lower-level gateway contract underneath the CLI.
+
+#### Scenario: Reader finds all reminder subcommands from the `agents gateway` CLI reference
+- **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
+- **THEN** the page documents `reminders list`, `reminders get`, `reminders create`, `reminders set`, and `reminders remove`
+- **AND THEN** the reminder subgroup appears alongside the other current `agents gateway` operator surfaces rather than as an undocumented exception
+
+#### Scenario: Reader can understand ranking placement flags from the CLI reference
+- **WHEN** a reader looks up `houmao-mgr agents gateway reminders create` or `set`
+- **THEN** the option tables and prose explain `--ranking`, `--before-all`, and `--after-all`
+- **AND THEN** the page makes clear that ranking is numeric and that the convenience flags resolve to concrete numeric positions relative to the live reminder set
+
 ### Requirement: houmao-passive-server reference rewritten with operational depth
 
 The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be rewritten from the current 30-line stub to a comprehensive reference covering:
@@ -550,13 +582,15 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `hou
 That page SHALL describe the packaged skill as the Houmao-owned entry point for gateway-focused work across:
 
 - `agents gateway attach|detach|status`
+- `agents gateway reminders list|get|create|set|remove`
 - `agents gateway mail-notifier status|enable|disable`
 - current-session versus explicit managed-agent gateway targeting
+- managed-agent gateway reminder proxy routes such as `/houmao/agents/{agent_ref}/gateway/reminders...` when the task is already operating through pair-managed HTTP
 - direct live gateway route families such as `/v1/status`, `/v1/reminders`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
 
 That page SHALL explain that the packaged gateway skill prefers `houmao-mgr agents gateway ...` and managed-agent `/houmao/agents/{agent_ref}/gateway...` routes when those higher-level surfaces exist.
 
-That page SHALL explain that reminders are direct live-gateway HTTP in the current implementation, remain in-memory state that does not survive gateway restart, and are selected by smallest ranking value rather than by independent wakeup-job ownership.
+That page SHALL explain that reminder work uses `agents gateway reminders ...` or managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` when those higher-level surfaces already satisfy the task, that direct `/v1/reminders` remains the lower-level live contract, that reminder state remains in-memory and non-durable across gateway restart, and that effective reminder selection still follows smallest ranking value rather than independent wakeup-job ownership.
 
 That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-agent-messaging` and the mailbox skill family rather than in `houmao-agent-gateway`.
 
@@ -567,8 +601,8 @@ That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-a
 
 #### Scenario: Reader sees the reminder boundary clearly
 - **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that current reminder control uses direct live gateway `/v1/reminders` routes
-- **AND THEN** it does not imply that reminders are durable across gateway restart or already projected through `houmao-mgr agents gateway ...`
+- **THEN** the page explains that current reminder control prefers `houmao-mgr agents gateway reminders ...` or the matching managed-agent reminder proxy when available and keeps direct live `/v1/reminders` as the lower-level contract
+- **AND THEN** it does not imply that reminders are durable across gateway restart
 
 ### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
 The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
@@ -725,4 +759,3 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL link to the n
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the introduction or top section of the page contains a link to `docs/getting-started/system-skills-overview.md`
 - **AND THEN** the link is presented as a "see also" or "narrative overview" pointer rather than buried in the bottom of the page
-

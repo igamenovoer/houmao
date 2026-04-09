@@ -45,7 +45,8 @@ This packaged skill does not cover:
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 3. Start from current-state orientation rather than assuming the tour begins at project initialization:
    - inspect project posture through `houmao-mgr project status`
-   - inspect reusable specialists or profiles when the branch needs them
+   - inspect reusable specialists through `houmao-mgr project easy specialist list` or `houmao-mgr project easy specialist get --name <name>` when the branch needs them
+   - inspect reusable profiles through `houmao-mgr project easy profile list` or `houmao-mgr project easy profile get --name <name>` when the branch needs them
    - inspect running managed agents through `houmao-mgr agents list`
    - inspect one live managed agent through `houmao-mgr agents state`, `houmao-mgr agents gateway status`, or `houmao-mgr agents mail resolve-live` when the branch needs live capability
 4. Explain the current posture in plain language and offer the next likely branches.
@@ -85,6 +86,7 @@ This packaged skill does not cover:
 - Do not activate `houmao-touring` unless the user explicitly asked for the guided tour experience.
 - Do not force a linear step order or restart the user from project initialization when current Houmao state already exists.
 - Do not claim ownership of the direct-operation command shapes that belong to the maintained Houmao skill families.
+- Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project easy ...`.
 - Do not collapse stop, relaunch, and cleanup into one vague “manage agent” action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.

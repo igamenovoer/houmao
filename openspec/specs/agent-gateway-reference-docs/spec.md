@@ -279,7 +279,8 @@ That reminder documentation SHALL explain:
 - that `send_keys.ensure_enter` defaults to `true`,
 - that `ensure_enter=false` is required for exact special-key-only reminders such as `<[Escape]>`,
 - that send-keys reminder support is limited by the current gateway backend's raw-control capability,
-- that reminders remain direct live gateway HTTP and do not introduce a new `houmao-mgr agents gateway reminders ...` CLI family.
+- that `houmao-mgr agents gateway reminders ...` and `/houmao/agents/{agent_ref}/gateway/reminders...` are higher-level wrappers over the same live reminder model,
+- that direct `/v1/reminders` remains the lower-level live reminder contract for exact payload inspection and debugging.
 
 The documentation SHALL present that explanation in a gateway reminder reference page or equivalent gateway-reference entry path that is discoverable from `docs/reference/gateway/index.md`.
 
@@ -295,6 +296,31 @@ The documentation SHALL present that explanation in a gateway reminder reference
 
 #### Scenario: Reader sees backend and CLI boundaries clearly
 - **WHEN** a reader opens the gateway reminder reference documentation
-- **THEN** the page explains that send-keys reminders depend on backend raw-control support and remain on the direct live `/v1/reminders` surface
-- **AND THEN** it does not imply that a new reminder CLI family already exists
+- **THEN** the page explains that send-keys reminders depend on backend raw-control support while the CLI, pair-managed proxy, and direct `/v1/reminders` routes all project the same live reminder behavior
+- **AND THEN** it keeps the direct live route family positioned as the lower-level contract rather than the only documented operator surface
 
+### Requirement: Gateway reminder reference docs cover CLI, proxy, and direct reminder surfaces together
+The agent gateway reference documentation SHALL explain gateway reminders through three aligned operator layers:
+
+- `houmao-mgr agents gateway reminders ...` as the preferred operator-facing CLI surface,
+- managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` routes as the pair-managed proxy surface,
+- direct `/v1/reminders` routes as the lower-level live gateway contract.
+
+The gateway reminder docs SHALL explain when each layer is appropriate, and SHALL make clear that the CLI and pair-managed proxy surfaces are wrappers over the same underlying live reminder model.
+
+At minimum, the reminder reference docs SHALL explain:
+
+- that ranking remains numeric even when the CLI offers prepend and append placement flags,
+- that `--before-all` and `--after-all` are convenience placement modes rather than new gateway ranking semantics,
+- that direct `/v1/reminders` remains useful for exact contract inspection and debugging,
+- that pair-managed reminder operations do not require the operator to discover the live gateway listener directly.
+
+#### Scenario: Reader learns the CLI-first reminder workflow from the gateway reference
+- **WHEN** a reader opens the gateway reminder operations page to learn how to create or inspect reminders
+- **THEN** the page introduces `houmao-mgr agents gateway reminders ...` as the preferred operator surface
+- **AND THEN** the page does not present direct `/v1/reminders` HTTP as the only supported way to work with reminders
+
+#### Scenario: Maintainer can still find the underlying direct reminder contract
+- **WHEN** a maintainer opens the gateway reminder operations page to inspect payload and route semantics
+- **THEN** the page still points them to the exact `/v1/reminders` contract and representative payloads
+- **AND THEN** the page explains how the higher-level CLI and pair-managed proxy surfaces map onto that lower-level contract

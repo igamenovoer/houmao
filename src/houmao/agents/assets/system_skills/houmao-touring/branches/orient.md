@@ -7,6 +7,8 @@ Use this branch first when the user explicitly wants the `houmao-touring` experi
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Start with maintained status and list surfaces instead of assuming the user is at the beginning of setup:
    - `houmao-mgr project status`
+   - `houmao-mgr project easy specialist list` or `houmao-mgr project easy specialist get --name <name>` when the user already named a specialist or the next branch depends on one
+   - `houmao-mgr project easy profile list` or `houmao-mgr project easy profile get --name <name>` when the user already named a reusable profile or the next branch depends on one
    - `houmao-mgr agents list`
 3. If the user already mentioned a reusable specialist, easy profile, or live managed agent, preserve that context.
 4. When the next branch depends on live capabilities, inspect them only as needed:
@@ -30,3 +32,4 @@ Use this branch first when the user explicitly wants the `houmao-touring` experi
 - Do not treat missing project state as a reason to hide the later branches; explain that those branches become more useful after setup.
 - Do not assume the tour is complete after one launch or one prompt.
 - Do not inspect deeper live state than the selected next branch actually needs.
+- Do not replace the maintained `project easy ...` inspection commands with guessed top-level aliases or direct `.houmao/easy/` filesystem probing.
