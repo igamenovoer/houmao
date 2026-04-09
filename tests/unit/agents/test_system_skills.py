@@ -613,6 +613,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         advanced_usage_patterns / "self-notification-via-reminders.md"
     )
     self_notification_mail_path = advanced_usage_patterns / "self-wakeup-via-self-mail.md"
+    pairwise_edge_loop_pattern_path = (
+        advanced_usage_patterns / "pairwise-edge-loop-via-gateway-and-mailbox.md"
+    )
     relay_loop_pattern_path = advanced_usage_patterns / "relay-loop-via-gateway-and-mailbox.md"
     touring_orient_path = touring_branches / "orient.md"
     touring_setup_path = touring_branches / "setup-project-and-mailbox.md"
@@ -637,6 +640,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
     self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
     self_notification_mail = self_notification_mail_path.read_text(encoding="utf-8")
+    pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
     relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
 
@@ -717,6 +721,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/reminders.md" in agent_gateway_skill
     assert "actions/mail-notifier.md" in agent_gateway_skill
     assert "patterns/self-notification.md" in advanced_usage_skill
+    assert "patterns/pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_usage_skill
     assert "patterns/relay-loop-via-gateway-and-mailbox.md" in advanced_usage_skill
     assert "manual guided tour skill" in touring_skill
     assert "Use this Houmao skill only when the user explicitly asks for `houmao-touring`" in touring_skill
@@ -740,6 +745,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert self_notification_pattern_path.is_file()
     assert self_notification_reminders_path.is_file()
     assert self_notification_mail_path.is_file()
+    assert pairwise_edge_loop_pattern_path.is_file()
     assert relay_loop_pattern_path.is_file()
     assert touring_orient_path.is_file()
     assert touring_setup_path.is_file()
@@ -774,6 +780,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "does not survive gateway shutdown or restart" in self_notification_reminders
     assert "must survive gateway shutdown or restart" in self_notification_mail
     assert "later rounds may reprioritize against external incoming mail" in self_notification_mail
+    assert "each delegation edge should close locally" in advanced_usage_skill
+    assert "ownership should keep moving forward across agents" in advanced_usage_skill
+    assert "edge_loop_id" in pairwise_edge_loop_pattern
+    assert "parent_edge_loop_id" in pairwise_edge_loop_pattern
+    assert "ask the user for that value" in pairwise_edge_loop_pattern
+    assert "one repeating supervisor reminder as the live loop clock" in pairwise_edge_loop_pattern
+    assert "Subject: [edge-result] edge_loop=<edge_loop_id>" in pairwise_edge_loop_pattern
     assert "HOUMAO_JOB_DIR" in relay_loop_pattern
     assert "Do not use `HOUMAO_MEMORY_DIR` as the default home" in relay_loop_pattern
     assert "ask the user for that parameter" in relay_loop_pattern

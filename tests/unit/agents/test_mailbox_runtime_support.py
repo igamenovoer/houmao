@@ -424,6 +424,10 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert (mailbox_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (
         mailbox_root
+        / "houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
+    ).is_file()
+    assert (
+        mailbox_root
         / "houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
     ).is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/check.md").is_file()
@@ -448,6 +452,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
         in gateway_skill
     )
     assert "houmao-adv-usage-pattern" in gateway_skill
+    assert "pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     install_state = load_system_skill_install_state(tool="codex", home_path=home_path)
