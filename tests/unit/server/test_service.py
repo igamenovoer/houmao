@@ -47,11 +47,13 @@ from houmao.server.managed_agents import (
     ManagedHeadlessTurnRecord,
 )
 from houmao.server.child_cao import ChildCaoInstallResult
+import houmao.server.service as service_module
 import houmao.server.tui.registry as tui_registry_module
 from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessTurnRequest,
+    HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailCheckRequest,
@@ -1450,6 +1452,98 @@ def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
     state = service.terminal_state("abcd1234")
     assert state.tracked_session.tmux_window_name == "developer-2"
     assert state.tracked_session.observed_tool_version == "0.116.4 (Codex)"
+
+
+def test_submit_managed_agent_interrupt_dispatches_tui_signal_when_tracked_state_is_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            ),
+            ("POST", "/terminals/abcd1234/exit", ()): _json_response({"ok": True}),
+        }
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=_FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT),
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_up",
+                matched_process_names=["codex"],
+                matched_processes=(),
+            )
+        ),
+        parser_adapter=_FakeParserAdapter(
+            [OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)]
+        ),
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="HOUMAO-gpu",
+            tmux_window_name="developer-1",
+        )
+    )
+
+    tracked_state = service.refresh_terminal_state("abcd1234")
+    accepted = service.submit_managed_agent_request(
+        "cao-gpu",
+        HoumaoManagedAgentInterruptRequest(),
+    )
+
+    assert tracked_state.turn.phase == "ready"
+    assert accepted.disposition == "accepted"
+    assert accepted.detail == "Best-effort TUI interrupt signal dispatched."
+    assert transport.m_calls[-1] == ("POST", "/terminals/abcd1234/exit", ())
+
+
+def test_submit_headless_interrupt_returns_no_op_when_no_active_work(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    handle = service_module._ManagedHeadlessAgentHandle(
+        authority=ManagedHeadlessAuthorityRecord(
+            tracked_agent_id="headless-agent-1",
+            tool="claude",
+            backend="claude_headless",
+            session_root=str((tmp_path / "session-root").resolve()),
+            manifest_path=str((tmp_path / "manifest.json").resolve()),
+            tmux_session_name="HOUMAO-headless",
+            agent_def_dir=str((tmp_path / "agent-def").resolve()),
+            agent_name="HOUMAO-headless",
+            agent_id="agent-headless-1",
+            created_at_utc="2026-04-09T00:00:00Z",
+            updated_at_utc="2026-04-09T00:00:00Z",
+        ),
+        controller=None,
+    )
+
+    accepted = service._submit_headless_managed_request(
+        handle=handle,
+        request_model=HoumaoManagedAgentInterruptRequest(),
+        request_id="mreq-interrupt-1",
+    )
+
+    assert accepted.disposition == "no_op"
+    assert accepted.detail == "No active interruptible headless work is running."
+    assert accepted.headless_turn_id is None
 
 
 def test_launch_headless_persists_authority_and_projects_shared_state(

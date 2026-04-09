@@ -2931,16 +2931,6 @@ class HoumaoServerService:
                 detail="Managed-agent prompt request accepted for TUI delivery.",
             )
 
-        if summary_state.turn.phase != "active":
-            return HoumaoManagedAgentRequestAcceptedResponse(
-                success=True,
-                tracked_agent_id=summary_state.tracked_agent_id,
-                request_id=request_id,
-                request_kind=request_model.request_kind,
-                disposition="no_op",
-                detail="No active interruptible TUI work is running.",
-            )
-
         proxy_response = self.proxy(
             method="POST",
             path=f"/terminals/{terminal_path}/exit",
@@ -2956,7 +2946,7 @@ class HoumaoServerService:
             request_id=request_id,
             request_kind=request_model.request_kind,
             disposition="accepted",
-            detail="Managed-agent interrupt request accepted for TUI delivery.",
+            detail="Best-effort TUI interrupt signal dispatched.",
         )
 
     def _headless_request_accepted_response(

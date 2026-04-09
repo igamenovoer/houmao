@@ -43,7 +43,9 @@ from houmao.server.models import (
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentIdentity,
+    HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentLastTurnView,
+    HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
     HoumaoStabilityMetadata,
@@ -1928,6 +1930,35 @@ def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
     assert interrupt_response.success is True
     assert interrupt_response.detail == "done"
     assert calls == ["hello"]
+
+
+def test_server_interrupt_uses_transport_neutral_request_route() -> None:
+    captured: list[tuple[str, object]] = []
+
+    def _submit_managed_agent_request(agent_ref: str, request_model: object) -> object:
+        captured.append((agent_ref, request_model))
+        return HoumaoManagedAgentRequestAcceptedResponse(
+            success=True,
+            tracked_agent_id="tracked-1",
+            request_id="mreq-123",
+            request_kind="interrupt",
+            disposition="accepted",
+            detail="Best-effort TUI interrupt signal dispatched.",
+        )
+
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="tracked-1",
+        identity=_managed_identity(),
+        client=SimpleNamespace(submit_managed_agent_request=_submit_managed_agent_request),
+    )
+
+    response = interrupt_managed_agent(target)
+
+    assert isinstance(response, HoumaoManagedAgentRequestAcceptedResponse)
+    assert response.detail == "Best-effort TUI interrupt signal dispatched."
+    assert captured[0][0] == "tracked-1"
+    assert isinstance(captured[0][1], HoumaoManagedAgentInterruptRequest)
 
 
 def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(

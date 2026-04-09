@@ -21,6 +21,9 @@ Normal prompt turns should check `/gateway` first. When a live gateway exists, p
 - `POST /houmao/agents/{agent_ref}/requests`
 
 Use this route family for the normal managed-agent interrupt surface across both TUI and headless transports.
+For TUI-backed managed agents, ordinary interrupt means one best-effort `Escape` delivery through the resolved managed-agent control path, even when tracked TUI state currently looks idle.
+For headless managed agents, ordinary interrupt targets active execution and may return explicit no-op detail when no headless work is active.
+Do not switch to raw `send-keys` merely to get the normal TUI interrupt behavior.
 
 ## Explicit Gateway Queue And Direct Gateway Control
 

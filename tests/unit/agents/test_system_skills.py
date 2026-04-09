@@ -677,8 +677,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
     discover_action = discover_action_path.read_text(encoding="utf-8")
+    interrupt_action = interrupt_action_path.read_text(encoding="utf-8")
     reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
     mail_action = mail_action_path.read_text(encoding="utf-8")
+    intent_matrix_reference = intent_matrix_reference_path.read_text(encoding="utf-8")
+    managed_agent_http_reference = managed_agent_http_reference_path.read_text(encoding="utf-8")
     gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
     gateway_reminders_action = gateway_reminders_action_path.read_text(encoding="utf-8")
     gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
@@ -768,6 +771,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert managed_agent_http_reference_path.is_file()
     assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in discover_action
     assert "<chosen houmao-mgr launcher>" in discover_action
+    assert "best-effort `Escape` delivery" in interrupt_action
+    assert "tracked TUI state can lag the live visible surface" in interrupt_action
+    assert "no headless work is active" in interrupt_action
+    assert "Do not redirect ordinary TUI interrupt work to `agents gateway send-keys`" in interrupt_action
+    assert "best-effort `Escape`" in intent_matrix_reference
+    assert "may no-op when idle" in intent_matrix_reference
+    assert "tracked TUI state currently looks idle" in managed_agent_http_reference
+    assert "Do not switch to raw `send-keys` merely to get the normal TUI interrupt behavior." in managed_agent_http_reference
     assert "actions/lifecycle.md" in agent_gateway_skill
     assert "actions/discover.md" in agent_gateway_skill
     assert "actions/gateway-services.md" in agent_gateway_skill
