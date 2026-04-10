@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Loop Pairwise V2"
+  short_description: "Author, initialize, and operate enriched versioned master-owned pairwise loop runs."
+  default_prompt: "Use $houmao-agent-loop-pairwise-v2 only when the user explicitly requests it and needs to turn a goal into an enriched pairwise loop plan, run canonical `initialize`, or send `start`, `peek`, `ping`, `pause`, `resume`, `stop`, or `hard-kill` control requests without making the user agent part of the execution loop."

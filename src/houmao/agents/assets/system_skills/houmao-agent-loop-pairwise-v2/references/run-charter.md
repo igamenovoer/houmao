@@ -9,9 +9,10 @@ Use this reference when the user agent is ready to send one `start` request to t
 - designated master identity
 - allowed participants
 - delegation policy summary
+- preparation posture summary
 - completion condition summary
 - default stop mode
-- reporting contract summary
+- reporting contract summary with canonical observed states
 
 ## Charter Template
 
@@ -26,7 +27,7 @@ Control-plane contract:
 - I am outside the execution loop.
 - Do not rely on me for liveness.
 - Keep this run alive until the completion condition is satisfied or I send stop.
-- I may send `status <run_id>` or `stop <run_id>` later.
+- I may later ask to `peek master <run_id>`, `pause <run_id>`, `resume <run_id>`, or `stop <run_id>`.
 
 Execution model:
 - Use the Houmao pairwise edge-loop pattern for internal delegation.
@@ -36,6 +37,11 @@ Execution model:
 Delegation policy:
 <normalized policy from references/delegation-policy.md>
 
+Preparation posture:
+- notifier preflight: completed
+- participant preparation wave: completed
+- acknowledgement mode: <fire_and_proceed | require_ack>
+
 Completion condition:
 <user-defined operational success condition>
 
@@ -43,7 +49,7 @@ Default stop mode:
 <interrupt-first | graceful>
 
 Reporting contract:
-<status, completion, and stop-summary expectations>
+<peek, completion, and stop-summary expectations using canonical observed states>
 
 Start procedure:
 1. Read the plan.

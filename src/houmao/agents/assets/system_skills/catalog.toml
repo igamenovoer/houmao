@@ -38,7 +38,11 @@ description = "Low-level project-local role and preset definition management ski
 
 [skills.houmao-agent-loop-pairwise]
 asset_subpath = "houmao-agent-loop-pairwise"
-description = "Manual invocation only pairwise loop authoring, prestart, and master-run control skill for user-controlled agents."
+description = "Manual invocation only restored stable pairwise loop authoring and `start|status|stop` master-run control skill."
+
+[skills.houmao-agent-loop-pairwise-v2]
+asset_subpath = "houmao-agent-loop-pairwise-v2"
+description = "Manual invocation only versioned enriched pairwise loop authoring, prestart, and expanded master-run control skill."
 
 [skills.houmao-agent-loop-relay]
 asset_subpath = "houmao-agent-loop-relay"
@@ -95,6 +99,7 @@ skills = [
   "houmao-credential-mgr",
   "houmao-agent-definition",
   "houmao-agent-loop-pairwise",
+  "houmao-agent-loop-pairwise-v2",
   "houmao-agent-loop-relay",
 ]
 

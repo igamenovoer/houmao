@@ -1,12 +1,12 @@
 ---
 name: houmao-agent-loop-pairwise
-description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise` to author one pairwise loop plan, run `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, and `stop`.
+description: Use Houmao's manual pairwise loop-planning and run-control skill only when the user explicitly asks for `houmao-agent-loop-pairwise` to formulate a master-owned pairwise loop plan or operate that run through start, status, and stop.
 license: MIT
 ---
 
 # Houmao Agent Loop Pairwise
 
-Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise`. This is a manual-invocation-only pairwise authoring, prestart-preparation, and run-control skill, not the default entrypoint for generic pairwise loop planning or pairwise run-control requests.
+Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise`. This is a manual-invocation-only pairwise loop planner and run controller, not the default entrypoint for generic pairwise loop planning or pairwise run-control requests.
 
 When explicitly invoked, this skill helps a user-controlled agent formulate or operate one pairwise loop run across named Houmao agents while keeping the user agent outside the execution loop.
 
@@ -16,11 +16,10 @@ The trigger word `houmao` is intentional. Use the `houmao-agent-loop-pairwise` s
 
 ## Scope
 
-This packaged skill covers three lanes and one canonical operator-facing lifecycle vocabulary:
+This packaged skill covers two lanes:
 
-- `plan`: author or revise a pairwise loop plan from user intent
-- `initialize`: complete the prestart wave before the master trigger
-- `start`, `peek`, `ping`, `pause`, `resume`, and `stop`: operate an accepted run
+- authoring a pairwise loop plan from user intent
+- operating an accepted run through `start`, `status`, and `stop`
 
 This packaged skill does not cover:
 
@@ -28,35 +27,6 @@ This packaged skill does not cover:
 - inventing a free-delegation policy when the plan is silent
 - drawing arbitrary cyclic worker-to-worker execution as the default model
 - replacing `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-adv-usage-pattern`
-
-## Canonical Lifecycle Actions
-
-The canonical operator-facing lifecycle actions are `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, and `stop`.
-
-- `plan`: author or revise the pairwise loop contract before the run begins.
-- `initialize`: verify participant preparation material, verify or enable notifier posture, send standalone preparation mail, and optionally wait for acknowledgement replies before the master trigger.
-- `start`: send the normalized start charter only to the designated master after initialization is complete.
-- `peek master|all|<agent-name>`: perform read-only inspection of current run posture without sending a fresh control prompt.
-- `ping <agent-name>`: actively message one selected participant to ask what is going on.
-- `pause`: suspend the run's wakeup mechanisms so the loop intentionally stalls.
-- `resume`: restore the paused wakeup mechanisms for the same run.
-- `stop`: send the canonical termination request to the designated master.
-
-If participant-wide advisory stop mail is ever needed, document it separately as `broadcast-stop`; do not treat it as a synonym for canonical `stop`.
-
-## Canonical Observed States
-
-The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`.
-
-- `authoring`: the plan is still being authored or revised.
-- `initializing`: the standalone preparation wave is being prepared or delivered.
-- `awaiting_ack`: acknowledgement-gated initialization has sent preparation mail and is waiting for required replies.
-- `ready`: initialization is complete and the run is ready for `start`.
-- `running`: the master accepted the run and owns live supervision.
-- `paused`: the run is intentionally stalled because its wakeup mechanisms are suspended.
-- `stopping`: a stop request is being reconciled by the master.
-- `stopped`: the run has completed stop handling.
-- `dead`: an observed liveness failure or no-progress condition, not a control action.
 
 ## Workflow
 
@@ -69,16 +39,11 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
    - `authoring/formulate-loop-plan.md`
    - `authoring/revise-loop-plan.md`
    - `authoring/render-loop-graph.md`
-5. If the user needs the preparation wave, load:
-   - `prestart/prepare-run.md`
-6. If the user already has a plan and wants to operate it, load exactly one operating page:
+5. If the user already has a plan and wants to operate it, load exactly one operating page:
    - `operating/start.md`
-   - `operating/peek.md`
-   - `operating/ping.md`
-   - `operating/pause.md`
-   - `operating/resume.md`
+   - `operating/status.md`
    - `operating/stop.md`
-7. Use the local references and templates only when they help normalize the plan or charter:
+6. Use the local references and templates only when they help normalize the plan or charter:
    - `references/run-charter.md`
    - `references/delegation-policy.md`
    - `references/stop-modes.md`
@@ -86,7 +51,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
    - `references/plan-structure.md`
    - `templates/single-file-plan.md`
    - `templates/bundle-plan.md`
-8. Route execution to the maintained Houmao-owned skills that own the lower-level surfaces.
+7. Route execution to the maintained Houmao-owned skills that own the lower-level surfaces.
 
 ## Authoring Pages
 
@@ -97,23 +62,16 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 ## Operating Pages
 
 - Read [operating/start.md](operating/start.md) when the user wants to send one normalized start charter to the designated master.
-- Read [operating/peek.md](operating/peek.md) when the user wants `peek master`, `peek all`, or `peek <agent-name>` as read-only inspection of one known run.
-- Read [operating/ping.md](operating/ping.md) when the user wants to actively ask one selected participant what is going on.
-- Read [operating/pause.md](operating/pause.md) when the user wants to intentionally stall one running pairwise loop by suspending its wakeup mechanisms.
-- Read [operating/resume.md](operating/resume.md) when the user wants to restore one paused pairwise loop without creating a new run.
+- Read [operating/status.md](operating/status.md) when the user wants a periodic read-only status update from the designated master for one `run_id`.
 - Read [operating/stop.md](operating/stop.md) when the user wants to stop one active run, with `interrupt-first` as the default stop posture unless graceful stop was requested explicitly.
-
-## Prestart Page
-
-- Read [prestart/prepare-run.md](prestart/prepare-run.md) when the user wants to verify notifier posture, send standalone preparation mail to all participants, or require readiness acknowledgement replies before the master trigger.
 
 ## References
 
 - Read [references/run-charter.md](references/run-charter.md) for the normalized start charter fields that the user agent sends to the master.
 - Read [references/delegation-policy.md](references/delegation-policy.md) to normalize delegation authority explicitly instead of leaving it implied.
 - Read [references/stop-modes.md](references/stop-modes.md) to choose between default interrupt-first stop and explicitly requested graceful stop.
-- Read [references/reporting-contract.md](references/reporting-contract.md) for `peek`, completion, and stop-summary expectations plus the canonical observed-state vocabulary.
-- Read [references/plan-structure.md](references/plan-structure.md) for the required single-file versus bundle-plan sections, lifecycle vocabulary fields, script inventory fields, and canonical `plan.md` entrypoint rules.
+- Read [references/reporting-contract.md](references/reporting-contract.md) for status, completion, and stop-summary expectations.
+- Read [references/plan-structure.md](references/plan-structure.md) for the required single-file versus bundle-plan sections, script inventory fields, and canonical `plan.md` entrypoint rules.
 
 ## Templates
 
@@ -122,11 +80,9 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 
 ## Routing Guidance
 
-- Route `start`, `ping`, `pause`, `resume`, and `stop` requests to `houmao-agent-messaging`.
-- Route `initialize` notifier preflight and wakeup-control work to `houmao-agent-gateway`.
+- Route plan delivery, status requests, and stop requests to `houmao-agent-messaging`.
+- Route master reminder and live review-loop timing work to `houmao-agent-gateway`.
 - Route mailbox receipt, result, or follow-up semantics referenced by the plan to `houmao-agent-email-comms`.
-- Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr` or the owned mailbox surfaces that expose `HOUMAO-operator@houmao.localhost`.
-- Route `peek` requests, overdue downstream peeking, and other read-only state inspection to `houmao-agent-inspect`.
 - Route downstream pairwise execution semantics to `houmao-adv-usage-pattern`, specifically the pairwise edge-loop pattern.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.
 
@@ -135,12 +91,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not auto-route generic pairwise loop planning or pairwise run-control requests here when the user did not explicitly ask for `houmao-agent-loop-pairwise`.
 - Do not make the user agent the upstream driver of the execution loop.
 - Do not allow free delegation unless the plan says so explicitly.
-- Do not treat `peek` as a keepalive signal or fresh control prompt; the master owns liveness after accepting the run.
-- Do not treat `ping` as equivalent to `peek`.
+- Do not treat `status` polling as a keepalive signal; the master owns liveness after accepting the run.
 - Do not default to graceful stop. Default to `interrupt-first` unless the user explicitly requests graceful termination.
-- Do not redefine canonical `stop` as an implicit participant-wide broadcast; keep any advisory `broadcast-stop` action separate.
-- Do not assume that one participant preparation brief may depend on hidden upstream-specific context from another brief.
-- Do not block the current live turn after one downstream dispatch merely because timeout-watch policy exists; use reminder-driven follow-up instead.
-- Do not describe `dead` as an operator action.
 - Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is pairwise local-close control plus a supervision loop.
 - Do not replace the existing pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern`.

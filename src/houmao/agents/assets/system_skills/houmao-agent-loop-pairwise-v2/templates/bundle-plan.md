@@ -7,6 +7,7 @@ Use this form when the run needs supporting Markdown files or scripts but still 
 ```text
 loop-plan/
   plan.md
+  prestart.md
   graph.md
   delegation.md
   reporting.md
@@ -14,7 +15,8 @@ loop-plan/
     README.md
     <script files>
   agents/
-    <optional per-agent notes>.md
+    <participant-a>.md
+    <participant-b>.md
 ```
 
 ## Canonical Entrypoint
@@ -36,6 +38,13 @@ loop-plan/
 # Delegation Policy
 See `delegation.md`.
 
+# Prestart Procedure
+See `prestart.md`.
+
+# Lifecycle Vocabulary
+- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
+- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, `dead`
+
 # Completion Condition
 <user-defined operational success condition>
 
@@ -46,6 +55,7 @@ Default stop mode: interrupt-first
 See `reporting.md`.
 
 # Supporting Files
+- `prestart.md`
 - `graph.md`
 - `delegation.md`
 - `reporting.md`
@@ -54,6 +64,30 @@ See `reporting.md`.
 # Mermaid Control Graph
 <top-level mermaid graph>
 ```
+
+## `prestart.md`
+
+Record:
+
+- notifier preflight procedure
+- participant preparation-mail procedure
+- acknowledgement posture: `fire_and_proceed` or `require_ack`
+- operator reply policy: `none` or `operator_mailbox`
+- initialization state transitions: `initializing`, `awaiting_ack`, `ready`
+- readiness barrier behavior when acknowledgement is required
+- how the master trigger remains separate from the preparation wave
+
+## `agents/<participant>.md`
+
+Each participant brief should be standalone and should record:
+
+- the participant role
+- resources and tools available locally
+- allowed delegation targets
+- work-type-specific delegation patterns, when needed
+- mailbox, reminder, receipt, or result obligations
+- forbidden actions
+- optional timeout-watch policy for that participant
 
 ## `scripts/README.md` Inventory
 
@@ -70,4 +104,5 @@ List each script with:
 
 - Do not omit the top-level Mermaid graph from `plan.md`.
 - Do not make `graph.md` the only place where the topology is visible.
+- Do not leave participant preparation only in a shared upstream-aware matrix.
 - Do not leave script behavior undocumented when scripts are part of the plan.

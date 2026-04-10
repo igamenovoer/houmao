@@ -67,6 +67,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-credential-mgr",
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-pairwise-v2",
         "houmao-agent-loop-relay",
         "houmao-agent-instance",
         "houmao-agent-inspect",
@@ -143,6 +144,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-credential-mgr",
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-pairwise-v2",
         "houmao-agent-loop-relay",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
@@ -169,6 +171,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-credential-mgr",
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-pairwise-v2",
         "houmao-agent-loop-relay",
         "houmao-agent-instance",
         "houmao-agent-inspect",
@@ -238,6 +241,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
     pairwise_loop_prestart = home_path / "skills/houmao-agent-loop-pairwise/prestart"
     pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
+    pairwise_loop_v2_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v2/SKILL.md"
+    pairwise_loop_v2_authoring = home_path / "skills/houmao-agent-loop-pairwise-v2/authoring"
+    pairwise_loop_v2_prestart = home_path / "skills/houmao-agent-loop-pairwise-v2/prestart"
+    pairwise_loop_v2_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
     relay_loop_skill_path = home_path / "skills/houmao-agent-loop-relay/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-relay/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-relay/operating"
@@ -250,10 +257,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "houmao-credential-mgr",
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-pairwise-v2",
         "houmao-agent-loop-relay",
     )
     assert tuple(record.name for record in installed_records) == result.resolved_skill_names
     assert tuple(record.projection_mode for record in installed_records) == (
+        "copy",
         "copy",
         "copy",
         "copy",
@@ -273,13 +282,17 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert manage_agent_definition_path.is_file()
     assert pairwise_loop_skill_path.is_file()
     assert (pairwise_loop_authoring / "formulate-loop-plan.md").is_file()
-    assert (pairwise_loop_prestart / "prepare-run.md").is_file()
+    assert not pairwise_loop_prestart.exists()
     assert (pairwise_loop_operating / "start.md").is_file()
-    assert (pairwise_loop_operating / "peek.md").is_file()
-    assert (pairwise_loop_operating / "ping.md").is_file()
-    assert (pairwise_loop_operating / "pause.md").is_file()
-    assert (pairwise_loop_operating / "resume.md").is_file()
-    assert not (pairwise_loop_operating / "status.md").exists()
+    assert (pairwise_loop_operating / "status.md").is_file()
+    assert (pairwise_loop_operating / "stop.md").is_file()
+    assert not (pairwise_loop_operating / "peek.md").exists()
+    assert pairwise_loop_v2_skill_path.is_file()
+    assert (pairwise_loop_v2_authoring / "formulate-loop-plan.md").is_file()
+    assert (pairwise_loop_v2_prestart / "prepare-run.md").is_file()
+    assert (pairwise_loop_v2_operating / "start.md").is_file()
+    assert (pairwise_loop_v2_operating / "peek.md").is_file()
+    assert (pairwise_loop_v2_operating / "hard-kill.md").is_file()
     assert relay_loop_skill_path.is_file()
     assert (relay_loop_authoring / "formulate-loop-plan.md").is_file()
     assert (relay_loop_operating / "start.md").is_file()
@@ -288,6 +301,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
     pairwise_loop_skill = pairwise_loop_skill_path.read_text(encoding="utf-8")
+    pairwise_loop_v2_skill = pairwise_loop_v2_skill_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
@@ -533,8 +547,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
-    assert "prestart/prepare-run.md" in pairwise_loop_skill
     assert "operating/start.md" in pairwise_loop_skill
+    assert "operating/status.md" in pairwise_loop_skill
+    assert "operating/stop.md" in pairwise_loop_skill
+    assert "prestart/prepare-run.md" not in pairwise_loop_skill
     assert (
         "Use this Houmao skill only when the user explicitly asks for "
         "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
@@ -549,15 +565,34 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in pairwise_loop_skill
     )
     assert (
+        "operating an accepted run through `start`, `status`, and `stop`"
+        in pairwise_loop_skill
+    )
+    assert "Do not treat `status` polling as a keepalive signal" in pairwise_loop_skill
+    assert "houmao-agent-inspect" not in pairwise_loop_skill
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v2_skill
+    assert "prestart/prepare-run.md" in pairwise_loop_v2_skill
+    assert "operating/start.md" in pairwise_loop_v2_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for "
+        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
+    )
+    assert (
+        "Do not auto-route generic pairwise loop planning or pairwise run-control "
+        "requests here when the user did not explicitly ask for "
+        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
+    )
+    assert (
         "The canonical operator-facing lifecycle actions are `plan`, `initialize`, "
-        "`start`, `peek`, `ping`, `pause`, `resume`, and `stop`." in pairwise_loop_skill
+        "`start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`."
+        in pairwise_loop_v2_skill
     )
     assert (
         "The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, "
         "`ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`."
-        in pairwise_loop_skill
+        in pairwise_loop_v2_skill
     )
-    assert "houmao-agent-inspect" in pairwise_loop_skill
+    assert "houmao-agent-inspect" in pairwise_loop_v2_skill
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one relay loop run"
         in relay_loop_skill
@@ -634,12 +669,15 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_path = home_path / "skills/houmao-touring/SKILL.md"
     touring_branches = home_path / "skills/houmao-touring/branches"
     touring_references = home_path / "skills/houmao-touring/references"
-    pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
-    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
-    pairwise_loop_prestart = home_path / "skills/houmao-agent-loop-pairwise/prestart"
-    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
-    pairwise_loop_references = home_path / "skills/houmao-agent-loop-pairwise/references"
-    pairwise_loop_templates = home_path / "skills/houmao-agent-loop-pairwise/templates"
+    stable_pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
+    stable_pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
+    stable_pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
+    pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v2/SKILL.md"
+    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise-v2/authoring"
+    pairwise_loop_prestart = home_path / "skills/houmao-agent-loop-pairwise-v2/prestart"
+    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
+    pairwise_loop_references = home_path / "skills/houmao-agent-loop-pairwise-v2/references"
+    pairwise_loop_templates = home_path / "skills/houmao-agent-loop-pairwise-v2/templates"
     relay_loop_path = home_path / "skills/houmao-agent-loop-relay/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-relay/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-relay/operating"
@@ -668,6 +706,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-credential-mgr",
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-pairwise-v2",
         "houmao-agent-loop-relay",
         "houmao-agent-instance",
         "houmao-agent-inspect",
@@ -684,6 +723,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert agent_inspect_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
+    assert stable_pairwise_loop_path.is_file()
     assert pairwise_loop_path.is_file()
     assert relay_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
@@ -693,6 +733,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
     touring_skill = touring_path.read_text(encoding="utf-8")
+    stable_pairwise_loop_skill = stable_pairwise_loop_path.read_text(encoding="utf-8")
     pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
@@ -745,6 +786,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_live_ops_path = touring_branches / "live-operations.md"
     touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
     touring_question_style_path = touring_references / "question-style.md"
+    stable_pairwise_loop_formulate_path = stable_pairwise_loop_authoring / "formulate-loop-plan.md"
+    stable_pairwise_loop_start_path = stable_pairwise_loop_operating / "start.md"
+    stable_pairwise_loop_status_path = stable_pairwise_loop_operating / "status.md"
+    stable_pairwise_loop_stop_path = stable_pairwise_loop_operating / "stop.md"
     pairwise_loop_formulate_path = pairwise_loop_authoring / "formulate-loop-plan.md"
     pairwise_loop_revise_path = pairwise_loop_authoring / "revise-loop-plan.md"
     pairwise_loop_graph_path = pairwise_loop_authoring / "render-loop-graph.md"
@@ -755,6 +800,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_pause_path = pairwise_loop_operating / "pause.md"
     pairwise_loop_resume_path = pairwise_loop_operating / "resume.md"
     pairwise_loop_stop_path = pairwise_loop_operating / "stop.md"
+    pairwise_loop_hard_kill_path = pairwise_loop_operating / "hard-kill.md"
     pairwise_loop_charter_path = pairwise_loop_references / "run-charter.md"
     pairwise_loop_policy_path = pairwise_loop_references / "delegation-policy.md"
     pairwise_loop_stop_modes_path = pairwise_loop_references / "stop-modes.md"
@@ -801,6 +847,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
     relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
+    stable_pairwise_loop_start = stable_pairwise_loop_start_path.read_text(encoding="utf-8")
+    stable_pairwise_loop_status = stable_pairwise_loop_status_path.read_text(encoding="utf-8")
+    stable_pairwise_loop_stop = stable_pairwise_loop_stop_path.read_text(encoding="utf-8")
     pairwise_loop_formulate = pairwise_loop_formulate_path.read_text(encoding="utf-8")
     pairwise_loop_graph = pairwise_loop_graph_path.read_text(encoding="utf-8")
     pairwise_loop_prepare = pairwise_loop_prepare_path.read_text(encoding="utf-8")
@@ -810,6 +859,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_pause = pairwise_loop_pause_path.read_text(encoding="utf-8")
     pairwise_loop_resume = pairwise_loop_resume_path.read_text(encoding="utf-8")
     pairwise_loop_stop = pairwise_loop_stop_path.read_text(encoding="utf-8")
+    pairwise_loop_hard_kill = pairwise_loop_hard_kill_path.read_text(encoding="utf-8")
     pairwise_loop_charter = pairwise_loop_charter_path.read_text(encoding="utf-8")
     pairwise_loop_policy = pairwise_loop_policy_path.read_text(encoding="utf-8")
     pairwise_loop_reporting = pairwise_loop_reporting_path.read_text(encoding="utf-8")
@@ -971,6 +1021,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
     assert "initialize the shared mailbox root now" in touring_question_style
     assert "created by the later launch step" in touring_question_style
+    assert "authoring/formulate-loop-plan.md" in stable_pairwise_loop_skill
+    assert "operating/start.md" in stable_pairwise_loop_skill
+    assert "operating/status.md" in stable_pairwise_loop_skill
+    assert "operating/stop.md" in stable_pairwise_loop_skill
+    assert "prestart/prepare-run.md" not in stable_pairwise_loop_skill
+    assert "operating/hard-kill.md" not in stable_pairwise_loop_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for "
+        "`houmao-agent-loop-pairwise`." in stable_pairwise_loop_skill
+    )
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
     assert "authoring/render-loop-graph.md" in pairwise_loop_skill
     assert "prestart/prepare-run.md" in pairwise_loop_skill
@@ -980,16 +1040,17 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "operating/pause.md" in pairwise_loop_skill
     assert "operating/resume.md" in pairwise_loop_skill
     assert "operating/stop.md" in pairwise_loop_skill
+    assert "operating/hard-kill.md" in pairwise_loop_skill
     assert "references/run-charter.md" in pairwise_loop_skill
     assert "templates/single-file-plan.md" in pairwise_loop_skill
     assert (
         "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
+        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
     )
     assert (
         "Do not auto-route generic pairwise loop planning or pairwise run-control "
         "requests here when the user did not explicitly ask for "
-        "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
+        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
     )
     assert "authoring/formulate-loop-plan.md" in relay_loop_skill
     assert "authoring/render-loop-graph.md" in relay_loop_skill
@@ -1021,6 +1082,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert touring_live_ops_path.is_file()
     assert touring_lifecycle_path.is_file()
     assert touring_question_style_path.is_file()
+    assert stable_pairwise_loop_formulate_path.is_file()
+    assert stable_pairwise_loop_start_path.is_file()
+    assert stable_pairwise_loop_status_path.is_file()
+    assert stable_pairwise_loop_stop_path.is_file()
+    assert not (home_path / "skills/houmao-agent-loop-pairwise/prestart").exists()
+    assert not (stable_pairwise_loop_operating / "peek.md").exists()
     assert pairwise_loop_formulate_path.is_file()
     assert pairwise_loop_revise_path.is_file()
     assert pairwise_loop_graph_path.is_file()
@@ -1031,6 +1098,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_pause_path.is_file()
     assert pairwise_loop_resume_path.is_file()
     assert pairwise_loop_stop_path.is_file()
+    assert pairwise_loop_hard_kill_path.is_file()
     assert not (pairwise_loop_operating / "status.md").exists()
     assert pairwise_loop_charter_path.is_file()
     assert pairwise_loop_policy_path.is_file()
@@ -1095,6 +1163,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ask the user for that parameter" in relay_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
     assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
+    assert "After the master accepts the run, the master owns liveness" in stable_pairwise_loop_start
+    assert "The user agent may poll `status`, but status polling does not keep the run alive." in (
+        stable_pairwise_loop_start
+    )
+    assert "Status is observational and does not keep the run alive." in stable_pairwise_loop_status
+    assert "`interrupt-first` is the default stop posture for this skill." in (
+        stable_pairwise_loop_stop
+    )
     assert (
         "No free delegation is allowed unless the plan says so explicitly."
         in pairwise_loop_formulate
@@ -1120,14 +1196,25 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "`resume` is not a synonym for `start`." in pairwise_loop_resume
     assert "`interrupt-first` is the default stop posture for this skill." in pairwise_loop_stop
     assert "`broadcast-stop`" in pairwise_loop_stop
+    assert "participant-wide direct intervention" in pairwise_loop_hard_kill
+    assert "disable gateway mail-notifier polling" in pairwise_loop_hard_kill
+    assert "mark every unread `message_ref` read" in pairwise_loop_hard_kill
+    assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter
     assert "delegate_freely_within_named_set" in pairwise_loop_policy
     assert "## Canonical Observed States" in pairwise_loop_reporting
+    assert "## Hard-Kill Summary Fields" in pairwise_loop_reporting
     assert "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
     assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
+    assert "`hard-kill`" in pairwise_loop_plan_structure
+    assert "Treat `hard-kill` as a separate operator action" in pairwise_loop_stop_modes_path.read_text(
+        encoding="utf-8"
+    )
     assert "# Prestart Procedure" in pairwise_loop_single_template
     assert "# Participant Preparation" in pairwise_loop_single_template
+    assert "`stop`, `hard-kill`" in pairwise_loop_single_template
+    assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template
     assert "# Lifecycle Vocabulary" in pairwise_loop_single_template
     assert "# Mermaid Control Graph" in pairwise_loop_single_template
     assert "prestart.md" in pairwise_loop_bundle_template

@@ -20,6 +20,7 @@ At minimum, the top-level graph must show:
 - Draw execution edges between the immediate driver and immediate worker.
 - Draw the supervision loop as a review cycle owned by the master, not as a worker-to-worker cycle.
 - If a worker becomes a child driver, draw that child control edge beneath the worker and show the child result returning to the immediate parent.
+- When labeling operator controls, prefer the canonical names `initialize`, `start`, `peek master`, `pause/resume`, and `stop`.
 - Keep labels short and wrap with `<br/>` when needed.
 - Split a very large topology into one top-level diagram plus supporting subtree diagrams instead of making one unreadable diagram.
 
@@ -36,8 +37,12 @@ flowchart TD
     Done[Completion Condition<br/>user-defined]
     Stop[Stop Condition<br/>default: interrupt-first]
 
-    UA -->|start plan| M
-    UA -.->|status| M
+    Prep[Initialize<br/>prep wave]
+
+    UA -->|initialize| Prep
+    Prep -->|start| M
+    UA -.->|peek master| M
+    UA -.->|pause/resume| M
     UA ==> |stop| M
 
     M -->|edge e1| A
