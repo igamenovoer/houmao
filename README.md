@@ -13,7 +13,7 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 
 A team of three agents writing a sci-fi novel chapter by chapter: a **story-writer** (Claude) drafts and finalizes each chapter, a **character-designer** (Claude) details character profiles, and a **story-reviewer** (Codex) reviews for logic and pacing. The story-writer master drives the loop — the human operator just starts it and watches.
 
-https://github.com/igamenovoer/houmao/raw/main/docs/resources/agent-loop/writer-team-loop.mp4
+<video src="https://raw.githubusercontent.com/igamenovoer/houmao/main/docs/resources/agent-loop/writer-team-loop.mp4" controls width="100%"></video>
 
 ## Why This Design
 
