@@ -5,19 +5,53 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 
 ## What It Is
 
-`Houmao` is a framework and CLI toolkit for building and running **teams of CLI-based AI agents** (`claude`, `codex`, `gemini`). Every agent is a real CLI process with its own isolated disk state, memory, and native TUI — not an in-process object graph. You define agents as **specialists** with roles and credentials, organize them under a **project overlay**, and coordinate them through mailbox-based messaging, gateways, and structured **loop plans**.
+`Houmao` is a framework and CLI toolkit for building and running **teams of CLI-based AI agents** (`claude`, `codex`, `gemini`). Every agent is a real CLI process with its own isolated disk state, memory, and native TUI — not an in-process object graph. You define agents as **specialists** with roles and credentials, and coordinate them through mailbox-based messaging, per-agent gateways, and structured **loop plans**.
 
 > **Name Origin:** `Houmao` (猴毛, "monkey hair") is inspired by the classic tale *Journey to the West*. Just as Sun Wukong (The Monkey King) plucks strands of his magical hair to create independent, capable clones of himself, this framework allows you to multiply your capabilities by spinning up numerous autonomous helpers.
 
-## Why This Approach
+## Why This Design
 
-- **Declarative agent definitions**: bundle a role prompt, tool choice, credentials, and skills into a named specialist — launch it with one command.
-- **Project-local organization**: `houmao-mgr project init` creates a `.houmao/` overlay that holds specialists, profiles, credentials, and mailbox config for the repo.
-- **Multi-agent loops**: author a pairwise or relay loop plan, start it, and let the master drive the execution while you stay outside the loop — checking status or stopping on demand.
-- **Agent self-management**: install system skills so agents can create specialists, send mail, attach gateways, and manage their own workflows through their native skill interface.
-- **Adopt existing sessions**: already have a `claude` or `codex` running in tmux? `agents join` wraps it with the full management envelope — no restart, no config.
-- **Transparent per-agent UX**: each agent is a real tmux-backed CLI process you can attach to, interact with, or take over manually at any time.
-- **Full tool surface area**: the system operates the same terminal/TUI interface you do, so every native capability remains usable.
+**Manage agents like people.** Each agent is a standalone individual — not a function in someone else's call graph. Give it a role, point it at a task, and it figures out how to get it done. If one agent crashes, the rest keep working. Replace or restart it without tearing down the team. In hard-coded orchestration (LangGraph, AutoGen, CrewAI), a single agent failure crashes the pipeline, adding an agent means writing code, and the team only exists while the orchestrator runs.
+
+**No code required.** Specialists are defined by a role prompt. Loop plans are plain Markdown. Agents interpret and execute plans using their native reasoning — no graph DSL, no state machine code, no framework boilerplate.
+
+- **Fully distributed, no central server.** Each agent has its own gateway sidecar. Agents coordinate through email, not a central orchestrator. No single point of failure.
+- **Fault-isolated.** One agent crashing does not affect others. Stop, restart, or swap any agent while the team continues.
+- **Fluid team topology.** Agents join and leave at any time. New specialists can be created mid-workflow.
+- **Seamless manual/automated switching.** Attach to any agent's tmux session, take over, detach — same process, no restart.
+- **Full native capabilities.** Every feature, plugin, and MCP server of the underlying CLI works. Houmao doesn't wrap or restrict the tool.
+- **Mix providers.** Combine Claude, Codex, and Gemini agents in one team, each managed through the same interface.
+
+
+## Architecture at a Glance
+
+```mermaid
+flowchart TB
+    HM["Operator<br/>human / script / agent"]
+
+    GW1["Gateway"]
+    GW2["Gateway"]
+    GW3["Gateway"]
+    A1["alex-story<br/>claude · tmux"]
+    A2["alex-char<br/>claude · tmux"]
+    A3["alex-review<br/>codex · tmux"]
+
+    MB[("Email System")]
+
+    HM -->|prompt / stop / status| GW1
+    HM -->|prompt / stop / status| GW2
+    HM -->|prompt / stop / status| GW3
+
+    GW1 --- A1
+    GW2 --- A2
+    GW3 --- A3
+
+    A1 <-->|mail| MB
+    A2 <-->|mail| MB
+    A3 <-->|mail| MB
+```
+
+Each agent is an independent process with its own gateway sidecar — there is no central server that all traffic must flow through. The operator can be a human running CLI commands, a shell script, or another Houmao-managed agent acting as the team coordinator. Agents communicate through a shared mailbox; any agent can be stopped, replaced, or added without disrupting the others.
 
 ## Quick Start
 
