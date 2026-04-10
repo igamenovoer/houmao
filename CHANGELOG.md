@@ -4,6 +4,31 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.5.0] - 2026-04-09
+
+### Added
+
+- **Dedicated `credentials` CLI command group**: `houmao-mgr` now exposes a top-level `credentials` family alongside `admin`, `agents`, `brains`, `mailbox`, `project`, `server`, and `system-skills`. The family ships `claude`, `codex`, and `gemini` subcommands with the full `list`, `get`, `add`, `set`, `remove`, and `rename` CRUD verbs and uses `--agent-def-dir <path>` to target plain agent-definition directories outside any project overlay. The project-scoped `houmao-mgr project credentials <tool> ...` wrapper remains the preferred entry point when an active project overlay is present and shares the same semantics. Documented in the refreshed [houmao-mgr CLI reference](docs/reference/cli/houmao-mgr.md) and surfaced from the docs landing page; the `houmao-credential-mgr` system skill was rewired to route through this new surface.
+- **Headless execution overrides on prompt surfaces**: `houmao-mgr agents prompt`, `houmao-mgr agents turn submit`, and `houmao-mgr agents gateway prompt` now accept `--model TEXT` and `--reasoning-level INTEGER` (normalized `1..10`) as request-scoped overrides. The overrides apply only to the submitted prompt/turn/gateway request and never mutate launch profiles, recipes, specialists, manifests, or stored easy profiles. Partial overrides (e.g., `--reasoning-level` alone) merge with launch-resolved model defaults through the shared headless resolution helper. Supplying either flag against a TUI-backed target is rejected explicitly rather than silently dropped. The same request-scoped `execution.model` payload is documented for the managed-agent HTTP routes (`POST /houmao/agents/{agent_ref}/turns`, `/gateway/control/prompt`, `/gateway/requests`) and for the direct gateway routes (`POST /v1/control/prompt`, `POST /v1/requests` for `submit_prompt`).
+- **`houmao-agent-loop-pairwise` system skill**: a new packaged Houmao-owned skill for authoring and operating pairwise driver-worker edge loops. Pairs with the existing `pairwise-edge-loop-via-gateway-and-mailbox.md` advanced-usage pattern doc and brings the packaged catalog to thirteen skills.
+- **`houmao-agent-loop-relay` system skill**: a second new packaged Houmao-owned skill for authoring and operating forward relay loops across multiple live-gateway agents. Pairs with the existing `relay-loop-via-gateway-and-mailbox.md` pattern doc and brings the packaged catalog to fourteen skills.
+
+### Changed
+
+- **Auth bundle decoupled from launch identity**: the auth profile, credential bundle, and launch identity surfaces were separated so credential management is no longer coupled to launch-time identity selection. `BrainBuilder`, the project catalog, and the `houmao-mgr project ...` command surface were resynced so credential CRUD, auth-profile rename, and `project easy specialist create` lanes route through the dedicated credential interface. The `houmao-credential-mgr`, `houmao-specialist-mgr`, and `houmao-agent-definition` packaged skill action docs were updated to match.
+- **Documentation refresh for the catalog growth and new CLI surfaces**: README, `docs/getting-started/system-skills-overview.md`, `docs/reference/cli/houmao-mgr.md`, `docs/index.md`, and the operator-facing reference pages were resynced so the system-skills table enumerates every entry under `catalog.toml` (now fourteen), so the auto-install diagram and per-set expansion reflect the resolved `managed_launch_sets`/`managed_join_sets`/`cli_default_sets` contents instead of frozen counts, and so the `agents prompt`, `agents turn submit`, and `agents gateway prompt` rows explicitly document the new headless overrides and TUI-target rejection.
+
+### Fixed
+
+- **Codex stale active TUI tracking**: the Codex TUI tracker now recovers from a stale `active` state instead of staying stuck after the worker has gone idle. Adds a recovery path through `src/houmao/server/tui/tracking.py`, profile/signal updates under `src/houmao/shared_tui_tracking/apps/codex_tui/`, regression fixtures, and unit tests in `tests/unit/server/test_tui_parser_and_tracking.py` and `tests/unit/shared_tui_tracking/test_codex_tui_session.py`.
+- **TUI interrupt always sends escape**: the interrupt path now always emits an escape key when interrupting a TUI-backed agent, replacing the prior conditional path that occasionally left the TUI in an unrecoverable focused-input state.
+- **Mail-notifier source link in mkdocs strict build**: corrected the `gateway-mail-notifier` reference page link depth so the docs site builds cleanly under `mkdocs build --strict`.
+
+### Notes
+
+- This release bumps the minor segment because of the new top-level `credentials` CLI command group, the new headless execution override flags on three prompt surfaces, the auth/identity decoupling refactor, and the two new packaged loop system skills (`houmao-agent-loop-pairwise`, `houmao-agent-loop-relay`).
+- The `gh release create v0.5.0` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.4.2] - 2026-04-09
 
 ### Added
