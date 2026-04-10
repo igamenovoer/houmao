@@ -60,8 +60,11 @@ from houmao.agents.realm_controller.agent_identity import (
 )
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
+    load_project_overlay,
+    overlay_config_path,
     resolve_materialized_project_aware_agent_def_dir,
 )
+from houmao.project.catalog import ProjectCatalog
 
 
 class BuildError(RuntimeError):
@@ -255,6 +258,28 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
         return parse_tool_adapter(path)
     except ValueError as exc:
         raise BuildError(str(exc)) from exc
+
+
+def _resolve_auth_bundle_dir(*, agent_def_dir: Path, tool: str, auth_name: str | None) -> Path | None:
+    """Resolve one auth directory from display-name input for project and non-project trees."""
+
+    if auth_name is None:
+        return None
+    direct_path = (agent_def_dir / "tools" / tool / "auth" / auth_name).resolve()
+    if direct_path.is_dir():
+        return direct_path
+    if agent_def_dir.name != "agents":
+        return direct_path
+    overlay_root = agent_def_dir.parent.resolve()
+    config_path = overlay_config_path(overlay_root)
+    if not config_path.is_file():
+        return direct_path
+    try:
+        overlay = load_project_overlay(config_path)
+        profile = ProjectCatalog.from_overlay(overlay).load_auth_profile(tool=tool, name=auth_name)
+    except (FileNotFoundError, ValueError):
+        return direct_path
+    return profile.resolved_projection_path(overlay)
 
 
 def _parse_operator_prompt_mode(
@@ -601,10 +626,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     skills_root = agent_def_dir / "skills"
     setup_dir = agent_def_dir / "tools" / request.tool / "setups" / resolved_setup
-    auth_dir = (
-        agent_def_dir / "tools" / request.tool / "auth" / resolved_auth
-        if resolved_auth is not None
-        else None
+    auth_dir = _resolve_auth_bundle_dir(
+        agent_def_dir=agent_def_dir,
+        tool=request.tool,
+        auth_name=resolved_auth,
     )
 
     if not skills_root.is_dir():

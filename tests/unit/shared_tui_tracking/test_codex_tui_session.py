@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
@@ -76,6 +78,12 @@ _CODEX_TRANSCRIPT_GROWTH_CONTINUES = (
     "  and a second line so the latest-turn region clearly keeps expanding\n\n"
     "› \n"
 )
+
+
+def _codex_fixture(name: str) -> str:
+    return (
+        Path(__file__).resolve().parents[2] / "fixtures" / "shared_tui_tracking" / "codex" / name
+    ).read_text(encoding="utf-8")
 
 
 def _codex_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
@@ -323,6 +331,29 @@ def test_codex_detector_visible_draft_does_not_count_as_success_candidate() -> N
 
     assert signals.editing_input == "yes"
     assert signals.success_candidate is False
+
+
+def test_codex_detector_recorded_full_scrollback_ignores_stale_working_row() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_codex_fixture("stale_active_full_scrollback.ansi.txt"))
+
+    assert signals.accepting_input == "yes"
+    assert signals.ready_posture == "yes"
+    assert signals.active_evidence is False
+    assert signals.latest_status_line is None
+    assert signals.success_candidate is True
+
+
+def test_codex_detector_recorded_visible_screen_stays_ready() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_codex_fixture("stale_active_visible_screen.ansi.txt"))
+
+    assert signals.accepting_input == "yes"
+    assert signals.ready_posture == "yes"
+    assert signals.active_evidence is False
+    assert signals.success_candidate is True
 
 
 def test_codex_tui_stale_interrupted_scrollback_does_not_block_final_success() -> None:

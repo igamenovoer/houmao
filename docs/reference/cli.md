@@ -70,18 +70,20 @@ Within that pair, `houmao-mgr` is split deliberately:
 - `server` is the server lifecycle and server-session family
 - `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
+- `credentials` is the first-class credential-management family for the active project overlay or an explicit plain agent-definition directory
 - `system-skills` is the Houmao-owned skill installer for resolved Claude, Codex, or Gemini homes outside managed launch or join
-- `project` is the repo-local Houmao overlay family with `agents`, `easy`, and `mailbox` views
+- `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `easy`, and `mailbox` views
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots
 - `admin` is the local maintenance family
 
 The repo-local `project` tree is intentionally split by user view:
 
-- `project agents ...` is the low-level filesystem-oriented surface for `.houmao/agents/`. It includes:
+- `project agents ...` is the low-level compatibility-projection surface for `.houmao/agents/`. Project-local semantic truth lives in `.houmao/catalog.sqlite` plus `.houmao/content/`, while `.houmao/agents/` remains the generated file-tree view used by current builders and runtime. It includes:
     - `project agents roles ...` for prompt-only role management,
     - `project agents recipes ...` (canonical) and `project agents presets ...` (compatibility alias) for named recipe administration under `.houmao/agents/presets/<name>.yaml`,
     - `project agents launch-profiles ...` for explicit recipe-backed reusable birth-time launch profiles under `.houmao/agents/launch-profiles/<name>.yaml`,
-    - `project agents tools <tool> ...` for adapter, setup, and auth-bundle administration.
+    - `project agents tools <tool> ...` for adapter and setup administration under `.houmao/agents/tools/<tool>/`,
+- `credentials ...` is the supported credential-management family. Use `project credentials <tool> ...` for the active overlay or `credentials <tool> ... --agent-def-dir <path>` for a plain agent-definition directory.
 - `project easy ...` is the higher-level specialist, easy-profile, and instance surface. It includes `project easy specialist ...`, `project easy profile ...` (specialist-backed reusable birth-time profiles), and `project easy instance ...` (the runtime lifecycle surface that accepts `--specialist` or `--profile` on `instance launch`).
 - `project mailbox ...` is the project-scoped wrapper over the generic mailbox-root commands.
 
@@ -144,7 +146,7 @@ By default, `houmao-mgr agents gateway attach` uses same-session foreground exec
 
 For pair-managed `houmao_server_rest` sessions, the same-session auxiliary-window topology is also the default. Use `--background` only when you explicitly want detached execution for that attach.
 
-For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, use `houmao-mgr agents gateway tui state|watch ...` when you need the exact raw gateway-owned parser and tracker surface, use `houmao-mgr agents gateway tui history ...` when you need bounded in-memory snapshot history rather than coarse managed-agent `/history`, and use `houmao-mgr agents gateway tui note-prompt ...` when you need explicit prompt provenance without queue submission. `houmao-mgr agents gateway mail-notifier ...` remains the notifier lifecycle surface. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
+For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. On headless targets, `agents prompt`, `agents gateway prompt`, and `agents turn submit` also accept request-scoped `--model` plus optional `--reasoning-level`; those overrides apply only to the current turn, use the resolved tool/model preset ladder rather than a portable `1..10` scale, and TUI-backed targets reject them explicitly. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, use `houmao-mgr agents gateway tui state|watch ...` when you need the exact raw gateway-owned parser and tracker surface, use `houmao-mgr agents gateway tui history ...` when you need bounded in-memory snapshot history rather than coarse managed-agent `/history`, and use `houmao-mgr agents gateway tui note-prompt ...` when you need explicit prompt provenance without queue submission. `houmao-mgr agents gateway mail-notifier ...` remains the notifier lifecycle surface. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project easy ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 

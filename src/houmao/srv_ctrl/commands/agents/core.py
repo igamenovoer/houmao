@@ -812,9 +812,9 @@ def agents_group() -> None:
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional one-off Houmao-defined reasoning override (1..10).",
+    help="Optional one-off tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
@@ -1229,18 +1229,38 @@ def state_agent_command(port: int | None, agent_id: str | None, agent_name: str 
     default=None,
     help="Prompt text to submit. If omitted, piped stdin is used.",
 )
+@click.option(
+    "--model",
+    default=None,
+    help="Request-scoped headless execution model override.",
+)
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(min=0),
+    default=None,
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
+)
 @pair_port_option(help_text="Houmao server port override; skips registry discovery when set.")
 @managed_agent_selector_options
 def prompt_agent_command(
     port: int | None,
     prompt: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
     """Submit the default prompt path for one managed agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(prompt_managed_agent(target, prompt=resolve_prompt_text(prompt=prompt)))
+    emit(
+        prompt_managed_agent(
+            target,
+            prompt=resolve_prompt_text(prompt=prompt),
+            model=model,
+            reasoning_level=reasoning_level,
+        )
+    )
 
 
 @agents_group.command(name="interrupt")

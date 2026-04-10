@@ -237,6 +237,17 @@ def status_gateway_command(
     is_flag=True,
     help="Send the prompt even when the gateway does not judge the target prompt-ready.",
 )
+@click.option(
+    "--model",
+    default=None,
+    help="Request-scoped headless execution model override.",
+)
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(min=0),
+    default=None,
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
+)
 @_current_session_option
 @_target_tmux_session_option
 @_gateway_pair_port_option(
@@ -245,6 +256,8 @@ def status_gateway_command(
 @managed_agent_selector_options
 def prompt_gateway_command(
     force: bool,
+    model: str | None,
+    reasoning_level: int | None,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
@@ -264,7 +277,13 @@ def prompt_gateway_command(
     )
     try:
         emit(
-            gateway_prompt(target, prompt=resolve_prompt_text(prompt=prompt), force=force),
+            gateway_prompt(
+                target,
+                prompt=resolve_prompt_text(prompt=prompt),
+                force=force,
+                model=model,
+                reasoning_level=reasoning_level,
+            ),
             plain_renderer=render_prompt_result_plain,
             fancy_renderer=render_prompt_result_fancy,
         )
@@ -735,6 +754,7 @@ def create_gateway_reminder_command(
         after_all=after_all,
         require_choice=True,
     )
+    assert ranking_value is not None
     definition = _build_create_reminder_definition(
         title=title,
         mode=mode,

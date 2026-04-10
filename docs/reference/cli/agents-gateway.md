@@ -82,11 +82,15 @@ houmao-mgr agents gateway prompt [OPTIONS]
 |---|---|
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
 | `--force` | Send the prompt even when the gateway does not judge the target prompt-ready. |
+| `--model TEXT` | Request-scoped headless execution model override for this prompt only. |
+| `--reasoning-level INTEGER` | Optional tool/model-specific reasoning preset index override for this prompt only. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway prompt. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+These override flags are accepted only when the resolved managed agent is headless. TUI-backed targets fail clearly instead of silently ignoring them. The override applies to exactly the addressed gateway prompt submission — including when that submission is queued through `submit_prompt` — and does not mutate launch profiles, recipes, specialists, manifests, or any other live session defaults. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper. The meaning of `--reasoning-level` depends on the resolved tool/model ladder, higher unused numbers saturate to that ladder's highest maintained Houmao preset, and `0` means explicit off only when that ladder supports it.
 
 ### `interrupt`
 

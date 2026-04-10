@@ -7,37 +7,44 @@ Module: `src/houmao/shared_tui_tracking/` — Neutral tracked-TUI models shared 
 ```mermaid
 flowchart TD
     PC["Pane Capture<br/>(raw TUI snapshot)"]
-    DET["Detector<br/>(tool-specific)"]
+    DET["Detector Profile<br/>(tool + version specific)"]
     DTS["DetectedTurnSignals"]
-    SAI["surface_accepting_input<br/>yes / no / unknown"]
-    SRP["surface_ready_posture<br/>yes / no / unknown"]
-    TP["turn_phase<br/>ready / active / unknown"]
-    LTR["last_turn_result<br/>success / interrupted /<br/>known_failure / none"]
+    TH["TemporalHintSignals<br/>(recent-window growth / churn hints)"]
+    TTS["TuiTrackerSession<br/>priority chain + settle timer"]
     TSS["TrackedStateSnapshot"]
-    STB["Stability tracking<br/>stable, stable_for_seconds"]
-    META["Detector metadata<br/>name, version"]
+    PAR["Parsed Surface /<br/>LifecycleObservation"]
+    HOST["Host Adapter<br/>(server or gateway)"]
+    PUB["Public terminal state"]
 
     PC --> DET --> DTS
-    DTS --> SAI
-    DTS --> SRP
-    DTS --> TP
-    DTS --> LTR
-    DTS --> TSS
-    TSS --> STB
-    TSS --> META
+    PC --> DET --> TH
+    DTS --> TTS
+    TH --> TTS
+    TTS --> TSS
+    PC --> PAR --> HOST
+    TSS --> HOST --> PUB
 ```
+
+`TrackedStateSnapshot` is the shared tracker output. Server and gateway hosts publish a larger public model on top of it by merging parsed-surface diagnostics, lifecycle timing sidecars, visible-state stability, and a small number of host-owned corrections such as stale-active recovery.
 
 ## TurnPhase State Machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> unknown
-    unknown --> ready : surface accepting input
-    unknown --> active : turn started
-    ready --> active : prompt sent
-    active --> ready : turn completed
+    unknown --> ready : ready_posture=yes +<br/>no active evidence
+    unknown --> active : explicit input /<br/>active evidence
+    ready --> active : prompt sent /<br/>activity resumes
+    active --> ready : success settled /<br/>interrupted / failure /<br/>host stale-active recovery
     active --> unknown : probe error
 ```
+
+## Important Model Notes
+
+- `surface_accepting_input=yes` or a visible prompt does not by itself prove that a turn is over. The shared tracker can keep `turn_phase=active` if there is stronger current activity evidence.
+- Detector profiles may use two different scopes at once: a prompt-scoped latest-turn region for interruption and success context, and a live-edge tail for current activity cues such as status rows and in-flight tool cells.
+- Codex is the main example of this split. Current activity uses the live edge so stale scrollback rows do not keep the turn active forever, while temporal transcript growth can still keep the turn active when no spinner or running row is visible.
+- Host adapters may correct an unanchored stale `active` posture after a stable submit-ready window. That correction publishes `ready` without manufacturing `last_turn_result=success`.
 
 ## Core Type Aliases
 
@@ -57,7 +64,7 @@ Three-valued logic for surface observations where the detector may not have enou
 TurnPhase = Literal["ready", "active", "unknown"]
 ```
 
-Whether the agent is currently processing a turn or idle.
+Whether the tracker currently believes a turn is in flight, the surface is ready for another turn, or the posture is ambiguous.
 
 ### TransportState
 
@@ -131,14 +138,14 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 |---|---|---|
 | `surface_accepting_input` | `Tristate` | Whether the surface is accepting new input |
 | `surface_editing_input` | `Tristate` | Whether the surface is in an input-editing state |
-| `surface_ready_posture` | `Tristate` | Whether the surface is in a ready posture (idle prompt visible) |
+| `surface_ready_posture` | `Tristate` | Whether the detector judged the surface to be in a ready posture |
 | `turn_phase` | `TurnPhase` | Current turn phase |
 | `last_turn_result` | `TrackedLastTurnResult` | Result of the last completed turn |
 | `last_turn_source` | `TrackedLastTurnSource` | How the last turn was initiated |
 | `detector_name` | `str` | Name of the detector that produced this snapshot |
 | `detector_version` | `str` | Version of the detector |
-| `active_reasons` | `tuple[str, ...]` | Human-readable reasons the surface is considered active |
-| `notes` | `tuple[str, ...]` | Additional detector notes for diagnostics |
+| `active_reasons` | `tuple[str, ...]` | Human-readable reasons the surface is considered active, such as `status_row`, `tool_cell`, or `transcript_growth` |
+| `notes` | `tuple[str, ...]` | Additional detector notes for diagnostics and profile behavior |
 | `stability_signature` | `str` | Hash-like signature of the observable surface state |
 | `stable` | `bool` | Whether the surface state has been stable (unchanged) long enough to trust |
 | `stable_for_seconds` | `float` | Duration the current signature has been stable |
@@ -147,7 +154,7 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 
 ## DetectedTurnSignals
 
-Frozen dataclass representing the raw signals extracted by a detector from a single observation frame. This is the detector's immediate output before the state machine applies temporal smoothing and stability tracking.
+Frozen dataclass representing the raw signals extracted by a detector from a single observation frame. This is the detector's immediate output before the tracker session applies temporal hints, priority ordering, and settle timing.
 
 | Field | Type | Description |
 |---|---|---|
@@ -155,12 +162,12 @@ Frozen dataclass representing the raw signals extracted by a detector from a sin
 | `detector_version` | `str` | Version of the detector |
 | `accepting_input` | `Tristate` | Whether the surface appears to accept input |
 | `editing_input` | `Tristate` | Whether the surface appears to be editing input |
-| `ready_posture` | `Tristate` | Whether the surface appears idle/ready |
+| `ready_posture` | `Tristate` | Whether the surface appears idle/ready in this one frame |
 | `prompt_visible` | `bool` | Whether a prompt is visible on the surface |
 | `prompt_text` | `str \| None` | Extracted prompt text, if visible |
 | `footer_interruptable` | `bool` | Whether the footer indicates the agent can be interrupted |
-| `active_evidence` | `bool` | Whether there is evidence the agent is actively processing |
-| `active_reasons` | `tuple[str, ...]` | Reasons the surface is considered active |
+| `active_evidence` | `bool` | Whether this frame contains evidence that the agent is actively processing |
+| `active_reasons` | `tuple[str, ...]` | Reasons the surface is considered active in this frame |
 | `interrupted` | `bool` | Whether the turn appears to have been interrupted |
 | `known_failure` | `bool` | Whether a known failure pattern was detected |
 | `current_error_present` | `bool` | Whether an error is currently visible on the surface |
@@ -171,3 +178,5 @@ Frozen dataclass representing the raw signals extracted by a detector from a sin
 | `success_blocked` | `bool` | Whether success detection is blocked by surface ambiguity |
 | `surface_signature` | `str` | Signature of the observed surface for stability tracking |
 | `notes` | `tuple[str, ...]` | Additional diagnostic notes |
+
+For Codex specifically, current activity is no longer inferred from arbitrary full-scrollback rows. Status-row and tool-cell activity come from the live edge of the current visible surface, while interruption, success context, and temporal transcript growth continue to use prompt-local latest-turn reasoning.

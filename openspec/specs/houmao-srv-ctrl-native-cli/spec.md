@@ -9,6 +9,7 @@ At minimum, that native tree SHALL include:
 - `server`
 - `agents`
 - `brains`
+- `credentials`
 - `admin`
 - `mailbox`
 - `project`
@@ -28,7 +29,7 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 
 #### Scenario: Native help surface shows the new top-level command families
 - **WHEN** an operator runs `houmao-mgr --help`
-- **THEN** the help output includes `server`, `agents`, `brains`, `admin`, `mailbox`, `project`, and `system-skills`
+- **THEN** the help output includes `server`, `agents`, `brains`, `credentials`, `admin`, `mailbox`, `project`, and `system-skills`
 - **AND THEN** the help output does NOT include `cao` or top-level `launch`
 
 #### Scenario: Bare invocation prints help instead of raising an exception
@@ -59,6 +60,17 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 - **THEN** the printed help output includes `https://igamenovoer.github.io/houmao/`
 - **AND THEN** the operator can discover the published docs site without already knowing a subcommand
 
+
+### Requirement: `houmao-mgr` exposes `credentials` as a top-level native command family
+`houmao-mgr` SHALL expose `credentials` as a top-level native command family in the supported root command tree.
+
+The root help surface SHALL present `credentials` as the first-class Houmao-owned credential-management family rather than as a nested projection-maintenance detail.
+
+#### Scenario: Native help surface shows the credentials command family
+- **WHEN** an operator runs `houmao-mgr --help`
+- **THEN** the help output includes `credentials` among the supported top-level command families
+- **AND THEN** the help output presents `credentials` as the supported credential-management surface
+
 ### Requirement: `houmao-mgr project` exposes repo-local project views
 When `houmao-mgr` exposes the repo-local `project` command family, that family SHALL include:
 
@@ -66,14 +78,15 @@ When `houmao-mgr` exposes the repo-local `project` command family, that family S
 - `status`
 - `agents`
 - `easy`
+- `credentials`
 - `mailbox`
 
-The `project` help surface SHALL present those subtrees as repo-local views over project source management, high-level project authoring, and project-scoped mailbox operations.
+The `project` help surface SHALL present those subtrees as repo-local views over project source management, high-level project authoring, project-scoped credential management, and project-scoped mailbox operations.
 
 #### Scenario: Project help shows the project views
 - **WHEN** an operator runs `houmao-mgr project --help`
-- **THEN** the help output lists `init`, `status`, `agents`, `easy`, and `mailbox`
-- **AND THEN** the help output does not present `agent-tools` or `credential` as the supported public project command family
+- **THEN** the help output lists `init`, `status`, `agents`, `easy`, `credentials`, and `mailbox`
+- **AND THEN** the help output does not present `agent-tools` as the supported public project command family
 
 ### Requirement: `houmao-mgr server` accepts passive server pair authorities
 `houmao-mgr server` lifecycle commands SHALL accept a supported pair authority whose `GET /health` reports `houmao_service == "houmao-passive-server"` in addition to `houmao-server`.
@@ -1005,3 +1018,99 @@ When an operator runs one of those commands outside tmux with `--target-tmux-ses
 - **WHEN** an operator runs `houmao-mgr agents gateway status --agent-id abc123 --pair-port 9891`
 - **THEN** `houmao-mgr` targets the pair authority at port `9891`
 - **AND THEN** the command surface does not describe that override as a generic `--port` that could be mistaken for the gateway listener port
+
+### Requirement: `houmao-mgr agents interrupt` keeps TUI interrupt transport-neutral
+`houmao-mgr agents interrupt` SHALL keep one transport-neutral operator contract across managed-agent transports.
+
+For TUI-backed managed agents, the command SHALL dispatch one best-effort `Escape` interrupt signal through the resolved managed-agent control authority and SHALL NOT require the operator to know or supply raw TUI key semantics.
+
+For TUI-backed managed agents, the command SHALL NOT reject or no-op solely because coarse tracked TUI phase currently reports `idle` or another non-active posture.
+
+For headless managed agents, the command SHALL continue using the managed execution interrupt path and MAY return no-op behavior when no headless work is active.
+
+#### Scenario: Operator interrupts a server-backed TUI agent without tracking-phase veto
+- **WHEN** an operator runs `houmao-mgr agents interrupt --agent-id abc123` for a managed TUI agent
+- **AND WHEN** the resolved managed-agent control path is reachable
+- **AND WHEN** coarse tracked TUI phase is currently non-active
+- **THEN** `houmao-mgr` still submits one best-effort TUI interrupt request
+- **AND THEN** the operator is not forced to switch to a raw `send-keys` command just to deliver `Escape`
+
+#### Scenario: Operator interrupt keeps headless no-op semantics
+- **WHEN** an operator runs `houmao-mgr agents interrupt --agent-id abc123` for a managed headless agent with no active execution
+- **THEN** `houmao-mgr` returns the headless interrupt no-op result
+- **AND THEN** the command does not fabricate a delivered TUI-style `Escape` interrupt for headless state
+
+### Requirement: Native managed-agent local resume failures render as clean CLI errors
+
+When a native `houmao-mgr agents ...` command resolves a local managed-agent target through shared-registry metadata and local controller resume fails with an expected realm-controller runtime-domain failure, `houmao-mgr` SHALL render that failure as explicit CLI error output rather than leaking a Python traceback.
+
+This SHALL apply at minimum to local managed-agent commands that resume a local controller before dispatch, including:
+
+- `houmao-mgr agents stop`
+- `houmao-mgr agents prompt`
+- `houmao-mgr agents interrupt`
+- `houmao-mgr agents relaunch`
+
+For stale tmux-backed local targets, the rendered failure SHALL preserve non-zero exit behavior and SHALL explain that the selected managed agent's local tmux-backed runtime authority is no longer live or otherwise unusable.
+
+#### Scenario: Stale tmux-backed local stop target fails without traceback
+- **WHEN** an operator runs `houmao-mgr agents stop --agent-name alice`
+- **AND WHEN** registry-first local discovery resolves managed agent `alice`
+- **AND WHEN** local controller resume fails because the persisted tmux session for that managed agent no longer exists
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** stderr reports a managed-agent contextual CLI error explaining that the local runtime authority is unusable
+- **AND THEN** stderr does not include a Python traceback
+
+#### Scenario: Local prompt target runtime failure still renders as CLI error text
+- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id agent-123 --prompt "hello"`
+- **AND WHEN** registry-first local discovery resolves that managed agent
+- **AND WHEN** local controller resume fails with an expected realm-controller runtime-domain error
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** stderr reports the failure as explicit CLI error text for that managed agent
+- **AND THEN** stderr does not include a Python traceback
+
+### Requirement: `houmao-mgr` headless prompt commands expose request-scoped execution override flags
+The native `houmao-mgr` prompt submission surfaces for headless work SHALL expose request-scoped execution override flags.
+
+At minimum, this SHALL apply to:
+
+- `houmao-mgr agents turn submit`
+- `houmao-mgr agents gateway prompt`
+- `houmao-mgr agents prompt`
+
+Those commands SHALL accept:
+
+- `--model <name>`
+- `--reasoning-level <1..10>`
+
+When either flag is supplied, the CLI SHALL construct request-scoped `execution.model` payload with the supplied subfields and omit unsupplied subfields so the server or gateway can inherit the remaining values from launch-resolved defaults.
+
+`houmao-mgr agents turn submit` SHALL send that payload through the managed headless turn route.
+
+`houmao-mgr agents gateway prompt` SHALL send that payload through the managed gateway direct prompt-control path.
+
+`houmao-mgr agents prompt` SHALL send that payload through the transport-neutral managed-agent prompt path.
+
+Before dispatch, `houmao-mgr agents gateway prompt` and `houmao-mgr agents prompt` SHALL resolve the addressed managed agent and reject these execution flags clearly when the resolved target is TUI-backed rather than silently dropping them.
+
+#### Scenario: Managed headless turn submit accepts both execution flags
+- **WHEN** an operator runs `houmao-mgr agents turn submit --agent-id abc123 --prompt "review this" --model gpt-5.4-mini --reasoning-level 4`
+- **THEN** `houmao-mgr` submits the managed headless turn successfully
+- **AND THEN** the request includes `execution.model.name = "gpt-5.4-mini"` and `execution.model.reasoning.level = 4`
+
+#### Scenario: Transport-neutral prompt forwards partial execution override for a headless target
+- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "review this" --reasoning-level 2`
+- **AND WHEN** the resolved managed agent is headless
+- **THEN** `houmao-mgr` submits that prompt through the supported transport-neutral managed-agent path
+- **AND THEN** the request includes only the partial execution override for reasoning level `2`
+
+#### Scenario: Gateway prompt rejects execution override for a TUI target
+- **WHEN** an operator runs `houmao-mgr agents gateway prompt --agent-id abc123 --prompt "review this" --model gpt-5.4-mini`
+- **AND WHEN** the resolved managed agent is TUI-backed
+- **THEN** `houmao-mgr` fails that command clearly
+- **AND THEN** it does not silently send a TUI gateway prompt while dropping the requested model override
+
+#### Scenario: Invalid reasoning-level flag is rejected clearly
+- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "review this" --reasoning-level 0`
+- **THEN** `houmao-mgr` rejects that input clearly
+- **AND THEN** the CLI does not construct or send an invalid request payload

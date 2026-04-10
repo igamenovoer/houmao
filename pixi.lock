@@ -105,7 +105,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/cd/16/0abdd1cc4f52817101c19eedb972013c970fcbe65a26d833c32028dbced0/osbot_utils-3.74.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/90/96/04b8e52da071d28f5e21a805b19cb9390aa17a47462ac87f5e2696b9566d/paginate-0.5.7-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/67/ee/21d4e8536afd1a328f01b359b4d3997b291ffd35a237c877b331c1c3b71c/pillow-12.2.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/63/d7/97f7e3a6abb67d8080dd406fd4df842c2be0efaf712d1c899c32a075027c/platformdirs-4.9.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/75/a6/a0a304dc33b49145b21f4808d763822111e67d1c3a32b524a1baf947b6e1/platformdirs-4.9.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/87/b70ad306ebb6f9b585f114d0ac2137d792b48be34d732d60e597c2f8465a/pydantic-2.12.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cf/4e/35a80cae583a37cf15604b44240e45c05e04e86f9cfd766623149297e971/pydantic_core-2.41.5-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -609,8 +609,8 @@ packages:
   requires_python: '>=3.8'
 - pypi: ./
   name: houmao
-  version: 0.4.2
-  sha256: a69229214c476c704a45988a23284b6c5596ca6ab5b97059b578b62ff4139541
+  version: 0.5.0
+  sha256: a6340f45d9f01c43e658ce7f989381490bf60f65a01eadd8450754a17f48ceae
   requires_dist:
   - click>=8.3.1,<9
   - fastapi>=0.135.1,<0.136
@@ -1639,10 +1639,10 @@ packages:
   - pkg:pypi/pip?source=hash-mapping
   size: 1177084
   timestamp: 1762776338614
-- pypi: https://files.pythonhosted.org/packages/63/d7/97f7e3a6abb67d8080dd406fd4df842c2be0efaf712d1c899c32a075027c/platformdirs-4.9.4-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/75/a6/a0a304dc33b49145b21f4808d763822111e67d1c3a32b524a1baf947b6e1/platformdirs-4.9.6-py3-none-any.whl
   name: platformdirs
-  version: 4.9.4
-  sha256: 68a9a4619a666ea6439f2ff250c12a853cd1cbd5158d258bd824a7df6be2f868
+  version: 4.9.6
+  sha256: e61adb1d5e5cb3441b4b7710bea7e4c12250ca49439228cc1021c00dcfac0917
   requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/conda-forge/noarch/pluggy-1.6.0-pyhf9edf01_1.conda
   sha256: e14aafa63efa0528ca99ba568eaf506eb55a0371d12e6250aaaa61718d2eb62e

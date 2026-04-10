@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
+from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessProvider,
@@ -31,6 +32,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import (
+    BrainLaunchRuntimeError,
     GatewayHttpError,
     MailboxCommandError,
     SessionManifestError,
@@ -45,9 +47,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayCurrentExecutionMode,
     GatewayMailActionResponseV1,
     GatewayMailAttachmentUploadV1,
     GatewayMailCheckResponseV1,
+    GatewayExecutionOverrideV1,
     GatewayMailPostRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
@@ -191,6 +195,43 @@ class _LocalHeadlessTurnSnapshot:
     returncode: int | None
     history_summary: str | None
     error: str | None
+
+
+def _resolve_execution_model_override(
+    *,
+    model: str | None,
+    reasoning_level: int | None,
+) -> ModelConfig | None:
+    """Normalize one request-scoped execution override from CLI flags."""
+
+    if model is not None and not model.strip():
+        raise click.ClickException("`--model` must not be empty.")
+    try:
+        return normalize_model_config(name=model, reasoning_level=reasoning_level)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _execution_override_payload(model_config: ModelConfig | None) -> GatewayExecutionOverrideV1 | None:
+    """Build one request payload from a normalized execution override."""
+
+    return GatewayExecutionOverrideV1.from_model_config(model_config)
+
+
+def _require_headless_execution_override_target(
+    *,
+    target: ManagedAgentTarget,
+    execution_model: ModelConfig | None,
+) -> None:
+    """Reject request-scoped execution overrides for non-headless targets."""
+
+    if execution_model is None:
+        return
+    if target.identity.transport == "headless":
+        return
+    raise click.ClickException(
+        "Execution overrides are only supported for headless managed-agent prompt routes."
+    )
 
 
 def list_managed_agents(*, port: int | None) -> HoumaoManagedAgentListResponse:
@@ -545,9 +586,19 @@ def prompt_managed_agent(
     target: ManagedAgentTarget,
     *,
     prompt: str,
+    model: str | None = None,
+    reasoning_level: int | None = None,
 ) -> object:
     """Submit the default prompt path for one managed agent."""
 
+    execution_model = _resolve_execution_model_override(
+        model=model,
+        reasoning_level=reasoning_level,
+    )
+    _require_headless_execution_override_target(
+        target=target,
+        execution_model=execution_model,
+    )
     if target.mode == "server":
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentSubmitPromptRequest
@@ -555,11 +606,17 @@ def prompt_managed_agent(
         return pair_request(
             target.client.submit_managed_agent_request,
             target.agent_ref,
-            HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
+            HoumaoManagedAgentSubmitPromptRequest(
+                prompt=prompt,
+                execution=_execution_override_payload(execution_model),
+            ),
         )
 
     assert target.controller is not None
-    target.controller.send_prompt(prompt)
+    target.controller.send_prompt(
+        prompt,
+        execution_model=execution_model,
+    )
     return HoumaoManagedAgentRequestAcceptedResponse(
         success=True,
         tracked_agent_id=target.identity.tracked_agent_id,
@@ -647,7 +704,9 @@ def attach_gateway(target: ManagedAgentTarget, *, background: bool = False) -> G
     """Attach or reuse a live gateway for one managed agent."""
 
     target = _local_gateway_target_for_passive_pair(target, operation="attach")
-    execution_mode_override = "detached_process" if background else "tmux_auxiliary_window"
+    execution_mode_override: GatewayCurrentExecutionMode = (
+        "detached_process" if background else "tmux_auxiliary_window"
+    )
     if target.mode == "server":
         assert target.client is not None
         return pair_request(
@@ -683,9 +742,19 @@ def gateway_prompt(
     *,
     prompt: str,
     force: bool = False,
+    model: str | None = None,
+    reasoning_level: int | None = None,
 ) -> GatewayPromptControlResultV1:
     """Submit one direct gateway prompt for a managed agent."""
 
+    execution_model = _resolve_execution_model_override(
+        model=model,
+        reasoning_level=reasoning_level,
+    )
+    _require_headless_execution_override_target(
+        target=target,
+        execution_model=execution_model,
+    )
     if target.mode == "server":
         assert target.client is not None
         try:
@@ -694,6 +763,7 @@ def gateway_prompt(
                 HoumaoManagedAgentGatewayPromptControlRequest(
                     prompt=prompt,
                     force=force,
+                    execution=_execution_override_payload(execution_model),
                 ),
             )
         except CaoApiError as exc:
@@ -708,6 +778,7 @@ def gateway_prompt(
             GatewayPromptControlRequestV1(
                 prompt=prompt,
                 force=force,
+                execution=_execution_override_payload(execution_model),
             )
         )
     except GatewayHttpError as exc:
@@ -1869,21 +1940,38 @@ def submit_headless_turn(
     target: ManagedAgentTarget,
     *,
     prompt: str,
+    model: str | None = None,
+    reasoning_level: int | None = None,
 ) -> HoumaoHeadlessTurnAcceptedResponse:
     """Submit one headless turn for a managed agent."""
 
+    execution_model = _resolve_execution_model_override(
+        model=model,
+        reasoning_level=reasoning_level,
+    )
+    _require_headless_execution_override_target(
+        target=target,
+        execution_model=execution_model,
+    )
     if target.mode == "server":
         assert target.client is not None
         return pair_request(
             target.client.submit_headless_turn,
             target.agent_ref,
-            HoumaoHeadlessTurnRequest(prompt=prompt),
+            HoumaoHeadlessTurnRequest(
+                prompt=prompt,
+                execution=_execution_override_payload(execution_model),
+            ),
         )
 
     assert target.controller is not None
     turn_index = _next_turn_index(target.controller)
     turn_id = f"turn-{turn_index:04d}"
-    target.controller.send_prompt(prompt)
+    target.controller.send_prompt(
+        prompt,
+        turn_artifact_dir_name=turn_id,
+        execution_model=execution_model,
+    )
     snapshot = _turn_snapshot_from_id(controller=target.controller, turn_id=turn_id)
     return HoumaoHeadlessTurnAcceptedResponse(
         success=True,
@@ -2059,10 +2147,18 @@ def _resume_controller_from_record(record: LiveAgentRegistryRecordV2) -> Runtime
         )
     agent_def_dir = Path(agent_def_dir_raw).expanduser().resolve()
     manifest_path = Path(record.runtime.manifest_path).expanduser().resolve()
-    return resume_runtime_session(
-        agent_def_dir=agent_def_dir,
-        session_manifest_path=manifest_path,
-    )
+    try:
+        return resume_runtime_session(
+            agent_def_dir=agent_def_dir,
+            session_manifest_path=manifest_path,
+        )
+    except BrainLaunchRuntimeError as exc:
+        tracked_name = record.agent_name or record.agent_id or record.terminal.session_name
+        raise click.ClickException(
+            f"Managed agent `{tracked_name}` is registered in the shared registry but "
+            f"its local tmux-backed runtime authority is no longer live or otherwise "
+            f"unusable: {exc}"
+        ) from exc
 
 
 def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoManagedAgentIdentity:

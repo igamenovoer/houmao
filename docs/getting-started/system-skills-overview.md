@@ -19,9 +19,9 @@ Each system skill ships as a directory under `src/houmao/agents/assets/system_sk
 
 System skills are not Python plugins, MCP servers, or runtime hooks. They are agent-readable instruction packages that guide the agent toward the right `houmao-mgr` command for the task. The supporting code is whatever `houmao-mgr` already exposes through `srv_ctrl/commands/`.
 
-## The Twelve Packaged Skills
+## The Packaged Skills
 
-Houmao currently ships **twelve** system skills. They split into four concern groups: **guided touring**, **project, specialist, and credential authoring**, **agent definition and instance management**, and **agent communication, gateway, and mailbox**.
+Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into five concern groups: **guided touring**, **project, specialist, and credential authoring**, **agent definition and instance management**, **agent communication, gateway, and mailbox**, and **loop authoring and master-run control**.
 
 ### Guided Touring
 
@@ -35,7 +35,7 @@ Houmao currently ships **twelve** system skills. They split into four concern gr
 |---|---|---|
 | `houmao-project-mgr` | Project overlay lifecycle, `.houmao/` layout explanation, project-aware command-effect guidance, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing. | `houmao-mgr project init`, `houmao-mgr project status`, `houmao-mgr project agents launch-profiles ...`, `houmao-mgr project easy instance list|get|stop` |
 | `houmao-specialist-mgr` | Create, list, inspect, remove easy specialists; create, list, inspect, remove easy profiles; launch and stop easy instances from either source. | `houmao-mgr project easy specialist ...`, `houmao-mgr project easy profile ...`, `houmao-mgr project easy instance launch|stop` |
-| `houmao-credential-mgr` | Add, update, inspect, remove project-local tool auth bundles for Claude, Codex, and Gemini. Manages auth bundle contents, not stored profile-level auth overrides. | `houmao-mgr project agents tools <tool> auth list|get|add|set|remove` |
+| `houmao-credential-mgr` | Add, update, inspect, rename, and remove credentials for Claude, Codex, and Gemini in either the active project overlay or an explicit plain agent-definition directory. Manages credential contents and names, not stored profile-level auth overrides. | `houmao-mgr project credentials <tool> list|get|add|set|rename|remove` / `houmao-mgr credentials <tool> ... --agent-def-dir <path>` |
 
 ### Agent definition and instance management
 
@@ -48,21 +48,28 @@ Houmao currently ships **twelve** system skills. They split into four concern gr
 
 | Skill | What it enables | Canonical CLI routing |
 |---|---|---|
-| `houmao-agent-messaging` | Communicate with already-running managed agents — synchronous prompt and interrupt, queued gateway requests, raw `send-keys`, mailbox routing, and reset-context guidance. Routes by **communication intent**, not by one hardcoded transport. Prefers live gateway-backed delivery when available. | `houmao-mgr agents prompt|interrupt`, `houmao-mgr agents gateway prompt|interrupt|send-keys|tui state|history|note-prompt`, `houmao-mgr agents mail resolve-live` |
+| `houmao-agent-messaging` | Communicate with already-running managed agents — synchronous prompt and interrupt, queued gateway requests, raw `send-keys`, mailbox routing, reset-context guidance, and request-scoped headless execution overrides through `--model` plus optional `--reasoning-level`. Routes by **communication intent**, not by one hardcoded transport. Prefers live gateway-backed delivery when available. | `houmao-mgr agents prompt|interrupt`, `houmao-mgr agents gateway prompt|interrupt|send-keys|tui state|history|note-prompt`, `houmao-mgr agents turn submit`, `houmao-mgr agents mail resolve-live` |
 | `houmao-agent-gateway` | Live gateway lifecycle, manifest-first discovery from inside or outside the attached session, gateway-only control surfaces, ranked direct reminders, and gateway mail-notifier behavior. Distinct from `houmao-agent-messaging` because it focuses on the gateway sidecar itself, not the messages going through it. | `houmao-mgr agents gateway attach|detach|status|tui watch`, `houmao-mgr agents gateway mail-notifier status|enable|disable` |
 | `houmao-mailbox-mgr` | Mailbox administration for filesystem mailbox roots, project mailbox roots, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents. This is the mailbox-admin skill, not the ordinary mailbox-participation skill. | `houmao-mgr mailbox ...`, `houmao-mgr project mailbox ...`, `houmao-mgr agents mailbox ...` |
 | `houmao-agent-email-comms` | Unified ordinary shared-mailbox operations and no-gateway fallback guidance. Covers gateway-backed `/v1/mail/*` work, transport-local context, and the no-gateway fallback path. The canonical mailbox-operations skill paired with `houmao-mgr agents mail`. | `houmao-mgr agents mail status|check|send|reply|mark-read|resolve-live` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL: gateway-API-first triage, selective inspection, post-success mark-read, and stop-after-round discipline. | `houmao-mgr agents mail check|mark-read` plus the live gateway `/v1/mail/*` facade |
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds. | The composed `houmao-mgr agents mail ...` and `houmao-mgr agents gateway ...` families, plus the live gateway `/v1/mail/*` facade through the direct-operation skills |
 
+### Loop authoring and master-run control
+
+| Skill | What it enables | Canonical CLI routing |
+|---|---|---|
+| `houmao-agent-loop-pairwise` | Author a master-owned pairwise loop plan from user intent, render the final Mermaid control graph, and operate the accepted run through `start`, `status`, and `stop`. Keeps the user agent outside the execution loop and delegates liveness, supervision, and downstream pairwise dispatch to the designated master. Routes execution through the direct-operation messaging, gateway, and mailbox skills rather than inventing a new runtime loop engine. | Routes through `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, and `houmao-adv-usage-pattern` for execution; the skill itself is authoring plus `start|status|stop` control |
+| `houmao-agent-loop-relay` | Author a master-owned relay loop plan from user intent, render the final Mermaid relay graph, and operate the accepted run through `start`, `status`, and `stop`. Normalizes forwarding authority explicitly, evaluates completion centrally at the origin, and returns the final result to the designated origin rather than cycling through worker-to-worker hand-offs. | Routes through `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, and `houmao-adv-usage-pattern` for execution; the skill itself is authoring plus `start|status|stop` control |
+
 ## Auto-Install vs Explicit Install
 
-The same twelve skills can land in a tool home through either path, but the **default selections** are different.
+The same catalog can land in a tool home through either path, but the **default selections** are different.
 
 ```
                        INSTALL DEFAULTS
                 ════════════════════════════════════
-                                                     
+
    Managed launch / join                Explicit external install
    (auto, into managed home)            (houmao-mgr system-skills install
                                          --tool <t> --home <path>)
@@ -74,8 +81,10 @@ The same twelve skills can land in a tool home through either path, but the **de
    │ agent-messaging           │        │ agent-instance  ◄── ADDS  │
    │ agent-gateway             │        │ agent-messaging           │
    │                           │        │ agent-gateway             │
-   │ → 11 skills:              │        │                           │
-   │  process-emails-via-gw    │        │ → 12 skills:              │
+   │ → every catalog skill     │        │                           │
+   │    except the lifecycle-  │        │ → every catalog skill,    │
+   │    only agent-instance:   │        │    including              │
+   │  process-emails-via-gw    │        │    agent-instance:        │
    │  agent-email-comms        │        │  all of managed launch    │
    │  mailbox-mgr              │        │  PLUS:                    │
    │  adv-usage-pattern        │        │  agent-instance           │
@@ -84,10 +93,14 @@ The same twelve skills can land in a tool home through either path, but the **de
    │  specialist-mgr           │        │                           │
    │  credential-mgr           │        │                           │
    │  agent-definition         │        │                           │
+   │  agent-loop-pairwise      │        │                           │
+   │  agent-loop-relay         │        │                           │
    │  agent-messaging          │        │                           │
    │  agent-gateway            │        │                           │
    └───────────────────────────┘        └───────────────────────────┘
 ```
+
+The exact counts follow the resolved `catalog.toml` sets, so the "managed launch / join" column grows whenever a new skill joins `user-control`, `mailbox-full`, `advanced-usage`, `touring`, `agent-messaging`, or `agent-gateway`, and the "explicit external install" column grows the same way plus `agent-instance`.
 
 The catalog source of truth lives at `src/houmao/agents/assets/system_skills/catalog.toml`:
 
@@ -106,7 +119,7 @@ The named sets resolve as:
 | `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr` |
 | `advanced-usage` | `houmao-adv-usage-pattern` |
 | `touring` | `houmao-touring` |
-| `user-control` | `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition` |
+| `user-control` | `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-relay` |
 | `agent-instance` | `houmao-agent-instance` |
 | `agent-messaging` | `houmao-agent-messaging` |
 | `agent-gateway` | `houmao-agent-gateway` |
@@ -117,7 +130,7 @@ When the operator launches or joins through `houmao-mgr`, **the operator already
 
 ### How to install the broader CLI-default set
 
-To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the twelve-skill default selection, omit both `--set` and `--skill`:
+To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the full CLI-default selection — every catalog skill including the lifecycle-only `houmao-agent-instance` — omit both `--set` and `--skill`:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude

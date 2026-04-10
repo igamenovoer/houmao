@@ -96,7 +96,7 @@ pixi run houmao-mgr project easy specialist create \
   --with-skill /tmp/notes-skill
 ```
 
-When `--credential` is omitted, `project easy specialist create` derives the auth bundle name as `<specialist>-creds`. In this example the generated Claude auth bundle is `researcher-creds`.
+When `--credential` is omitted, `project easy specialist create` derives the auth display name as `<specialist>-creds`. In this example the generated Claude auth bundle is displayed as `researcher-creds`, but its stored content and projected auth directories are keyed by an opaque internal bundle ref.
 
 `--system-prompt` is optional for this higher-level workflow. If you omit both `--system-prompt` and `--system-prompt-file`, Houmao still writes the canonical role prompt file and treats that role as promptless.
 
@@ -104,24 +104,24 @@ For maintained easy launch paths, `project easy specialist create` now persists 
 
 Use repeatable `--env-set NAME=value` on `project easy specialist create` when the env is part of the specialist's durable launch semantics and should survive later relaunch. Those records are stored under `launch.env_records`, stay separate from credential env, and should not be used for secrets or auth-owned names such as `OPENAI_API_KEY`.
 
-This higher-level flow persists semantic state in the catalog and snapshots payload content into the managed content store. It also materializes the compatibility projection tree used by the existing builders and runtime:
+This higher-level flow persists semantic state in the catalog and snapshots payload content into the managed content store. It also materializes the compatibility projection tree used by the existing builders and runtime. The auth bundle keeps display name `researcher-creds`, but its stored and projected directory names are opaque:
 
 ```text
 .houmao/catalog.sqlite
 .houmao/content/prompts/researcher.md
-.houmao/content/auth/claude/researcher-creds/
+.houmao/content/auth/claude/<opaque-auth-ref>/
 .houmao/content/skills/notes/
 .houmao/agents/roles/researcher/system-prompt.md
 .houmao/agents/presets/researcher-claude-default.yaml
-.houmao/agents/tools/claude/auth/researcher-creds/
+.houmao/agents/tools/claude/auth/<opaque-auth-ref>/
 .houmao/agents/skills/notes/
 ```
 
-Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. For example, add or inspect auth bundles directly with `houmao-mgr project agents tools <tool> auth ...`, manage prompt-only roles with `houmao-mgr project agents roles ...`, manage named recipes with `houmao-mgr project agents recipes ...`, or manage explicit recipe-backed launch profiles with `houmao-mgr project agents launch-profiles ...`.
+Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. Credential management now has its own concern-oriented entry points: use `houmao-mgr project credentials <tool> ...` for the active overlay or `houmao-mgr credentials <tool> ... --agent-def-dir <path>` for a plain agent-definition directory. Use `houmao-mgr project agents roles ...` for prompt-only roles, `houmao-mgr project agents recipes ...` for named recipes, or `houmao-mgr project agents launch-profiles ...` for explicit recipe-backed launch profiles.
 
 Gemini note:
 
-- `project agents tools gemini auth add|set` and `project easy specialist create --tool gemini` both support `--api-key`, optional `--base-url`, and optional OAuth credentials via `--oauth-creds` or `--gemini-oauth-creds`.
+- `project credentials gemini add|set` and `project easy specialist create --tool gemini` both support `--api-key`, optional `--base-url`, and optional OAuth credentials via `--oauth-creds` or `--gemini-oauth-creds`.
 - OAuth-backed managed Gemini homes inject the supported Google-login selector automatically, so fresh runtime homes do not depend on a user-global Gemini `settings.json`.
 - Houmao-owned Gemini skills now project into `.gemini/skills/`; `.agents/skills/` is only Gemini's upstream alias surface and is not the Houmao-managed root.
 - `project easy specialist create --tool gemini` now persists unattended launch posture by default; keep `--no-unattended` for explicit `as_is`.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Loop Pairwise"
+  short_description: "Formulate and operate master-owned pairwise loop runs."
+  default_prompt: "Use $houmao-agent-loop-pairwise when a user-controlled agent needs to turn a goal into a pairwise loop plan or send start, status, or stop control requests to a designated Houmao master without making the user agent part of the execution loop."

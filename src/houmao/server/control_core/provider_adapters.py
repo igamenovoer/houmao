@@ -68,9 +68,9 @@ class CompatibilityProviderAdapter:
         tmux: CompatibilityTmuxController,
         window_id: str,
     ) -> None:
-        """Deliver the provider-specific exit action."""
+        """Deliver the provider-specific interrupt action."""
 
-        tmux.send_text(window_id=window_id, text="/exit", enter_count=1)
+        tmux.send_special_key(window_id=window_id, key_name="Escape")
 
     def wait_until_ready(
         self,
@@ -377,9 +377,9 @@ class GeminiCompatibilityProvider(CompatibilityProviderAdapter):
         tmux: CompatibilityTmuxController,
         window_id: str,
     ) -> None:
-        """Exit Gemini using EOF."""
+        """Deliver Gemini interrupt using the shared TUI escape key."""
 
-        tmux.send_special_key(window_id=window_id, key_name="C-d")
+        tmux.send_special_key(window_id=window_id, key_name="Escape")
 
 
 class KimiCompatibilityProvider(CompatibilityProviderAdapter):

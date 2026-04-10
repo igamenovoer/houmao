@@ -2,14 +2,14 @@
 
 `houmao-mgr system-skills` is the operator-facing surface for installing the current Houmao-owned `houmao-*` skills into resolved Claude, Codex, or Gemini homes.
 
-> **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of all twelve packaged skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
+> **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
 This is the same packaged skill system used internally by:
 
 - `houmao-mgr brains build` when it creates a managed home,
 - `houmao-mgr agents join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
 
-The current implementation is still intentionally narrow. It currently covers these twelve packaged Houmao-owned skills:
+The current implementation is still intentionally narrow. It covers the packaged Houmao-owned skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`:
 
 - `houmao-process-emails-via-gateway` for round-oriented gateway mailbox workflow
 - `houmao-agent-email-comms` for ordinary shared-mailbox operations and the no-gateway fallback path
@@ -18,11 +18,13 @@ The current implementation is still intentionally narrow. It currently covers th
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
 - `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing
 - `houmao-specialist-mgr` for reusable specialist and easy-profile authoring plus easy-workflow launch and stop entry
-- `houmao-credential-mgr` for project-local credential management
+- `houmao-credential-mgr` for project-local and plain-agent-definition-directory credential management
 - `houmao-agent-definition` for low-level role and recipe definition management (canonical `project agents recipes ...` plus the compatibility `project agents presets ...` alias)
 - `houmao-agent-instance` for live managed-agent instance lifecycle
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
 - `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
+- `houmao-agent-loop-pairwise` for authoring master-owned pairwise loop plans and operating accepted runs through start, status, and stop while the user agent stays outside the execution loop
+- `houmao-agent-loop-relay` for authoring master-owned relay loop plans and operating accepted runs through start, status, and stop, with the final result returned to the designated origin
 
 It does not yet generalize to non-skill asset kinds.
 
@@ -239,7 +241,7 @@ Today the packaged mailbox sets are intentionally compact:
 
 For the `touring` set, the packaged skill is `houmao-touring`. Its top-level `SKILL.md` is a manual-only guided touring index that starts from current Houmao state, explains the next likely branches in plain language, and routes execution to the maintained Houmao-owned project, mailbox, specialist, messaging, gateway, email, and lifecycle skills instead of flattening those direct-operation surfaces into one broad guide.
 
-For the `user-control` set, the packaged skills are `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, and `houmao-agent-definition`. `houmao-project-mgr` is the packaged router for `project init`, `project status`, `project agents launch-profiles ...`, and project-scoped `project easy instance list|get|stop`, plus the explanatory material for overlay resolution, `.houmao/` layout, and project-aware effects on other command families. `houmao-specialist-mgr` is the packaged router for `project easy specialist create|list|get|remove`, `project easy profile create|list|get|remove`, and easy-workflow `project easy instance launch|stop` from either source kind. After those easy-instance runtime actions, it tells the user to continue broader live-agent management through `houmao-agent-instance`. `houmao-credential-mgr` is the packaged router for `project agents tools <tool> auth list|get|add|set|remove`, and it keeps specialist CRUD, profile CRUD, instance lifecycle, mailbox cleanup, and direct auth-file editing outside that packaged skill scope. `houmao-agent-definition` is the packaged router for `project agents roles list|get|init|set|remove` plus canonical `project agents recipes list|get|add|set|remove` while preserving `project agents presets ...` as the compatibility alias, and it keeps auth-bundle content mutation on `houmao-credential-mgr` while using `roles get --include-prompt` for explicit prompt inspection.
+For the `user-control` set, the packaged skills are `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, and `houmao-agent-definition`. `houmao-project-mgr` is the packaged router for `project init`, `project status`, `project agents launch-profiles ...`, and project-scoped `project easy instance list|get|stop`, plus the explanatory material for overlay resolution, `.houmao/` layout, and project-aware effects on other command families. `houmao-specialist-mgr` is the packaged router for `project easy specialist create|list|get|remove`, `project easy profile create|list|get|remove`, and easy-workflow `project easy instance launch|stop` from either source kind. After those easy-instance runtime actions, it tells the user to continue broader live-agent management through `houmao-agent-instance`. `houmao-credential-mgr` is the packaged router for `project credentials <tool> list|get|add|set|rename|remove` plus `credentials <tool> ... --agent-def-dir <path>`, and it keeps specialist CRUD, profile CRUD, instance lifecycle, mailbox cleanup, direct auth-file editing, and filesystem-path inference outside that packaged skill scope. `houmao-agent-definition` is the packaged router for `project agents roles list|get|init|set|remove` plus canonical `project agents recipes list|get|add|set|remove` while preserving `project agents presets ...` as the compatibility alias, and it keeps credential content mutation on `houmao-credential-mgr` while using `roles get --include-prompt` for explicit prompt inspection.
 
 For the `agent-instance` set, the packaged skill is `houmao-agent-instance`. Its top-level `SKILL.md` is an index/router for managed-agent instance lifecycle work across `agents launch`, `project easy instance launch`, `agents join`, `agents list`, `agents stop`, `agents relaunch`, and `agents cleanup session|logs`. It remains the canonical follow-up lifecycle skill even though `houmao-specialist-mgr` now also covers easy-workflow `launch` and `stop`, `houmao-project-mgr` owns project-scoped `project easy instance list|get|stop`, and it keeps mailbox surfaces, specialist/profile CRUD, prompt/gateway control, and mailbox cleanup outside that packaged skill scope.
 
@@ -249,7 +251,7 @@ For the `agent-gateway` set, the packaged skill is `houmao-agent-gateway`. Its t
 
 For the mailbox sets, the packaged mailbox-admin skill is `houmao-mailbox-mgr`. It is the Houmao-owned entrypoint for `houmao-mgr mailbox ...`, `houmao-mgr project mailbox ...`, and `houmao-mgr agents mailbox ...`, covering filesystem mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents. The packaged ordinary mailbox skill remains `houmao-agent-email-comms`, which is the unified router for shared `/v1/mail/*` work, mailbox transport-aware fallback, and mailbox binding inspection after `agents mail resolve-live`, while `houmao-process-emails-via-gateway` remains the separate notifier-round workflow skill. The dedicated `advanced-usage` set adds `houmao-adv-usage-pattern` as the supported workflow-composition layer above those direct mailbox and gateway skills.
 
-CLI-default installation now includes the full three-skill mailbox set, the dedicated `advanced-usage` and `touring` skills, the four-skill `user-control` set, and the dedicated `agent-instance`, `agent-messaging`, and `agent-gateway` skills. Managed launch and managed join auto-install `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-messaging`, and `agent-gateway`, which means they install eleven of the twelve packaged skills by default and still do not automatically add the separate `agent-instance` lifecycle set.
+CLI-default installation now includes the full three-skill mailbox set, the dedicated `advanced-usage` and `touring` skills, the `user-control` set (project-mgr, specialist-mgr, credential-mgr, agent-definition, plus the pairwise and relay loop-authoring skills), and the dedicated `agent-instance`, `agent-messaging`, and `agent-gateway` skills. Managed launch and managed join auto-install `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-messaging`, and `agent-gateway`, which means they install every packaged skill in the catalog except the lifecycle-only `houmao-agent-instance` and still do not automatically add the separate `agent-instance` lifecycle set.
 
 ## When To Use This Surface
 

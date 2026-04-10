@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from houmao.shared_tui_tracking.apps.codex_tui.signals.interrupted import (
     steer_interruption_text_visible,
 )
-from houmao.shared_tui_tracking.surface import SurfaceView
 
 
 _BOOTSTRAP_STATUS_PREFIXES = (
@@ -34,8 +33,8 @@ class CodexActivitySignals:
 
 def detect_activity(
     *,
-    surface: SurfaceView,
     latest_turn_lines: tuple[str, ...],
+    live_edge_lines: tuple[str, ...],
     prompt_visible: bool,
     steer_interruption_text: str,
 ) -> CodexActivitySignals:
@@ -44,7 +43,7 @@ def detect_activity(
     del steer_interruption_text
     active_reasons: list[str] = []
     active_status_line: str | None = None
-    for line in reversed(surface.stripped_lines):
+    for line in reversed(live_edge_lines):
         stripped = line.strip()
         match = _AGENT_TURN_STATUS_RE.match(stripped)
         if match is None:
@@ -56,7 +55,7 @@ def detect_activity(
         active_reasons.append("status_row")
         break
 
-    in_flight_tool_cell = any(_TOOL_CELL_RE.match(line) is not None for line in latest_turn_lines)
+    in_flight_tool_cell = any(_TOOL_CELL_RE.match(line) is not None for line in live_edge_lines)
     if in_flight_tool_cell:
         active_reasons.append("tool_cell")
 

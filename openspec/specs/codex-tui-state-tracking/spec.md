@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the interactive Codex TUI tracked-state profile and signal semantics used by the shared tracked-TUI core.
-
 ## Requirements
-
 ### Requirement: Codex TUI tracking is limited to the interactive Codex screen surface
 The repository SHALL model Codex interactive tracked-TUI behavior under a dedicated `codex_tui` app family whose input is raw captured screen text from the interactive Codex TUI surface.
 
@@ -32,6 +30,10 @@ At minimum, the profile SHALL be able to recognize:
 - generic red error-cell presence as current-error evidence, and
 - ready-composer posture, including prompt-area `editing_input` semantics derived through a version-selected prompt behavior variant.
 
+Agent-turn-backed activity rows and in-flight tool cells SHALL be derived from the live edge of the current latest-turn surface rather than from arbitrary historical transcript rows preserved in scrollback above the current turn.
+
+Historical Codex running rows or tool transcript cells outside that live-edge region SHALL NOT by themselves produce current single-snapshot active evidence.
+
 That prompt behavior variant SHALL consume prompt-area snapshot content derived from the raw interactive surface rather than stripped prompt text alone.
 
 The prompt behavior variant MAY use style, layout, text, or other prompt-local evidence to recognize placeholder presentation, and the repository SHALL NOT require one specific prompt-classification mechanism as the stable contract.
@@ -41,9 +43,15 @@ If the prompt remains visible but the selected prompt behavior variant cannot co
 The single-snapshot layer SHALL NOT require host parser metadata as input.
 
 #### Scenario: Agent-turn-backed activity row counts as current active evidence
-- **WHEN** the current Codex TUI snapshot shows an agent-turn-backed running row or in-flight tool cell for the latest turn
+- **WHEN** the current Codex TUI snapshot shows an agent-turn-backed running row or in-flight tool cell for the live latest-turn region
 - **THEN** the `codex_tui` profile exposes active-turn evidence from that current surface
 - **AND THEN** the shared tracker can classify the current turn as active without requiring a separate host parser contract
+
+#### Scenario: Historical running row outside the live edge does not count as current active evidence
+- **WHEN** the tmux-backed Codex snapshot still contains a historical `• Working (... esc to interrupt)` row above the current prompt-ready live region
+- **AND WHEN** that historical row is outside the current live latest-turn surface
+- **THEN** the `codex_tui` profile does not expose current single-snapshot active evidence from that historical row alone
+- **AND THEN** the tracker does not keep the current turn active solely because that stale transcript row remains in scrollback
 
 #### Scenario: Blocking overlay degrades posture without manufacturing a terminal result
 - **WHEN** the current Codex TUI snapshot shows an approval modal, request-user-input modal, MCP elicitation, or app-link suggestion overlay
@@ -117,3 +125,4 @@ Current overlays, exact interruption surfaces, or current latest-turn red error 
 - **WHEN** the Codex TUI shows a ready composer posture without prior armed turn authority for the current turn
 - **THEN** the shared tracker does not settle that posture as `success`
 - **AND THEN** the tracker waits for explicit input or stronger active-turn evidence before treating a later ready return as a completion signal
+

@@ -223,7 +223,7 @@ launch:
     assert preset.launch_model_config.reasoning.level == 7
 
 
-def test_parse_agent_preset_rejects_out_of_range_reasoning_level(tmp_path: Path) -> None:
+def test_parse_agent_preset_accepts_large_reasoning_level(tmp_path: Path) -> None:
     preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
     _write(
         preset_path,
@@ -241,7 +241,32 @@ launch:
         + "\n",
     )
 
-    with pytest.raises(ValueError, match="1 through 10"):
+    preset = parse_agent_preset(preset_path)
+
+    assert preset.launch_model_config is not None
+    assert preset.launch_model_config.reasoning is not None
+    assert preset.launch_model_config.reasoning.level == 11
+
+
+def test_parse_agent_preset_rejects_negative_reasoning_level(tmp_path: Path) -> None:
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
+    _write(
+        preset_path,
+        """
+role: gpu-kernel-coder
+tool: claude
+setup: default
+skills:
+  - skill-a
+launch:
+  model:
+    reasoning:
+      level: -1
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match="non-negative integer"):
         parse_agent_preset(preset_path)
 
 

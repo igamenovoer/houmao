@@ -258,6 +258,8 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-relay/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
@@ -273,6 +275,8 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-relay",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -1177,13 +1181,26 @@ def test_build_brain_home_projects_claude_model_selection(tmp_path: Path) -> Non
     assert manifest["runtime"]["launch_contract"]["model_selection"]["native_projection"][
         "reasoning"
     ] == {
+        "effective_level": 3,
         "tool": "claude",
         "tool_version": None,
         "requested_level": 10,
         "model_name": "claude-sonnet-4-5",
+        "saturated": True,
+        "off_requested": False,
         "native_scale": "effortLevel",
         "native_value": "high",
-        "clamped": True,
+        "native_settings": [
+            {
+                "native_scale": "effortLevel",
+                "native_value": "high",
+                "projection_target": {
+                    "surface": "json",
+                    "path": "settings.json",
+                    "key_path": ["effortLevel"],
+                },
+            }
+        ],
         "projection_target": {
             "surface": "json",
             "path": "settings.json",

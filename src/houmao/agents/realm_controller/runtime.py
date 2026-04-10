@@ -37,6 +37,11 @@ from houmao.agents.managed_prompt_header import (
     resolve_managed_prompt_header_decision,
 )
 from houmao.agents.managed_launch_force import ManagedLaunchForceMode
+from houmao.agents.model_selection import (
+    ModelConfig,
+    extract_resolved_model_config_from_brain_manifest,
+    resolve_execution_model_config,
+)
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
     AGENT_DEF_DIR_ENV_VAR,
@@ -163,6 +168,7 @@ from .loaders import RolePackage, load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
+    default_mailbox_address,
     default_mailbox_principal_id,
     mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
@@ -360,22 +366,49 @@ class RuntimeSessionController:
         prompt: str,
         *,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        turn_artifact_dir_name: str | None = None,
+        execution_model: ModelConfig | None = None,
+        refresh_registry: bool = True,
     ) -> list[SessionEvent]:
         """Send a prompt and persist updated session state."""
 
         self._reset_operation_warnings()
         if isinstance(self.backend_session, HeadlessInteractiveSession):
-            if session_selection is None:
-                events = self.backend_session.send_prompt(prompt)
-            else:
-                events = self.backend_session.send_prompt(
-                    prompt,
-                    session_selection=session_selection,
-                )
+            events = self.backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_artifact_dir_name,
+                session_selection=session_selection,
+                execution_model=self._resolve_headless_execution_model(execution_model),
+            )
         else:
+            if execution_model is not None and not execution_model.is_empty():
+                raise SessionManifestError(
+                    "Execution overrides are only supported for headless runtime sessions."
+                )
             events = self.backend_session.send_prompt(prompt)
-        self.persist_manifest()
+        self.persist_manifest(refresh_registry=refresh_registry)
         return events
+
+    def _resolve_headless_execution_model(
+        self,
+        execution_model: ModelConfig | None,
+    ) -> ModelConfig | None:
+        """Resolve one request-scoped execution model against launch-owned defaults."""
+
+        if execution_model is None or execution_model.is_empty():
+            return None
+        try:
+            brain_manifest = load_brain_manifest(self.brain_manifest_path)
+            launch_model = extract_resolved_model_config_from_brain_manifest(
+                brain_manifest,
+                source=str(self.brain_manifest_path),
+            )
+        except ValueError as exc:
+            raise SessionManifestError(str(exc)) from exc
+        return resolve_execution_model_config(
+            launch_model=launch_model,
+            request_override=execution_model,
+        ).config
 
     def send_mail_prompt(self, prompt_request: MailPromptRequest) -> list[SessionEvent]:
         """Send one runtime-owned mailbox prompt and persist updated session state."""
@@ -571,7 +604,11 @@ class RuntimeSessionController:
                 address,
                 field_name="address",
             )
-            or f"{effective_principal_id}@agents.localhost"
+            or default_mailbox_address(
+                tool=self.launch_plan.tool,
+                role_name=self.role_name,
+                agent_identity=self.agent_identity,
+            )
         )
         working_directory = self.launch_plan.working_directory.resolve()
         if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):

@@ -27,7 +27,7 @@ Current rules:
 - `transport` is required when `mailbox` is present.
 - `filesystem` and `stalwart` are implemented in v1.
 - If `principal_id` is omitted, the runtime derives one from the tool, role, and optional agent identity.
-- If `address` is omitted, it defaults to `<principal_id>@agents.localhost`.
+- If `address` is omitted for an ordinary managed agent, it defaults to `<agentname>@houmao.localhost` while the principal id remains the canonical `HOUMAO-<agentname>` form.
 - If `filesystem_root` is omitted in maintained project-aware flows, it defaults to `<active-overlay>/mailbox`, bootstrapping `<cwd>/.houmao/mailbox` when no overlay exists yet; `HOUMAO_GLOBAL_MAILBOX_DIR` or an explicit `filesystem_root` override still wins when supplied.
 - `stalwart` bindings resolve from either `base_url` or explicit `jmap_url` plus `management_url`.
 - Persisted `stalwart` bindings remain secret-free and store `credential_ref` instead of inline credentials.
@@ -38,7 +38,7 @@ Representative resolved payload:
 {
   "transport": "filesystem",
   "principal_id": "HOUMAO-research",
-  "address": "HOUMAO-research@agents.localhost",
+  "address": "research@houmao.localhost",
   "filesystem_root": "/abs/path/tmp/shared-mail",
   "bindings_version": "2026-03-13T09:15:30.123456Z"
 }
@@ -192,7 +192,7 @@ Representative submission result:
 
 ```json
 {
-  "address": "HOUMAO-research@agents.localhost",
+  "address": "research@houmao.localhost",
   "authoritative": false,
   "execution_path": "tui_submission",
   "operation": "send",

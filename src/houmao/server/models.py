@@ -19,6 +19,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayChatSessionSelectorV1,
     GatewayConnectivityState,
     GatewayCurrentExecutionMode,
+    GatewayExecutionOverrideV1,
     GatewayExecutionState,
     GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
@@ -256,6 +257,7 @@ class HoumaoLifecycleTimingMetadata(_HoumaoModel):
     completion_candidate_elapsed_seconds: float | None = None
     unknown_to_stalled_timeout_seconds: float
     completion_stability_seconds: float
+    stale_active_recovery_seconds: float
 
 
 class HoumaoLifecycleAuthorityMetadata(_HoumaoModel):
@@ -753,6 +755,7 @@ class HoumaoManagedAgentSubmitPromptRequest(_HoumaoModel):
 
     request_kind: Literal["submit_prompt"] = "submit_prompt"
     prompt: str
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt")
     @classmethod
@@ -842,6 +845,7 @@ class HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(_HoumaoModel):
     prompt: str
     turn_id: str | None = None
     chat_session: GatewayChatSessionSelectorV1 | None = None
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt", "turn_id")
     @classmethod
@@ -995,6 +999,7 @@ class HoumaoHeadlessTurnRequest(_HoumaoModel):
 
     prompt: str
     chat_session: GatewayChatSessionSelectorV1 | None = None
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt")
     @classmethod

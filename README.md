@@ -76,11 +76,13 @@ command -v tmux
 
 | Entrypoint | Purpose | Status |
 |---|---|---|
-| `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, server control | **Active** |
+| `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, credential management, server control | **Active** |
 | `houmao-server` | Houmao-owned REST server for managed-agent session lifecycle | **Stabilizing — usable for the documented surfaces** |
 | `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **Stabilizing — usable for the documented surfaces** |
 | `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
 | `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
+
+`houmao-mgr` exposes a dedicated top-level `credentials` command group for Claude, Codex, and Gemini credential CRUD, alongside the project-scoped `project credentials` wrapper. See the [`credentials`](docs/reference/cli/houmao-mgr.md#credentials-dedicated-credential-management) section of the CLI reference for the full surface.
 
 ```bash
 houmao-mgr --help
@@ -234,14 +236,16 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-agent-email-comms` | Ordinary shared-mailbox operations and the no-gateway fallback path; the canonical mailbox-operations skill paired with `houmao-mgr agents mail` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL |
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds |
+| `houmao-agent-loop-pairwise` | Author master-owned pairwise loop plans and operate accepted runs through `start`, `status`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
+| `houmao-agent-loop-relay` | Author master-owned relay loop plans and operate accepted runs through `start`, `status`, and `stop`, with forwarding authority normalized per plan and the final result returned to the designated origin |
 
-`agents join` and `agents launch` auto-install eleven of these twelve skills (everything except the lifecycle-only `houmao-agent-instance`) into managed homes by default — that is the `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` now includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, and `houmao-agent-definition`, managed homes also gain the project-management front door by default, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
+`agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, and `houmao-agent-loop-relay`, managed homes gain the project-management front door plus both loop-authoring skills by default, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-For the 5-minute walkthrough of all twelve skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
+For the 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
 
 ## Full Documentation
 

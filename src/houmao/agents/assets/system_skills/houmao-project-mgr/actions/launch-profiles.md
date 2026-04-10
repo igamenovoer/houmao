@@ -26,7 +26,7 @@ Use one of:
 ## Boundary Notes
 
 - This is the explicit recipe-backed birth-time lane, not auth-bundle CRUD and not easy-profile authoring.
-- `--auth` and `--clear-auth` here change the stored launch-profile override, not the underlying auth bundle contents.
+- `--auth` and `--clear-auth` here change the stored launch-profile auth override, not the underlying auth bundle contents. The CLI accepts auth display names, but the stored relationship resolves through auth-profile identity so later auth rename stays valid.
 - The shared conceptual model for easy profiles versus explicit launch profiles lives in `docs/getting-started/launch-profiles.md`.
 
 ## Guardrails

@@ -48,7 +48,7 @@ The four operator-authored object families and the two derived runtime objects f
 
 | Object | Lane | Catalog-stored | Projected to `.houmao/agents/` | Authored by | Notes |
 |---|---|---|---|---|---|
-| **specialist** | easy | yes | `roles/<name>/`, `presets/<recipe>.yaml`, `tools/<tool>/auth/<creds>/` | operator (easy) | The reusable easy-lane source definition: role + tool + skills + setup + default auth + durable launch posture. |
+| **specialist** | easy | yes | `roles/<name>/`, `presets/<recipe>.yaml`, `tools/<tool>/auth/<bundle-ref>/` | operator (easy) | The reusable easy-lane source definition: role + tool + skills + setup + default auth + durable launch posture. |
 | **recipe** | explicit | yes | `presets/<name>.yaml` | operator (explicit) | The reusable low-level source definition. The CLI surface is `project agents recipes ...`; `project agents presets ...` is a compatibility alias for the same files. |
 | **easy profile** | easy | yes | `launch-profiles/<name>.yaml` | operator (easy) | Specialist-backed reusable birth-time launch configuration. Targets exactly one specialist. |
 | **explicit launch profile** | explicit | yes | `launch-profiles/<name>.yaml` | operator (explicit) | Recipe-backed reusable birth-time launch configuration. Targets exactly one recipe. |
@@ -64,7 +64,7 @@ A launch profile may store, with no inline secrets:
 - a source reference (specialist for easy, recipe for explicit),
 - managed-agent identity defaults (`--agent-name`, optionally `--agent-id`),
 - a default working directory,
-- an auth override by name (the actual credentials still live in the auth bundle),
+- an auth override selected by display name (the actual credentials still live in the auth bundle, while the stored relationship resolves through auth-profile identity),
 - an operator prompt-mode override (`unattended` or `as_is`),
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
@@ -147,7 +147,7 @@ Inspection commands surface that provenance:
 
 - `houmao-mgr project easy instance list` and `houmao-mgr project easy instance get` report the originating easy-profile identity when runtime-backed state makes it resolvable, and continue to report the originating specialist when available.
 - `houmao-mgr agents state` and `houmao-mgr agents list` report the same lane and profile information for explicit launch-profile-backed managed agents.
-- Inspection output never includes secret credential values inline; auth is reported by bundle name only.
+- Inspection output never includes secret credential values inline; auth is reported by display name only.
 
 ## Picking A Lane
 

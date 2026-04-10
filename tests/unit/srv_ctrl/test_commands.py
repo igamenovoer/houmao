@@ -14,6 +14,11 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    LaunchPolicyResolutionError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlErrorV1,
     GatewayReminderCreateResultV1,
@@ -22,7 +27,6 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayStatusV1,
 )
-from houmao.agents.realm_controller.errors import LaunchPolicyResolutionError
 from houmao.server.pair_client import PairAuthorityConnectionError, PairAuthorityHealthProbe
 from houmao.server.models import (
     HoumaoCurrentInstance,
@@ -131,6 +135,7 @@ def test_top_level_command_inventory_exposes_new_native_surface() -> None:
         "admin",
         "agents",
         "brains",
+        "credentials",
         "mailbox",
         "project",
         "server",
@@ -259,6 +264,91 @@ def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
 
     assert exit_code == 1
     assert "expected notifier failure" in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    "runtime_error",
+    [
+        SessionManifestError("expected missing manifest"),
+        BackendExecutionError("expected stale runtime"),
+    ],
+)
+def test_main_renders_runtime_domain_error_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    runtime_error: SessionManifestError | BackendExecutionError,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        lambda **kwargs: (_ for _ in ()).throw(runtime_error),
+    )
+
+    exit_code = main(["agents", "stop", "--agent-id", "agent-123"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert str(runtime_error) in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_leaves_unexpected_non_runtime_exception_uncaught(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("unexpected stop failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="unexpected stop failure"):
+        main(["agents", "stop", "--agent-id", "agent-123"])
+
+
+def test_main_renders_stale_local_managed_agent_stop_failure_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-1234",
+        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
+        runtime=SimpleNamespace(
+            agent_def_dir=str((tmp_path / "agent-def").resolve()),
+            manifest_path=str((tmp_path / "manifest.json").resolve()),
+            session_root=str((tmp_path / "session-root").resolve()),
+        ),
+        terminal=SimpleNamespace(session_name="gpu-session"),
+    )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (record, None),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
+        lambda **kwargs: (_ for _ in ()).throw(
+            BackendExecutionError(
+                "Tmux-backed resume requires existing tmux session `gpu-session` but it is "
+                "unavailable: no server running on /tmp/tmux-stale/default"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    exit_code = main(["agents", "stop", "--agent-name", "gpu"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Managed agent `gpu` is registered in the shared registry" in captured.err
+    assert "its local tmux-backed runtime authority is no longer live or otherwise unusable" in captured.err
+    assert (
+        "Tmux-backed resume requires existing tmux session `gpu-session` but it is unavailable"
+        in captured.err
+    )
     assert "Traceback" not in captured.err
 
 
@@ -425,8 +515,8 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
     assert "mailbox" in result.output
     assert "init" in result.output
     assert "status" in result.output
+    assert "credentials" in result.output
     assert "agent-tools" not in result.output
-    assert "credential" not in result.output
 
 
 def test_agents_mailbox_help_mentions_late_registration_surface() -> None:

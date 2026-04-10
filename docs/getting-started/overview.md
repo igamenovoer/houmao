@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties easy profiles and explicit launch profiles together, see [Launch Profiles](launch-profiles.md).
+Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. In project overlays, auth selection is user-facing by display name while the catalog owns the stable underlying auth identity. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties easy profiles and explicit launch profiles together, see [Launch Profiles](launch-profiles.md).
 
 ## Two-Phase Lifecycle
 
@@ -83,7 +83,7 @@ flowchart TD
 
 | Path | Responsibility |
 |---|---|
-| `src/houmao/agents/definition_parser.py` | Parse `agents/` source tree into the canonical catalog |
+| `src/houmao/agents/definition_parser.py` | Parse `agents/` source tree inputs into the canonical in-memory catalog used by non-project build flows |
 | `src/houmao/agents/native_launch_resolver.py` | Resolve `--agents` selectors onto presets |
 | `src/houmao/agents/brain_builder.py` | Build phase: resolved inputs -> runtime home + manifest |
 | `src/houmao/agents/realm_controller/launch_plan.py` | Manifest + role -> backend launch plan |
@@ -113,7 +113,7 @@ houmao-mgr project
     └── messages list|get
 ```
 
-- `project agents ...` maps directly to the canonical `.houmao/agents/` source tree, including named recipes, recipe-backed launch profiles, and tool-scoped setup/auth bundles.
+- `project agents ...` is the low-level compatibility-projection surface for `.houmao/agents/`. Project-local semantic truth lives in `.houmao/catalog.sqlite` plus `.houmao/content/`, while `.houmao/agents/` remains the generated file-tree view consumed by current builders and runtime.
 - `project easy ...` lets users author reusable specialists, optional specialist-backed easy profiles, and view running instances without hand-editing the tree.
 - `project mailbox ...` mirrors the generic `houmao-mgr mailbox ...` operations, but automatically targets `<project-root>/.houmao/mailbox`.
 

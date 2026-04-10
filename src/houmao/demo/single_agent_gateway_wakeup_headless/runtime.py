@@ -32,13 +32,14 @@ from houmao.owned_paths import (
     HOUMAO_JOB_DIR_ENV_VAR,
     HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
-from houmao.project.catalog import PROJECT_CATALOG_FILENAME
+from houmao.project.catalog import PROJECT_CATALOG_FILENAME, ProjectCatalog
 from houmao.project.overlay import (
     PROJECT_CONFIG_FILENAME,
     PROJECT_CONTENT_DIRNAME,
     PROJECT_EASY_DIRNAME,
     PROJECT_MAILBOX_DIRNAME,
     PROJECT_OVERLAY_DIR_ENV_VAR,
+    load_project_overlay,
 )
 from houmao.srv_ctrl.commands.managed_agents import (
     managed_agent_detail_payload,
@@ -284,19 +285,19 @@ def import_project_auth_from_fixture(
     env_path = (fixture_dir / "env" / "vars.env").resolve()
     env_values = parse_env_file(env_path)
     files_root = (fixture_dir / "files").resolve()
-    auth_operation = (
-        "set"
-        if (
-            paths.overlay_dir / "agents" / "tools" / tool / "auth" / tool_parameters.auth_name
-        ).exists()
-        else "add"
-    )
+    overlay = load_project_overlay(paths.overlay_dir / PROJECT_CONFIG_FILENAME)
+    try:
+        ProjectCatalog.from_overlay(overlay).load_auth_profile(
+            tool=tool,
+            name=tool_parameters.auth_name,
+        )
+        auth_operation = "set"
+    except FileNotFoundError:
+        auth_operation = "add"
     command = [
         "project",
-        "agents",
-        "tools",
+        "credentials",
         tool,
-        "auth",
         auth_operation,
         "--name",
         tool_parameters.auth_name,

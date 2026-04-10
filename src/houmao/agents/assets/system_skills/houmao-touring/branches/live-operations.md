@@ -10,12 +10,15 @@ Use this branch when the user wants to try post-launch operations against one al
    - normal prompt entry -> `houmao-agent-messaging`
    - gateway or TUI state watching -> `houmao-agent-gateway`
    - ordinary mailbox send or read entry -> `houmao-agent-email-comms`
+   - gateway mail-notifier enable, disable, or status -> `houmao-agent-gateway`
    - reminders -> `houmao-agent-gateway`
 4. When ordinary mailbox work needs current live bindings or the exact current `gateway.base_url`, let `houmao-agent-messaging` or `houmao-agent-email-comms` resolve that through `houmao-mgr agents mail resolve-live`.
-5. After the selected live operation completes, summarize the result and offer the next likely branches:
+5. When current tour context already shows that a live gateway is attached and mailbox accounts are set up, explicitly suggest gateway `mail-notifier` as a useful next step because it lets the agent check unread email automatically in the background.
+6. After the selected live operation completes, summarize the result and offer the next likely branches:
    - send another prompt
    - watch gateway or TUI state
    - send or read mailbox work
+   - enable automatic email notification through gateway `mail-notifier`
    - create a reminder
    - stop, relaunch, or clean up the agent
    - create another specialist or launch another agent

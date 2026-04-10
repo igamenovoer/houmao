@@ -65,6 +65,8 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-relay",
         "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
@@ -133,6 +135,8 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-relay",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -156,6 +160,8 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-relay",
         "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
@@ -219,6 +225,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
     manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
+    pairwise_loop_skill_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
+    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
+    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
+    relay_loop_skill_path = home_path / "skills/houmao-agent-loop-relay/SKILL.md"
+    relay_loop_authoring = home_path / "skills/houmao-agent-loop-relay/authoring"
+    relay_loop_operating = home_path / "skills/houmao-agent-loop-relay/operating"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
@@ -227,9 +239,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-relay",
     )
     assert tuple(record.name for record in installed_records) == result.resolved_skill_names
     assert tuple(record.projection_mode for record in installed_records) == (
+        "copy",
+        "copy",
         "copy",
         "copy",
         "copy",
@@ -245,10 +261,18 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
+    assert pairwise_loop_skill_path.is_file()
+    assert (pairwise_loop_authoring / "formulate-loop-plan.md").is_file()
+    assert (pairwise_loop_operating / "start.md").is_file()
+    assert relay_loop_skill_path.is_file()
+    assert (relay_loop_authoring / "formulate-loop-plan.md").is_file()
+    assert (relay_loop_operating / "start.md").is_file()
     project_mgr_skill = project_mgr_path.read_text(encoding="utf-8")
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
+    pairwise_loop_skill = pairwise_loop_skill_path.read_text(encoding="utf-8")
+    relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
     project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
@@ -386,6 +410,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project easy profile remove --name <name>" in remove_action
     assert "project easy instance launch --profile <profile>" in launch_action
     assert "project easy profile get --name <profile>" in launch_action
+    assert "does not accept declarative mailbox fields such as `--mail-address`" in launch_action
+    assert "`--name` seeds the managed-agent mailbox address and principal id" in launch_action
+    assert (
+        "private filesystem mailbox directory that the launch symlinks into the shared root"
+        in launch_action
+    )
+    assert "was preregistered manually already, launch-time safe registration can fail" in launch_action
     assert "whether it was launched from a specialist or from an easy profile" in stop_action
     assert "command -v houmao-mgr" in manage_credentials_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
@@ -397,7 +428,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/add.md" in manage_credentials_skill
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
-    assert "project agents tools <tool> auth ..." in manage_credentials_skill
+    assert "project credentials <tool> ..." in manage_credentials_skill
+    assert "credentials <tool> ... --agent-def-dir <path>" in manage_credentials_skill
     assert "project easy profile ..." in manage_credentials_skill
     assert "project agents launch-profiles ..." in manage_credentials_skill
     assert (
@@ -415,8 +447,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in credentials_get_action
     )
     assert "<chosen houmao-mgr launcher>" in credentials_get_action
-    assert "project agents tools <tool> auth get --name <name>" in credentials_get_action
-    assert "Do not bypass `auth get`" in credentials_get_action
+    assert "project credentials <tool> get --name <name>" in credentials_get_action
+    assert "credentials <tool> get --agent-def-dir <path> --name <name>" in credentials_get_action
+    assert "Do not bypass `get`" in credentials_get_action
     assert (
         "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
     )
@@ -479,6 +512,18 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "project agents recipes remove --name <recipe>"
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
+    assert "operating/start.md" in pairwise_loop_skill
+    assert (
+        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one pairwise loop run"
+        in pairwise_loop_skill
+    )
+    assert "Do not make the user agent the upstream driver of the execution loop." in pairwise_loop_skill
+    assert (
+        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one relay loop run"
+        in relay_loop_skill
+    )
+    assert "Do not allow free forwarding unless the plan says so explicitly." in relay_loop_skill
     assert list_action_path.is_file()
     assert get_action_path.is_file()
     assert remove_action_path.is_file()
@@ -548,6 +593,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_path = home_path / "skills/houmao-touring/SKILL.md"
     touring_branches = home_path / "skills/houmao-touring/branches"
     touring_references = home_path / "skills/houmao-touring/references"
+    pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
+    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
+    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
+    pairwise_loop_references = home_path / "skills/houmao-agent-loop-pairwise/references"
+    pairwise_loop_templates = home_path / "skills/houmao-agent-loop-pairwise/templates"
+    relay_loop_path = home_path / "skills/houmao-agent-loop-relay/SKILL.md"
+    relay_loop_authoring = home_path / "skills/houmao-agent-loop-relay/authoring"
+    relay_loop_operating = home_path / "skills/houmao-agent-loop-relay/operating"
+    relay_loop_references = home_path / "skills/houmao-agent-loop-relay/references"
+    relay_loop_templates = home_path / "skills/houmao-agent-loop-relay/templates"
 
     assert result.selected_set_names == (
         "mailbox-full",
@@ -569,6 +624,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-relay",
         "houmao-agent-instance",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
@@ -582,12 +639,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
+    assert pairwise_loop_path.is_file()
+    assert relay_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
     touring_skill = touring_path.read_text(encoding="utf-8")
+    pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
+    relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
@@ -628,6 +689,33 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_live_ops_path = touring_branches / "live-operations.md"
     touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
     touring_question_style_path = touring_references / "question-style.md"
+    pairwise_loop_formulate_path = pairwise_loop_authoring / "formulate-loop-plan.md"
+    pairwise_loop_revise_path = pairwise_loop_authoring / "revise-loop-plan.md"
+    pairwise_loop_graph_path = pairwise_loop_authoring / "render-loop-graph.md"
+    pairwise_loop_start_path = pairwise_loop_operating / "start.md"
+    pairwise_loop_status_path = pairwise_loop_operating / "status.md"
+    pairwise_loop_stop_path = pairwise_loop_operating / "stop.md"
+    pairwise_loop_charter_path = pairwise_loop_references / "run-charter.md"
+    pairwise_loop_policy_path = pairwise_loop_references / "delegation-policy.md"
+    pairwise_loop_stop_modes_path = pairwise_loop_references / "stop-modes.md"
+    pairwise_loop_reporting_path = pairwise_loop_references / "reporting-contract.md"
+    pairwise_loop_plan_structure_path = pairwise_loop_references / "plan-structure.md"
+    pairwise_loop_single_template_path = pairwise_loop_templates / "single-file-plan.md"
+    pairwise_loop_bundle_template_path = pairwise_loop_templates / "bundle-plan.md"
+    relay_loop_formulate_path = relay_loop_authoring / "formulate-loop-plan.md"
+    relay_loop_revise_path = relay_loop_authoring / "revise-loop-plan.md"
+    relay_loop_graph_path = relay_loop_authoring / "render-loop-graph.md"
+    relay_loop_start_path = relay_loop_operating / "start.md"
+    relay_loop_status_path = relay_loop_operating / "status.md"
+    relay_loop_stop_path = relay_loop_operating / "stop.md"
+    relay_loop_charter_path = relay_loop_references / "run-charter.md"
+    relay_loop_policy_path = relay_loop_references / "route-policy.md"
+    relay_loop_result_contract_path = relay_loop_references / "result-contract.md"
+    relay_loop_stop_modes_path = relay_loop_references / "stop-modes.md"
+    relay_loop_reporting_path = relay_loop_references / "reporting-contract.md"
+    relay_loop_plan_structure_path = relay_loop_references / "plan-structure.md"
+    relay_loop_single_template_path = relay_loop_templates / "single-file-plan.md"
+    relay_loop_bundle_template_path = relay_loop_templates / "bundle-plan.md"
     mailbox_init_action_path = mailbox_mgr_actions / "init.md"
     mailbox_register_action_path = mailbox_mgr_actions / "register.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
@@ -636,9 +724,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_mode_reference_path = mailbox_mgr_references / "mode-vocabulary.md"
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
+    mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
+    touring_setup = touring_setup_path.read_text(encoding="utf-8")
     discover_action = discover_action_path.read_text(encoding="utf-8")
+    interrupt_action = interrupt_action_path.read_text(encoding="utf-8")
     reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
     mail_action = mail_action_path.read_text(encoding="utf-8")
+    intent_matrix_reference = intent_matrix_reference_path.read_text(encoding="utf-8")
+    managed_agent_http_reference = managed_agent_http_reference_path.read_text(encoding="utf-8")
     gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
     gateway_reminders_action = gateway_reminders_action_path.read_text(encoding="utf-8")
     gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
@@ -648,6 +741,23 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
     relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
+    pairwise_loop_formulate = pairwise_loop_formulate_path.read_text(encoding="utf-8")
+    pairwise_loop_graph = pairwise_loop_graph_path.read_text(encoding="utf-8")
+    pairwise_loop_start = pairwise_loop_start_path.read_text(encoding="utf-8")
+    pairwise_loop_status = pairwise_loop_status_path.read_text(encoding="utf-8")
+    pairwise_loop_stop = pairwise_loop_stop_path.read_text(encoding="utf-8")
+    pairwise_loop_policy = pairwise_loop_policy_path.read_text(encoding="utf-8")
+    pairwise_loop_single_template = pairwise_loop_single_template_path.read_text(encoding="utf-8")
+    pairwise_loop_bundle_template = pairwise_loop_bundle_template_path.read_text(encoding="utf-8")
+    relay_loop_formulate = relay_loop_formulate_path.read_text(encoding="utf-8")
+    relay_loop_graph = relay_loop_graph_path.read_text(encoding="utf-8")
+    relay_loop_start = relay_loop_start_path.read_text(encoding="utf-8")
+    relay_loop_status = relay_loop_status_path.read_text(encoding="utf-8")
+    relay_loop_stop = relay_loop_stop_path.read_text(encoding="utf-8")
+    relay_loop_policy = relay_loop_policy_path.read_text(encoding="utf-8")
+    relay_loop_result_contract = relay_loop_result_contract_path.read_text(encoding="utf-8")
+    relay_loop_single_template = relay_loop_single_template_path.read_text(encoding="utf-8")
+    relay_loop_bundle_template = relay_loop_bundle_template_path.read_text(encoding="utf-8")
 
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
@@ -658,6 +768,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr agents mailbox ..." in mailbox_mgr_skill
+    assert "manual mailbox-account administration" in mailbox_mgr_skill
+    assert "mailbox registration may be owned by the later `project easy instance launch` step" in mailbox_mgr_skill
+    assert "route to `actions/agent-binding-register.md` instead" in mailbox_mgr_skill
     assert mailbox_init_action_path.is_file()
     assert mailbox_register_action_path.is_file()
     assert mailbox_messages_get_action_path.is_file()
@@ -671,6 +784,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         in mailbox_init_action_path.read_text(encoding="utf-8")
     )
     assert "<chosen houmao-mgr launcher>" in mailbox_init_action_path.read_text(encoding="utf-8")
+    assert "manually administered filesystem mailbox registration" in mailbox_register_action
+    assert "for a new specialist-backed easy instance" in mailbox_register_action
+    assert (
+        "may own mailbox registration instead of preregistering that address here"
+        in mailbox_register_action
+    )
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill
@@ -720,6 +839,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert managed_agent_http_reference_path.is_file()
     assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in discover_action
     assert "<chosen houmao-mgr launcher>" in discover_action
+    assert "best-effort `Escape` delivery" in interrupt_action
+    assert "tracked TUI state can lag the live visible surface" in interrupt_action
+    assert "no headless work is active" in interrupt_action
+    assert "Do not redirect ordinary TUI interrupt work to `agents gateway send-keys`" in interrupt_action
+    assert "best-effort `Escape`" in intent_matrix_reference
+    assert "may no-op when idle" in intent_matrix_reference
+    assert "tracked TUI state currently looks idle" in managed_agent_http_reference
+    assert "Do not switch to raw `send-keys` merely to get the normal TUI interrupt behavior." in managed_agent_http_reference
     assert "actions/lifecycle.md" in agent_gateway_skill
     assert "actions/discover.md" in agent_gateway_skill
     assert "actions/gateway-services.md" in agent_gateway_skill
@@ -735,6 +862,22 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "references/question-style.md" in touring_skill
     assert "houmao-project-mgr" in touring_skill
     assert "houmao-agent-instance" in touring_skill
+    assert "distinguish mailbox-root bootstrap from mailbox-account creation" in touring_setup
+    assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
+    assert "initialize the shared mailbox root now" in touring_question_style
+    assert "created by the later launch step" in touring_question_style
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
+    assert "authoring/render-loop-graph.md" in pairwise_loop_skill
+    assert "operating/start.md" in pairwise_loop_skill
+    assert "operating/stop.md" in pairwise_loop_skill
+    assert "references/run-charter.md" in pairwise_loop_skill
+    assert "templates/single-file-plan.md" in pairwise_loop_skill
+    assert "authoring/formulate-loop-plan.md" in relay_loop_skill
+    assert "authoring/render-loop-graph.md" in relay_loop_skill
+    assert "operating/start.md" in relay_loop_skill
+    assert "operating/stop.md" in relay_loop_skill
+    assert "references/run-charter.md" in relay_loop_skill
+    assert "templates/single-file-plan.md" in relay_loop_skill
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
@@ -759,6 +902,33 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert touring_live_ops_path.is_file()
     assert touring_lifecycle_path.is_file()
     assert touring_question_style_path.is_file()
+    assert pairwise_loop_formulate_path.is_file()
+    assert pairwise_loop_revise_path.is_file()
+    assert pairwise_loop_graph_path.is_file()
+    assert pairwise_loop_start_path.is_file()
+    assert pairwise_loop_status_path.is_file()
+    assert pairwise_loop_stop_path.is_file()
+    assert pairwise_loop_charter_path.is_file()
+    assert pairwise_loop_policy_path.is_file()
+    assert pairwise_loop_stop_modes_path.is_file()
+    assert pairwise_loop_reporting_path.is_file()
+    assert pairwise_loop_plan_structure_path.is_file()
+    assert pairwise_loop_single_template_path.is_file()
+    assert pairwise_loop_bundle_template_path.is_file()
+    assert relay_loop_formulate_path.is_file()
+    assert relay_loop_revise_path.is_file()
+    assert relay_loop_graph_path.is_file()
+    assert relay_loop_start_path.is_file()
+    assert relay_loop_status_path.is_file()
+    assert relay_loop_stop_path.is_file()
+    assert relay_loop_charter_path.is_file()
+    assert relay_loop_policy_path.is_file()
+    assert relay_loop_result_contract_path.is_file()
+    assert relay_loop_stop_modes_path.is_file()
+    assert relay_loop_reporting_path.is_file()
+    assert relay_loop_plan_structure_path.is_file()
+    assert relay_loop_single_template_path.is_file()
+    assert relay_loop_bundle_template_path.is_file()
     assert "HOUMAO_AGENT_ID" in gateway_discover_action
     assert (
         "Use the `houmao-mgr` launcher already chosen by the top-level skill."
@@ -801,6 +971,25 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ask the user for that parameter" in relay_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
     assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
+    assert "No free delegation is allowed unless the plan says so explicitly." in pairwise_loop_formulate
+    assert "```mermaid" in pairwise_loop_graph
+    assert "The final plan must include one Mermaid fenced code block." in pairwise_loop_graph
+    assert "After the master accepts the run, the master owns liveness" in pairwise_loop_start
+    assert "Status is observational and does not keep the run alive." in pairwise_loop_status
+    assert "`interrupt-first` is the default stop posture for this skill." in pairwise_loop_stop
+    assert "delegate_freely_within_named_set" in pairwise_loop_policy
+    assert "# Mermaid Control Graph" in pairwise_loop_single_template
+    assert "scripts/README.md" in pairwise_loop_bundle_template
+    assert "No free forwarding is allowed unless the plan says so explicitly." in relay_loop_formulate
+    assert "```mermaid" in relay_loop_graph
+    assert "The final plan must include one Mermaid fenced code block." in relay_loop_graph
+    assert "After the master accepts the run, the master owns liveness" in relay_loop_start
+    assert "Status is observational and does not keep the run alive." in relay_loop_status
+    assert "`interrupt-first` is the default stop posture for this skill." in relay_loop_stop
+    assert "forward_freely_within_named_set" in relay_loop_policy
+    assert "The designated loop egress returns the final result to the loop origin." in relay_loop_result_contract
+    assert "# Mermaid Relay Graph" in relay_loop_single_template
+    assert "scripts/README.md" in relay_loop_bundle_template
     assert "A specialist is a reusable agent template" in touring_question_style
     assert "You can skip this now and come back later." in touring_question_style
     assert "stop `research`" in touring_question_style

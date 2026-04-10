@@ -23,7 +23,7 @@ Use this action only when the user wants to create or replace one reusable easy 
 1. Collect the user's intended specialist-create inputs from the current prompt first.
 2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
 3. If the specialist name or tool lane is still missing, ask the user in Markdown before proceeding. Prefer a compact table when the tool lane or several required create inputs need clarification.
-4. Resolve the intended credential name. If the user did not provide `--credential`, use the documented CLI default `<specialist-name>-creds`.
+4. Resolve the intended credential display name. If the user did not provide `--credential`, use the documented CLI default `<specialist-name>-creds`.
 5. Resolve the credential source mode:
    - Explicit Auth Mode when the user already provided supported auth values or auth files
    - Env Lookup Mode when the user explicitly tells you to inspect specific env names or explicit env-name patterns
@@ -35,13 +35,13 @@ Use this action only when the user wants to create or replace one reusable easy 
    - Claude: `references/claude-credential-lookup.md`
    - Codex: `references/codex-credential-lookup.md`
    - Gemini: `references/gemini-credential-lookup.md`
-8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same chosen `houmao-mgr` launcher for `project agents tools <tool> auth get --name <credential>` or `list` when you need that confirmation.
+8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same chosen `houmao-mgr` launcher for `project credentials <tool> get --name <credential>` or `list` when you need that confirmation.
 9. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
    - do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless one of the supported credential-source modes is explicitly active
    - ask the user in Markdown for the missing auth inputs instead of guessing
    - mention that they can either provide auth explicitly, point you at env names or patterns, point you at a directory, or ask for `auto credentials`
 10. Run `project easy specialist create` through the chosen `houmao-mgr` launcher.
-11. Report the created specialist, selected tool, resolved credential name, and the generated artifact paths returned by the command.
+11. Report the created specialist, selected tool, resolved credential display name, and the generated artifact paths returned by the command.
 
 ## Credential Source Modes
 
@@ -73,9 +73,10 @@ Use this only when the user explicitly points you at one directory and asks you 
 Use this only when the user explicitly asks for `auto credentials`.
 
 - Treat `auto credentials` as an instruction, not as a literal CLI flag and not as a replacement for `--credential`.
-- Keep the credential bundle name behavior unchanged:
+- Keep the credential display-name behavior unchanged:
   - `--credential <name>` when the user provided one
   - otherwise the documented default `<specialist-name>-creds`
+- Treat the credential name as a user-facing auth display name only; project-local storage paths use opaque refs and are not a supported input surface.
 - Use the selected tool's reference page to follow that tool's supported automatic search order across repo-local candidate homes, redirected homes, home-dir configs, and relevant env vars.
 
 ### No Discovery Mode
@@ -129,7 +130,7 @@ Profile create rules:
 - `filesystem` mailbox defaults accept `--mail-root` and reject the Stalwart URL flags
 - `stalwart` mailbox defaults accept the Stalwart URL flags and reject `--mail-root`
 - `--no-gateway` and `--gateway-port` cannot be combined
-- `--auth` is only the stored auth-bundle name override for later launches; it does not create credentials
+- `--auth` is only the stored auth display-name override for later launches; it does not create credentials, and the stored relationship continues to resolve after auth rename
 
 ## Specialist Required Inputs
 
@@ -149,7 +150,7 @@ Use the chosen `houmao-mgr` launcher with:
 
 Use these documented defaults and options exactly:
 
-- `--credential` defaults to `<name>-creds` when omitted
+- `--credential` defaults to `<name>-creds` when omitted and supplies the auth display name
 - `auto credentials` is a user instruction for auth discovery, not a literal `houmao-mgr` flag
 - `--setup` defaults to `default` when omitted
 - `--no-unattended` is the explicit opt-out from the easy unattended default
@@ -183,7 +184,7 @@ Claude vendor-login file usage:
 - Do not scan env vars, directories, repo-local tool homes, `~/.claude`, `~/.codex`, `~/.gemini`, redirected tool homes, or other likely credential locations unless one of the supported credential-source modes is explicitly active.
 - Do not widen Env Lookup Mode beyond the user-named env vars or explicit env-name patterns.
 - Do not widen Directory Scan Mode beyond the user-provided directory.
-- Do not treat `auto credentials` as a literal CLI flag or as the credential bundle name.
+- Do not treat `auto credentials` as a literal CLI flag or as the auth display name.
 - Do not execute `apiKeyHelper`, browser login flows, `codex login`, `claude auth login`, `gemini` interactive login, or other auth-generation flows just to synthesize credentials for specialist creation.
 - Do not treat a discovered current auth shape as importable unless it can be faithfully mapped into the selected tool's supported create-command flags.
 - Do not invent separate Claude create-command flags for `.credentials.json` or `.claude.json`; the maintained vendor-login lane is `--claude-config-dir`.
@@ -193,3 +194,4 @@ Claude vendor-login file usage:
 - Do not blindly reuse runtime `.claude.json` as `--claude-state-template-file`; only use an existing reusable `claude_state.template.json` or another explicitly reusable template path.
 - Do not mix `--system-prompt` and `--system-prompt-file`.
 - Do not treat missing auth as optional unless the intended credential bundle is confirmed to already exist.
+- Do not infer auth identity from `.houmao/content/auth/...` or `.houmao/agents/tools/<tool>/auth/...` directory basenames.

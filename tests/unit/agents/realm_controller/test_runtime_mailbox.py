@@ -678,6 +678,24 @@ def test_register_filesystem_mailbox_defaults_to_project_overlay_root(
     assert result.mailbox.filesystem_root == (repo_root / ".houmao" / "mailbox").resolve()
 
 
+def test_register_filesystem_mailbox_derives_ordinary_houmao_address_when_omitted(
+    tmp_path: Path,
+) -> None:
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="codex_headless",
+        mailbox=None,
+    )
+
+    result = controller.register_filesystem_mailbox(
+        mailbox_root=tmp_path / "shared-mail",
+    )
+
+    assert result.mailbox is not None
+    assert result.mailbox.principal_id == "HOUMAO-research"
+    assert result.mailbox.address == "research@houmao.localhost"
+
+
 def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
