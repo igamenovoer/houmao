@@ -7,7 +7,7 @@ runtime:
   os: Linux
   python: 3.13.12
   device: cpu
-  notes: Claude and Codex were verified across both default TUI and `--headless` lanes against the local fixture auth bundles under tests/fixtures/agents/tools.
+  notes: Claude and Codex were verified across both default TUI and `--headless` lanes against the local fixture auth bundles under tests/fixtures/auth-bundles.
 ---
 
 # How to launch one minimal Houmao agent across Claude/Codex and TUI/headless
@@ -22,7 +22,7 @@ This tutorial assumes prerequisites are already met; it does not walk through fu
 
 - **Environment:** run commands from the repository root with `pixi run ...`
 - **Tools:** `tmux` plus the provider CLI you want to use: `claude` or `codex`
-- **Configuration:** local fixture auth bundles already restored under `tests/fixtures/agents/tools/claude/auth/kimi-coding` and `tests/fixtures/agents/tools/codex/auth/yunwu-openai`
+- **Configuration:** local fixture auth bundles already restored under `tests/fixtures/auth-bundles/claude/kimi-coding` and `tests/fixtures/auth-bundles/codex/yunwu-openai`
 - **Data:** the tracked prompt file is [inputs/prompt.txt](inputs/prompt.txt)
 
 ## Implementation Idea
@@ -69,7 +69,7 @@ mkdir -p \
   "${generated_agent_def_dir}/tools/claude/auth" \
   "${generated_agent_def_dir}/tools/codex/auth"
 ln -s \
-  "$PWD/tests/fixtures/agents/tools/codex/auth/yunwu-openai" \
+  "$PWD/tests/fixtures/auth-bundles/codex/yunwu-openai" \
   "${generated_agent_def_dir}/tools/${tool}/auth/default"
 
 launch_args=(
@@ -233,7 +233,7 @@ What to confirm after a run:
 
 ### Troubleshooting
 
-- `fixture auth bundle missing`: restore the local bundle under `tests/fixtures/agents/tools/<tool>/auth/...` before running the demo
+- `fixture auth bundle missing`: restore the local bundle under `tests/fixtures/auth-bundles/<tool>/...` before running the demo
 - `required command not found: claude|codex|tmux`: install the missing provider CLI or `tmux`
 - Codex websocket or endpoint errors: make sure the generated Codex setup points at the Yunwu-compatible provider config and that the `yunwu-openai` fixture auth bundle is the source for the demo-local `default` alias
 - `No local managed agent matched friendly name ...` in `preflight-stop.log`: this is expected on a first run or after a clean stop, because the runner always attempts best-effort cleanup before launch
@@ -256,5 +256,6 @@ What to confirm after a run:
 
 - Docs: [docs/getting-started/agent-definitions.md](../../../docs/getting-started/agent-definitions.md)
 - Docs: [docs/getting-started/quickstart.md](../../../docs/getting-started/quickstart.md)
-- Source: [tests/fixtures/agents/README.md](../../../tests/fixtures/agents/README.md)
+- Source: [tests/fixtures/plain-agent-def/README.md](../../../tests/fixtures/plain-agent-def/README.md)
+- Source: [tests/fixtures/auth-bundles/README.md](../../../tests/fixtures/auth-bundles/README.md)
 - Source: [component-agent-construction/spec.md](../../../openspec/specs/component-agent-construction/spec.md)

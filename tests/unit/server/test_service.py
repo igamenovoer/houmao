@@ -14,6 +14,9 @@ from pydantic import ValidationError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHoumaoServerV1,
     GatewayAttachContractV1,
+    GatewayExecutionModelReasoningV1,
+    GatewayExecutionModelV1,
+    GatewayExecutionOverrideV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     build_offline_gateway_status,
@@ -47,15 +50,19 @@ from houmao.server.managed_agents import (
     ManagedHeadlessTurnRecord,
 )
 from houmao.server.child_cao import ChildCaoInstallResult
+import houmao.server.service as service_module
 import houmao.server.tui.registry as tui_registry_module
 from houmao.server.config import HoumaoServerConfig
 from houmao.server.models import (
     HoumaoHeadlessLaunchRequest,
     HoumaoHeadlessTurnRequest,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+    HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentSubmitPromptRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
 )
@@ -292,14 +299,20 @@ class _FakeHeadlessSession(HeadlessInteractiveSession):
             },
         )()
         self.m_send_prompt_calls: list[tuple[str, str | None]] = []
+        self.m_execution_models: list[object | None] = []
+        self.m_session_selections: list[object | None] = []
 
     def send_prompt(
         self,
         prompt: str,
         *,
         turn_artifact_dir_name: str | None = None,
+        session_selection: object | None = None,
+        execution_model: object | None = None,
     ) -> list[object]:
         self.m_send_prompt_calls.append((prompt, turn_artifact_dir_name))
+        self.m_session_selections.append(session_selection)
+        self.m_execution_models.append(execution_model)
         self._state.turn_index += 1
         return []
 
@@ -335,13 +348,41 @@ class _FakeHeadlessController:
         self.registry_launch_authority = "external"
         self.m_stop_calls: list[bool] = []
         self.m_persist_calls = 0
+        self.m_send_prompt_calls: list[dict[str, object]] = []
 
     def stop(self, *, force_cleanup: bool = False):
         self.m_stop_calls.append(force_cleanup)
         return type("StopResult", (), {"status": "ok", "detail": "controller stopped"})()
 
-    def persist_manifest(self) -> None:
+    def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         self.m_persist_calls += 1
+
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        session_selection: object | None = None,
+        turn_artifact_dir_name: str | None = None,
+        execution_model: object | None = None,
+        refresh_registry: bool = True,
+    ) -> list[object]:
+        self.m_send_prompt_calls.append(
+            {
+                "prompt": prompt,
+                "session_selection": session_selection,
+                "turn_artifact_dir_name": turn_artifact_dir_name,
+                "execution_model": execution_model,
+                "refresh_registry": refresh_registry,
+            }
+        )
+        result = self.backend_session.send_prompt(
+            prompt,
+            turn_artifact_dir_name=turn_artifact_dir_name,
+            session_selection=session_selection,
+            execution_model=execution_model,
+        )
+        self.persist_manifest(refresh_registry=refresh_registry)
+        return result
 
     def build_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
         if self.agent_identity is None or self.agent_id is None:
@@ -1452,6 +1493,157 @@ def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
     assert state.tracked_session.observed_tool_version == "0.116.4 (Codex)"
 
 
+def test_submit_managed_agent_interrupt_dispatches_tui_signal_when_tracked_state_is_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            ),
+            ("POST", "/terminals/abcd1234/exit", ()): _json_response({"ok": True}),
+        }
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=_FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT),
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_up",
+                matched_process_names=["codex"],
+                matched_processes=(),
+            )
+        ),
+        parser_adapter=_FakeParserAdapter(
+            [OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)]
+        ),
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="HOUMAO-gpu",
+            tmux_window_name="developer-1",
+        )
+    )
+
+    tracked_state = service.refresh_terminal_state("abcd1234")
+    accepted = service.submit_managed_agent_request(
+        "cao-gpu",
+        HoumaoManagedAgentInterruptRequest(),
+    )
+
+    assert tracked_state.turn.phase == "ready"
+    assert accepted.disposition == "accepted"
+    assert accepted.detail == "Best-effort TUI interrupt signal dispatched."
+    assert transport.m_calls[-1] == ("POST", "/terminals/abcd1234/exit", ())
+
+
+def test_submit_managed_agent_prompt_rejects_execution_override_for_tui_target(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(
+        {
+            ("GET", "/terminals/abcd1234", ()): _json_response(
+                {
+                    "id": "abcd1234",
+                    "name": "gpu",
+                    "provider": "codex",
+                    "session_name": "cao-gpu",
+                    "agent_profile": "runtime-profile",
+                    "status": "idle",
+                }
+            )
+        }
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=transport,
+        child_manager=_FakeChildManager(),
+        transport_resolver=_FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT),
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_up",
+                matched_process_names=["codex"],
+                matched_processes=(),
+            )
+        ),
+        parser_adapter=_FakeParserAdapter(
+            [OfficialParseResult(parsed_surface=_ready_surface(), parse_error=None)]
+        ),
+    )
+    service.register_launch(
+        HoumaoRegisterLaunchRequest(
+            session_name="cao-gpu",
+            terminal_id="abcd1234",
+            tool="codex",
+            tmux_session_name="HOUMAO-gpu",
+            tmux_window_name="developer-1",
+        )
+    )
+
+    service.refresh_terminal_state("abcd1234")
+
+    with pytest.raises(HTTPException, match="Execution overrides are only supported"):
+        service.submit_managed_agent_request(
+            "cao-gpu",
+            HoumaoManagedAgentSubmitPromptRequest(
+                prompt="hello",
+                execution=GatewayExecutionOverrideV1(
+                    model=GatewayExecutionModelV1(name="claude-3-7-sonnet")
+                ),
+            ),
+        )
+
+
+def test_submit_headless_interrupt_returns_no_op_when_no_active_work(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    handle = service_module._ManagedHeadlessAgentHandle(
+        authority=ManagedHeadlessAuthorityRecord(
+            tracked_agent_id="headless-agent-1",
+            tool="claude",
+            backend="claude_headless",
+            session_root=str((tmp_path / "session-root").resolve()),
+            manifest_path=str((tmp_path / "manifest.json").resolve()),
+            tmux_session_name="HOUMAO-headless",
+            agent_def_dir=str((tmp_path / "agent-def").resolve()),
+            agent_name="HOUMAO-headless",
+            agent_id="agent-headless-1",
+            created_at_utc="2026-04-09T00:00:00Z",
+            updated_at_utc="2026-04-09T00:00:00Z",
+        ),
+        controller=None,
+    )
+
+    accepted = service._submit_headless_managed_request(
+        handle=handle,
+        request_model=HoumaoManagedAgentInterruptRequest(),
+        request_id="mreq-interrupt-1",
+    )
+
+    assert accepted.disposition == "no_op"
+    assert accepted.detail == "No active interruptible headless work is running."
+    assert accepted.headless_turn_id is None
+
+
 def test_launch_headless_persists_authority_and_projects_shared_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1769,6 +1961,84 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
     )
     assert shared_state.turn.phase == "active"
     assert shared_state.turn.active_turn_id == "turn-live"
+
+
+def test_submit_managed_agent_gateway_internal_headless_prompt_forwards_execution_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    agent_def_dir = tmp_path / "agent-defs"
+    manifest_path = (
+        tmp_path
+        / "runtime"
+        / "sessions"
+        / "claude_headless"
+        / "claude-headless-override"
+        / "manifest.json"
+    )
+    agent_def_dir.mkdir()
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    fake_controller = _FakeHeadlessController(
+        manifest_path=manifest_path,
+        tmux_session_name="HOUMAO-override",
+    )
+    service.m_managed_headless_store.write_authority(
+        ManagedHeadlessAuthorityRecord(
+            tracked_agent_id="claude-headless-override",
+            backend="claude_headless",
+            tool="claude",
+            manifest_path=str(manifest_path),
+            session_root=str(manifest_path.parent),
+            tmux_session_name="HOUMAO-override",
+            agent_def_dir=str(agent_def_dir),
+            agent_name="HOUMAO-override",
+            agent_id=None,
+            created_at_utc="2026-03-20T09:00:00+00:00",
+            updated_at_utc="2026-03-20T09:00:00+00:00",
+        )
+    )
+    monkeypatch.setattr(
+        "houmao.server.service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
+
+    service.startup()
+    try:
+        response = service.submit_managed_agent_gateway_internal_headless_prompt(
+            "claude-headless-override",
+            HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(
+                prompt="second prompt",
+                turn_id="turn-override",
+                execution=GatewayExecutionOverrideV1(
+                    model=GatewayExecutionModelV1(
+                        name="claude-3-7-sonnet",
+                        reasoning=GatewayExecutionModelReasoningV1(level=7),
+                    )
+                ),
+            ),
+        )
+    finally:
+        service.shutdown()
+
+    assert response.success is True
+    execution_model = fake_controller.m_send_prompt_calls[0]["execution_model"]
+    assert execution_model is not None
+    assert execution_model.name == "claude-3-7-sonnet"
+    assert execution_model.reasoning is not None
+    assert execution_model.reasoning.level == 7
+    assert fake_controller.m_send_prompt_calls[0]["turn_artifact_dir_name"] == "turn-override"
 
 
 def test_reconcile_keeps_headless_turn_active_while_worker_thread_is_live(tmp_path: Path) -> None:

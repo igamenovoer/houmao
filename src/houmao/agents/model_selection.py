@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 
 @dataclass(frozen=True)
 class ModelReasoningConfig:
-    """Normalized reasoning configuration."""
+    """Tool/model-relative reasoning configuration."""
 
     level: int
 
@@ -62,12 +63,12 @@ class ResolvedModelConfig:
 
 
 def parse_reasoning_level(raw_value: object, *, source: str) -> int | None:
-    """Parse one optional normalized reasoning level."""
+    """Parse one optional non-negative reasoning preset index."""
 
     if raw_value is None:
         return None
     if isinstance(raw_value, bool):
-        raise ValueError(f"{source}: reasoning.level must be an integer from 1 through 10")
+        raise ValueError(f"{source}: reasoning.level must be a non-negative integer")
 
     parsed_value: int | None = None
     if isinstance(raw_value, int):
@@ -76,12 +77,10 @@ def parse_reasoning_level(raw_value: object, *, source: str) -> int | None:
         try:
             parsed_value = int(raw_value.strip())
         except ValueError as exc:
-            raise ValueError(
-                f"{source}: reasoning.level must be an integer from 1 through 10"
-            ) from exc
+            raise ValueError(f"{source}: reasoning.level must be a non-negative integer") from exc
 
-    if parsed_value is None or parsed_value < 1 or parsed_value > 10:
-        raise ValueError(f"{source}: reasoning.level must be an integer from 1 through 10")
+    if parsed_value is None or parsed_value < 0:
+        raise ValueError(f"{source}: reasoning.level must be a non-negative integer")
     return parsed_value
 
 
@@ -205,4 +204,44 @@ def resolve_model_config_layers(
         config=None if config.is_empty() else config,
         name_source=name_source,
         reasoning_source=reasoning_source,
+    )
+
+
+def extract_resolved_model_config_from_brain_manifest(
+    manifest: Mapping[str, Any],
+    *,
+    source: str,
+) -> ModelConfig | None:
+    """Extract the launch-resolved effective model config from one brain manifest."""
+
+    runtime_payload = manifest.get("runtime")
+    if not isinstance(runtime_payload, Mapping):
+        return None
+    launch_contract_payload = runtime_payload.get("launch_contract")
+    if not isinstance(launch_contract_payload, Mapping):
+        return None
+    model_selection_payload = launch_contract_payload.get("model_selection")
+    if not isinstance(model_selection_payload, Mapping):
+        return None
+    resolved_payload = model_selection_payload.get("resolved")
+    if not isinstance(resolved_payload, Mapping):
+        return None
+    return parse_model_config(
+        resolved_payload.get("effective"),
+        source=f"{source}:runtime.launch_contract.model_selection.resolved.effective",
+    )
+
+
+def resolve_execution_model_config(
+    *,
+    launch_model: ModelConfig | None,
+    request_override: ModelConfig | None,
+) -> ResolvedModelConfig:
+    """Resolve one request-scoped execution override atop launch-owned defaults."""
+
+    return resolve_model_config_layers(
+        (
+            ("launch", launch_model),
+            ("request", request_override),
+        )
     )

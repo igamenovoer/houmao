@@ -14,6 +14,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessControlStateV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
@@ -51,6 +57,7 @@ from .models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -558,6 +565,81 @@ class HoumaoServerClient(CaoRestClient):
             GatewayMailNotifierStatusV1,
         )
 
+    def list_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+    ) -> GatewayReminderListV1:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/reminders`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/reminders",
+            GatewayReminderListV1,
+        )
+
+    def create_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+        request_model: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/reminders`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/reminders",
+            GatewayReminderCreateResultV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def get_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        reminder_escaped = parse.quote(reminder_id, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/reminders/{reminder_escaped}",
+            GatewayReminderV1,
+        )
+
+    def put_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+        request_model: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        """Call `PUT /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        reminder_escaped = parse.quote(reminder_id, safe="")
+        return self._request_root_model(
+            "PUT",
+            f"/houmao/agents/{escaped}/gateway/reminders/{reminder_escaped}",
+            GatewayReminderV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def delete_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        """Call `DELETE /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        reminder_escaped = parse.quote(reminder_id, safe="")
+        return self._request_root_model(
+            "DELETE",
+            f"/houmao/agents/{escaped}/gateway/reminders/{reminder_escaped}",
+            GatewayReminderDeleteResultV1,
+        )
+
     def get_managed_agent_mail_status(
         self,
         agent_ref: str,
@@ -617,6 +699,21 @@ class HoumaoServerClient(CaoRestClient):
         return self._request_root_model(
             "POST",
             f"/houmao/agents/{escaped}/mail/send",
+            HoumaoManagedAgentMailActionResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/post`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/post",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )

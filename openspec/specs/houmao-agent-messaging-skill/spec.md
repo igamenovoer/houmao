@@ -184,3 +184,47 @@ The packaged `houmao-agent-messaging` skill SHALL keep its own mailbox coverage 
 - **WHEN** the messaging task needs ordinary mailbox work, live mailbox discovery follow-through, or transport-local mailbox guidance
 - **THEN** the skill directs the agent to `houmao-agent-email-comms`
 - **AND THEN** it does not restate that ordinary mailbox guidance as part of the generic managed-agent messaging skill
+
+### Requirement: `houmao-agent-messaging` describes TUI interrupt as best-effort `Escape`
+The packaged `houmao-agent-messaging` skill SHALL describe `houmao-mgr agents interrupt` as the default transport-neutral interrupt path for already-running managed agents.
+
+For TUI-backed managed agents, the skill SHALL explain that ordinary interrupt means one best-effort `Escape` delivery and that the caller does not need to switch to raw `send-keys` merely to get that TUI interrupt behavior.
+
+For TUI-backed managed agents, the skill SHALL explain that interrupt MAY still be useful when currently reported TUI state looks idle because tracked TUI state can lag the live visible surface.
+
+For headless managed agents, the skill SHALL explain that ordinary interrupt targets active execution work and MAY return no-op semantics when no headless work is active.
+
+The skill SHALL continue treating `houmao-mgr agents gateway send-keys` as the exact raw control-input path for slash menus, cursor movement, partial typing, or other precise TUI shaping.
+
+#### Scenario: Skill describes ordinary TUI interrupt without redirecting to raw send-keys
+- **WHEN** the user asks to interrupt a managed TUI agent
+- **THEN** the skill directs the agent to use `houmao-mgr agents interrupt`
+- **AND THEN** it explains that the TUI interrupt path delivers best-effort `Escape` rather than redirecting the caller to `houmao-mgr agents gateway send-keys`
+
+#### Scenario: Skill explains delayed TUI tracking honestly
+- **WHEN** the user asks why TUI interrupt may still be attempted while reported state looks idle
+- **THEN** the skill explains that tracked TUI state can lag the live visible pane
+- **AND THEN** it does not describe the idle tracked posture as proof that a TUI interrupt request would be meaningless
+
+#### Scenario: Skill keeps headless interrupt semantics distinct
+- **WHEN** the user asks to interrupt a managed headless agent
+- **THEN** the skill explains that ordinary interrupt targets active execution work
+- **AND THEN** it does not describe headless interrupt as unconditional `Escape` delivery
+
+### Requirement: `houmao-agent-messaging` delegates generic managed-agent inspection to `houmao-agent-inspect`
+The packaged `houmao-agent-messaging` skill SHALL treat generic requests to inspect managed-agent liveness, transport detail, mailbox posture, runtime artifacts, logs, or direct tmux backing as outside its primary ownership.
+
+For those generic inspection requests, the packaged skill SHALL direct the caller to `houmao-agent-inspect`.
+
+The packaged skill MAY continue using `agents state`, `agents gateway status`, `agents mail resolve-live`, and gateway-owned TUI tracker surfaces when that inspection is inseparable from the currently selected messaging workflow, such as prompt-lane discovery, queue-specific validation, or explicit prompt-provenance work.
+
+#### Scenario: Generic inspection request routes to the inspect skill
+- **WHEN** a caller asks the messaging skill to inspect what one managed agent is doing, which pane backs it, or which logs and artifacts should be examined
+- **THEN** the skill directs the caller to `houmao-agent-inspect`
+- **AND THEN** it does not present generic managed-agent inspection as primary messaging guidance
+
+#### Scenario: Queue-specific tracker inspection stays available inside messaging
+- **WHEN** a caller explicitly needs gateway-owned TUI state or history as part of queued prompt, queued interrupt, or prompt-provenance work
+- **THEN** the skill may still direct the caller to the supported gateway TUI tracker surfaces inside the messaging workflow
+- **AND THEN** it does not claim ownership of generic managed-agent inspection outside that messaging-specific context
+

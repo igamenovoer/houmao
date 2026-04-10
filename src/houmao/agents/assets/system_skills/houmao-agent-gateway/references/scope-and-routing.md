@@ -12,6 +12,8 @@ Use `houmao-agent-gateway` when the task is about the managed gateway itself or 
 
 ## Use Other Houmao Skills For
 
+- `houmao-agent-inspect`
+  generic managed-agent liveness, mailbox posture, runtime artifacts, non-gateway logs, and tmux-backing inspection
 - `houmao-agent-instance`
   start, join, stop, relaunch, or clean up the managed agent session itself
 - `houmao-agent-messaging`

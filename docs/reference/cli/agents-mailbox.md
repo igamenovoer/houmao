@@ -20,13 +20,15 @@ houmao-mgr agents mailbox register [OPTIONS]
 |---|---|
 | `--mailbox-root DIRECTORY` | Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` or the active project mailbox root. |
 | `--principal-id TEXT` | Optional mailbox principal id override. Defaults from the managed-agent identity. |
-| `--address TEXT` | Optional full mailbox address override. Defaults from the managed-agent identity. |
+| `--address TEXT` | Optional full mailbox address override. Defaults to the ordinary mailbox address derived from the managed-agent identity, such as `research@houmao.localhost`. |
 | `--mode [safe\|force\|stash]` | Filesystem mailbox registration mode. Default: `safe`. |
 | `--yes` | Confirm destructive replacement without prompting. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 When `register` would replace existing shared mailbox state, it prompts before destructive replacement on interactive terminals. In automation or other non-interactive contexts, rerun with `--yes` to confirm the overwrite explicitly.
+
+When both `--principal-id` and `--address` are omitted for an ordinary managed agent, late binding derives principal id `HOUMAO-<agent-name>` and mailbox address `<agent-name>@houmao.localhost`. Mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` are reserved for Houmao-owned system principals rather than ordinary managed-agent mailbox addresses.
 
 ### `unregister`
 

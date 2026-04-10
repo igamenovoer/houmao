@@ -42,18 +42,38 @@ def turn_group() -> None:
     default=None,
     help="Prompt text to submit. If omitted, piped stdin is used.",
 )
+@click.option(
+    "--model",
+    default=None,
+    help="Request-scoped headless execution model override.",
+)
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(min=0),
+    default=None,
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
+)
 @pair_port_option()
 @managed_agent_selector_options
 def submit_turn_command(
     port: int | None,
     prompt: str | None,
+    model: str | None,
+    reasoning_level: int | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
     """Submit one managed headless turn for a headless agent."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(submit_headless_turn(target, prompt=resolve_prompt_text(prompt=prompt)))
+    emit(
+        submit_headless_turn(
+            target,
+            prompt=resolve_prompt_text(prompt=prompt),
+            model=model,
+            reasoning_level=reasoning_level,
+        )
+    )
 
 
 @turn_group.command(name="status")

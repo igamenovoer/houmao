@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
+import tempfile
 from typing import Any, cast
 
 import click
@@ -34,7 +35,7 @@ from houmao.agents.model_selection import (
 )
 from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
 from houmao.agents.realm_controller.manifest import load_session_manifest
-from houmao.project.catalog import ProjectCatalog
+from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog
 from houmao.project.easy import (
     SpecialistMetadata,
     TOOL_PROVIDER_MAP,
@@ -60,6 +61,7 @@ from houmao.project.overlay import (
     resolve_project_aware_local_roots,
 )
 
+from .credentials import ensure_specialist_credential_bundle, project_credentials_group
 from .agents.core import emit_local_launch_completion, launch_managed_agent_locally
 from .cleanup_support import emit_cleanup_payload
 from .common import (
@@ -104,6 +106,9 @@ _CLAUDE_VENDOR_LOGIN_FILE_SOURCES: frozenset[str] = frozenset(
 @click.group(name="project")
 def project_group() -> None:
     """Manage the selected Houmao project overlay for this invocation."""
+
+
+project_group.add_command(project_credentials_group)
 
 
 @project_group.command(name="init")
@@ -330,267 +335,6 @@ def remove_claude_project_setup_command(name: str) -> None:
     _emit_tool_setup_remove(tool="claude", name=name)
 
 
-@claude_tool_group.group(name="auth")
-def claude_auth_group() -> None:
-    """Manage Claude auth bundles under `.houmao/agents/tools/claude/auth/`."""
-
-
-@claude_auth_group.command(name="list")
-def list_claude_project_auth_command() -> None:
-    """List project-local Claude auth bundles."""
-
-    _emit_tool_auth_list(tool="claude")
-
-
-@claude_auth_group.command(name="get")
-@click.option("--name", required=True, help="Auth bundle name.")
-def get_claude_project_auth_command(name: str) -> None:
-    """Inspect one project-local Claude auth bundle."""
-
-    _emit_tool_auth_get(tool="claude", name=name)
-
-
-@claude_auth_group.command(name="remove")
-@click.option("--name", required=True, help="Auth bundle name to remove.")
-def remove_claude_project_auth_command(name: str) -> None:
-    """Remove one project-local Claude auth bundle."""
-
-    _emit_tool_auth_remove(tool="claude", name=name)
-
-
-@claude_auth_group.command(name="add")
-@click.option("--name", required=True, help="Auth bundle name.")
-@click.option("--api-key", default=None, help="Value for `ANTHROPIC_API_KEY`.")
-@click.option("--auth-token", default=None, help="Value for `ANTHROPIC_AUTH_TOKEN`.")
-@click.option("--oauth-token", default=None, help="Value for `CLAUDE_CODE_OAUTH_TOKEN`.")
-@click.option("--base-url", default=None, help="Value for `ANTHROPIC_BASE_URL`.")
-@click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
-@click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
-@click.option("--subagent-model", default=None, help="Value for `CLAUDE_CODE_SUBAGENT_MODEL`.")
-@click.option(
-    "--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`."
-)
-@click.option(
-    "--default-sonnet-model",
-    default=None,
-    help="Value for `ANTHROPIC_DEFAULT_SONNET_MODEL`.",
-)
-@click.option(
-    "--default-haiku-model",
-    default=None,
-    help="Value for `ANTHROPIC_DEFAULT_HAIKU_MODEL`.",
-)
-@click.option(
-    "--state-template-file",
-    "state_template_file",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Optional Claude bootstrap state template JSON to store in the auth bundle (not a credential).",
-)
-@click.option(
-    "--config-dir",
-    "config_dir",
-    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    default=None,
-    help=(
-        "Optional Claude config dir to import vendor login state from "
-        "(`.credentials.json` plus companion `.claude.json` when present)."
-    ),
-)
-def add_claude_project_auth_command(
-    name: str,
-    api_key: str | None,
-    auth_token: str | None,
-    oauth_token: str | None,
-    base_url: str | None,
-    model: str | None,
-    small_fast_model: str | None,
-    subagent_model: str | None,
-    default_opus_model: str | None,
-    default_sonnet_model: str | None,
-    default_haiku_model: str | None,
-    state_template_file: Path | None,
-    config_dir: Path | None,
-) -> None:
-    """Create one new Claude auth bundle inside the active project overlay."""
-
-    _run_claude_auth_write(
-        operation="add",
-        name=name,
-        api_key=api_key,
-        auth_token=auth_token,
-        oauth_token=oauth_token,
-        base_url=base_url,
-        model=model,
-        small_fast_model=small_fast_model,
-        subagent_model=subagent_model,
-        default_opus_model=default_opus_model,
-        default_sonnet_model=default_sonnet_model,
-        default_haiku_model=default_haiku_model,
-        state_template_file=state_template_file,
-        config_dir=config_dir,
-        clear_env_names=set(),
-        clear_file_sources=set(),
-    )
-
-
-@claude_auth_group.command(name="set")
-@click.option("--name", required=True, help="Auth bundle name.")
-@click.option("--api-key", default=None, help="Value for `ANTHROPIC_API_KEY`.")
-@click.option("--auth-token", default=None, help="Value for `ANTHROPIC_AUTH_TOKEN`.")
-@click.option("--oauth-token", default=None, help="Value for `CLAUDE_CODE_OAUTH_TOKEN`.")
-@click.option("--base-url", default=None, help="Value for `ANTHROPIC_BASE_URL`.")
-@click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
-@click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
-@click.option("--subagent-model", default=None, help="Value for `CLAUDE_CODE_SUBAGENT_MODEL`.")
-@click.option(
-    "--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`."
-)
-@click.option(
-    "--default-sonnet-model",
-    default=None,
-    help="Value for `ANTHROPIC_DEFAULT_SONNET_MODEL`.",
-)
-@click.option(
-    "--default-haiku-model",
-    default=None,
-    help="Value for `ANTHROPIC_DEFAULT_HAIKU_MODEL`.",
-)
-@click.option(
-    "--state-template-file",
-    "state_template_file",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Optional Claude bootstrap state template JSON to store in the auth bundle (not a credential).",
-)
-@click.option(
-    "--config-dir",
-    "config_dir",
-    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    default=None,
-    help=(
-        "Optional Claude config dir to import vendor login state from "
-        "(`.credentials.json` plus companion `.claude.json` when present)."
-    ),
-)
-@click.option(
-    "--clear-api-key", is_flag=True, help="Remove `ANTHROPIC_API_KEY` from the auth bundle."
-)
-@click.option(
-    "--clear-auth-token", is_flag=True, help="Remove `ANTHROPIC_AUTH_TOKEN` from the auth bundle."
-)
-@click.option(
-    "--clear-oauth-token",
-    is_flag=True,
-    help="Remove `CLAUDE_CODE_OAUTH_TOKEN` from the auth bundle.",
-)
-@click.option(
-    "--clear-base-url", is_flag=True, help="Remove `ANTHROPIC_BASE_URL` from the auth bundle."
-)
-@click.option("--clear-model", is_flag=True, help="Remove `ANTHROPIC_MODEL` from the auth bundle.")
-@click.option(
-    "--clear-small-fast-model",
-    is_flag=True,
-    help="Remove `ANTHROPIC_SMALL_FAST_MODEL` from the auth bundle.",
-)
-@click.option(
-    "--clear-subagent-model",
-    is_flag=True,
-    help="Remove `CLAUDE_CODE_SUBAGENT_MODEL` from the auth bundle.",
-)
-@click.option(
-    "--clear-default-opus-model",
-    is_flag=True,
-    help="Remove `ANTHROPIC_DEFAULT_OPUS_MODEL` from the auth bundle.",
-)
-@click.option(
-    "--clear-default-sonnet-model",
-    is_flag=True,
-    help="Remove `ANTHROPIC_DEFAULT_SONNET_MODEL` from the auth bundle.",
-)
-@click.option(
-    "--clear-default-haiku-model",
-    is_flag=True,
-    help="Remove `ANTHROPIC_DEFAULT_HAIKU_MODEL` from the auth bundle.",
-)
-@click.option(
-    "--clear-state-template-file",
-    is_flag=True,
-    help="Remove optional `files/claude_state.template.json` bootstrap state from the auth bundle.",
-)
-@click.option(
-    "--clear-config-dir",
-    is_flag=True,
-    help="Remove imported Claude vendor login-state files from the auth bundle.",
-)
-def set_claude_project_auth_command(
-    name: str,
-    api_key: str | None,
-    auth_token: str | None,
-    oauth_token: str | None,
-    base_url: str | None,
-    model: str | None,
-    small_fast_model: str | None,
-    subagent_model: str | None,
-    default_opus_model: str | None,
-    default_sonnet_model: str | None,
-    default_haiku_model: str | None,
-    state_template_file: Path | None,
-    config_dir: Path | None,
-    clear_api_key: bool,
-    clear_auth_token: bool,
-    clear_oauth_token: bool,
-    clear_base_url: bool,
-    clear_model: bool,
-    clear_small_fast_model: bool,
-    clear_subagent_model: bool,
-    clear_default_opus_model: bool,
-    clear_default_sonnet_model: bool,
-    clear_default_haiku_model: bool,
-    clear_state_template_file: bool,
-    clear_config_dir: bool,
-) -> None:
-    """Update one existing Claude auth bundle inside the active project overlay."""
-
-    _run_claude_auth_write(
-        operation="set",
-        name=name,
-        api_key=api_key,
-        auth_token=auth_token,
-        oauth_token=oauth_token,
-        base_url=base_url,
-        model=model,
-        small_fast_model=small_fast_model,
-        subagent_model=subagent_model,
-        default_opus_model=default_opus_model,
-        default_sonnet_model=default_sonnet_model,
-        default_haiku_model=default_haiku_model,
-        state_template_file=state_template_file,
-        config_dir=config_dir,
-        clear_env_names=_flagged_items(
-            {
-                "ANTHROPIC_API_KEY": clear_api_key,
-                "ANTHROPIC_AUTH_TOKEN": clear_auth_token,
-                "CLAUDE_CODE_OAUTH_TOKEN": clear_oauth_token,
-                "ANTHROPIC_BASE_URL": clear_base_url,
-                "ANTHROPIC_MODEL": clear_model,
-                "ANTHROPIC_SMALL_FAST_MODEL": clear_small_fast_model,
-                "CLAUDE_CODE_SUBAGENT_MODEL": clear_subagent_model,
-                "ANTHROPIC_DEFAULT_OPUS_MODEL": clear_default_opus_model,
-                "ANTHROPIC_DEFAULT_SONNET_MODEL": clear_default_sonnet_model,
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL": clear_default_haiku_model,
-            }
-        ),
-        clear_file_sources=_flagged_items(
-            {
-                _CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME: clear_state_template_file,
-                _CLAUDE_VENDOR_CREDENTIALS_FILENAME: clear_config_dir,
-                _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME: clear_config_dir,
-            }
-        ),
-    )
-
-
 @project_tools_group.group(name="codex")
 def codex_tool_group() -> None:
     """Manage the project-local Codex tool subtree."""
@@ -642,116 +386,6 @@ def remove_codex_project_setup_command(name: str) -> None:
     _emit_tool_setup_remove(tool="codex", name=name)
 
 
-@codex_tool_group.group(name="auth")
-def codex_auth_group() -> None:
-    """Manage Codex auth bundles under `.houmao/agents/tools/codex/auth/`."""
-
-
-@codex_auth_group.command(name="list")
-def list_codex_project_auth_command() -> None:
-    """List project-local Codex auth bundles."""
-
-    _emit_tool_auth_list(tool="codex")
-
-
-@codex_auth_group.command(name="get")
-@click.option("--name", required=True, help="Auth bundle name.")
-def get_codex_project_auth_command(name: str) -> None:
-    """Inspect one project-local Codex auth bundle."""
-
-    _emit_tool_auth_get(tool="codex", name=name)
-
-
-@codex_auth_group.command(name="remove")
-@click.option("--name", required=True, help="Auth bundle name to remove.")
-def remove_codex_project_auth_command(name: str) -> None:
-    """Remove one project-local Codex auth bundle."""
-
-    _emit_tool_auth_remove(tool="codex", name=name)
-
-
-@codex_auth_group.command(name="add")
-@click.option("--name", required=True, help="Auth bundle name.")
-@click.option("--api-key", default=None, help="Value for `OPENAI_API_KEY`.")
-@click.option("--base-url", default=None, help="Value for `OPENAI_BASE_URL`.")
-@click.option("--org-id", default=None, help="Value for `OPENAI_ORG_ID`.")
-@click.option(
-    "--auth-json",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Optional Codex `auth.json` login-state file to store in the auth bundle.",
-)
-def add_codex_project_auth_command(
-    name: str,
-    api_key: str | None,
-    base_url: str | None,
-    org_id: str | None,
-    auth_json: Path | None,
-) -> None:
-    """Create one new Codex auth bundle inside the active project overlay."""
-
-    _run_codex_auth_write(
-        operation="add",
-        name=name,
-        api_key=api_key,
-        base_url=base_url,
-        org_id=org_id,
-        auth_json=auth_json,
-        clear_env_names=set(),
-        clear_file_sources=set(),
-    )
-
-
-@codex_auth_group.command(name="set")
-@click.option("--name", required=True, help="Auth bundle name.")
-@click.option("--api-key", default=None, help="Value for `OPENAI_API_KEY`.")
-@click.option("--base-url", default=None, help="Value for `OPENAI_BASE_URL`.")
-@click.option("--org-id", default=None, help="Value for `OPENAI_ORG_ID`.")
-@click.option(
-    "--auth-json",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Optional Codex `auth.json` login-state file to store in the auth bundle.",
-)
-@click.option("--clear-api-key", is_flag=True, help="Remove `OPENAI_API_KEY` from the auth bundle.")
-@click.option(
-    "--clear-base-url", is_flag=True, help="Remove `OPENAI_BASE_URL` from the auth bundle."
-)
-@click.option("--clear-org-id", is_flag=True, help="Remove `OPENAI_ORG_ID` from the auth bundle.")
-@click.option(
-    "--clear-auth-json", is_flag=True, help="Remove `files/auth.json` from the auth bundle."
-)
-def set_codex_project_auth_command(
-    name: str,
-    api_key: str | None,
-    base_url: str | None,
-    org_id: str | None,
-    auth_json: Path | None,
-    clear_api_key: bool,
-    clear_base_url: bool,
-    clear_org_id: bool,
-    clear_auth_json: bool,
-) -> None:
-    """Update one existing Codex auth bundle inside the active project overlay."""
-
-    _run_codex_auth_write(
-        operation="set",
-        name=name,
-        api_key=api_key,
-        base_url=base_url,
-        org_id=org_id,
-        auth_json=auth_json,
-        clear_env_names=_flagged_items(
-            {
-                "OPENAI_API_KEY": clear_api_key,
-                "OPENAI_BASE_URL": clear_base_url,
-                "OPENAI_ORG_ID": clear_org_id,
-            }
-        ),
-        clear_file_sources=_flagged_items({"auth.json": clear_auth_json}),
-    )
-
-
 @project_tools_group.group(name="gemini")
 def gemini_tool_group() -> None:
     """Manage the project-local Gemini tool subtree."""
@@ -801,133 +435,6 @@ def remove_gemini_project_setup_command(name: str) -> None:
     """Remove one project-local Gemini setup bundle."""
 
     _emit_tool_setup_remove(tool="gemini", name=name)
-
-
-@gemini_tool_group.group(name="auth")
-def gemini_auth_group() -> None:
-    """Manage Gemini auth bundles under `.houmao/agents/tools/gemini/auth/`."""
-
-
-@gemini_auth_group.command(name="list")
-def list_gemini_project_auth_command() -> None:
-    """List project-local Gemini auth bundles."""
-
-    _emit_tool_auth_list(tool="gemini")
-
-
-@gemini_auth_group.command(name="get")
-@click.option("--name", required=True, help="Auth bundle name.")
-def get_gemini_project_auth_command(name: str) -> None:
-    """Inspect one project-local Gemini auth bundle."""
-
-    _emit_tool_auth_get(tool="gemini", name=name)
-
-
-@gemini_auth_group.command(name="remove")
-@click.option("--name", required=True, help="Auth bundle name to remove.")
-def remove_gemini_project_auth_command(name: str) -> None:
-    """Remove one project-local Gemini auth bundle."""
-
-    _emit_tool_auth_remove(tool="gemini", name=name)
-
-
-@gemini_auth_group.command(name="add")
-@click.option("--name", required=True, help="Auth bundle name.")
-@click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
-@click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
-@click.option("--google-api-key", default=None, help="Value for `GOOGLE_API_KEY`.")
-@click.option(
-    "--use-vertex-ai",
-    is_flag=True,
-    help="Store `GOOGLE_GENAI_USE_VERTEXAI=true` in the auth bundle env file.",
-)
-@click.option(
-    "--oauth-creds",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Optional path to the Gemini CLI `oauth_creds.json` file.",
-)
-def add_gemini_project_auth_command(
-    name: str,
-    api_key: str | None,
-    base_url: str | None,
-    google_api_key: str | None,
-    use_vertex_ai: bool,
-    oauth_creds: Path | None,
-) -> None:
-    """Create one new Gemini auth bundle inside the active project overlay."""
-
-    _run_gemini_auth_write(
-        operation="add",
-        name=name,
-        api_key=api_key,
-        base_url=base_url,
-        google_api_key=google_api_key,
-        use_vertex_ai=use_vertex_ai,
-        oauth_creds=oauth_creds,
-        clear_env_names=set(),
-    )
-
-
-@gemini_auth_group.command(name="set")
-@click.option("--name", required=True, help="Auth bundle name.")
-@click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
-@click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
-@click.option("--google-api-key", default=None, help="Value for `GOOGLE_API_KEY`.")
-@click.option(
-    "--use-vertex-ai",
-    is_flag=True,
-    help="Store `GOOGLE_GENAI_USE_VERTEXAI=true` in the auth bundle env file.",
-)
-@click.option(
-    "--oauth-creds",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Path to the Gemini CLI `oauth_creds.json` file required by the current adapter.",
-)
-@click.option("--clear-api-key", is_flag=True, help="Remove `GEMINI_API_KEY` from the auth bundle.")
-@click.option(
-    "--clear-base-url", is_flag=True, help="Remove `GOOGLE_GEMINI_BASE_URL` from the auth bundle."
-)
-@click.option(
-    "--clear-google-api-key", is_flag=True, help="Remove `GOOGLE_API_KEY` from the auth bundle."
-)
-@click.option(
-    "--clear-use-vertex-ai",
-    is_flag=True,
-    help="Remove `GOOGLE_GENAI_USE_VERTEXAI` from the auth bundle.",
-)
-def set_gemini_project_auth_command(
-    name: str,
-    api_key: str | None,
-    base_url: str | None,
-    google_api_key: str | None,
-    use_vertex_ai: bool,
-    oauth_creds: Path | None,
-    clear_api_key: bool,
-    clear_base_url: bool,
-    clear_google_api_key: bool,
-    clear_use_vertex_ai: bool,
-) -> None:
-    """Update one existing Gemini auth bundle inside the active project overlay."""
-
-    _run_gemini_auth_write(
-        operation="set",
-        name=name,
-        api_key=api_key,
-        base_url=base_url,
-        google_api_key=google_api_key,
-        use_vertex_ai=use_vertex_ai,
-        oauth_creds=oauth_creds,
-        clear_env_names=_flagged_items(
-            {
-                "GEMINI_API_KEY": clear_api_key,
-                "GOOGLE_GEMINI_BASE_URL": clear_base_url,
-                "GOOGLE_API_KEY": clear_google_api_key,
-                "GOOGLE_GENAI_USE_VERTEXAI": clear_use_vertex_ai,
-            }
-        ),
-    )
 
 
 @agents_project_group.group(name="roles")
@@ -1174,9 +681,9 @@ def get_project_preset_command(name: str) -> None:
 @click.option("--model", default=None, help="Optional launch-owned model name.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index (>=0).",
 )
 def add_project_preset_command(
     name: str,
@@ -1259,9 +766,9 @@ def add_project_preset_command(
 @click.option("--clear-model", is_flag=True, help="Clear launch.model.name.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning level override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--clear-reasoning-level",
@@ -1499,12 +1006,23 @@ def get_project_launch_profile_command(name: str) -> None:
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact default durable memory directory for launches from this profile.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Persist disabled memory binding for launches from this profile.",
+)
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--prompt-mode",
@@ -1570,6 +1088,8 @@ def add_project_launch_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -1602,6 +1122,9 @@ def add_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+        clear_memory_dir=False,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -1649,13 +1172,29 @@ def add_project_launch_profile_command(
 @click.option("--clear-workdir", is_flag=True, help="Clear the stored default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
 @click.option("--clear-auth", is_flag=True, help="Clear the stored auth override.")
+@click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact durable memory directory override for launches from this profile.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Persist disabled memory binding for launches from this profile.",
+)
+@click.option(
+    "--clear-memory-dir",
+    is_flag=True,
+    help="Clear the stored memory binding back to no profile preference.",
+)
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option("--clear-model", is_flag=True, help="Clear the stored launch-owned model.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--clear-reasoning-level",
@@ -1741,6 +1280,9 @@ def set_project_launch_profile_command(
     clear_workdir: bool,
     auth: str | None,
     clear_auth: bool,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
+    clear_memory_dir: bool,
     model: str | None,
     clear_model: bool,
     reasoning_level: int | None,
@@ -1786,6 +1328,9 @@ def set_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+        clear_memory_dir=clear_memory_dir,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -1862,12 +1407,23 @@ def easy_profile_group() -> None:
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
+@click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact default durable memory directory for launches from this easy profile.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Persist disabled memory binding for launches from this easy profile.",
+)
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--prompt-mode",
@@ -1933,6 +1489,8 @@ def create_easy_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -1965,6 +1523,9 @@ def create_easy_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+        clear_memory_dir=False,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -2084,9 +1645,9 @@ def easy_specialist_group() -> None:
 @click.option("--model", default=None, help="Optional launch-owned default model name.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index (>=0).",
 )
 @click.option(
     "--claude-model",
@@ -2226,7 +1787,7 @@ def create_easy_specialist_command(
         model_name=resolved_model_name,
         reasoning_level=reasoning_level,
     )
-    auth_result = _ensure_specialist_auth_bundle(
+    auth_result = ensure_specialist_credential_bundle(
         overlay=overlay,
         tool=tool_name,
         credential_name=credential_name,
@@ -2251,6 +1812,11 @@ def create_easy_specialist_command(
         launch_mapping["model"] = model_payload
     if persistent_env_records:
         launch_mapping["env_records"] = dict(persistent_env_records)
+    auth_profile = _load_auth_profile_or_click(
+        overlay=overlay,
+        tool=tool_name,
+        name=credential_name,
+    )
 
     role_root = _role_root(overlay=overlay, role_name=specialist_name)
     preset_name = _canonical_preset_name(
@@ -2290,17 +1856,17 @@ def create_easy_specialist_command(
         preset_name=preset_name,
         tool=tool_name,
         provider=TOOL_PROVIDER_MAP[tool_name],
-        credential_name=credential_name,
+        auth_profile=auth_profile,
         role_name=specialist_name,
         setup_name=setup_name,
         prompt_path=system_prompt_path,
-        auth_path=_auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name),
         skill_paths=tuple(imported_skills),
         setup_path=setup_path,
         launch_mapping=launch_mapping,
         mailbox_mapping=None,
         extra_mapping=None,
     )
+    materialize_project_agent_catalog_projection(overlay)
     metadata_path = metadata.metadata_path or overlay.catalog_path
     emit(
         {
@@ -2314,9 +1880,7 @@ def create_easy_specialist_command(
             "generated": {
                 "role_prompt": str(system_prompt_path),
                 "preset": str(preset_path),
-                "auth": str(
-                    _auth_bundle_root(overlay=overlay, tool=tool_name, name=credential_name)
-                ),
+                "auth": str(auth_profile.resolved_projection_path(overlay)),
                 "skills": [str(path) for path in imported_skills],
             },
             "auth_result": auth_result,
@@ -2386,9 +1950,9 @@ def easy_instance_group() -> None:
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional one-off Houmao-defined reasoning override (1..10).",
+    help="Optional one-off tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option(
@@ -2417,6 +1981,17 @@ def easy_instance_group() -> None:
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
     default=None,
     help="Optional runtime working directory override; defaults to the invocation cwd.",
+)
+@click.option(
+    "--memory-dir",
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional exact durable memory directory override for this instance launch.",
+)
+@click.option(
+    "--no-memory-dir",
+    is_flag=True,
+    help="Disable durable memory-directory binding for this instance launch.",
 )
 @click.option(
     "--env-set",
@@ -2462,6 +2037,8 @@ def launch_easy_instance_command(
     gateway_port: int | None,
     gateway_background: bool,
     workdir: Path | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
     env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
@@ -2484,8 +2061,14 @@ def launch_easy_instance_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
+    launch_profile_memory_dir: str | None = None
+    launch_profile_memory_disabled = False
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_provenance = None
+    resolved_memory_dir, no_memory_dir, _ = _resolve_memory_dir_option_or_click(
+        memory_dir=memory_dir,
+        no_memory_dir=no_memory_dir,
+    )
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
@@ -2514,6 +2097,10 @@ def launch_easy_instance_command(
             source=f"easy profile `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
+        launch_profile_memory_dir = getattr(resolved_profile.entry, "memory_dir", None)
+        launch_profile_memory_disabled = bool(
+            getattr(resolved_profile.entry, "memory_disabled", False)
+        )
         launch_profile_model_config = _build_model_config_or_click(
             model_name=resolved_profile.entry.model_name,
             reasoning_level=resolved_profile.entry.reasoning_level,
@@ -2628,6 +2215,10 @@ def launch_easy_instance_command(
         headless=resolved_headless,
         provider=specialist_metadata.provider,
         working_directory=working_directory,
+        memory_dir=resolved_memory_dir,
+        no_memory_dir=no_memory_dir,
+        launch_profile_memory_dir=launch_profile_memory_dir,
+        launch_profile_memory_disabled=launch_profile_memory_disabled,
         source_working_directory=overlay.project_root,
         source_agent_def_dir=source_agent_def_dir,
         headless_display_style="plain",
@@ -3127,17 +2718,48 @@ def _emit_tool_auth_remove(*, tool: str, name: str) -> None:
 
     overlay = _resolve_existing_project_overlay()
     resolved_name = _require_non_empty_name(name, field_name="--name")
-    target_path = _auth_bundle_root(overlay=overlay, tool=tool, name=resolved_name)
-    if not target_path.is_dir():
-        raise click.ClickException(f"Auth bundle not found: {target_path}")
-    shutil.rmtree(target_path)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    try:
+        removed = catalog.remove_auth_profile(tool=tool, name=resolved_name)
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    materialize_project_agent_catalog_projection(overlay)
     emit(
         {
             "project_root": str(overlay.project_root),
             "tool": tool,
-            "name": resolved_name,
+            "name": removed.display_name,
+            "bundle_ref": removed.bundle_ref,
             "removed": True,
-            "path": str(target_path),
+            "path": str(removed.resolved_projection_path(overlay)),
+        }
+    )
+
+
+def _emit_tool_auth_rename(*, tool: str, name: str, new_name: str) -> None:
+    """Rename one auth profile and emit the updated metadata."""
+
+    overlay = _resolve_existing_project_overlay()
+    resolved_name = _require_non_empty_name(name, field_name="--name")
+    resolved_new_name = _require_non_empty_name(new_name, field_name="--to")
+    catalog = ProjectCatalog.from_overlay(overlay)
+    try:
+        renamed = catalog.rename_auth_profile(
+            tool=tool,
+            name=resolved_name,
+            new_name=resolved_new_name,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    materialize_project_agent_catalog_projection(overlay)
+    emit(
+        {
+            "project_root": str(overlay.project_root),
+            "tool": tool,
+            "name": renamed.display_name,
+            "previous_name": resolved_name,
+            "bundle_ref": renamed.bundle_ref,
+            "path": str(renamed.resolved_projection_path(overlay)),
         }
     )
 
@@ -3154,10 +2776,45 @@ def _list_tool_setup_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[
 def _list_tool_bundle_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[str]:
     """Return the existing auth bundle names for one tool."""
 
-    auth_root = (_tool_root(overlay=overlay, tool=tool) / "auth").resolve()
-    if not auth_root.is_dir():
-        return []
-    return sorted(path.name for path in auth_root.iterdir() if path.is_dir())
+    return [
+        profile.display_name
+        for profile in ProjectCatalog.from_overlay(overlay).list_auth_profiles(tool=tool)
+    ]
+
+
+def _load_auth_profile_or_click(
+    *,
+    overlay: HoumaoProjectOverlay,
+    tool: str,
+    name: str,
+) -> AuthProfileCatalogEntry:
+    """Load one auth profile or raise one operator-facing error."""
+
+    resolved_name = _require_non_empty_name(name, field_name="--name")
+    try:
+        return ProjectCatalog.from_overlay(overlay).load_auth_profile(tool=tool, name=resolved_name)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _load_auth_profile_optional(
+    *,
+    overlay: HoumaoProjectOverlay,
+    tool: str,
+    name: str,
+) -> AuthProfileCatalogEntry | None:
+    """Load one auth profile when present."""
+
+    try:
+        return ProjectCatalog.from_overlay(overlay).load_auth_profile(tool=tool, name=name)
+    except FileNotFoundError:
+        return None
+
+
+def _auth_source_root(*, overlay: HoumaoProjectOverlay, profile: AuthProfileCatalogEntry) -> Path:
+    """Return the authoritative managed-content root for one auth profile."""
+
+    return profile.content_ref.resolve(overlay)
 
 
 def _tool_root(*, overlay: HoumaoProjectOverlay, tool: str) -> Path:
@@ -3603,7 +3260,7 @@ def _write_project_auth_bundle(
     clear_env_names: set[str],
     clear_file_sources: set[str],
 ) -> dict[str, object]:
-    """Create or update one tool-local auth bundle inside the project overlay."""
+    """Create or update one catalog-backed auth profile inside the project overlay."""
 
     resolved_name = _require_non_empty_name(name, field_name="--name")
     adapter = _load_overlay_tool_adapter(overlay=overlay, tool=tool)
@@ -3631,12 +3288,15 @@ def _write_project_auth_bundle(
             f"Provide at least one change for `{tool}` (new value, compatible auth file, or clear flag)."
         )
 
-    auth_bundle_root = _auth_bundle_root(overlay=overlay, tool=tool, name=resolved_name)
-    bundle_exists = auth_bundle_root.is_dir()
-    if operation == "add" and bundle_exists:
-        raise click.ClickException(f"Auth bundle already exists: {auth_bundle_root}")
-    if operation == "set" and not bundle_exists:
-        raise click.ClickException(f"Auth bundle not found: {auth_bundle_root}")
+    existing_profile = _load_auth_profile_optional(overlay=overlay, tool=tool, name=resolved_name)
+    if operation == "add" and existing_profile is not None:
+        raise click.ClickException(
+            f"Auth profile `{tool}/{resolved_name}` already exists in `{overlay.catalog_path}`."
+        )
+    if operation == "set" and existing_profile is None:
+        raise click.ClickException(
+            f"Auth profile `{tool}/{resolved_name}` was not found: {overlay.catalog_path}"
+        )
 
     unsupported_env_keys = sorted(
         (set(env_values) | clear_env_names) - set(adapter.auth_env_allowlist)
@@ -3655,53 +3315,81 @@ def _write_project_auth_bundle(
             f"Unsupported auth file(s) for `{tool}` auth bundles: {', '.join(unsupported_file_sources)}"
         )
 
-    existing_env_values = _load_existing_env_values(
-        _auth_bundle_env_file(overlay=overlay, tool=tool, name=resolved_name)
-    )
-    merged_env_values = dict(existing_env_values)
-    merged_env_values.update(env_values)
-    for env_name in clear_env_names:
-        merged_env_values.pop(env_name, None)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    with tempfile.TemporaryDirectory(prefix=f"houmao-auth-{tool}-") as temp_dir:
+        temp_auth_root = Path(temp_dir).resolve() / "auth"
+        if existing_profile is not None:
+            shutil.copytree(_auth_source_root(overlay=overlay, profile=existing_profile), temp_auth_root)
+        else:
+            temp_auth_root.mkdir(parents=True, exist_ok=True)
+        env_file_path = (temp_auth_root / adapter.auth_env_source).resolve()
+        files_root = (temp_auth_root / adapter.auth_files_dir).resolve()
+        existing_env_values = _load_existing_env_values(env_file_path)
+        merged_env_values = dict(existing_env_values)
+        merged_env_values.update(env_values)
+        for env_name in clear_env_names:
+            merged_env_values.pop(env_name, None)
 
-    env_file_path = _auth_bundle_env_file(overlay=overlay, tool=tool, name=resolved_name)
-    files_root = (auth_bundle_root / adapter.auth_files_dir).resolve()
-    env_file_path.parent.mkdir(parents=True, exist_ok=True)
-    files_root.mkdir(parents=True, exist_ok=True)
+        env_file_path.parent.mkdir(parents=True, exist_ok=True)
+        files_root.mkdir(parents=True, exist_ok=True)
+        for source_name in clear_file_sources:
+            target_path = (files_root / source_name).resolve()
+            if target_path.is_dir():
+                shutil.rmtree(target_path)
+            elif target_path.exists():
+                target_path.unlink()
 
-    for source_name in clear_file_sources:
-        target_path = (files_root / source_name).resolve()
-        if target_path.is_dir():
-            shutil.rmtree(target_path)
-        elif target_path.exists():
-            target_path.unlink()
+        for source_name, source_path in file_sources.items():
+            destination_path = (files_root / source_name).resolve()
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path.resolve(), destination_path)
 
-    for source_name, source_path in file_sources.items():
-        destination_path = (files_root / source_name).resolve()
-        shutil.copy2(source_path.resolve(), destination_path)
+        for mapping in adapter.auth_file_mappings:
+            if mapping.required and not (files_root / mapping.source).exists():
+                raise click.ClickException(
+                    f"Missing required auth file `{mapping.source}` for `{tool}` bundle "
+                    f"`{resolved_name}`."
+                )
 
-    for mapping in adapter.auth_file_mappings:
-        if mapping.required and not (files_root / mapping.source).exists():
-            raise click.ClickException(
-                f"Missing required auth file `{mapping.source}` for `{tool}` bundle `{resolved_name}`."
+        env_file_path.write_text(
+            _render_env_file(env_values=merged_env_values, allowlist=adapter.auth_env_allowlist),
+            encoding="utf-8",
+        )
+        try:
+            stored_profile = (
+                catalog.create_auth_profile_from_source(
+                    tool=tool,
+                    display_name=resolved_name,
+                    source_path=temp_auth_root,
+                )
+                if operation == "add"
+                else catalog.update_auth_profile_from_source(
+                    tool=tool,
+                    display_name=resolved_name,
+                    source_path=temp_auth_root,
+                )
             )
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
 
-    env_file_path.write_text(
-        _render_env_file(env_values=merged_env_values, allowlist=adapter.auth_env_allowlist),
-        encoding="utf-8",
-    )
+    materialize_project_agent_catalog_projection(overlay)
+    auth_bundle_root = stored_profile.resolved_projection_path(overlay)
+    projection_env_file = (auth_bundle_root / adapter.auth_env_source).resolve()
+    projection_files_root = (auth_bundle_root / adapter.auth_files_dir).resolve()
     return {
         "operation": operation,
         "project_root": str(overlay.project_root),
         "tool": tool,
         "name": resolved_name,
+        "bundle_ref": stored_profile.bundle_ref,
         "path": str(auth_bundle_root),
-        "env_file": str(env_file_path),
+        "env_file": str(projection_env_file),
         "written_env_vars": [
             env_name for env_name in adapter.auth_env_allowlist if env_name in merged_env_values
         ],
         "cleared_env_vars": sorted(clear_env_names),
         "written_files": [
-            str((files_root / source_name).resolve()) for source_name in sorted(file_sources)
+            str((projection_files_root / source_name).resolve()) for source_name in sorted(file_sources)
         ],
         "cleared_files": sorted(clear_file_sources),
     }
@@ -3715,22 +3403,20 @@ def _describe_project_auth_bundle(
 ) -> dict[str, object]:
     """Return one structured auth-bundle description with redacted secret values."""
 
-    resolved_name = _require_non_empty_name(name, field_name="--name")
+    profile = _load_auth_profile_or_click(overlay=overlay, tool=tool, name=name)
     adapter = _load_overlay_tool_adapter(overlay=overlay, tool=tool)
-    auth_bundle_root = _auth_bundle_root(overlay=overlay, tool=tool, name=resolved_name)
-    if not auth_bundle_root.is_dir():
-        raise click.ClickException(f"Auth bundle not found: {auth_bundle_root}")
-
-    env_file_path = _auth_bundle_env_file(overlay=overlay, tool=tool, name=resolved_name)
-    env_values = _load_existing_env_values(env_file_path)
-    files_root = (auth_bundle_root / adapter.auth_files_dir).resolve()
+    auth_bundle_root = profile.resolved_projection_path(overlay)
+    source_root = _auth_source_root(overlay=overlay, profile=profile)
+    env_values = _load_existing_env_values((source_root / adapter.auth_env_source).resolve())
+    files_root = (source_root / adapter.auth_files_dir).resolve()
 
     return {
         "project_root": str(overlay.project_root),
         "tool": tool,
-        "name": resolved_name,
+        "name": profile.display_name,
+        "bundle_ref": profile.bundle_ref,
         "path": str(auth_bundle_root),
-        "env_file": str(env_file_path),
+        "env_file": str((auth_bundle_root / adapter.auth_env_source).resolve()),
         "env": {
             env_name: _describe_env_value(env_name=env_name, env_values=env_values)
             for env_name in adapter.auth_env_allowlist
@@ -3761,7 +3447,11 @@ def _ensure_specialist_auth_bundle(
 ) -> dict[str, object]:
     """Create, update, or reuse one auth bundle for specialist compilation."""
 
-    auth_root = _auth_bundle_root(overlay=overlay, tool=tool, name=credential_name)
+    existing_profile = _load_auth_profile_optional(
+        overlay=overlay,
+        tool=tool,
+        name=credential_name,
+    )
     if tool == "claude":
         env_values = _compact_env_values(
             {
@@ -3805,13 +3495,14 @@ def _ensure_specialist_auth_bundle(
     if tool != "claude":
         clear_file_sources = set()
 
-    if auth_root.is_dir():
+    if existing_profile is not None:
         if not env_values and not file_sources:
             return {
                 "operation": "reuse",
                 "tool": tool,
                 "name": credential_name,
-                "path": str(auth_root),
+                "bundle_ref": existing_profile.bundle_ref,
+                "path": str(existing_profile.resolved_projection_path(overlay)),
             }
         return _write_project_auth_bundle(
             overlay=overlay,
@@ -4153,6 +3844,27 @@ def _managed_header_policy_from_override(value: bool | None) -> ManagedHeaderPol
     return "enabled" if value else "disabled"
 
 
+def _resolve_memory_dir_option_or_click(
+    *,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
+    clear_memory_dir: bool = False,
+) -> tuple[Path | None, bool, bool]:
+    """Resolve normalized memory-directory CLI inputs."""
+
+    if memory_dir is not None and no_memory_dir:
+        raise click.ClickException("`--memory-dir` and `--no-memory-dir` are mutually exclusive.")
+    if clear_memory_dir and (memory_dir is not None or no_memory_dir):
+        raise click.ClickException(
+            "`--memory-dir`, `--no-memory-dir`, and `--clear-memory-dir` are mutually exclusive."
+        )
+    return (
+        memory_dir.expanduser().resolve() if memory_dir is not None else None,
+        no_memory_dir,
+        clear_memory_dir,
+    )
+
+
 def _build_profile_mailbox_mapping_or_click(
     *,
     mail_transport: str | None,
@@ -4276,6 +3988,9 @@ def _store_launch_profile_from_cli(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
+    memory_dir: Path | None,
+    no_memory_dir: bool,
+    clear_memory_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -4360,6 +4075,13 @@ def _store_launch_profile_from_cli(
             prompt_overlay_file=prompt_overlay_file,
         )
     )
+    resolved_memory_dir_option, resolved_no_memory_dir, resolved_clear_memory_dir = (
+        _resolve_memory_dir_option_or_click(
+            memory_dir=memory_dir,
+            no_memory_dir=no_memory_dir,
+            clear_memory_dir=clear_memory_dir,
+        )
+    )
     env_mapping = (
         {}
         if clear_env
@@ -4381,6 +4103,10 @@ def _store_launch_profile_from_cli(
         resolved_agent_id = _optional_non_empty_value(agent_id)
         resolved_workdir = _optional_non_empty_value(workdir)
         resolved_auth = _optional_non_empty_value(auth)
+        resolved_memory_dir = (
+            str(resolved_memory_dir_option) if resolved_memory_dir_option is not None else None
+        )
+        resolved_memory_disabled = resolved_no_memory_dir
         resolved_model_config = _build_model_config_or_click(
             model_name=resolved_model_input,
             reasoning_level=reasoning_level,
@@ -4432,6 +4158,18 @@ def _store_launch_profile_from_cli(
             if clear_auth
             else (_optional_non_empty_value(auth) if auth is not None else current.entry.auth_name)
         )
+        if resolved_clear_memory_dir:
+            resolved_memory_dir = None
+            resolved_memory_disabled = False
+        elif resolved_no_memory_dir:
+            resolved_memory_dir = None
+            resolved_memory_disabled = True
+        elif resolved_memory_dir_option is not None:
+            resolved_memory_dir = str(resolved_memory_dir_option)
+            resolved_memory_disabled = False
+        else:
+            resolved_memory_dir = current.entry.memory_dir
+            resolved_memory_disabled = current.entry.memory_disabled
         if clear_model and model is not None:
             raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
         if clear_reasoning_level and reasoning_level is not None:
@@ -4507,6 +4245,9 @@ def _store_launch_profile_from_cli(
             clear_workdir,
             auth is not None,
             clear_auth,
+            memory_dir is not None,
+            no_memory_dir,
+            clear_memory_dir,
             model is not None,
             clear_model,
             reasoning_level is not None,
@@ -4540,7 +4281,10 @@ def _store_launch_profile_from_cli(
         managed_agent_name=resolved_agent_name,
         managed_agent_id=resolved_agent_id,
         workdir=resolved_workdir,
+        auth_tool=source.tool,
         auth_name=resolved_auth,
+        memory_dir=resolved_memory_dir,
+        memory_disabled=resolved_memory_disabled,
         model_name=resolved_model_config.name if resolved_model_config is not None else None,
         reasoning_level=(
             resolved_model_config.reasoning.level
@@ -4690,6 +4434,9 @@ def _instance_payload(
         "project_agent_def_dir": runtime_payload.get("agent_def_dir")
         if isinstance(runtime_payload, dict)
         else None,
+        "memory_dir": runtime_payload.get("memory_dir")
+        if isinstance(runtime_payload, dict)
+        else None,
         "mailbox": mailbox_payload,
     }
 
@@ -4833,6 +4580,9 @@ def _load_overlay_tool_adapter(*, overlay: HoumaoProjectOverlay, tool: str) -> T
 def _auth_bundle_root(*, overlay: HoumaoProjectOverlay, tool: str, name: str) -> Path:
     """Return the root directory for one tool-local auth bundle."""
 
+    profile = _load_auth_profile_optional(overlay=overlay, tool=tool, name=name)
+    if profile is not None:
+        return profile.resolved_projection_path(overlay)
     return (_tool_root(overlay=overlay, tool=tool) / "auth" / name).resolve()
 
 

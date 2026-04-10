@@ -5,6 +5,7 @@ from typing import cast
 
 import pytest
 
+from houmao.shared_tui_tracking.models import TrackedStateSnapshot
 from houmao.server.tracking_debug import TrackingDebugSink
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -22,6 +23,23 @@ _CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT = "Would you like to run the following comma
 _UNSET_OUTPUT_TEXT = object()
 
 
+class _StaticTrackerSession:
+    def __init__(self, *, state: TrackedStateSnapshot) -> None:
+        self.m_state = state
+
+    def current_state(self) -> TrackedStateSnapshot:
+        return self.m_state
+
+    def on_snapshot(self, _raw_text: str) -> None:
+        return
+
+    def on_input_submitted(self) -> None:
+        return
+
+    def close(self) -> None:
+        return
+
+
 def _identity(*, observed_tool_version: str | None = None) -> HoumaoTrackedSessionIdentity:
     return HoumaoTrackedSessionIdentity(
         tracked_session_id="cao-gpu",
@@ -30,6 +48,34 @@ def _identity(*, observed_tool_version: str | None = None) -> HoumaoTrackedSessi
         observed_tool_version=observed_tool_version,
         tmux_session_name="HOUMAO-gpu",
         terminal_aliases=["abcd1234"],
+    )
+
+
+def _tracker_state(
+    *,
+    surface_ready_posture: str = "yes",
+    turn_phase: str = "ready",
+    active_reasons: tuple[str, ...] = (),
+    last_turn_result: str = "none",
+    last_turn_source: str = "none",
+    notes: tuple[str, ...] = (),
+) -> TrackedStateSnapshot:
+    return TrackedStateSnapshot(
+        surface_accepting_input="yes",
+        surface_editing_input="no",
+        surface_ready_posture=surface_ready_posture,
+        turn_phase=turn_phase,
+        last_turn_result=last_turn_result,
+        last_turn_source=last_turn_source,
+        detector_name="codex_tui",
+        detector_version="0.116.x",
+        active_reasons=active_reasons,
+        notes=notes,
+        stability_signature="sig",
+        stable=True,
+        stable_for_seconds=0.0,
+        stable_since_seconds=0.0,
+        observed_at_seconds=0.0,
     )
 
 
@@ -226,6 +272,7 @@ def test_live_session_tracker_accumulates_stability_and_bounds_recent_transition
 
     assert first.stability.stable is False
     assert first.lifecycle_timing.completion_stability_seconds == 1.0
+    assert first.lifecycle_timing.stale_active_recovery_seconds == 5.0
     assert first.lifecycle_timing.unknown_to_stalled_timeout_seconds == 30.0
     assert first.lifecycle_authority.completion_authority == "unanchored_background"
     assert first.lifecycle_authority.turn_anchor_state == "absent"
@@ -683,6 +730,173 @@ def test_live_session_tracker_uses_shared_raw_snapshot_surface_inference() -> No
     assert settled.last_turn.source == "surface_inference"
     assert settled.lifecycle_authority.completion_authority == "unanchored_background"
     assert settled.lifecycle_authority.turn_anchor_state == "absent"
+
+
+def test_live_session_tracker_recorded_tmux_scrollback_is_prompt_ready() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    output_text = (
+        Path(__file__).resolve().parents[2]
+        / "fixtures"
+        / "shared_tui_tracking"
+        / "codex"
+        / "stale_active_full_scrollback.ansi.txt"
+    ).read_text(encoding="utf-8")
+
+    state = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:20+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text=output_text,
+    )
+
+    assert state.surface.accepting_input == "yes"
+    assert state.surface.ready_posture == "yes"
+    assert state.turn.phase == "ready"
+    assert state.last_turn.result == "none"
+
+
+def test_live_session_tracker_recovers_stale_active_submit_ready_after_5_seconds() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("status_row",),
+            notes=("active_turn_detected",),
+        )
+    )
+
+    first = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:20+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text=None,
+    )
+    second = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:22+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text=None,
+    )
+    recovered = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:25+00:00",
+        monotonic_ts=15.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text=None,
+    )
+    stable_ready = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:26+00:00",
+        monotonic_ts=16.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text=None,
+    )
+
+    assert first.turn.phase == "active"
+    assert second.turn.phase == "active"
+    assert recovered.surface.ready_posture == "yes"
+    assert recovered.turn.phase == "ready"
+    assert recovered.last_turn.result == "none"
+    assert recovered.operator_state is not None
+    assert "recovered a stale active phase" in recovered.operator_state.detail
+    assert recovered.stability.stable is False
+    assert stable_ready.turn.phase == "ready"
+    assert stable_ready.stability.stable is True
+
+
+def test_live_session_tracker_transcript_growth_does_not_trigger_recovery() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("transcript_growth",),
+            notes=("temporal_transcript_growth",),
+        )
+    )
+
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:20+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("still emitting text"),
+        output_text=None,
+    )
+    state = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:26+00:00",
+        monotonic_ts=16.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("still emitting text"),
+        output_text=None,
+    )
+
+    assert state.turn.phase == "active"
+    assert state.surface.ready_posture == "no"
+    assert state.last_turn.result == "none"
 
 
 def test_live_session_tracker_does_not_arm_tracker_authority_from_parser_only_churn() -> None:

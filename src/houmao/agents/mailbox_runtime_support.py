@@ -536,6 +536,20 @@ def mailbox_bindings_version_now() -> str:
     )
 
 
+def replaceable_mailbox_cleanup_paths(config: MailboxResolvedConfig | None) -> tuple[Path, ...]:
+    """Return mailbox artifacts that are safe to remove during force-clean takeover."""
+
+    if config is None:
+        return ()
+    if isinstance(config, FilesystemMailboxResolvedConfig):
+        if config.mailbox_kind != "symlink":
+            return ()
+        return (config.mailbox_path.resolve(),)
+    if config.credential_file is None:
+        return ()
+    return (config.credential_file.resolve(),)
+
+
 def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
     """Return runtime-managed mailbox env bindings for a resolved config."""
 

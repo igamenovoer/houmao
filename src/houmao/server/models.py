@@ -19,6 +19,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayChatSessionSelectorV1,
     GatewayConnectivityState,
     GatewayCurrentExecutionMode,
+    GatewayExecutionOverrideV1,
     GatewayExecutionState,
     GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
@@ -28,6 +29,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailActionResponseV1,
     GatewayMailCheckRequestV1,
     GatewayMailCheckResponseV1,
+    GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStateRequestV1,
@@ -255,6 +257,7 @@ class HoumaoLifecycleTimingMetadata(_HoumaoModel):
     completion_candidate_elapsed_seconds: float | None = None
     unknown_to_stalled_timeout_seconds: float
     completion_stability_seconds: float
+    stale_active_recovery_seconds: float
 
 
 class HoumaoLifecycleAuthorityMetadata(_HoumaoModel):
@@ -594,12 +597,15 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
+    memory_dir: str | None = None
 
-    @field_validator("tracked_agent_id")
+    @field_validator("tracked_agent_id", "memory_dir")
     @classmethod
-    def _tracked_agent_id_not_blank(cls, value: str) -> str:
-        """Require a non-empty tracked-agent id."""
+    def _tracked_agent_id_not_blank(cls, value: str | None) -> str | None:
+        """Require optional string identifiers to be non-empty when present."""
 
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise ValueError("must not be empty")
@@ -749,6 +755,7 @@ class HoumaoManagedAgentSubmitPromptRequest(_HoumaoModel):
 
     request_kind: Literal["submit_prompt"] = "submit_prompt"
     prompt: str
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt")
     @classmethod
@@ -838,6 +845,7 @@ class HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(_HoumaoModel):
     prompt: str
     turn_id: str | None = None
     chat_session: GatewayChatSessionSelectorV1 | None = None
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt", "turn_id")
     @classmethod
@@ -866,6 +874,10 @@ class HoumaoManagedAgentMailCheckResponse(GatewayMailCheckResponseV1):
 
 class HoumaoManagedAgentMailSendRequest(GatewayMailSendRequestV1):
     """Pair-owned managed-agent mail-send request payload."""
+
+
+class HoumaoManagedAgentMailPostRequest(GatewayMailPostRequestV1):
+    """Pair-owned managed-agent mail-post request payload."""
 
 
 class HoumaoManagedAgentMailReplyRequest(GatewayMailReplyRequestV1):
@@ -987,6 +999,7 @@ class HoumaoHeadlessTurnRequest(_HoumaoModel):
 
     prompt: str
     chat_session: GatewayChatSessionSelectorV1 | None = None
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt")
     @classmethod

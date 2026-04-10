@@ -17,7 +17,7 @@ from houmao.agents.brain_builder import (
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
-from houmao.agents.system_skills import load_system_skill_install_state
+from houmao.agents.system_skills import discover_installed_system_skills
 
 
 def _write(path: Path, content: str) -> None:
@@ -258,21 +258,29 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-relay/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
-    install_state = load_system_skill_install_state(tool="codex", home_path=home)
-    assert install_state is not None
-    assert tuple(record.name for record in install_state.installed_skills) == (
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home)
+    assert tuple(record.name for record in installed_records) == (
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
         "houmao-adv-usage-pattern",
+        "houmao-touring",
+        "houmao-mailbox-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-pairwise-v2",
+        "houmao-agent-loop-relay",
+        "houmao-agent-inspect",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -429,6 +437,14 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     advanced_skill = (result.home_path / "skills/houmao-adv-usage-pattern/SKILL.md").read_text(
         encoding="utf-8"
     )
+    pairwise_edge_loop_pattern = (
+        result.home_path
+        / "skills/houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
+    )
+    relay_loop_pattern = (
+        result.home_path
+        / "skills/houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
+    )
 
     assert "houmao-process-emails-via-gateway" in processing_skill
     assert "metadata-first triage" in processing_skill
@@ -447,6 +463,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "houmao-mgr agents mail resolve-live" in gateway_skill
     assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
     assert "self-notification.md" in advanced_skill
+    assert "pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_skill
+    assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
+    assert pairwise_edge_loop_pattern.is_file()
+    assert relay_loop_pattern.is_file()
     assert "The trigger word `houmao` is intentional." in gateway_skill
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
@@ -872,6 +892,7 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
         result.home_path / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
     assert (result.home_path / ".gemini/skills/houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (result.home_path / ".gemini/skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
@@ -1055,6 +1076,11 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
                 "agent_name": "alice",
                 "agent_id": "agent-alice",
             },
+            houmao_system_prompt_layout={
+                "version": 1,
+                "root_tag": "houmao_system_prompt",
+                "sections": [{"kind": "managed_header"}],
+            },
             launch_profile_provenance={
                 "name": "alice",
                 "lane": "launch_profile",
@@ -1073,6 +1099,11 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
         "stored_policy": None,
         "agent_name": "alice",
         "agent_id": "agent-alice",
+    }
+    assert manifest["inputs"]["houmao_system_prompt_layout"] == {
+        "version": 1,
+        "root_tag": "houmao_system_prompt",
+        "sections": [{"kind": "managed_header"}],
     }
     assert manifest["runtime"]["launch_contract"]["construction_provenance"]["launch_profile"] == {
         "name": "alice",
@@ -1155,13 +1186,26 @@ def test_build_brain_home_projects_claude_model_selection(tmp_path: Path) -> Non
     assert manifest["runtime"]["launch_contract"]["model_selection"]["native_projection"][
         "reasoning"
     ] == {
+        "effective_level": 3,
         "tool": "claude",
         "tool_version": None,
         "requested_level": 10,
         "model_name": "claude-sonnet-4-5",
+        "saturated": True,
+        "off_requested": False,
         "native_scale": "effortLevel",
         "native_value": "high",
-        "clamped": True,
+        "native_settings": [
+            {
+                "native_scale": "effortLevel",
+                "native_value": "high",
+                "projection_target": {
+                    "surface": "json",
+                    "path": "settings.json",
+                    "key_path": ["effortLevel"],
+                },
+            }
+        ],
         "projection_target": {
             "surface": "json",
             "path": "settings.json",

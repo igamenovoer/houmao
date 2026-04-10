@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import click
 
+from houmao.agents.realm_controller.errors import BrainLaunchRuntimeError
 from houmao.version import get_version
 
 from .admin import admin_group
 from .agents import agents_group
 from .brains import brains_group
+from .credentials import credentials_group
 from .mailbox import mailbox_group
 from .output import OutputContext, output_options, resolve_print_style
 from .project import project_group
@@ -34,6 +36,7 @@ def cli(ctx: click.Context, print_style: str | None) -> None:
 cli.add_command(admin_group)
 cli.add_command(agents_group)
 cli.add_command(brains_group)
+cli.add_command(credentials_group)
 cli.add_command(mailbox_group)
 cli.add_command(project_group)
 cli.add_command(server_group)
@@ -48,6 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     except click.ClickException as exc:
         exc.show()
         return exc.exit_code
+    except BrainLaunchRuntimeError as exc:
+        rendered = click.ClickException(str(exc))
+        rendered.show()
+        return rendered.exit_code
     except click.Abort:
         click.echo("Aborted!", err=True)
         return 1

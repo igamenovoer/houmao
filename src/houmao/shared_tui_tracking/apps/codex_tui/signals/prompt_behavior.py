@@ -181,6 +181,13 @@ def latest_turn_lines(
     )
 
 
+def latest_turn_live_edge_lines(*, surface: SurfaceView) -> tuple[str, ...]:
+    """Return the bounded live-edge subset for current-turn activity checks."""
+
+    non_empty_lines = [line.strip() for line in surface.stripped_lines if line.strip()]
+    return tuple(non_empty_lines[-_LATEST_TURN_WINDOW:])
+
+
 def prompt_behavior_notes(
     *,
     variant: CodexPromptBehaviorVariant,

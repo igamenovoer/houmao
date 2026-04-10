@@ -55,6 +55,15 @@ Behavior note:
 - `--mail-transport filesystem` requires `--mail-root`.
 - `--mail-transport email` is not implemented on this surface.
 
+Mailbox behavior note:
+
+- Unlike `project easy profile create`, this launch command does not accept declarative mailbox fields such as `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url`.
+- For launch-time filesystem mailbox support, use only `--mail-transport filesystem`, `--mail-root <shared-root>`, and optional `--mail-account-dir <private-path>`.
+- When mailbox-enabled launch derives the ordinary filesystem mailbox identity itself, `--name` seeds the managed-agent mailbox address and principal id for that launch.
+- Omitting `--mail-account-dir` means launch-owned mailbox bootstrap uses the standard in-root mailbox path under the shared root.
+- `--mail-account-dir` is an optional private filesystem mailbox directory that the launch symlinks into the shared root, so it must live outside `--mail-root`.
+- If the same ordinary address under that same root was preregistered manually already, launch-time safe registration can fail. For that common case, let the later launch own the per-agent address instead of preregistering it.
+
 If the selected specialist or selected profile source is known to use Gemini, the launch must be headless.
 
 ## Guardrails
@@ -64,5 +73,8 @@ If the selected specialist or selected profile source is known to use Gemini, th
 - Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
 - Do not route specialist-backed launch through `agents launch`.
 - Do not route profile-backed launch through `agents launch`.
+- Do not present `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url` as supported `project easy instance launch` flags.
+- Do not describe `--mail-account-dir` as the already-registered shared-root mailbox directory; it is a private filesystem mailbox directory outside the shared root.
+- Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled easy launch.
 - Do not describe `--workdir` as changing the source project, specialist source, selected overlay, runtime root, jobs root, or mailbox root.
 - Do not imply that the specialist skill is the canonical surface for broader live-agent lifecycle management after launch.

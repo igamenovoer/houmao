@@ -207,7 +207,7 @@ When a launch is started from a reusable launch profile, the build and runtime p
 At minimum, the pipeline SHALL allow launch-profile-derived values to influence:
 - effective auth selection
 - effective model selection
-- effective normalized reasoning level
+- effective tool/model-relative reasoning preset index
 - operator prompt-mode intent
 - durable non-secret env records
 - declarative mailbox configuration
@@ -235,9 +235,9 @@ The resulting build manifest or runtime launch metadata SHALL preserve profile p
 - **AND THEN** profile provenance still records that the launch originated from the named profile
 
 #### Scenario: Direct launch reasoning override wins over launch-profile-owned reasoning
-- **WHEN** a launch profile stores reasoning override `4`
-- **AND WHEN** the operator launches from that profile with direct override `--reasoning-level 8`
-- **THEN** brain construction uses normalized reasoning level `8` as the effective launch-owned value
+- **WHEN** a launch profile stores reasoning override `2`
+- **AND WHEN** the operator launches from that profile with direct override `--reasoning-level 12`
+- **THEN** brain construction uses reasoning preset index `12` as the effective launch-owned value before native mapping
 - **AND THEN** profile provenance still records that the launch originated from the named profile
 
 ### Requirement: Brain construction projects resolved model configuration into runtime homes and manifests
@@ -251,16 +251,18 @@ At minimum, the maintained direct model-name projection surfaces SHALL include:
 This projection SHALL happen after setup copy and auth projection, and before launch helper synthesis and provider-start policy mutation.
 
 For reasoning-level projection, the system SHALL consult a dedicated Houmao mapping-policy module that can consider:
-- normalized requested level
+- requested preset index
 - selected tool
 - selected model name
 - tool version when available
 - runtime config context when required
+- documented preset tables when one Houmao level maps to multiple native settings
 
 The built manifest SHALL preserve secret-free model-selection provenance sufficient to inspect:
 - the resolved effective model,
-- the requested normalized reasoning level,
+- the requested reasoning preset index,
 - the resolved native reasoning mapping summary,
+- whether saturation or explicit off selection occurred,
 - whether launch-profile or direct launch input contributed it,
 - the tool-native projection target family used for that build.
 
@@ -270,11 +272,17 @@ The built manifest SHALL preserve secret-free model-selection provenance suffici
 - **THEN** the built manifest records the direct value as the resolved effective model
 - **AND THEN** the manifest records secret-free provenance that the value came from direct launch input
 
-#### Scenario: Built manifest records requested normalized reasoning and resolved native mapping
-- **WHEN** one build resolves launch-owned reasoning level `7`
+#### Scenario: Built manifest records requested reasoning preset and resolved native mapping
+- **WHEN** one build resolves launch-owned reasoning level `3`
 - **AND WHEN** the mapping policy projects that request into one native tool-specific reasoning configuration
-- **THEN** the built manifest records requested normalized level `7`
+- **THEN** the built manifest records requested preset index `3`
 - **AND THEN** the manifest records a secret-free summary of the resolved native mapping used for that runtime
+
+#### Scenario: Built manifest records saturation when the requested preset exceeds the maintained ladder
+- **WHEN** one build resolves launch-owned reasoning level `12`
+- **AND WHEN** the resolved tool/model ladder exposes fewer positive presets than that request
+- **THEN** the mapping policy projects the highest maintained native reasoning preset for that runtime
+- **AND THEN** the manifest records both the requested preset index and that saturation occurred in the resolved native mapping summary
 
 #### Scenario: Explicit Codex model survives later launch-policy mutation
 - **WHEN** a Codex runtime build resolves model `gpt-5.4-mini`
@@ -286,7 +294,7 @@ The built manifest SHALL preserve secret-free model-selection provenance suffici
 - **WHEN** one runtime build resolves launch-owned reasoning level `9`
 - **AND WHEN** the mapping policy projects that request into native reasoning settings before unattended launch-policy mutation
 - **THEN** later unattended launch-policy mutation does not silently discard that explicit reasoning projection
-- **AND THEN** any clamp or native rewrite applied by Houmao remains visible in manifest provenance
+- **AND THEN** any saturation or native rewrite applied by Houmao remains visible in manifest provenance
 
 ### Requirement: Launch-profile prompt overlays are composed before backend-specific role injection
 When a launch profile defines a prompt overlay, the system SHALL derive one effective role prompt before backend-specific role injection planning begins.
@@ -387,6 +395,26 @@ When no explicit filesystem mailbox content root override is supplied and `HOUMA
 - **WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is set to `/tmp/houmao-mailbox`
 - **AND WHEN** a filesystem-backed mailbox session has no more specific explicit mailbox-root override
 - **THEN** the runtime resolves the effective shared mailbox root from `/tmp/houmao-mailbox`
+
+### Requirement: Late filesystem mailbox binding derives omitted addresses from the ordinary Houmao mailbox address policy
+When runtime-owned late filesystem mailbox binding derives a mailbox address because the caller omitted `address`, the runtime SHALL derive that address from the ordinary Houmao mailbox address policy rather than by concatenating the canonical mailbox principal id with a legacy domain.
+
+For ordinary managed-agent mailbox bindings, the derived address SHALL use the managed-agent name as the mailbox local part without the `HOUMAO-` principal-id prefix and SHALL use domain `houmao.localhost`.
+
+For the same binding, the derived default mailbox principal id SHALL remain the canonical `HOUMAO-<agentname>` value unless the caller supplies an explicit override.
+
+If the caller supplies an explicit valid mailbox address, the runtime SHALL preserve that explicit address rather than rewriting it to the recommended Houmao default domain.
+
+#### Scenario: Late mailbox binding derives the ordinary Houmao address when address is omitted
+- **WHEN** an operator runs `houmao-mgr agents mailbox register --agent-name research --mailbox-root /tmp/shared-mail`
+- **AND WHEN** the operator omits both `--address` and `--principal-id`
+- **THEN** the resulting late filesystem mailbox binding uses principal id `HOUMAO-research`
+- **AND THEN** the resulting mailbox address is `research@houmao.localhost`
+
+#### Scenario: Explicit late-binding address remains authoritative
+- **WHEN** an operator runs `houmao-mgr agents mailbox register --agent-name research --mailbox-root /tmp/shared-mail --address review@custom.localhost`
+- **THEN** the resulting late filesystem mailbox binding preserves address `review@custom.localhost`
+- **AND THEN** the runtime does not rewrite that explicit mailbox address to `research@houmao.localhost`
 
 ### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and persist manifest-backed mailbox bindings
 When mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset through a discoverable tool-native mailbox skill surface and SHALL persist one transport-specific mailbox binding for that session in the session manifest.
@@ -2729,3 +2757,100 @@ If replacement launch fails after predecessor stop or cleanup has already begun,
 - **AND WHEN** the replacement launch later fails
 - **THEN** the runtime reports the replacement failure explicitly
 - **AND THEN** it does not automatically restart or restore the old predecessor session
+
+### Requirement: Effective launch prompt uses structured Houmao system-prompt layout
+Before backend-specific role injection begins, the runtime SHALL render one effective launch prompt rooted at `<houmao_system_prompt>`.
+
+When managed-header policy resolves to enabled, the rendered prompt SHALL contain a `<managed_header>` section.
+
+When non-header prompt content exists, the rendered prompt SHALL contain a `<prompt_body>` section.
+
+Within `<prompt_body>`, the runtime SHALL render the following sections in order when they participate in the launch:
+1. `<role_prompt>`
+2. `<launch_profile_overlay>`
+3. `<launch_appendix>`
+
+When launch-profile overlay mode is `replace`, the runtime SHALL omit `<role_prompt>` from `<prompt_body>`.
+
+The runtime SHALL treat the rendered prompt as the single effective launch prompt for backend-specific role injection and SHALL NOT require provider-specific parsing of the section tags.
+
+#### Scenario: Managed launch renders header, overlay, and appendix as one structured prompt
+- **WHEN** a managed launch resolves enabled managed-header policy
+- **AND WHEN** the launch uses a source role prompt, an append-mode launch-profile overlay, and a launch-owned appendix
+- **THEN** the effective launch prompt is rooted at `<houmao_system_prompt>`
+- **AND THEN** the rendered prompt contains `<managed_header>` followed by `<prompt_body>` whose sections appear in the order `<role_prompt>`, `<launch_profile_overlay>`, `<launch_appendix>`
+
+#### Scenario: Replace overlay omits the source role section
+- **WHEN** a launch resolves launch-profile overlay mode `replace`
+- **AND WHEN** the operator also supplies a launch-owned appendix
+- **THEN** `<prompt_body>` contains `<launch_profile_overlay>` followed by `<launch_appendix>`
+- **AND THEN** the runtime does not also render `<role_prompt>` for that launch
+
+### Requirement: Structured launch prompt layout is persisted for relaunch and compatibility
+For launches created after this capability is implemented, brain construction SHALL persist both the final rendered effective launch prompt text and secret-free `houmao_system_prompt_layout` metadata sufficient to identify the structured prompt layout version and rendered sections.
+
+For those launches, relaunch, resume, and compatibility-generated prompt construction SHALL reuse the persisted rendered prompt contract rather than inventing a separate prompt layout.
+
+For older manifests that do not persist `houmao_system_prompt_layout`, relaunch SHALL remain valid and MAY fall back to legacy prompt recomposition rules.
+
+#### Scenario: New build persists structured prompt layout metadata
+- **WHEN** a managed launch is built after the structured prompt-layout capability ships
+- **THEN** the build manifest stores the final rendered effective launch prompt text
+- **AND THEN** the build manifest also stores secret-free `houmao_system_prompt_layout` metadata that describes the rendered structured prompt sections
+
+#### Scenario: Older manifest relaunch remains valid without structured layout metadata
+- **WHEN** a relaunch targets an older manifest that lacks `houmao_system_prompt_layout`
+- **THEN** relaunch still succeeds using the maintained fallback prompt-resolution behavior
+- **AND THEN** the runtime does not require retroactive layout metadata in order to relaunch that session
+
+### Requirement: Managed runtime launch, join, and relaunch preserve resolved memory binding
+For tmux-backed managed sessions, the runtime SHALL resolve the session's effective memory binding before publishing the session as live.
+
+That resolved memory binding SHALL be preserved for:
+
+- native managed launch,
+- managed join of an existing tmux-backed session,
+- managed relaunch of an existing runtime-owned tmux-backed session.
+
+When a session resolves memory in `auto` mode, the runtime SHALL derive the default path from the selected active overlay and authoritative `agent-id` rather than from `session-id` or runtime workdir.
+
+When a runtime-owned managed session is relaunched, the relaunch flow SHALL reuse the manifest-persisted resolved memory binding for that managed agent unless a stronger supported relaunch override is introduced by a later change.
+
+#### Scenario: Native managed launch persists the overlay-local auto memory binding
+- **WHEN** a native tmux-backed managed launch selects overlay `/repo/.houmao` for agent `researcher`
+- **AND WHEN** that launch does not receive `--memory-dir` or `--no-memory-dir`
+- **THEN** the runtime resolves memory binding to `/repo/.houmao/memory/agents/researcher/`
+- **AND THEN** it persists that resolved binding before publishing the live session
+
+#### Scenario: Managed join persists one explicit memory binding for the adopted session
+- **WHEN** an operator joins an existing tmux-backed session with `--memory-dir /shared/reviewer`
+- **THEN** the join runtime persists `/shared/reviewer` as the adopted session's resolved memory binding
+- **AND THEN** later managed inspection and control use that persisted binding rather than recomputing a different default
+
+#### Scenario: Relaunch preserves the previously resolved memory binding
+- **WHEN** managed agent `researcher` already has manifest-persisted resolved memory directory `/repo/.houmao/memory/agents/researcher/`
+- **AND WHEN** an operator relaunches that managed agent through the supported relaunch surface
+- **THEN** the relaunched session reuses `/repo/.houmao/memory/agents/researcher/` as its resolved memory binding
+- **AND THEN** relaunch does not derive a different default memory directory from the new session id
+
+### Requirement: Managed runtime publishes resolved memory binding through manifest-backed state and environment
+For tmux-backed managed sessions, the runtime SHALL persist the resolved memory binding as session-owned runtime metadata.
+
+When memory is enabled, that runtime metadata SHALL store the resolved absolute directory path.
+
+When memory is disabled, that runtime metadata SHALL store that disabled result without inventing a placeholder path.
+
+When memory is enabled, the runtime SHALL publish `HOUMAO_MEMORY_DIR` into the live tmux session environment before provider startup completes.
+
+When memory is disabled, the runtime SHALL omit `HOUMAO_MEMORY_DIR` from the live tmux session environment.
+
+#### Scenario: Enabled managed runtime publishes the resolved memory directory
+- **WHEN** a tmux-backed managed runtime resolves memory directory `/repo/.houmao/memory/agents/researcher/`
+- **THEN** the session-owned runtime metadata stores `/repo/.houmao/memory/agents/researcher/` as an absolute path
+- **AND THEN** the live tmux session environment contains `HOUMAO_MEMORY_DIR=/repo/.houmao/memory/agents/researcher/`
+
+#### Scenario: Disabled managed runtime omits the memory env var
+- **WHEN** a tmux-backed managed runtime resolves memory binding as disabled
+- **THEN** the session-owned runtime metadata records that disabled state
+- **AND THEN** the live tmux session environment does not contain `HOUMAO_MEMORY_DIR`
+

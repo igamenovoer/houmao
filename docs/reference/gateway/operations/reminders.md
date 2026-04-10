@@ -10,12 +10,31 @@ Gateway reminders are a direct live HTTP scheduling surface owned by one attache
 
 - They are not durable queue records.
 - They are not mailbox backlog.
-- They are not projected through the managed-agent `/houmao/agents/*` API.
 - They exist only inside the current live gateway process and disappear on gateway restart.
 
 The gateway keeps a live reminder set, chooses one effective reminder by ranking, and only that effective reminder is eligible to dispatch a reminder delivery.
 
+## Preferred Operator Surfaces
+
+Use reminder surfaces in this order:
+
+1. `houmao-mgr agents gateway reminders ...` for operator-facing CLI work
+2. managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` when the task is already operating through pair-managed HTTP
+3. direct `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live gateway contract
+
+The CLI and pair-managed proxy are thin wrappers over the same live reminder model and ranking semantics.
+
 ## Supported Routes
+
+Preferred managed-agent reminder routes:
+
+| Layer | Path | Purpose |
+| --- | --- | --- |
+| CLI | `houmao-mgr agents gateway reminders list|get|create|set|remove` | operator-facing reminder workflow with managed-agent selectors |
+| Pair proxy | `/houmao/agents/{agent_ref}/gateway/reminders` | list or create live reminders through pair-managed authority |
+| Pair proxy | `/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}` | inspect, replace, or delete one live reminder |
+
+Direct live routes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -227,8 +246,6 @@ Representative send-keys request:
 
 Current reminder boundaries are intentionally narrow:
 
-- no `houmao-mgr agents gateway reminders ...` CLI family
-- no managed-agent `/houmao/agents/{agent_ref}/gateway/reminders` projection
 - no persistence across gateway restart
 - no replay into the durable gateway request queue as a public request kind
 - no reminder-local `escape_special_keys` override

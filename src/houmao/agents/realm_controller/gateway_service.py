@@ -30,6 +30,7 @@ from houmao.agents.mailbox_runtime_support import (
     resolve_live_mailbox_binding,
     resolved_mailbox_config_from_payload,
 )
+from houmao.agents.model_selection import ModelConfig
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.errors import LaunchPlanError
@@ -51,6 +52,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
     GatewayCurrentInstanceV1,
+    GatewayExecutionOverrideV1,
     GatewayExecutionState,
     GatewayHeadlessChatSessionStateV1,
     GatewayHeadlessControlStateV1,
@@ -119,7 +121,6 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
 )
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
-from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
 from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -306,6 +307,7 @@ class GatewayExecutionAdapter(Protocol):
         prompt: str,
         turn_id: str | None = None,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
     ) -> None:
         """Submit one prompt to the addressed managed target."""
 
@@ -395,10 +397,15 @@ class _RestBackedGatewayAdapter:
         prompt: str,
         turn_id: str | None = None,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
     ) -> None:
         """Submit one prompt to the current runtime-owned terminal."""
 
         del turn_id, session_selection
+        if execution_model is not None and not execution_model.is_empty():
+            raise GatewayError(
+                "Execution overrides are only supported for headless gateway targets."
+            )
         terminal_id = self._read_current_terminal_id()
         result = self.m_client.send_terminal_input(terminal_id, prompt)
         if not result.success:
@@ -570,27 +577,20 @@ class _LocalHeadlessGatewayAdapter:
         prompt: str,
         turn_id: str | None = None,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
     ) -> None:
         """Submit one prompt through resumed local tmux-backed runtime control."""
 
         self._require_live_tmux_session()
         try:
             controller = self._resume_controller()
-            backend_session = controller.backend_session
-            # `LocalInteractiveSession` currently satisfies this resumable boundary by
-            # subclassing `HeadlessInteractiveSession`.
-            if not isinstance(backend_session, HeadlessInteractiveSession):
-                raise GatewayError(
-                    "Resumed local tmux-backed controller is missing a resumable "
-                    "interactive backend."
-                )
-            self._send_headless_prompt(
-                backend_session=backend_session,
+            controller.send_prompt(
                 prompt=prompt,
-                turn_id=turn_id,
                 session_selection=session_selection,
+                turn_artifact_dir_name=turn_id,
+                execution_model=execution_model,
+                refresh_registry=False,
             )
-            controller.persist_manifest(refresh_registry=False)
         except RuntimeError as exc:
             raise GatewayError(f"Local tmux-backed prompt submission failed: {exc}") from exc
 
@@ -618,36 +618,6 @@ class _LocalHeadlessGatewayAdapter:
         """Return the raw control-input support summary for local tmux-backed targets."""
 
         return _GatewayControlInputSupport(supported=True)
-
-    def _send_headless_prompt(
-        self,
-        *,
-        backend_session: HeadlessInteractiveSession,
-        prompt: str,
-        turn_id: str | None,
-        session_selection: HeadlessTurnSessionSelection | None,
-    ) -> None:
-        """Call one resumable headless backend with backward-compatible selector support."""
-
-        if session_selection is None:
-            backend_session.send_prompt(
-                prompt,
-                turn_artifact_dir_name=turn_id,
-            )
-            return
-        try:
-            backend_session.send_prompt(
-                prompt,
-                turn_artifact_dir_name=turn_id,
-                session_selection=session_selection,
-            )
-        except TypeError as exc:
-            if "session_selection" not in str(exc):
-                raise
-            backend_session.send_prompt(
-                prompt,
-                turn_artifact_dir_name=turn_id,
-            )
 
     def _resume_controller(self) -> RuntimeSessionController:
         """Return the resumed local runtime controller, materializing it lazily."""
@@ -745,10 +715,12 @@ class _ServerManagedHeadlessGatewayAdapter:
         prompt: str,
         turn_id: str | None = None,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
     ) -> None:
         """Submit one prompt through the managed-agent server API."""
 
         client = self._resolve_client()
+        execution_payload = GatewayExecutionOverrideV1.from_model_config(execution_model)
         internal_submit = getattr(
             client,
             "submit_managed_agent_gateway_internal_headless_prompt",
@@ -761,6 +733,7 @@ class _ServerManagedHeadlessGatewayAdapter:
                     prompt=prompt,
                     turn_id=turn_id,
                     chat_session=self._selector_payload(session_selection),
+                    execution=execution_payload,
                 ),
             )
             if not response.success:
@@ -772,7 +745,10 @@ class _ServerManagedHeadlessGatewayAdapter:
         del turn_id, session_selection
         response = client.submit_managed_agent_request(
             self.m_managed_agent_ref,
-            HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
+            HoumaoManagedAgentSubmitPromptRequest(
+                prompt=prompt,
+                execution=execution_payload,
+            ),
         )
         if response.disposition != "accepted":
             raise GatewayError(f"Managed-agent prompt request did not execute: {response.detail}")
@@ -1178,6 +1154,15 @@ class GatewayServiceRuntime:
                     status_code=409,
                     detail="Gateway headless prompt admission is blocked because managed work is already active.",
                 )
+            if request_payload.kind == "submit_prompt":
+                submit_payload = cast(GatewayRequestPayloadSubmitPromptV1, request_payload.payload)
+                dispatch_mode = self._prompt_dispatch_mode_locked(forced=False)
+                execution_rejection = self._execution_override_rejection_detail(
+                    dispatch_mode=dispatch_mode,
+                    request_execution=submit_payload.execution,
+                )
+                if execution_rejection is not None:
+                    raise HTTPException(status_code=422, detail=execution_rejection)
 
             request_id = generate_gateway_request_id()
             accepted_at_utc = now_utc_iso()
@@ -1658,6 +1643,11 @@ class GatewayServiceRuntime:
         dispatch_mode: Literal["tui", "local_headless", "server_headless"]
         consume_headless_override = False
         headless_session_selection: HeadlessTurnSessionSelection | None = None
+        execution_model = (
+            request_payload.execution.to_model_config()
+            if request_payload.execution is not None
+            else None
+        )
         tracking: SingleSessionTrackingRuntime | None = None
         use_tui_reset_workflow = False
         prompt = request_payload.prompt
@@ -1672,6 +1662,17 @@ class GatewayServiceRuntime:
                 dispatch_mode=dispatch_mode,
                 request_chat_session=request_payload.chat_session,
             )
+            execution_rejection = self._execution_override_rejection_detail(
+                dispatch_mode=dispatch_mode,
+                request_execution=request_payload.execution,
+            )
+            if execution_rejection is not None:
+                self._raise_prompt_control_http_error(
+                    status_code=422,
+                    forced=forced,
+                    error_code="invalid_execution",
+                    detail=execution_rejection,
+                )
             if not forced:
                 self._require_prompt_ready_locked(
                     status=status,
@@ -1695,6 +1696,7 @@ class GatewayServiceRuntime:
                     turn_id=turn_id,
                     forced=forced,
                     session_selection=headless_session_selection,
+                    execution_model=execution_model,
                     consume_next_prompt_override=consume_headless_override,
                 )
             tracking = self.m_tui_tracking
@@ -1709,6 +1711,7 @@ class GatewayServiceRuntime:
                 self.m_adapter.submit_prompt(
                     prompt=prompt,
                     session_selection=headless_session_selection,
+                    execution_model=execution_model,
                 )
         except (GatewayError, CaoApiError, ValidationError) as exc:
             self._raise_prompt_control_http_error(
@@ -1934,6 +1937,22 @@ class GatewayServiceRuntime:
             detail="chat_session is unsupported for this gateway target.",
         )
 
+    def _execution_override_rejection_detail(
+        self,
+        *,
+        dispatch_mode: Literal["tui", "local_headless", "server_headless"],
+        request_execution: GatewayExecutionOverrideV1 | None,
+    ) -> str | None:
+        """Return the rejection detail for unsupported execution overrides."""
+
+        if request_execution is None:
+            return None
+        if dispatch_mode in {"local_headless", "server_headless"}:
+            return None
+        if dispatch_mode == "tui":
+            return "Execution overrides are only supported for headless gateway targets."
+        return "Execution overrides are unsupported for this gateway target."
+
     def _require_prompt_ready_locked(
         self,
         *,
@@ -2103,6 +2122,7 @@ class GatewayServiceRuntime:
         turn_id: str,
         forced: bool,
         session_selection: HeadlessTurnSessionSelection | None,
+        execution_model: ModelConfig | None,
         consume_next_prompt_override: bool,
     ) -> GatewayPromptControlResultV1:
         """Start one native headless prompt in the background and return immediately."""
@@ -2114,6 +2134,7 @@ class GatewayServiceRuntime:
                 "prompt": prompt,
                 "turn_id": turn_id,
                 "session_selection": session_selection,
+                "execution_model": execution_model,
             },
             name=f"gateway-direct-prompt-{turn_id}",
             daemon=True,
@@ -2143,6 +2164,7 @@ class GatewayServiceRuntime:
         prompt: str,
         turn_id: str,
         session_selection: HeadlessTurnSessionSelection | None,
+        execution_model: ModelConfig | None,
     ) -> None:
         """Execute one native headless direct prompt in a background thread."""
 
@@ -2151,6 +2173,7 @@ class GatewayServiceRuntime:
                 prompt=prompt,
                 turn_id=turn_id,
                 session_selection=session_selection,
+                execution_model=execution_model,
             )
         except (GatewayError, CaoApiError, ValidationError) as exc:
             append_gateway_event(
@@ -2279,6 +2302,7 @@ class GatewayServiceRuntime:
                 message = adapter.post(
                     subject=request_payload.subject,
                     body_content=request_payload.body_content,
+                    reply_policy=request_payload.reply_policy,
                     attachments=request_payload.attachments,
                 )
             except GatewayMailboxUnsupportedError as exc:
@@ -2886,6 +2910,7 @@ class GatewayServiceRuntime:
                         prompt=reminder.prompt,
                         turn_id=None,
                         session_selection=None,
+                        execution_model=None,
                         note_prompt_submission=False,
                     )
                 else:
@@ -3052,6 +3077,7 @@ class GatewayServiceRuntime:
         prompt: str,
         turn_id: str | None,
         session_selection: HeadlessTurnSessionSelection | None,
+        execution_model: ModelConfig | None,
         note_prompt_submission: bool,
     ) -> None:
         """Submit one prompt through the shared gateway execution adapter."""
@@ -3060,6 +3086,7 @@ class GatewayServiceRuntime:
             prompt=prompt,
             turn_id=turn_id,
             session_selection=session_selection,
+            execution_model=execution_model,
         )
         if note_prompt_submission and self.m_tui_tracking is not None:
             self.m_tui_tracking.note_prompt_submission(message=prompt)
@@ -3162,8 +3189,17 @@ class GatewayServiceRuntime:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
                 session_selection: HeadlessTurnSessionSelection | None = None
+                execution_model = (
+                    payload.execution.to_model_config() if payload.execution is not None else None
+                )
                 with self.m_lock:
                     dispatch_mode = self._prompt_dispatch_mode_locked(forced=False)
+                    execution_rejection = self._execution_override_rejection_detail(
+                        dispatch_mode=dispatch_mode,
+                        request_execution=payload.execution,
+                    )
+                    if execution_rejection is not None:
+                        raise GatewayError(execution_rejection)
                     if payload.chat_session is not None:
                         if dispatch_mode not in {"local_headless", "server_headless"}:
                             raise GatewayError(
@@ -3182,6 +3218,7 @@ class GatewayServiceRuntime:
                     prompt=payload.prompt,
                     turn_id=payload.turn_id,
                     session_selection=session_selection,
+                    execution_model=execution_model,
                     note_prompt_submission=request_kind == "submit_prompt",
                 )
             elif request_kind == "interrupt":

@@ -1,0 +1,3 @@
+# Ignore local plaintext bundle contents while keeping the maintained bundle name.
+*
+!.gitignore

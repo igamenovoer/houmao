@@ -4,7 +4,11 @@
 TBD - created by archiving change add-managed-prompt-header. Update Purpose after archive.
 ## Requirements
 ### Requirement: Managed launches prepend a Houmao-owned prompt header by default
-Houmao-managed launch surfaces SHALL prepend a Houmao-owned managed prompt header to the effective launch prompt by default.
+Houmao-managed launch surfaces SHALL render the managed prompt header as a Houmao-owned section of the effective launch prompt by default.
+
+That effective launch prompt SHALL be rooted at `<houmao_system_prompt>`.
+
+When managed-header policy resolves to enabled, the rendered prompt SHALL place the managed header in a `<managed_header>` section ahead of `<prompt_body>`.
 
 That managed prompt header SHALL:
 - identify the launched agent as Houmao-managed,
@@ -16,7 +20,7 @@ That managed prompt header SHALL:
 
 #### Scenario: Managed launch gets the default Houmao-owned header
 - **WHEN** an operator launches a managed agent through a maintained Houmao launch surface without disabling the managed header
-- **THEN** the effective launch prompt starts with the Houmao-owned managed prompt header
+- **THEN** the effective launch prompt is rooted at `<houmao_system_prompt>` and includes `<managed_header>` ahead of `<prompt_body>`
 - **AND THEN** that header identifies the agent as Houmao-managed and names `houmao-mgr` as the canonical direct Houmao interface
 
 ### Requirement: Managed-header policy resolves through launch override, profile policy, and default
@@ -52,18 +56,36 @@ Prompt composition order SHALL be:
 
 1. source role prompt,
 2. launch-profile prompt overlay resolution,
-3. managed prompt header prepend,
-4. backend-specific prompt injection.
+3. launch appendix append,
+4. structured prompt rendering into `<houmao_system_prompt>`,
+5. backend-specific prompt injection.
 
-For launches created after this capability is implemented, the system SHALL persist the resulting effective launch prompt and managed-header decision metadata so later relaunch and resume can reuse one coherent launch-prompt contract.
+Within `<houmao_system_prompt>`, section order SHALL be:
+1. `<managed_header>` when enabled,
+2. `<prompt_body>` when body content exists.
 
-For older managed manifests that do not already persist managed-header metadata, managed relaunch SHALL recompute managed-header behavior using the current managed identity and the default enabled policy.
+Within `<prompt_body>`, section order SHALL be:
+1. `<role_prompt>` when the source role prompt participates,
+2. `<launch_profile_overlay>` when present,
+3. `<launch_appendix>` when present.
 
-#### Scenario: Managed header is prepended after prompt overlay resolution
-- **WHEN** a managed launch uses a source role prompt and a launch-profile-owned prompt overlay
+When launch-profile overlay mode is `replace`, the renderer SHALL omit `<role_prompt>` from `<prompt_body>`.
+
+For launches created after this capability is implemented, the system SHALL persist the resulting effective launch prompt together with managed-header decision metadata and structured prompt-layout metadata so later relaunch and resume can reuse one coherent launch-prompt contract.
+
+For older managed manifests that do not already persist the structured layout metadata, managed relaunch SHALL recompute managed-header behavior using the current managed identity and the default enabled policy.
+
+#### Scenario: Managed header renders ahead of the structured prompt body
+- **WHEN** a managed launch uses a source role prompt, a launch-profile-owned prompt overlay, and a launch-owned appendix
 - **AND WHEN** managed-header policy resolves to enabled
-- **THEN** the effective launch prompt reflects the already-resolved overlay result with the managed prompt header prepended ahead of it
+- **THEN** the effective launch prompt renders as `<houmao_system_prompt>` with `<managed_header>` before `<prompt_body>`
 - **AND THEN** backend-specific prompt injection receives one composed prompt rather than a separate managed-header bootstrap message
+
+#### Scenario: Replace overlay removes the role section from the structured prompt body
+- **WHEN** a managed launch uses launch-profile overlay mode `replace`
+- **AND WHEN** the operator supplies a launch-owned appendix
+- **THEN** `<prompt_body>` contains `<launch_profile_overlay>` followed by `<launch_appendix>`
+- **AND THEN** the rendered effective launch prompt does not also include `<role_prompt>`
 
 #### Scenario: Relaunch of an older manifest adopts the default managed header
 - **WHEN** a managed relaunch targets a pre-change manifest that lacks persisted managed-header metadata
@@ -72,10 +94,10 @@ For older managed manifests that do not already persist managed-header metadata,
 - **AND THEN** the relaunch does not remain permanently exempt only because the original manifest predates this capability
 
 ### Requirement: Compatibility-generated launch prompts share the managed-header composition contract
-When Houmao generates provider-facing launch prompts or compatibility profiles for managed launch, it SHALL derive those prompts from the same effective launch-prompt composition contract used by local managed launch.
+When Houmao generates provider-facing launch prompts or compatibility profiles for managed launch, it SHALL derive those prompts from the same effective `<houmao_system_prompt>` composition contract used by local managed launch.
 
 #### Scenario: Compatibility-generated profile uses the same managed header as local launch
 - **WHEN** Houmao generates a provider-facing compatibility profile for a managed launch context whose managed-header policy resolves to enabled
-- **THEN** the generated provider-facing system prompt includes the same Houmao-owned managed prompt header that local managed launch would use
+- **AND WHEN** that launch context also includes a launch-owned appendix
+- **THEN** the generated provider-facing system prompt includes the same `<houmao_system_prompt>` structure, including `<managed_header>` and `<launch_appendix>`, that local managed launch would use
 - **AND THEN** compatibility launch prompt generation does not drift to a raw role-only prompt contract
-

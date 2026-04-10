@@ -119,15 +119,15 @@ When no active project overlay exists for the caller and no stronger overlay sel
 ### Requirement: `project easy` surfaces support unified model configuration
 `houmao-mgr project easy specialist create` SHALL accept optional `--model <name>` as a launch-owned default model selection for the created specialist.
 
-`houmao-mgr project easy specialist create` SHALL accept optional `--reasoning-level <1..10>` as a launch-owned default normalized reasoning level for the created specialist.
+`houmao-mgr project easy specialist create` SHALL accept optional `--reasoning-level <integer>=non-negative` as a launch-owned default reasoning preset index for the created specialist.
 
 When supplied, those values SHALL be persisted in the specialist's launch metadata and in the generated compatibility preset as launch configuration rather than as auth-bundle content.
 
 `houmao-mgr project easy profile create` SHALL accept optional `--model <name>` as a reusable easy-profile model override.
 
-`houmao-mgr project easy profile create` SHALL accept optional `--reasoning-level <1..10>` as a reusable easy-profile reasoning override.
+`houmao-mgr project easy profile create` SHALL accept optional `--reasoning-level <integer>=non-negative` as a reusable easy-profile reasoning override.
 
-`houmao-mgr project easy instance launch` SHALL accept optional `--model <name>` and `--reasoning-level <1..10>` as one-off launch overrides for either `--specialist` or `--profile` launch.
+`houmao-mgr project easy instance launch` SHALL accept optional `--model <name>` and `--reasoning-level <integer>=non-negative` as one-off launch overrides for either `--specialist` or `--profile` launch.
 
 For easy-profile-backed launch, the effective model configuration SHALL resolve with this precedence:
 
@@ -138,14 +138,14 @@ For easy-profile-backed launch, the effective model configuration SHALL resolve 
 Direct easy-instance override SHALL NOT rewrite the stored specialist or easy profile.
 
 #### Scenario: Specialist create persists launch-owned model configuration
-- **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool codex --api-key sk-test --model gpt-5.4 --reasoning-level 6`
-- **THEN** the persisted specialist metadata records model `gpt-5.4` and reasoning level `6` as launch configuration
+- **WHEN** an operator runs `houmao-mgr project easy specialist create --name reviewer --tool codex --api-key sk-test --model gpt-5.4 --reasoning-level 3`
+- **THEN** the persisted specialist metadata records model `gpt-5.4` and reasoning level `3` as launch configuration
 - **AND THEN** the generated compatibility preset records the same values under `launch`
 
 #### Scenario: Easy profile create stores a reusable model override
 - **WHEN** specialist `reviewer` already exists with source model `gpt-5.4`
-- **AND WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-fast --specialist reviewer --model gpt-5.4-mini --reasoning-level 4`
-- **THEN** the stored easy profile records model override `gpt-5.4-mini` and reasoning override `4`
+- **AND WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-fast --specialist reviewer --model gpt-5.4-mini --reasoning-level 2`
+- **THEN** the stored easy profile records model override `gpt-5.4-mini` and reasoning override `2`
 - **AND THEN** those values are treated as easy-profile launch configuration rather than as credential state
 
 #### Scenario: Direct easy-instance model override wins over the easy-profile default
@@ -155,10 +155,10 @@ Direct easy-instance override SHALL NOT rewrite the stored specialist or easy pr
 - **AND THEN** the stored easy profile still records `gpt-5.4-mini` as its reusable default
 
 #### Scenario: Direct easy-instance reasoning override wins over the easy-profile default
-- **WHEN** easy profile `reviewer-fast` stores reasoning override `4`
-- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-fast --name reviewer-fast-1 --reasoning-level 9`
-- **THEN** the resulting launch uses launch-owned reasoning level `9`
-- **AND THEN** the stored easy profile still records `4` as its reusable default
+- **WHEN** easy profile `reviewer-fast` stores reasoning override `2`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-fast --name reviewer-fast-1 --reasoning-level 12`
+- **THEN** the resulting launch uses launch-owned reasoning preset index `12`
+- **AND THEN** the stored easy profile still records `2` as its reusable default
 
 ### Requirement: `project easy instance launch` derives provider from one specialist and launches one runtime instance
 `houmao-mgr project easy instance launch --specialist <specialist> --name <instance>` SHALL launch one managed agent by resolving the stored specialist definition from the active project-local catalog and delegating to the existing native managed-agent launch flow.
@@ -534,3 +534,103 @@ When `--force` is supplied, easy instance launch SHALL request the corresponding
 - **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1`
 - **AND WHEN** a fresh live session already owns managed identity `repo-research-1`
 - **THEN** the command fails rather than replacing that existing live owner
+
+### Requirement: `project easy instance launch` supports one-shot launch-owned system-prompt appendix
+`houmao-mgr project easy instance launch` SHALL accept optional launch-owned system-prompt appendix input through:
+
+- `--append-system-prompt-text`
+- `--append-system-prompt-file`
+
+Those options SHALL be mutually exclusive.
+
+When either option is supplied, the provided appendix SHALL affect only the current easy-instance launch and SHALL NOT rewrite the stored specialist or easy profile.
+
+When the selected easy profile already contributes a launch-profile prompt overlay, the appendix SHALL be appended after overlay resolution within the delegated native managed launch.
+
+#### Scenario: Easy-profile-backed launch appends one-shot prompt text without rewriting the profile
+- **WHEN** easy profile `alice` stores a reusable prompt overlay
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile alice --append-system-prompt-text "Treat gateway diagnostics as high priority."`
+- **THEN** the current easy-instance launch appends that prompt text after the resolved profile overlay
+- **AND THEN** easy profile `alice` remains unchanged after the launch
+
+#### Scenario: Specialist-backed launch appends file-based prompt content for one launch
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --append-system-prompt-file /tmp/appendix.md`
+- **THEN** the delegated managed launch includes the file content as a launch appendix for that instance launch
+- **AND THEN** a later easy-instance launch without the appendix option does not inherit that file content
+
+#### Scenario: Easy-instance launch rejects conflicting appendix inputs
+- **WHEN** an operator supplies both `--append-system-prompt-text` and `--append-system-prompt-file` on one `houmao-mgr project easy instance launch` invocation
+- **THEN** the command fails clearly before delegating to native managed launch
+- **AND THEN** it does not start a managed session for that invalid launch request
+
+### Requirement: `project easy profile create/get` supports reusable memory-directory defaults
+`houmao-mgr project easy profile create` SHALL accept optional `--memory-dir <path>` and `--no-memory-dir` to store reusable memory-directory configuration on an easy profile.
+
+`--memory-dir` and `--no-memory-dir` SHALL be mutually exclusive on this surface.
+
+When an exact memory directory is stored on an easy profile, the stored value SHALL be the resolved absolute path.
+
+`houmao-mgr project easy profile get --name <profile>` SHALL report whether the easy profile stores an exact memory directory, stores disabled memory binding, or stores no memory preference.
+
+#### Scenario: Easy profile create stores one exact memory directory
+- **WHEN** an operator runs `houmao-mgr project easy profile create --name alice --specialist cuda-coder --memory-dir ../shared/alice-memory`
+- **THEN** the stored easy profile records the resolved absolute path for `../shared/alice-memory`
+- **AND THEN** later `project easy profile get --name alice` reports that stored absolute memory directory
+
+#### Scenario: Easy profile create stores explicit disabled memory binding
+- **WHEN** an operator runs `houmao-mgr project easy profile create --name alice --specialist cuda-coder --no-memory-dir`
+- **THEN** the stored easy profile records disabled memory binding
+- **AND THEN** later `project easy profile get --name alice` reports that disabled state
+
+### Requirement: `project easy instance launch/get` supports managed memory-directory binding
+`houmao-mgr project easy instance launch` SHALL accept optional `--memory-dir <path>` and `--no-memory-dir` as one-off memory-binding controls.
+
+`--memory-dir` and `--no-memory-dir` SHALL be mutually exclusive on this surface.
+
+When neither flag is supplied, easy instance launch SHALL resolve memory binding from the selected easy profile's stored memory configuration and otherwise fall back to the system default behavior for that launch surface.
+
+When easy instance launch resolves the system default behavior in project context, the default memory directory SHALL derive from the selected project overlay rather than from `--workdir`.
+
+`houmao-mgr project easy instance get --name <instance>` SHALL report the resolved memory directory as an absolute path when enabled and as `null` when disabled.
+
+#### Scenario: Easy-profile-backed launch uses the stored exact memory directory
+- **WHEN** easy profile `alice` stores memory directory `/shared/alice-memory`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile alice --name alice-1`
+- **THEN** the resulting managed session resolves memory directory `/shared/alice-memory`
+- **AND THEN** later `project easy instance get --name alice-1` reports `/shared/alice-memory`
+
+#### Scenario: Easy instance launch may explicitly disable memory binding
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name researcher-1 --no-memory-dir`
+- **THEN** the resulting managed session resolves memory binding as disabled
+- **AND THEN** later `project easy instance get --name researcher-1` reports `memory_dir: null`
+
+#### Scenario: Easy instance default memory derives from the selected overlay instead of `--workdir`
+- **WHEN** an active project overlay resolves as `/repo-a/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name researcher-1 --workdir /repo-b`
+- **AND WHEN** no stored easy-profile memory configuration and no direct memory override are supplied
+- **THEN** the resulting managed session resolves memory under `/repo-a/.houmao/memory/agents/<agent-id>/`
+- **AND THEN** it does not derive the default memory directory from `/repo-b`
+
+### Requirement: `project easy` auth relationships resolve through auth profile identity
+`houmao-mgr project easy` SHALL resolve specialist-selected auth and easy-profile auth overrides through auth profile identity rather than through auth display-name text or auth projection path names as the authoritative key.
+
+`project easy specialist create --credential <name>` SHALL continue to accept a display name for auth selection or creation.
+
+When `--credential` is omitted, the existing `<specialist-name>-creds` behavior SHALL remain as a display-name default only.
+
+Easy-specialist inspection and easy-profile-backed launch SHALL render or accept current auth display names while preserving the underlying auth-profile relationship across auth rename.
+
+#### Scenario: Specialist get renders the current auth display name after rename
+- **WHEN** specialist `reviewer` references one auth profile whose display name was changed from `reviewer-creds` to `reviewer-breakglass`
+- **AND WHEN** an operator runs `houmao-mgr project easy specialist get --name reviewer`
+- **THEN** the command reports `reviewer-breakglass` as the specialist's selected auth name
+- **AND THEN** it does not require specialist recreation only because the auth profile was renamed
+
+#### Scenario: Easy-profile-backed launch still resolves the same auth profile after rename
+- **WHEN** easy profile `alice` stores an auth override referencing one auth profile currently named `alice-creds`
+- **AND WHEN** that auth profile is renamed to `alice-breakglass`
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile alice`
+- **THEN** the launch still resolves the same underlying auth profile
+- **AND THEN** the launch does not fail only because the stored auth relationship outlived a display-name change
+

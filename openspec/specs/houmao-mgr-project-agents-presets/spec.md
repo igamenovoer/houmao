@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the project-local low-level recipe workflow, with `project agents recipes` as the canonical surface and `project agents presets` preserved as the compatibility alias for the same resources under `.houmao/agents/presets/`.
-
 ## Requirements
-
 ### Requirement: `houmao-mgr project agents presets` mirrors the project-local preset tree
 
 `houmao-mgr` SHALL expose a canonical low-level recipe administration subtree shaped as:
@@ -42,7 +40,6 @@ The help text for both surfaces SHALL present them as management for project-loc
 - **AND THEN** it identifies `presets` as the compatibility entrypoint for the canonical recipe surface
 
 ### Requirement: `project agents presets` manages named preset resources
-
 `houmao-mgr project agents recipes add --name <recipe> --role <role> --tool <tool>` SHALL create one recipe file directly under:
 
 ```text
@@ -73,6 +70,8 @@ At minimum, recipe add SHALL support authoring:
 Allowed `--prompt-mode` values SHALL be `unattended` and `as_is`.
 
 When `--prompt-mode` is omitted, recipe add SHALL author the default unattended posture rather than authoring pass-through startup behavior implicitly.
+
+Recipe reasoning levels authored on this surface SHALL be stored as non-negative tool/model-specific preset indices rather than as normalized `1..10` values.
 
 Recipe add SHALL fail if the target recipe file already exists.
 
@@ -106,9 +105,9 @@ Named recipes SHALL remain the reusable source objects that explicit launch prof
 The system SHALL reject creation or mutation that would make two recipes share the same `(role, tool, setup)` tuple.
 
 #### Scenario: Add creates a named recipe with stored model when requested
-- **WHEN** an operator runs `houmao-mgr project agents recipes add --name researcher-codex-default --role researcher --tool codex --auth default --skill notes --model gpt-5.4 --reasoning-level 6`
+- **WHEN** an operator runs `houmao-mgr project agents recipes add --name researcher-codex-default --role researcher --tool codex --auth default --skill notes --model gpt-5.4 --reasoning-level 3`
 - **THEN** the command creates `.houmao/agents/presets/researcher-codex-default.yaml`
-- **AND THEN** the written recipe stores `role: researcher`, `tool: codex`, `setup: default`, `skills`, `auth`, `launch.prompt_mode: unattended`, model `gpt-5.4`, and reasoning level `6`
+- **AND THEN** the written recipe stores `role: researcher`, `tool: codex`, `setup: default`, `skills`, `auth`, `launch.prompt_mode: unattended`, model `gpt-5.4`, and reasoning level `3`
 
 #### Scenario: Set patches one named recipe model without dropping advanced blocks
 - **WHEN** `.houmao/agents/presets/researcher-codex-default.yaml` exists with `mailbox` and `extra` blocks
@@ -123,7 +122,7 @@ The system SHALL reject creation or mutation that would make two recipes share t
 - **AND THEN** other `launch` fields remain intact unless edited explicitly
 
 #### Scenario: Set can clear the stored recipe reasoning level
-- **WHEN** `.houmao/agents/presets/researcher-codex-default.yaml` exists with stored reasoning level `6`
+- **WHEN** `.houmao/agents/presets/researcher-codex-default.yaml` exists with stored reasoning level `3`
 - **AND WHEN** an operator runs `houmao-mgr project agents recipes set --name researcher-codex-default --clear-reasoning-level`
 - **THEN** the command removes the stored recipe reasoning selection
 - **AND THEN** other `launch` fields remain intact unless edited explicitly
@@ -133,3 +132,4 @@ The system SHALL reject creation or mutation that would make two recipes share t
 - **AND WHEN** an operator runs `houmao-mgr project agents recipes add --name researcher-main --role researcher --tool codex`
 - **THEN** the command fails clearly
 - **AND THEN** it reports that the `(role, tool, setup)` tuple must remain unique
+

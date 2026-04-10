@@ -15,7 +15,7 @@ from urllib import parse
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.managed_prompt_header import (
-    compose_managed_launch_prompt,
+    compose_managed_launch_prompt_payload,
     managed_prompt_header_metadata,
     resolve_managed_launch_identity,
     resolve_managed_prompt_header_decision,
@@ -561,7 +561,7 @@ class CompatibilityControlCore:
                 requested_agent_name=None,
                 requested_agent_id=None,
             )
-            effective_role_prompt = compose_managed_launch_prompt(
+            prompt_payload = compose_managed_launch_prompt_payload(
                 base_prompt=resolved_target.role_prompt,
                 overlay_mode=None,
                 overlay_text=None,
@@ -585,11 +585,12 @@ class CompatibilityControlCore:
                     extra=resolved_target.preset.extra,
                     agent_name=managed_launch_identity.agent_name,
                     agent_id=managed_launch_identity.agent_id,
-                    role_prompt_override=effective_role_prompt,
+                    role_prompt_override=prompt_payload.prompt,
                     managed_prompt_header=managed_prompt_header_metadata(
                         decision=managed_header_decision,
                         identity=managed_launch_identity,
                     ),
+                    houmao_system_prompt_layout=prompt_payload.layout,
                 )
             )
             manifest = load_brain_manifest(build_result.manifest_path)
@@ -608,7 +609,7 @@ class CompatibilityControlCore:
                     brain_manifest=manifest,
                     role_package=RolePackage(
                         role_name=role_name,
-                        system_prompt=effective_role_prompt,
+                        system_prompt=prompt_payload.prompt,
                         path=role_path,
                     ),
                     backend="houmao_server_rest",
@@ -624,7 +625,7 @@ class CompatibilityControlCore:
                 name=resolved_target.selector,
                 description=f"Launch-time projection for selector `{resolved_target.selector}`.",
                 provider=resolved_target.provider,
-                system_prompt=effective_role_prompt,
+                system_prompt=prompt_payload.prompt,
             ),
             resolved_provider=resolved_target.provider,
             launch_plan=launch_plan,

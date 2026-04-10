@@ -377,9 +377,7 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
     assert receiver.launch_plan.mailbox is not None
     assert sender.launch_plan.mailbox.filesystem_root == shared_root.resolve()
     assert receiver.launch_plan.mailbox.filesystem_root == shared_root.resolve()
-    assert (
-        shared_root / "mailboxes" / "HOUMAO-mailbox-sender@agents.localhost" / "inbox"
-    ).is_dir()
+    assert (shared_root / "mailboxes" / "HOUMAO-mailbox-sender@agents.localhost" / "inbox").is_dir()
     assert (
         shared_root / "mailboxes" / "HOUMAO-mailbox-receiver@agents.localhost" / "inbox"
     ).is_dir()
@@ -680,6 +678,24 @@ def test_register_filesystem_mailbox_defaults_to_project_overlay_root(
     assert result.mailbox.filesystem_root == (repo_root / ".houmao" / "mailbox").resolve()
 
 
+def test_register_filesystem_mailbox_derives_ordinary_houmao_address_when_omitted(
+    tmp_path: Path,
+) -> None:
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path,
+        backend="codex_headless",
+        mailbox=None,
+    )
+
+    result = controller.register_filesystem_mailbox(
+        mailbox_root=tmp_path / "shared-mail",
+    )
+
+    assert result.mailbox is not None
+    assert result.mailbox.principal_id == "HOUMAO-research"
+    assert result.mailbox.address == "research@houmao.localhost"
+
+
 def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -872,9 +888,14 @@ def test_relaunch_of_older_manifest_recomputes_default_managed_header(
     result = controller.relaunch()
 
     assert result.status == "ok"
-    assert controller.launch_plan.role_injection.prompt.startswith("[HOUMAO MANAGED HEADER]")
+    assert controller.launch_plan.role_injection.prompt.startswith(
+        '<houmao_system_prompt version="1">'
+    )
+    assert "<managed_header>" in controller.launch_plan.role_injection.prompt
     assert "Managed agent name: alice" in controller.launch_plan.role_injection.prompt
-    assert controller.launch_plan.role_injection.prompt.endswith("\n\nRole prompt")
+    assert (
+        "<role_prompt>\nRole prompt\n</role_prompt>" in controller.launch_plan.role_injection.prompt
+    )
 
 
 def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_posture(

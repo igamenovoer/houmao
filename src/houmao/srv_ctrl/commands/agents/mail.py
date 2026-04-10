@@ -8,6 +8,10 @@ from pathlib import Path
 import click
 
 from houmao.agents.realm_controller.gateway_models import GatewayMailAttachmentUploadV1
+from houmao.mailbox.protocol import (
+    HOUMAO_NO_REPLY_POLICY_VALUE,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+)
 
 from ..common import managed_agent_selector_options, pair_port_option, resolve_body_text
 from ..output import emit
@@ -97,6 +101,16 @@ def send_mail_command(
 @click.option("--subject", required=True, help="Message subject.")
 @click.option("--body-content", default=None, help="Inline body content.")
 @click.option("--body-file", default=None, help="Body content file path.")
+@click.option(
+    "--reply-policy",
+    type=click.Choice(
+        [HOUMAO_NO_REPLY_POLICY_VALUE, HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE],
+        case_sensitive=False,
+    ),
+    default=HOUMAO_NO_REPLY_POLICY_VALUE,
+    show_default=True,
+    help="Operator-origin reply policy.",
+)
 @click.option("--attach", "attachments", multiple=True, help="Attachment file path.")
 @pair_port_option()
 @managed_agent_selector_options
@@ -105,6 +119,7 @@ def post_mail_command(
     subject: str,
     body_content: str | None,
     body_file: str | None,
+    reply_policy: str,
     attachments: tuple[str, ...],
     agent_id: str | None,
     agent_name: str | None,
@@ -117,6 +132,7 @@ def post_mail_command(
             target,
             subject=subject,
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
+            reply_policy=reply_policy,
             attachments=_resolve_attachment_uploads(attachments),
         )
     )

@@ -23,7 +23,7 @@ Representative usage:
 houmao-mgr server start --api-base-url http://127.0.0.1:9889
 houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
 houmao-mgr project init
-houmao-mgr project agents tools codex auth add --name default --api-key your-api-key-here
+houmao-mgr project credentials codex add --name default --api-key your-api-key-here
 houmao-mgr project easy specialist create \
   --name gpu \
   --system-prompt "You are a GPU specialist." \
@@ -57,7 +57,7 @@ houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
 
 Gemini note:
 
-- Project-local Gemini auth bundles now support `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, and `oauth_creds.json` through `houmao-mgr project agents tools gemini auth add|set`.
+- Project-local Gemini auth bundles now support `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, and `oauth_creds.json` through `houmao-mgr project credentials gemini add|set`.
 - `houmao-mgr project easy specialist create --tool gemini` exposes the same maintained Gemini inputs through `--api-key`, optional `--base-url`, and `--gemini-oauth-creds`.
 - Managed Gemini homes resume follow-up headless turns with the persisted Gemini `session_id` in the same recorded working directory instead of relying on `--resume latest`.
 
@@ -150,7 +150,7 @@ Authority is split intentionally:
 - `brains build` is a local brain-construction wrapper
 - `admin cleanup ...` is local shared-registry and runtime maintenance; use `admin cleanup registry` for the registry janitor and `--print-json` only when you need the machine-readable cleanup payload
 
-For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
+For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. For headless managed agents, `agents prompt`, `agents gateway prompt`, and `agents turn submit` now also accept request-scoped `--model` plus optional `--reasoning-level`; those overrides merge with the launch-resolved defaults for the current turn only, interpret reasoning through the resolved tool/model preset ladder, and TUI-backed targets reject them explicitly instead of silently ignoring them. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
 
 For local serverless mailbox usage, the preferred `houmao-mgr` workflow is:
 

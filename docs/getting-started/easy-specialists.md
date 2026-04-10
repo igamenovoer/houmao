@@ -50,17 +50,19 @@ Key options:
 
 | Option | Default | Description |
 |---|---|---|
-| `--name` | Required | Specialist name. Used as the role name and default credential name. |
+| `--name` | Required | Specialist name. Used as the role name and default auth display name. |
 | `--tool` | Required | Tool lane: `claude`, `codex`, or `gemini`. |
 | `--system-prompt` / `--system-prompt-file` | None | Inline prompt text or path to a prompt markdown file. |
-| `--credential` | `<name>-creds` | Auth bundle name. Defaults to `<specialist-name>-creds`. |
+| `--credential` | `<name>-creds` | Auth display name. Defaults to `<specialist-name>-creds`. |
 | `--api-key` | None | API key for the selected tool. |
 | `--setup` | `default` | Preset setup name within the tool's setup bundles. |
 | `--with-skill` | None | Repeatable. Path to a skill directory (must contain `SKILL.md`). |
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 | `--model` | None | Optional launch-owned default model name. |
-| `--reasoning-level` | None | Optional Houmao-defined launch-owned reasoning level on the normalized `1..10` scale. |
+| `--reasoning-level` | None | Optional launch-owned tool/model-specific reasoning preset index. |
+
+Those two flags set the **launch-owned default** model selection that is written into the specialist-backed launch profile. After the agent is already running, headless prompt routes also support one-turn overrides through `houmao-mgr agents prompt`, `houmao-mgr agents gateway prompt`, and `houmao-mgr agents turn submit` with the same `--model` plus optional `--reasoning-level` shape. Those runtime overrides apply only to the submitted headless turn and never rewrite the specialist, launch profile, or persisted manifest defaults.
 
 Claude-specific auth inputs now support four maintained credential lanes plus separate optional bootstrap state:
 
@@ -72,7 +74,16 @@ Claude-specific auth inputs now support four maintained credential lanes plus se
 
 `--claude-state-template-file` is not itself a credential-providing method. It only carries reusable Claude runtime bootstrap state. Optional `--base-url`, `--model`, and `--reasoning-level` can be layered onto any supported Claude credential lane. `--claude-model` remains available only as a temporary compatibility alias for `--model` on Claude specialists.
 
-Use `--reasoning-level` as Houmao's portable `1..10` reasoning scale. If you need vendor-native tuning beyond that portable surface, keep it in tool-specific skills or credential/bootstrap content instead of the core easy-specialist CLI.
+`--reasoning-level` is not a portable `1..10` scale anymore. It is interpreted relative to the resolved tool and model, one preset step at a time, and higher unused numbers saturate to that runtime's highest maintained Houmao preset.
+
+Current maintained ladders:
+
+- Claude: `1=low`, `2=medium`, `3=high`, and `4=max` only on models that support Claude `max`; higher numbers saturate to the highest supported Claude preset.
+- Codex: `0=none`, `1=minimal`, `2=low`, `3=medium`, `4=high`, `5=xhigh`; higher numbers saturate to `xhigh`.
+- Gemini 3 models: Houmao preset rows currently map `1=(thinkingLevel LOW, thinkingBudget 1024)`, `2=(MEDIUM, 4096)`, `3=(HIGH, 16384)`; higher numbers saturate to the highest maintained row.
+- Other Gemini models: `0=thinkingBudget 0`, `1=512`, `2=2048`, `3=4096`, `4=8192`, `5=16384`; higher numbers saturate to `16384`.
+
+If you need finer vendor-native tuning than those maintained Houmao presets, omit `--reasoning-level` and manage the native tool config or environment directly.
 
 For the file-level handling rules, including what `.credentials.json` vs `.claude.json` means and how to validate the lane locally, see [Claude Vendor Login Files](../reference/claude-vendor-login-files.md).
 
@@ -129,7 +140,7 @@ Key options:
 | `--agent-name` | None | Optional default managed-agent name; lets later `instance launch --profile` omit `--name`. |
 | `--agent-id` | None | Optional default managed-agent id. |
 | `--workdir` | None | Optional default working directory. |
-| `--auth` | None | Optional default auth bundle override. |
+| `--auth` | None | Optional default auth display-name override. The stored relationship resolves through auth-profile identity, so later auth rename stays valid. |
 | `--prompt-mode` | None | Optional `unattended` or `as_is` operator prompt-mode override. |
 | `--env-set` | None | Repeatable durable launch env record (`NAME=value`). |
 | `--mail-transport` | None | Optional declarative mailbox transport (`filesystem` or `stalwart`). |
@@ -173,9 +184,9 @@ houmao-mgr project easy instance launch \
 houmao-mgr project easy instance launch --profile reviewer-default
 ```
 
-When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
+When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, and prompt overlay), and uses the active project overlay as the authoritative source context. Auth remains user-facing by display name even though the stored profile resolves it through auth-profile identity. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
 
-Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, and `--managed-header` or `--no-managed-header` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
+Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, `--managed-header` or `--no-managed-header`, and `--append-system-prompt-text` or `--append-system-prompt-file` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 
 By default, easy instance launch also auto-attaches a live loopback gateway for the new session on `127.0.0.1` with a system-assigned port. Use `--no-gateway` to skip that default for one launch, or `--gateway-port <port>` when you want one fixed loopback listener port on the current launch. If the managed session starts but gateway attachment fails afterward, Houmao keeps the session running and reports the attach error together with the manifest/session identity so you can retry or stop it explicitly.
 
@@ -191,6 +202,7 @@ Key options:
 | `--no-gateway` | False | Skip the default launch-time gateway attach for this instance. |
 | `--gateway-port` | Auto | Request one fixed loopback gateway listener port for this launch. |
 | `--managed-header`, `--no-managed-header` | Profile policy, otherwise enabled | Force-enable or disable the Houmao-managed prompt header for one launch. |
+| `--append-system-prompt-text`, `--append-system-prompt-file` | None | Mutually exclusive one-shot appendix input appended after any resolved prompt overlay for the current launch only. |
 | `--session-name` | None | Optional tmux session name override. |
 | `--auth` | Specialist's credential or profile default | Optional auth bundle override. |
 | `--env-set` | None | Repeatable. One-off launch environment variable. |
@@ -205,6 +217,8 @@ Gemini specialists remain headless-only here. Use `--headless` when launching a 
 `--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port.
 
 `--managed-header` and `--no-managed-header` are mutually exclusive. When neither flag is supplied, easy-instance launch inherits managed-header policy from the selected easy profile when one is present; otherwise it falls back to the default enabled behavior.
+
+`--append-system-prompt-text` and `--append-system-prompt-file` are also mutually exclusive. When supplied, the appendix is appended after any easy-profile prompt overlay inside the current launch's structured `<houmao_system_prompt>` and is not persisted back into the selected specialist or profile.
 
 The previous easy-launch `--yolo` override was removed in 0.3.x. Startup autonomy is owned by the stored specialist `launch.prompt_mode` (or, when launching from an easy profile that overrides it, by the profile's stored prompt-mode override): `unattended` allows maintained no-prompt provider posture, while `as_is` leaves provider startup behavior untouched.
 
@@ -227,7 +241,7 @@ houmao-mgr project easy instance get --name reviewer-1
 houmao-mgr project easy instance stop --name reviewer-1
 ```
 
-`project easy instance list` and `project easy instance get` report the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable. Inspection output never includes secret credential values inline; auth is reported by bundle name only.
+`project easy instance list` and `project easy instance get` report the originating easy-profile identity in addition to the originating specialist when runtime-backed state makes both resolvable. Inspection output never includes secret credential values inline; auth is reported by display name only.
 
 ## Storage Layout
 
@@ -237,7 +251,7 @@ Easy-lane data is stored across the project overlay as follows:
 |---|---|
 | `.houmao/catalog.sqlite` | Specialist metadata, easy-profile metadata, and references to managed content. Both easy profiles and explicit launch profiles share the same catalog launch-profile family. |
 | `.houmao/content/prompts/<name>.md` | System prompt file (and prompt-overlay text files when an easy profile uses `--prompt-overlay-file`). |
-| `.houmao/content/auth/<tool>/<credential>/` | Auth bundle directory tree. |
+| `.houmao/content/auth/<tool>/<opaque-bundle-ref>/` | Auth bundle directory tree stored by opaque bundle ref. The user-facing auth display name lives in the catalog. |
 | `.houmao/content/skills/<skill>/` | Skill directory copies. |
 | `.houmao/agents/roles/<name>/` | Generated role projection with `system-prompt.md`. |
 | `.houmao/agents/presets/<recipe>.yaml` | Generated recipe projection (also addressable through the `presets` compatibility-alias CLI). |

@@ -34,7 +34,7 @@ At minimum, launch-profile content SHALL support:
 - optional working directory
 - optional auth override
 - optional model override by name
-- optional normalized reasoning override by level `1..10`
+- optional reasoning override by non-negative preset index
 - optional operator prompt-mode override
 - optional durable env defaults
 - optional declarative mailbox config
@@ -43,11 +43,11 @@ At minimum, launch-profile content SHALL support:
 
 `launch-profiles add` SHALL accept `--model <name>` to store a reusable model override for that profile.
 
-`launch-profiles add` SHALL accept `--reasoning-level <1..10>` to store a reusable normalized reasoning override for that profile.
+`launch-profiles add` SHALL accept `--reasoning-level <integer>=non-negative` to store a reusable reasoning override for that profile.
 
 `launch-profiles set` SHALL support updating that stored model through `--model <name>` and clearing it through `--clear-model`.
 
-`launch-profiles set` SHALL support updating the stored reasoning override through `--reasoning-level <1..10>` and clearing it through `--clear-reasoning-level`.
+`launch-profiles set` SHALL support updating the stored reasoning override through `--reasoning-level <integer>=non-negative` and clearing it through `--clear-reasoning-level`.
 
 `launch-profiles get --name <profile>` SHALL report the profile name, source recipe, source path, and parsed profile fields as structured output.
 
@@ -60,9 +60,9 @@ At minimum, launch-profile content SHALL support:
 The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT silently assume easy-only defaults that are specific to the easy lane.
 
 #### Scenario: Add creates an explicit launch profile with one stored model override
-- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe cuda-coder-codex-default --agent-name alice --workdir /repos/alice-cuda --model gpt-5.4-mini --reasoning-level 4`
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe cuda-coder-codex-default --agent-name alice --workdir /repos/alice-cuda --model gpt-5.4-mini --reasoning-level 2`
 - **THEN** the command creates `.houmao/agents/launch-profiles/alice.yaml`
-- **AND THEN** the written launch profile records recipe `cuda-coder-codex-default`, managed-agent name `alice`, workdir `/repos/alice-cuda`, model override `gpt-5.4-mini`, and reasoning override `4`
+- **AND THEN** the written launch profile records recipe `cuda-coder-codex-default`, managed-agent name `alice`, workdir `/repos/alice-cuda`, model override `gpt-5.4-mini`, and reasoning override `2`
 
 #### Scenario: Set patches one launch profile model without dropping advanced blocks
 - **WHEN** `.houmao/agents/launch-profiles/alice.yaml` exists with mailbox and prompt-overlay blocks
@@ -77,7 +77,7 @@ The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT sil
 - **AND THEN** later launches fall back to the source recipe or lower-precedence model source unless another override is supplied
 
 #### Scenario: Set can clear the stored reasoning override
-- **WHEN** `.houmao/agents/launch-profiles/alice.yaml` exists with stored reasoning override `4`
+- **WHEN** `.houmao/agents/launch-profiles/alice.yaml` exists with stored reasoning override `2`
 - **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --clear-reasoning-level`
 - **THEN** the stored launch profile no longer records a profile-owned reasoning override
 - **AND THEN** later launches fall back to the source recipe or lower-precedence reasoning source unless another override is supplied
@@ -110,4 +110,53 @@ The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT sil
 - **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --clear-managed-header`
 - **THEN** the stored explicit launch profile returns to managed-header policy `inherit`
 - **AND THEN** later launches from `alice` fall back to the system default unless a stronger one-shot override is supplied
+
+### Requirement: `project agents launch-profiles` manages explicit memory-directory defaults
+`houmao-mgr project agents launch-profiles add` SHALL accept optional `--memory-dir <path>` and `--no-memory-dir` to store reusable memory-directory configuration on an explicit launch profile.
+
+`houmao-mgr project agents launch-profiles set` SHALL accept optional `--memory-dir <path>`, `--no-memory-dir`, and `--clear-memory-dir` for the same stored field.
+
+`--memory-dir`, `--no-memory-dir`, and `--clear-memory-dir` SHALL be mutually exclusive on `launch-profiles set`.
+
+`--memory-dir` and `--no-memory-dir` SHALL be mutually exclusive on `launch-profiles add`.
+
+When an exact memory directory is stored on this surface, the stored value SHALL be the resolved absolute path.
+
+`launch-profiles get --name <profile>` SHALL report whether the profile stores an exact memory directory, stores disabled memory binding, or stores no memory preference.
+
+#### Scenario: Add stores one exact memory directory as an absolute path
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe cuda-coder-codex-default --memory-dir ../shared/alice-memory`
+- **THEN** the created explicit launch profile stores the resolved absolute path for `../shared/alice-memory`
+- **AND THEN** later `launch-profiles get --name alice` reports that stored absolute memory directory
+
+#### Scenario: Set stores explicit disabled memory binding
+- **WHEN** explicit launch profile `alice` already exists
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --no-memory-dir`
+- **THEN** the stored explicit launch profile records disabled memory binding
+- **AND THEN** later `launch-profiles get --name alice` reports that disabled state
+
+#### Scenario: Set can clear stored memory configuration back to no profile preference
+- **WHEN** explicit launch profile `alice` already stores one exact memory directory
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --clear-memory-dir`
+- **THEN** the stored explicit launch profile no longer records profile-owned memory configuration
+- **AND THEN** later launches from `alice` fall back to the launch surface's system default behavior unless a stronger override is supplied
+
+### Requirement: Launch-profile auth overrides track auth profile identity across auth rename
+Stored explicit launch-profile auth overrides SHALL resolve through auth profile identity rather than using auth display-name text as the authoritative relationship key.
+
+When a launch profile selects an auth override, the stored relationship SHALL remain valid after that auth profile is renamed.
+
+Operator-facing launch-profile inspection SHALL render the current auth display name for the referenced auth profile.
+
+#### Scenario: Launch-profile auth override survives auth rename
+- **WHEN** explicit launch profile `alice` stores an auth override referencing one Codex auth profile named `work`
+- **AND WHEN** that auth profile is renamed to `breakglass`
+- **THEN** later launch from profile `alice` still resolves the same auth profile
+- **AND THEN** the operator does not need to edit `alice` only because the auth display name changed
+
+#### Scenario: Launch-profile get renders the current auth display name
+- **WHEN** explicit launch profile `alice` references one auth profile whose current display name is `breakglass`
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles get --name alice`
+- **THEN** the command reports auth override `breakglass`
+- **AND THEN** it does not require the caller to know the internal auth profile id or opaque bundle reference
 

@@ -1602,7 +1602,7 @@ class CaoRestSession:
         )
 
     def interrupt(self) -> SessionControlResult:
-        """Interrupt a CAO terminal turn by requesting exit."""
+        """Interrupt a CAO terminal turn through the compatibility surface."""
 
         try:
             result = self._client.exit_terminal(self._terminal_id)
@@ -1621,7 +1621,7 @@ class CaoRestSession:
         return SessionControlResult(
             status="ok",
             action="interrupt",
-            detail="Requested terminal exit",
+            detail="Requested terminal interrupt",
         )
 
     def terminate(self) -> SessionControlResult:

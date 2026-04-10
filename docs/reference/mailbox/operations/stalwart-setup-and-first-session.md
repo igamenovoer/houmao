@@ -66,13 +66,13 @@ Use `start-session` with `--mailbox-transport stalwart` and either a base URL or
 
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
-  --agent-def-dir tests/fixtures/agents \
+  --agent-def-dir tests/fixtures/plain-agent-def \
   --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless \
   --mailbox-transport stalwart \
   --mailbox-principal-id HOUMAO-research \
-  --mailbox-address HOUMAO-research@agents.localhost \
+  --mailbox-address research@houmao.localhost \
   --mailbox-stalwart-base-url http://127.0.0.1:8080
 ```
 
@@ -102,11 +102,11 @@ Representative manifest fragment:
   "mailbox": {
     "transport": "stalwart",
     "principal_id": "HOUMAO-research",
-    "address": "HOUMAO-research@agents.localhost",
+    "address": "research@houmao.localhost",
     "jmap_url": "http://127.0.0.1:8080/jmap",
     "management_url": "http://127.0.0.1:8080/api",
-    "login_identity": "HOUMAO-research@agents.localhost",
-    "credential_ref": "stalwart-HOUMAO-research-at-agents-localhost-a1b2c3d4e5f60718",
+    "login_identity": "research@houmao.localhost",
+    "credential_ref": "stalwart-research-at-houmao-localhost-a1b2c3d4e5f60718",
     "bindings_version": "2026-03-19T08:00:00.000001Z"
   }
 }
@@ -130,7 +130,7 @@ Send a message:
 ```bash
 pixi run python -m houmao.agents.realm_controller mail send \
   --agent-identity HOUMAO-research \
-  --to HOUMAO-orchestrator@agents.localhost \
+  --to orchestrator@houmao.localhost \
   --subject "Investigate parser drift" \
   --body-content "Please review the current parser mismatch."
 ```

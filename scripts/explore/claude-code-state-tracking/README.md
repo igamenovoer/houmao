@@ -72,11 +72,11 @@ pixi run python scripts/explore/claude-code-state-tracking/run.py stop \
 
 The interactive watch:
 
-- builds a fresh Claude brain home from `tests/fixtures/agents/presets/interactive-watch-claude-default.yaml`
+- builds a fresh Claude brain home from `tests/fixtures/plain-agent-def/presets/interactive-watch-claude-default.yaml`
 - writes that generated runtime under the run-local `runtime/` subtree
 - launches the generated `launch.sh` directly in tmux
 - forces Claude to start with `--dangerously-skip-permissions`
-- still uses the tracked Claude setup bundle under `tests/fixtures/agents/tools/claude/setups/default/` for baseline startup behavior
+- still uses the tracked Claude setup bundle under `tests/fixtures/plain-agent-def/tools/claude/setups/default/` for baseline startup behavior
 - does not use `houmao-server` routes or Houmao lifecycle CLIs for normal start/inspect/stop flow
 - leaves a successful `start` run live for manual prompting until the operator later runs `stop`
 - automatically reaps run-owned `cc-track-*` and `HMREC-*` tmux sessions if startup fails or is interrupted before the run reaches steady state

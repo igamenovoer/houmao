@@ -7,6 +7,7 @@ import shlex
 import time
 from pathlib import Path
 
+from houmao.agents.model_selection import ModelConfig
 from houmao.server.tui.process import PaneProcessInspector
 
 from ..errors import BackendExecutionError
@@ -15,7 +16,7 @@ from ..mail_commands import (
     MailPromptRequest,
     build_shadow_mail_result_surface_payloads,
 )
-from ..models import LaunchPlan, SessionControlResult, SessionEvent
+from ..models import HeadlessTurnSessionSelection, LaunchPlan, SessionControlResult, SessionEvent
 from .claude_bootstrap import ensure_claude_home_bootstrap
 from .headless_base import HeadlessInteractiveSession, HeadlessSessionState
 from .shadow_parser_core import DialogProjection, is_operator_blocked, is_submit_ready
@@ -85,10 +86,20 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         prompt: str,
         *,
         turn_artifact_dir_name: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
     ) -> list[SessionEvent]:
         """Send one prompt into the live provider TUI."""
 
         del turn_artifact_dir_name
+        if session_selection is not None:
+            raise BackendExecutionError(
+                "Chat-session selection is unsupported for local interactive backends."
+            )
+        if execution_model is not None and not execution_model.is_empty():
+            raise BackendExecutionError(
+                "Execution overrides are only supported for headless backends."
+            )
         if not prompt.strip():
             raise BackendExecutionError("Prompt must not be empty")
         if (
@@ -117,7 +128,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
                 target=headless_agent_pane_target_shared(
                     session_name=self._require_tmux_session_name()
                 ),
-                segments=parse_tmux_control_input_shared(sequence="<[C-c]>"),
+                segments=parse_tmux_control_input_shared(sequence="<[Escape]>"),
             )
         except (BackendExecutionError, TmuxCommandError, TmuxControlInputError) as exc:
             return SessionControlResult(

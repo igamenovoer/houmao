@@ -21,8 +21,13 @@ from pydantic import (
     model_validator,
 )
 
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig, parse_reasoning_level
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
+from houmao.mailbox.protocol import (
+    HOUMAO_NO_REPLY_POLICY_VALUE,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+)
 
 GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
@@ -51,6 +56,7 @@ GatewayStoredRequestState = Literal[
     "completed",
     "failed",
 ]
+GatewayMailPostReplyPolicy = Literal["none", "operator_mailbox"]
 GatewayJsonScalar: TypeAlias = str | int | float | bool | None
 GatewayJsonValue: TypeAlias = (
     GatewayJsonScalar | list["GatewayJsonValue"] | dict[str, "GatewayJsonValue"]
@@ -578,6 +584,95 @@ class GatewayChatSessionSelectorV1(_StrictGatewayModel):
         return self
 
 
+class GatewayExecutionModelReasoningV1(_StrictGatewayModel):
+    """Normalized reasoning override for one request-scoped execution model."""
+
+    level: int
+
+    @field_validator("level")
+    @classmethod
+    def _validate_level(cls, value: int) -> int:
+        """Require one normalized reasoning level."""
+
+        parsed = parse_reasoning_level(value, source="execution.model.reasoning")
+        assert parsed is not None
+        return parsed
+
+
+class GatewayExecutionModelV1(_StrictGatewayModel):
+    """Request-scoped unified execution-model payload."""
+
+    name: str | None = None
+    reasoning: GatewayExecutionModelReasoningV1 | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _optional_name_not_blank(cls, value: str | None) -> str | None:
+        """Require a non-empty model name when present."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+    @model_validator(mode="after")
+    def _validate_not_empty(self) -> "GatewayExecutionModelV1":
+        """Require at least one normalized execution-model field."""
+
+        if self.name is None and self.reasoning is None:
+            raise ValueError("execution.model must include `name` or `reasoning`")
+        return self
+
+    def to_model_config(self) -> ModelConfig:
+        """Return the normalized execution-model config."""
+
+        return ModelConfig(
+            name=self.name,
+            reasoning=(
+                ModelReasoningConfig(level=self.reasoning.level)
+                if self.reasoning is not None
+                else None
+            ),
+        )
+
+    @classmethod
+    def from_model_config(cls, config: ModelConfig | None) -> "GatewayExecutionModelV1 | None":
+        """Build one request payload from a normalized config."""
+
+        if config is None or config.is_empty():
+            return None
+        return cls(
+            name=config.name,
+            reasoning=(
+                GatewayExecutionModelReasoningV1(level=config.reasoning.level)
+                if config.reasoning is not None
+                else None
+            ),
+        )
+
+
+class GatewayExecutionOverrideV1(_StrictGatewayModel):
+    """Request-scoped execution override payload."""
+
+    model: GatewayExecutionModelV1
+
+    def to_model_config(self) -> ModelConfig:
+        """Return the normalized request-scoped model override."""
+
+        return self.model.to_model_config()
+
+    @classmethod
+    def from_model_config(cls, config: ModelConfig | None) -> "GatewayExecutionOverrideV1 | None":
+        """Build one execution-override payload from a normalized config."""
+
+        model_payload = GatewayExecutionModelV1.from_model_config(config)
+        if model_payload is None:
+            return None
+        return cls(model=model_payload)
+
+
 class GatewayHeadlessCurrentChatSessionV1(_StrictGatewayModel):
     """Pinned current provider session for one headless managed agent."""
 
@@ -643,6 +738,7 @@ class GatewayRequestPayloadSubmitPromptV1(_StrictGatewayModel):
     prompt: str
     turn_id: str | None = None
     chat_session: GatewayChatSessionSelectorV1 | None = None
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt", "turn_id")
     @classmethod
@@ -702,6 +798,7 @@ class GatewayPromptControlRequestV1(_StrictGatewayModel):
     prompt: str
     force: bool = False
     chat_session: GatewayChatSessionSelectorV1 | None = None
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt")
     @classmethod
@@ -1408,6 +1505,7 @@ class GatewayMailPostRequestV1(_StrictGatewayModel):
     schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
     subject: str
     body_content: str
+    reply_policy: GatewayMailPostReplyPolicy = Field(default=HOUMAO_NO_REPLY_POLICY_VALUE)
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
 
     @field_validator("subject")
@@ -1422,6 +1520,16 @@ class GatewayMailPostRequestV1(_StrictGatewayModel):
     def _body_no_nul(cls, value: str) -> str:
         if "\x00" in value:
             raise ValueError("must not contain NUL bytes")
+        return value
+
+    @field_validator("reply_policy")
+    @classmethod
+    def _reply_policy_known(cls, value: GatewayMailPostReplyPolicy) -> GatewayMailPostReplyPolicy:
+        if value not in {
+            HOUMAO_NO_REPLY_POLICY_VALUE,
+            HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+        }:
+            raise ValueError("unsupported reply policy")
         return value
 
     @model_validator(mode="after")

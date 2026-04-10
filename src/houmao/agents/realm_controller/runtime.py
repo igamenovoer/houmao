@@ -15,6 +15,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, cast
 
+from houmao.agents.memory_dir import (
+    HOUMAO_MEMORY_DIR_ENV_VAR,
+    ResolvedMemoryBinding,
+    ensure_memory_dir,
+    resolve_effective_memory_binding,
+)
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
     HOUMAO_JOB_DIR_ENV_VAR,
@@ -23,6 +29,7 @@ from houmao.owned_paths import (
 )
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
+    resolve_project_aware_local_roots,
     resolve_project_aware_mailbox_root,
 )
 from houmao.agents.managed_prompt_header import (
@@ -30,6 +37,11 @@ from houmao.agents.managed_prompt_header import (
     resolve_managed_prompt_header_decision,
 )
 from houmao.agents.managed_launch_force import ManagedLaunchForceMode
+from houmao.agents.model_selection import (
+    ModelConfig,
+    extract_resolved_model_config_from_brain_manifest,
+    resolve_execution_model_config,
+)
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
     AGENT_DEF_DIR_ENV_VAR,
@@ -156,6 +168,7 @@ from .loaders import RolePackage, load_brain_manifest, load_role_package
 from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
+    default_mailbox_address,
     default_mailbox_principal_id,
     mailbox_bindings_version_now,
     parse_declarative_mailbox_config,
@@ -328,6 +341,8 @@ class RuntimeSessionController:
     agent_id: str | None = None
     tmux_session_name: str | None = None
     job_dir: Path | None = None
+    memory_binding: Literal["auto", "exact", "disabled"] | None = None
+    memory_dir: Path | None = None
     agent_identity_warnings: tuple[str, ...] = ()
     startup_warnings: tuple[str, ...] = ()
     parsing_mode: CaoParsingMode | None = None
@@ -351,22 +366,49 @@ class RuntimeSessionController:
         prompt: str,
         *,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        turn_artifact_dir_name: str | None = None,
+        execution_model: ModelConfig | None = None,
+        refresh_registry: bool = True,
     ) -> list[SessionEvent]:
         """Send a prompt and persist updated session state."""
 
         self._reset_operation_warnings()
         if isinstance(self.backend_session, HeadlessInteractiveSession):
-            if session_selection is None:
-                events = self.backend_session.send_prompt(prompt)
-            else:
-                events = self.backend_session.send_prompt(
-                    prompt,
-                    session_selection=session_selection,
-                )
+            events = self.backend_session.send_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_artifact_dir_name,
+                session_selection=session_selection,
+                execution_model=self._resolve_headless_execution_model(execution_model),
+            )
         else:
+            if execution_model is not None and not execution_model.is_empty():
+                raise SessionManifestError(
+                    "Execution overrides are only supported for headless runtime sessions."
+                )
             events = self.backend_session.send_prompt(prompt)
-        self.persist_manifest()
+        self.persist_manifest(refresh_registry=refresh_registry)
         return events
+
+    def _resolve_headless_execution_model(
+        self,
+        execution_model: ModelConfig | None,
+    ) -> ModelConfig | None:
+        """Resolve one request-scoped execution model against launch-owned defaults."""
+
+        if execution_model is None or execution_model.is_empty():
+            return None
+        try:
+            brain_manifest = load_brain_manifest(self.brain_manifest_path)
+            launch_model = extract_resolved_model_config_from_brain_manifest(
+                brain_manifest,
+                source=str(self.brain_manifest_path),
+            )
+        except ValueError as exc:
+            raise SessionManifestError(str(exc)) from exc
+        return resolve_execution_model_config(
+            launch_model=launch_model,
+            request_override=execution_model,
+        ).config
 
     def send_mail_prompt(self, prompt_request: MailPromptRequest) -> list[SessionEvent]:
         """Send one runtime-owned mailbox prompt and persist updated session state."""
@@ -562,7 +604,11 @@ class RuntimeSessionController:
                 address,
                 field_name="address",
             )
-            or f"{effective_principal_id}@agents.localhost"
+            or default_mailbox_address(
+                tool=self.launch_plan.tool,
+                role_name=self.role_name,
+                agent_identity=self.agent_identity,
+            )
         )
         working_directory = self.launch_plan.working_directory.resolve()
         if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):
@@ -739,6 +785,8 @@ class RuntimeSessionController:
                 tmux_session_name=self.tmux_session_name,
                 session_id=_runtime_session_id_from_manifest_path(self.manifest_path),
                 job_dir=self.job_dir,
+                memory_binding=self.memory_binding,
+                memory_dir=self.memory_dir,
                 agent_def_dir=self.agent_def_dir,
                 registry_generation_id=self.registry_generation_id,
                 registry_launch_authority=self.registry_launch_authority,
@@ -801,6 +849,8 @@ class RuntimeSessionController:
         }
         if self.agent_id is not None:
             stable_discovery_env[AGENT_ID_ENV_VAR] = self.agent_id
+        if self.memory_dir is not None:
+            stable_discovery_env[HOUMAO_MEMORY_DIR_ENV_VAR] = str(self.memory_dir.resolve())
         set_tmux_session_environment_shared(
             session_name=session_name,
             env_vars=stable_discovery_env,
@@ -809,10 +859,13 @@ class RuntimeSessionController:
             try:
                 unset_tmux_session_environment_shared(
                     session_name=session_name,
-                    variable_names=[
-                        AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
-                        AGENT_GATEWAY_ROOT_ENV_VAR,
-                    ],
+                    variable_names=(
+                        [
+                            AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
+                            AGENT_GATEWAY_ROOT_ENV_VAR,
+                        ]
+                        + ([HOUMAO_MEMORY_DIR_ENV_VAR] if self.memory_dir is None else [])
+                    ),
                 )
             except TmuxCommandError:
                 pass
@@ -1022,6 +1075,7 @@ def start_runtime_session(
     role_name: str | None,
     runtime_root: Path | None = None,
     jobs_root: Path | None = None,
+    memory_binding: ResolvedMemoryBinding | None = None,
     backend: BackendKind | None = None,
     working_directory: Path | None = None,
     api_base_url: str = "http://localhost:9889",
@@ -1140,6 +1194,18 @@ def start_runtime_session(
             raise SessionManifestError(str(exc)) from exc
     job_dir.mkdir(parents=True, exist_ok=True)
 
+    resolved_memory_binding = memory_binding
+    if selected_backend in _TMUX_BACKED_BACKENDS and resolved_runtime_identity is not None:
+        if resolved_memory_binding is None:
+            source_roots = resolve_project_aware_local_roots(cwd=selected_workdir)
+            resolved_memory_binding = resolve_effective_memory_binding(
+                overlay_root=source_roots.overlay_root,
+                agent_id=resolved_runtime_identity.agent_id,
+                explicit_memory_dir=None,
+                disable_memory_dir=False,
+            )
+        ensure_memory_dir(resolved_memory_binding)
+
     declared_mailbox = _declared_mailbox_from_manifest(
         manifest,
         source=str(brain_manifest_path),
@@ -1190,6 +1256,10 @@ def start_runtime_session(
         )
     )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
+    launch_plan = _launch_plan_with_memory_binding(
+        launch_plan,
+        memory_binding=resolved_memory_binding,
+    )
     launch_plan = _launch_plan_with_transient_env_overrides(
         launch_plan,
         env_overrides=launch_env_overrides,
@@ -1248,6 +1318,12 @@ def start_runtime_session(
         else None,
         tmux_session_name=resolved_tmux_session_name,
         job_dir=job_dir,
+        memory_binding=resolved_memory_binding.kind
+        if resolved_memory_binding is not None
+        else None,
+        memory_dir=(
+            resolved_memory_binding.directory if resolved_memory_binding is not None else None
+        ),
         agent_identity_warnings=agent_identity_warnings,
         startup_warnings=startup_warnings,
         parsing_mode=resolved_parsing_mode,
@@ -1367,6 +1443,9 @@ def resume_runtime_session(
         session_manifest_path=session_manifest_path.resolve(),
     )
     job_dir.mkdir(parents=True, exist_ok=True)
+    memory_binding = _memory_binding_from_manifest_payload(payload=manifest_payload)
+    if memory_binding is not None:
+        ensure_memory_dir(memory_binding)
 
     resolved_mailbox = _resolved_mailbox_from_manifest_payload(
         manifest_payload,
@@ -1405,6 +1484,7 @@ def resume_runtime_session(
             },
         )
     launch_plan = _launch_plan_with_job_dir(launch_plan, job_dir=job_dir)
+    launch_plan = _launch_plan_with_memory_binding(launch_plan, memory_binding=memory_binding)
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
@@ -1439,6 +1519,8 @@ def resume_runtime_session(
         agent_id=manifest_payload.agent_id,
         tmux_session_name=resolved_tmux_session_name or manifest_payload.tmux_session_name,
         job_dir=job_dir,
+        memory_binding=memory_binding.kind if memory_binding is not None else None,
+        memory_dir=memory_binding.directory if memory_binding is not None else None,
         parsing_mode=(
             backend_session.state.parsing_mode
             if isinstance(backend_session, CaoRestSession)
@@ -2415,6 +2497,27 @@ def _launch_plan_with_job_dir(launch_plan: LaunchPlan, *, job_dir: Path) -> Laun
     )
 
 
+def _launch_plan_with_memory_binding(
+    launch_plan: LaunchPlan,
+    *,
+    memory_binding: ResolvedMemoryBinding | None,
+) -> LaunchPlan:
+    """Return a launch plan with the effective memory binding injected."""
+
+    updated_env = dict(launch_plan.env)
+    updated_env.pop(HOUMAO_MEMORY_DIR_ENV_VAR, None)
+    updated_env_var_names = set(launch_plan.env_var_names)
+    updated_env_var_names.discard(HOUMAO_MEMORY_DIR_ENV_VAR)
+    if memory_binding is not None and memory_binding.directory is not None:
+        updated_env[HOUMAO_MEMORY_DIR_ENV_VAR] = str(memory_binding.directory.resolve())
+        updated_env_var_names.add(HOUMAO_MEMORY_DIR_ENV_VAR)
+    return replace(
+        launch_plan,
+        env=updated_env,
+        env_var_names=sorted(updated_env_var_names),
+    )
+
+
 def _launch_plan_with_transient_env_overrides(
     launch_plan: LaunchPlan,
     *,
@@ -2506,6 +2609,10 @@ def _build_provider_start_launch_plan_for_relaunch(
                     updated_launch_plan,
                     job_dir=controller.job_dir,
                 )
+            updated_launch_plan = _launch_plan_with_memory_binding(
+                updated_launch_plan,
+                memory_binding=_memory_binding_from_controller(controller),
+            )
             return updated_launch_plan
 
     if controller.agent_def_dir is None:
@@ -2571,6 +2678,10 @@ def _build_provider_start_launch_plan_for_relaunch(
             updated_launch_plan,
             job_dir=controller.job_dir,
         )
+    updated_launch_plan = _launch_plan_with_memory_binding(
+        updated_launch_plan,
+        memory_binding=_memory_binding_from_controller(controller),
+    )
     return _launch_plan_with_headless_display_controls(
         updated_launch_plan,
         style=resolve_headless_display_style(
@@ -2605,6 +2716,32 @@ def _job_dir_from_manifest_payload(
         )
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
+
+
+def _memory_binding_from_controller(
+    controller: RuntimeSessionController,
+) -> ResolvedMemoryBinding | None:
+    """Return the controller's resolved memory binding when one exists."""
+
+    if controller.memory_binding is None:
+        return None
+    return ResolvedMemoryBinding(kind=controller.memory_binding, directory=controller.memory_dir)
+
+
+def _memory_binding_from_manifest_payload(
+    *,
+    payload: SessionManifestPayloadV4,
+) -> ResolvedMemoryBinding | None:
+    """Return the resolved memory binding stored in one session manifest."""
+
+    if payload.runtime.memory_binding is None:
+        return None
+    return ResolvedMemoryBinding(
+        kind=payload.runtime.memory_binding,
+        directory=Path(payload.runtime.memory_dir).resolve()
+        if payload.runtime.memory_dir is not None
+        else None,
+    )
 
 
 def _resolve_start_session_identity(

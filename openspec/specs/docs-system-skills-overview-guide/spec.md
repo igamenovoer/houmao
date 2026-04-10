@@ -14,7 +14,7 @@ That guide SHALL list every system skill currently shipped under `src/houmao/age
 
 - `houmao-project-mgr` — project overlay lifecycle, project layout explanation, project-aware command effects, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing,
 - `houmao-specialist-mgr` — specialist authoring and specialist-scoped launch/stop entry,
-- `houmao-credential-mgr` — project-local tool auth bundle administration,
+- `houmao-credential-mgr` — dedicated credential management for project overlays and plain agent-definition directories,
 - `houmao-agent-definition` — low-level role and recipe administration,
 - `houmao-agent-instance` — managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `cleanup`),
 - `houmao-agent-messaging` — prompt, interrupt, queue, raw input, mailbox routing, and reset-context guidance for already-running managed agents,
@@ -97,3 +97,102 @@ When the guide explains the named sets, it SHALL distinguish `mailbox-core` from
 - **WHEN** a reader checks the named-set explanation in the system-skills overview guide
 - **THEN** the guide explains that `mailbox-core` is the narrow mailbox worker pair
 - **AND THEN** it explains that `mailbox-full` also includes `houmao-mailbox-mgr`
+
+### Requirement: System-skills overview guide lists the manual guided touring skill
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-touring` as one of the currently shipped packaged Houmao-owned system skills.
+
+The guide SHALL describe `houmao-touring` as the manual guided-tour skill for first-time or re-orienting users. That description SHALL explain that the skill orients on current state and helps the user branch across project setup, mailbox setup, specialist/profile authoring, agent launch, post-launch operations, and lifecycle follow-up.
+
+The guide SHALL state that `houmao-touring` is manual-invocation-only and SHALL NOT present it as the default routing choice for ordinary direct-operation requests.
+
+When the guide explains the packaged named sets or default install selections, it SHALL mention the dedicated `touring` named set.
+
+#### Scenario: Reader sees the touring skill in the narrative guide
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the guide lists `houmao-touring` among the packaged Houmao-owned system skills
+- **AND THEN** it describes the skill as a guided first-user tour rather than as a direct-operation skill
+
+#### Scenario: Reader sees that touring is manual-only and branching
+- **WHEN** a reader checks the `houmao-touring` entry in the narrative guide
+- **THEN** the guide explains that the skill is manual-invocation-only
+- **AND THEN** it explains that the tour can revisit branches such as creating more specialists, launching more agents, or following up with stop, relaunch, or cleanup
+
+### Requirement: System-skills overview guide uses the dedicated credential-management routing
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL describe `houmao-credential-mgr` as routing through the dedicated credential-management families rather than through `project agents tools <tool> auth ...`.
+
+At minimum, the guide SHALL state that `houmao-credential-mgr` routes credential work through:
+
+- `houmao-mgr project credentials <tool> ...` for active project overlays,
+- `houmao-mgr credentials <tool> ... --agent-def-dir <path>` for explicit plain agent-definition directories.
+
+The guide SHALL continue to describe `houmao-credential-mgr` as the credential-management skill distinct from specialist authoring, role/recipe authoring, instance lifecycle, and mailbox administration.
+
+#### Scenario: Reader sees the new credential routing in the narrative guide
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the `houmao-credential-mgr` entry points to `project credentials ...` and `credentials ... --agent-def-dir <path>` as the supported command families
+- **AND THEN** the guide does not present `project agents tools <tool> auth ...` as the canonical credential-management route
+
+### Requirement: Overview guide table enumerates every catalog entry
+
+`docs/getting-started/system-skills-overview.md` SHALL document every system skill listed under `[skills.*]` in `src/houmao/agents/assets/system_skills/catalog.toml` inside its "Packaged Skills" table (or an equivalently titled catalog table). Each row SHALL give the skill identifier, a brief "what it enables" summary, and the canonical `houmao-mgr` command routing the skill points at.
+
+At minimum the guide SHALL surface the following skills currently declared in the catalog:
+
+- `houmao-touring`
+- `houmao-project-mgr`
+- `houmao-specialist-mgr`
+- `houmao-credential-mgr`
+- `houmao-agent-definition`
+- `houmao-loop-planner`
+- `houmao-agent-instance`
+- `houmao-agent-messaging`
+- `houmao-agent-gateway`
+- `houmao-mailbox-mgr`
+- `houmao-agent-email-comms`
+- `houmao-process-emails-via-gateway`
+- `houmao-adv-usage-pattern`
+- `houmao-agent-loop-pairwise`
+- `houmao-agent-loop-relay`
+
+The guide MAY group these skills into concern-oriented subsections (for example "guided touring", "project, specialist, and credential authoring", "agent definition and instance management", "communication, gateway, and mailbox", "loop authoring and master-run control"), provided every catalog entry appears in exactly one subsection.
+
+#### Scenario: Overview guide table tracks catalog membership
+- **WHEN** a reader compares the overview guide catalog table to `catalog.toml`
+- **THEN** every `[skills.<name>]` entry in the catalog has exactly one row in the guide
+- **AND THEN** the guide does not list a skill that is not in the catalog
+
+#### Scenario: Loop-planner appears in the overview guide
+- **WHEN** a reader opens the overview guide
+- **THEN** the catalog table contains a row for `houmao-loop-planner` in the "Loop authoring and master-run control" concern group
+- **AND THEN** the row describes it as the operator-owned loop-bundle planning and runtime-handoff skill that is manual-invocation-only
+- **AND THEN** the row distinguishes it from `houmao-agent-loop-pairwise` and `houmao-agent-loop-relay` which are the live-run control skills
+
+#### Scenario: Loop skills appear in the overview guide
+- **WHEN** a reader opens the overview guide
+- **THEN** the catalog table contains rows for `houmao-agent-loop-pairwise` and `houmao-agent-loop-relay`
+- **AND THEN** the "canonical CLI routing" column for each loop skill points the reader at the supported operating and authoring command paths actually shipped by the packaged skill assets
+
+### Requirement: Overview guide narrative count matches the catalog
+
+The overview guide narrative SHALL NOT state a frozen skill count (for example "twelve system skills" or "eleven auto-installed skills") that does not match the current `catalog.toml` entry count and the resolved `[auto_install]` set contents.
+
+Where the guide references how many skills exist, how many are auto-installed by `agents launch` or `agents join`, or how many are installed by `system-skills install` when no `--set` or `--skill` is supplied, those numbers SHALL be computed from the current catalog rather than copied as literal text.
+
+#### Scenario: Overview narrative stays consistent with the catalog
+- **WHEN** a reader reads the overview guide paragraphs that introduce the packaged system skills
+- **THEN** those paragraphs do not assert a total skill count that contradicts `catalog.toml`
+- **AND THEN** they do not assert an auto-install skill count that contradicts the resolved `managed_launch_sets`, `managed_join_sets`, or `cli_default_sets` expansions
+
+#### Scenario: Overview auto-install diagram tracks the catalog
+- **WHEN** a reader inspects the "Auto-Install vs Explicit Install" section of the overview guide
+- **THEN** the ASCII diagram, prose, and per-set expansion table reflect the current resolved contents of `managed_launch_sets`, `managed_join_sets`, and `cli_default_sets` in `catalog.toml`
+- **AND THEN** the diagram does not leave `houmao-agent-loop-pairwise` or `houmao-agent-loop-relay` out of the managed-launch auto-install column unless the catalog removes them from the `user-control` set
+
+### Requirement: Overview guide routes credential management through the dedicated CLI
+
+The overview guide's `houmao-credential-mgr` row SHALL reference `houmao-mgr credentials <tool> ...` and the project-scoped `houmao-mgr project credentials <tool> ...` wrappers as the canonical credential-management surfaces, and SHALL NOT direct readers to manage credentials through the retired `project agents tools <tool> auth ...` subtree.
+
+#### Scenario: Reader is routed at the supported credential CLI
+- **WHEN** a reader opens the overview guide row for `houmao-credential-mgr`
+- **THEN** the canonical CLI column names `credentials ...` and `project credentials ...` as the supported credential-management surfaces
+- **AND THEN** it does not present `project agents tools <tool> auth ...` as a maintained credential CRUD path

@@ -76,7 +76,7 @@ The `BackendKind` literal type in `models.py` is the canonical list. New backend
 
 ### Agent Definition Directory
 
-Default location: `.houmao/agents/` (override with `HOUMAO_AGENT_DEF_DIR`). Template to copy: `tests/fixtures/agents/`.
+Default location: `.houmao/agents/` (override with `HOUMAO_AGENT_DEF_DIR`). Template to copy: `tests/fixtures/plain-agent-def/`.
 
 ```
 tools/

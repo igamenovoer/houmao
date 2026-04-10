@@ -4,6 +4,58 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.5.0] - 2026-04-09
+
+### Added
+
+- **Dedicated `credentials` CLI command group**: `houmao-mgr` now exposes a top-level `credentials` family alongside `admin`, `agents`, `brains`, `mailbox`, `project`, `server`, and `system-skills`. The family ships `claude`, `codex`, and `gemini` subcommands with the full `list`, `get`, `add`, `set`, `remove`, and `rename` CRUD verbs and uses `--agent-def-dir <path>` to target plain agent-definition directories outside any project overlay. The project-scoped `houmao-mgr project credentials <tool> ...` wrapper remains the preferred entry point when an active project overlay is present and shares the same semantics. Documented in the refreshed [houmao-mgr CLI reference](docs/reference/cli/houmao-mgr.md) and surfaced from the docs landing page; the `houmao-credential-mgr` system skill was rewired to route through this new surface.
+- **Headless execution overrides on prompt surfaces**: `houmao-mgr agents prompt`, `houmao-mgr agents turn submit`, and `houmao-mgr agents gateway prompt` now accept `--model TEXT` and `--reasoning-level INTEGER` (normalized `1..10`) as request-scoped overrides. The overrides apply only to the submitted prompt/turn/gateway request and never mutate launch profiles, recipes, specialists, manifests, or stored easy profiles. Partial overrides (e.g., `--reasoning-level` alone) merge with launch-resolved model defaults through the shared headless resolution helper. Supplying either flag against a TUI-backed target is rejected explicitly rather than silently dropped. The same request-scoped `execution.model` payload is documented for the managed-agent HTTP routes (`POST /houmao/agents/{agent_ref}/turns`, `/gateway/control/prompt`, `/gateway/requests`) and for the direct gateway routes (`POST /v1/control/prompt`, `POST /v1/requests` for `submit_prompt`).
+- **`houmao-agent-loop-pairwise` system skill**: a new packaged Houmao-owned skill for authoring and operating pairwise driver-worker edge loops. Pairs with the existing `pairwise-edge-loop-via-gateway-and-mailbox.md` advanced-usage pattern doc and brings the packaged catalog to thirteen skills.
+- **`houmao-agent-loop-relay` system skill**: a second new packaged Houmao-owned skill for authoring and operating forward relay loops across multiple live-gateway agents. Pairs with the existing `relay-loop-via-gateway-and-mailbox.md` pattern doc and brings the packaged catalog to fourteen skills.
+
+### Changed
+
+- **Auth bundle decoupled from launch identity**: the auth profile, credential bundle, and launch identity surfaces were separated so credential management is no longer coupled to launch-time identity selection. `BrainBuilder`, the project catalog, and the `houmao-mgr project ...` command surface were resynced so credential CRUD, auth-profile rename, and `project easy specialist create` lanes route through the dedicated credential interface. The `houmao-credential-mgr`, `houmao-specialist-mgr`, and `houmao-agent-definition` packaged skill action docs were updated to match.
+- **Documentation refresh for the catalog growth and new CLI surfaces**: README, `docs/getting-started/system-skills-overview.md`, `docs/reference/cli/houmao-mgr.md`, `docs/index.md`, and the operator-facing reference pages were resynced so the system-skills table enumerates every entry under `catalog.toml` (now fourteen), so the auto-install diagram and per-set expansion reflect the resolved `managed_launch_sets`/`managed_join_sets`/`cli_default_sets` contents instead of frozen counts, and so the `agents prompt`, `agents turn submit`, and `agents gateway prompt` rows explicitly document the new headless overrides and TUI-target rejection.
+
+### Fixed
+
+- **Codex stale active TUI tracking**: the Codex TUI tracker now recovers from a stale `active` state instead of staying stuck after the worker has gone idle. Adds a recovery path through `src/houmao/server/tui/tracking.py`, profile/signal updates under `src/houmao/shared_tui_tracking/apps/codex_tui/`, regression fixtures, and unit tests in `tests/unit/server/test_tui_parser_and_tracking.py` and `tests/unit/shared_tui_tracking/test_codex_tui_session.py`.
+- **TUI interrupt always sends escape**: the interrupt path now always emits an escape key when interrupting a TUI-backed agent, replacing the prior conditional path that occasionally left the TUI in an unrecoverable focused-input state.
+- **Mail-notifier source link in mkdocs strict build**: corrected the `gateway-mail-notifier` reference page link depth so the docs site builds cleanly under `mkdocs build --strict`.
+
+### Notes
+
+- This release bumps the minor segment because of the new top-level `credentials` CLI command group, the new headless execution override flags on three prompt surfaces, the auth/identity decoupling refactor, and the two new packaged loop system skills (`houmao-agent-loop-pairwise`, `houmao-agent-loop-relay`).
+- The `gh release create v0.5.0` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
+## [0.4.2] - 2026-04-09
+
+### Added
+
+- **Gateway reminders CLI**: `houmao-mgr agents gateway reminders` now exposes the live gateway ranked reminder surface end-to-end as `list`, `get`, `create`, `update`, `pause`, `resume`, and `delete` subcommands, routed through the local pair-server gateway proxy on both `houmao-server` and `houmao-passive-server`. Documented in the refreshed [agents-gateway CLI reference](docs/reference/cli/agents-gateway.md), in the gateway reminders operations page, and in the `houmao-agent-gateway` system skill.
+- **Managed agent memory directories**: managed launches now project a per-agent memory directory under the runtime home and expose it through `HOUMAO_MEMORY_DIR`. The directory is recorded in the session manifest, surfaced via `houmao-mgr agents` listings, cleaned up by `admin cleanup`, and documented in the new [Managed memory directories](docs/getting-started/managed-memory-dirs.md) guide and updated agents-and-runtime reference. Specs: `agent-memory-dir`, plus updates to `brain-launch-runtime`, `houmao-mgr-agents-launch`, `houmao-mgr-agents-join`, and `houmao-mgr-project-easy-cli`.
+- **Launch-time system prompt appendix**: every managed launch can now carry a Houmao-owned system-prompt appendix appended after the standard managed-launch header. The appendix copy lives under `managed_prompt_header.py`, is exposed through the run-phase managed-prompt-header reference, and is recorded against the launch plan so reruns and `agents join` see the same effective prompt.
+- **`houmao-touring` system skill**: a new packaged manual guided-tour skill that inspects current Houmao state, explains the posture in plain language, and routes work into the appropriate maintained Houmao skill. Brings the packaged catalog to **twelve** skills.
+- **Pairwise driver-worker edge-loop pattern**: the `houmao-adv-usage-pattern` skill gains a second supported pattern at `patterns/pairwise-edge-loop-via-gateway-and-mailbox.md` for delegation rounds where each edge closes locally between exactly two agents. The `SKILL.md` chooser now distinguishes it from the existing forward relay-loop pattern.
+- **Forward relay-loop pattern**: the `houmao-adv-usage-pattern` skill also ships the supported relay-loop pattern at `patterns/relay-loop-via-gateway-and-mailbox.md` for multi-agent loops where work can transit across additional live-gateway agents before a downstream egress returns the final result to a more distant origin.
+- **Passive-server gateway proxy**: `houmao-passive-server` and `houmao-server` both expose a uniform pair-server gateway proxy surface (`pair_client.py`, `service.py`, `app.py`) used by the new gateway reminders CLI; documented in the new `passive-server-gateway-proxy` spec.
+
+### Changed
+
+- **System skills install internals**: `houmao-mgr system-skills install` and the underlying `system_skills.py` projection layer were resynced so renamed packaged identifiers, the new `houmao-touring` skill, the new advanced-usage pattern files, and the gateway-reminders skill updates project consistently into managed and external tool homes. CLI reference docs (`system-skills.md`, `houmao-mgr.md`) were refreshed alongside the changes.
+- **Gateway-first mailbox runtime support**: `mailbox_runtime_support.py`, `runtime_artifacts.py`, and the project-aware command surface picked up the memory-dir wiring, the prompt-appendix wiring, and the gateway-reminders manifest fields so existing managed-agent operations and `admin cleanup` continue to behave correctly across the new launch-time inputs.
+
+### Fixed
+
+- **Codex bootstrap migrates the `model` key**: `_ensure_codex_model_migration_state` now rewrites the runtime config `model` key to `gpt-5.4` when the existing value is the migration source `gpt-5.3-codex`, instead of only recording a `notice.model_migrations` entry. Unattended Codex launches no longer keep invoking the deprecated model after bootstrap. Backed by the existing `tests/unit/agents/realm_controller/test_codex_bootstrap.py` cases that have always expected this behavior.
+- **System skills install + CLI startup backports**: a backport sweep on `houmao-mgr system-skills install` and the CLI startup path repairs handling of the renamed packaged identifiers and the new pattern/skill assets, paired with refreshed `system-skills` and `houmao-mgr` reference pages.
+
+### Notes
+
+- This is a patch release on top of `v0.4.1`. It bundles the new gateway reminders CLI, managed memory directories, launch-time prompt appendix, the `houmao-touring` skill, the two `houmao-adv-usage-pattern` loop patterns, the codex bootstrap migration fix, and the system-skills install backport. The patch label is kept for continuity even though the contents include user-visible feature surfaces.
+- The `gh release create v0.4.2` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.4.1] - 2026-04-08
 
 ### Added

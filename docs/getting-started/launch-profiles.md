@@ -48,7 +48,7 @@ The four operator-authored object families and the two derived runtime objects f
 
 | Object | Lane | Catalog-stored | Projected to `.houmao/agents/` | Authored by | Notes |
 |---|---|---|---|---|---|
-| **specialist** | easy | yes | `roles/<name>/`, `presets/<recipe>.yaml`, `tools/<tool>/auth/<creds>/` | operator (easy) | The reusable easy-lane source definition: role + tool + skills + setup + default auth + durable launch posture. |
+| **specialist** | easy | yes | `roles/<name>/`, `presets/<recipe>.yaml`, `tools/<tool>/auth/<bundle-ref>/` | operator (easy) | The reusable easy-lane source definition: role + tool + skills + setup + default auth + durable launch posture. |
 | **recipe** | explicit | yes | `presets/<name>.yaml` | operator (explicit) | The reusable low-level source definition. The CLI surface is `project agents recipes ...`; `project agents presets ...` is a compatibility alias for the same files. |
 | **easy profile** | easy | yes | `launch-profiles/<name>.yaml` | operator (easy) | Specialist-backed reusable birth-time launch configuration. Targets exactly one specialist. |
 | **explicit launch profile** | explicit | yes | `launch-profiles/<name>.yaml` | operator (explicit) | Recipe-backed reusable birth-time launch configuration. Targets exactly one recipe. |
@@ -64,12 +64,13 @@ A launch profile may store, with no inline secrets:
 - a source reference (specialist for easy, recipe for explicit),
 - managed-agent identity defaults (`--agent-name`, optionally `--agent-id`),
 - a default working directory,
-- an auth override by name (the actual credentials still live in the auth bundle),
+- an auth override selected by display name (the actual credentials still live in the auth bundle, while the stored relationship resolves through auth-profile identity),
 - an operator prompt-mode override (`unattended` or `as_is`),
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
 - a managed prompt-header policy (`inherit`, `enabled`, or `disabled`),
+- optional memory-dir intent (`auto`, one explicit absolute path, or disabled),
 - a prompt overlay (mode plus inline text or a referenced file).
 
 Inline prompt-overlay text is stored inline. File-referenced overlays are kept as managed file-backed content under the overlay-owned content roots, and the catalog stores only the reference. This keeps long prompt overlays out of the catalog database itself.
@@ -112,16 +113,19 @@ Prompt overlays are inline text or a referenced file. File-backed overlays remai
 
 ## Managed Prompt Header
 
-Managed launches prepend one short Houmao-owned prompt header by default. The header tells the agent that it is Houmao-managed, includes the resolved managed-agent name and id, points the agent toward `houmao-mgr` and other supported Houmao system interfaces for Houmao-related work, and tells it to avoid unsupported ad hoc probing when a supported Houmao interface exists. The header stays general-purpose and does not name individual packaged guidance entries.
+Managed launches render one short Houmao-owned prompt header by default. For current managed launches, the final prompt is rooted at `<houmao_system_prompt>`, the header appears in `<managed_header>`, and the remaining prompt content appears in `<prompt_body>`. The header tells the agent that it is Houmao-managed, includes the resolved managed-agent name and id, points the agent toward `houmao-mgr` and other supported Houmao system interfaces for Houmao-related work, and tells it to avoid unsupported ad hoc probing when a supported Houmao interface exists. The header stays general-purpose and does not name individual packaged guidance entries.
 
 Prompt composition order is:
 
 1. source role prompt,
 2. launch-profile prompt overlay resolution,
-3. managed prompt-header prepend,
-4. backend-specific prompt injection.
+3. one-shot launch appendix append when `agents launch` or `project easy instance launch` supplies `--append-system-prompt-text` or `--append-system-prompt-file`,
+4. structured render into `<houmao_system_prompt>`,
+5. backend-specific prompt injection.
 
-That means backend-specific role injection sees one already-composed effective launch prompt. The runtime does not replay the managed header later as a separate bootstrap turn.
+That means backend-specific role injection sees one already-composed effective launch prompt. The runtime does not replay the managed header, overlay, or appendix later as separate bootstrap turns.
+
+The launch appendix is launch-owned and append-only in this workflow. It affects only the current launch, appears after the resolved profile overlay inside `<prompt_body>`, and never rewrites the source role prompt or the stored launch profile.
 
 The managed header is controlled by the same precedence model as other birth-time launch defaults:
 
@@ -143,7 +147,7 @@ Inspection commands surface that provenance:
 
 - `houmao-mgr project easy instance list` and `houmao-mgr project easy instance get` report the originating easy-profile identity when runtime-backed state makes it resolvable, and continue to report the originating specialist when available.
 - `houmao-mgr agents state` and `houmao-mgr agents list` report the same lane and profile information for explicit launch-profile-backed managed agents.
-- Inspection output never includes secret credential values inline; auth is reported by bundle name only.
+- Inspection output never includes secret credential values inline; auth is reported by display name only.
 
 ## Picking A Lane
 
@@ -189,6 +193,7 @@ For full option tables and edge cases, see the [`houmao-mgr` CLI reference](../r
 
 - [Easy Specialists](easy-specialists.md) — operator workflow for the easy lane (specialist → optional easy profile → instance).
 - [Agent Definition Directory](agent-definitions.md) — directory layout, projection paths, and the canonical recipe authoring path.
+- [Managed Memory Dirs](managed-memory-dirs.md) — the durable memory-dir model, default paths, and launch-time controls.
 - [`houmao-mgr` CLI reference](../reference/cli/houmao-mgr.md) — authoritative option tables for `project easy profile`, `project agents launch-profiles`, and `agents launch --launch-profile`.
 - [Launch Overrides](../reference/build-phase/launch-overrides.md) — how launch-profile defaults compose with adapter defaults and direct overrides during build.
 - [Launch Plan](../reference/run-phase/launch-plan.md) — how launch-profile-derived inputs flow through the manifest into the run-phase `LaunchPlan`.

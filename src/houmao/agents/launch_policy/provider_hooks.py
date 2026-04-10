@@ -653,7 +653,7 @@ def _ensure_codex_model_migration_state(*, config_path: Path, repair_invalid: bo
         repair_invalid=repair_invalid,
     )
     model_value = payload.get("model")
-    if model_value is None:
+    if model_value is None or model_value == _CODEX_MODEL_MIGRATION_SOURCE:
         set_toml_key(
             path=config_path,
             key_path=("model",),

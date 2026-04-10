@@ -40,6 +40,14 @@ Low-level observation detail still remains available alongside the simplified mo
 - optional `probe_snapshot`
 - tracked-session metadata such as `tracked_session.observed_tool_version`
 
+Server-owned lifecycle sidecars still remain available for consumers that need timing or authority detail:
+
+- `operator_state`
+- `lifecycle_timing`
+- `lifecycle_authority`
+
+`lifecycle_timing` now includes the configured stale-active recovery window in addition to readiness unknown and anchored completion timing.
+
 Those lower-level fields are diagnostic evidence, not the primary consumer-facing lifecycle vocabulary.
 
 ## End-To-End Flow
@@ -98,6 +106,14 @@ Important consequences:
 - progress indicators are supporting evidence only; they are not required for `turn.phase=active`
 - ambiguous interactive UI such as menus, selection boxes, permission prompts, or slash-command pickers degrades to `unknown` unless stronger active or terminal evidence exists
 - unexplained churn may still change diagnostics, surface observables, stability, or transitions without creating a turn
+- full tmux scrollback may still be captured for parser and history use, but current activity cues do not have to trust arbitrary historical rows
+
+For Codex, the tracker intentionally splits the surface into two scopes:
+
+- the prompt-scoped latest-turn region for interruption, success context, and temporal transcript growth
+- the live-edge tail for current status-row and tool-cell activity
+
+That split prevents stale historical `• Working (... esc to interrupt)` rows far above the prompt from pinning `turn.phase=active` when the current surface is already prompt-ready.
 
 ### Turn Phase
 
@@ -108,6 +124,13 @@ Important consequences:
 - `unknown`: the server cannot safely classify the posture as `ready` or `active`
 
 Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge.
+
+There is one host-owned correction on top of the shared tracker: if an unanchored session stays submit-ready for the configured stale-active recovery window, the server can clear a stale `active` posture to `ready` even when the shared tracker is still stuck on stale `status_row` evidence. That recovery:
+
+- requires parsed submit-ready posture plus `surface.accepting_input=yes` and `surface.editing_input=no`
+- does not fire for explicit-input anchored turns
+- does not fire for stronger active reasons such as transcript growth
+- does not manufacture `last_turn.result=success`
 
 ### Last Turn
 
@@ -166,6 +189,8 @@ Any change resets `stable_since_utc` and `stable_for_seconds`.
 - `last_turn_source`
 
 The low-level transport/process/parse fields remain attached for debugging and coarse managed-agent availability projection.
+
+Because stale-active recovery changes the published `surface` / `turn` fields, it also resets visible-state stability just like any other public-state change.
 
 ## Maintainer Validation
 

@@ -1,6 +1,6 @@
 # Role Injection
 
-Role injection determines how a role's system prompt is delivered to an agent session. Because each agent tool (Codex, Claude, Gemini) accepts role-level instructions differently, the injection strategy is resolved per-backend at launch-plan composition time. The input to role injection is the already-composed effective launch prompt, not just the raw contents of `roles/<role>/system-prompt.md`. That effective prompt may include launch-profile prompt overlays and the Houmao-managed prompt header when enabled.
+Role injection determines how a role's system prompt is delivered to an agent session. Because each agent tool (Codex, Claude, Gemini) accepts role-level instructions differently, the injection strategy is resolved per-backend at launch-plan composition time. The input to role injection is the already-composed effective launch prompt, not just the raw contents of `roles/<role>/system-prompt.md`. For current managed launches, that effective prompt is rooted at `<houmao_system_prompt>` and may contain `<managed_header>`, `<prompt_body>`, `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` sections depending on what participated in the launch.
 
 ## Injection decision tree
 
@@ -58,6 +58,8 @@ The `RoleInjectionMethod` type enumerates the available injection strategies:
 - **`native_append_system_prompt`** — the effective launch prompt is appended to the tool's system prompt via a native CLI flag, optionally combined with a bootstrap message, when prompt content exists.
 - **`bootstrap_message`** — the effective launch prompt is delivered as the first user-turn message in the session when prompt content exists.
 - **`cao_profile`** — the effective launch prompt is injected via a server-side profile mechanism (legacy backends only).
+
+The runtime does not ask providers to interpret those tags. Backends receive one opaque final prompt string and apply their normal native injection path or bootstrap fallback to that already-rendered prompt.
 
 ## Per-backend strategies
 

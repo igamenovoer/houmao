@@ -23,7 +23,7 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 | --- | --- | --- |
 | Houmao-owned | Houmao creates the path family and owns the persisted contract for its contents. | Runtime session manifests, shared-registry `record.json`, launcher `ownership.json` |
 | Houmao-selected | Houmao chooses the root path, but another tool owns the detailed contents under that root. | CAO `HOME` when launcher config omits `home_dir` |
-| Repo-local project overlay | Houmao creates or discovers local operator state under one repo-local `.houmao/` root. | `.houmao/houmao-config.toml`, `.houmao/agents/tools/<tool>/auth/<name>/` |
+| Repo-local project overlay | Houmao creates or discovers local operator state under one repo-local `.houmao/` root. | `.houmao/houmao-config.toml`, `.houmao/content/auth/<tool>/<bundle-ref>/`, `.houmao/agents/tools/<tool>/auth/<bundle-ref>/` |
 | Workspace-local scratch | Houmao creates the path under the selected active overlay for destructive or session-local work, bootstrapping `<cwd>/.houmao` when needed. | `<active-overlay>/jobs/<session-id>/` |
 
 ## Root Families

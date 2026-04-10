@@ -113,3 +113,55 @@ The skill SHALL direct ordinary mailbox participation work to `houmao-agent-emai
 - **WHEN** the current task asks about Stalwart mailbox setup or lifecycle in the context of mailbox administration
 - **THEN** the skill describes Stalwart using transport/bootstrap references and current maintained runtime boundaries
 - **AND THEN** it does not invent unsupported `houmao-mgr mailbox ...` root or account administration commands for the Stalwart transport
+
+### Requirement: `houmao-mailbox-mgr` explains the ordinary mailbox-address pattern and the reserved Houmao mailbox namespace
+When the packaged `houmao-mailbox-mgr` skill guides ordinary mailbox account creation or late filesystem mailbox binding, it SHALL explain the split between canonical mailbox principal id and ordinary mailbox address.
+
+At minimum, that guidance SHALL explain:
+
+- ordinary managed-agent principal ids use the canonical `HOUMAO-<agentname>` form,
+- ordinary managed-agent mailbox addresses use `<agentname>@houmao.localhost`,
+- mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` are reserved for Houmao-owned system principals rather than ordinary managed-agent mailbox addresses.
+
+When the user has not specified a mailbox domain, the skill SHALL recommend `houmao.localhost` as the ordinary default domain instead of teaching `agents.localhost` as the ordinary account-creation pattern.
+
+When the skill uses examples for ordinary mailbox account creation, it SHALL use examples such as address `research@houmao.localhost` with principal id `HOUMAO-research`.
+
+The skill SHALL NOT suggest `HOUMAO-<agentname>@houmao.localhost` as the ordinary managed-agent mailbox-address pattern.
+
+#### Scenario: Generic mailbox account creation guidance recommends the Houmao domain and split identity
+- **WHEN** a user asks `houmao-mailbox-mgr` how to choose mailbox identity values for one ordinary managed agent
+- **AND WHEN** the user has not already supplied a full mailbox address
+- **THEN** the skill recommends an address such as `research@houmao.localhost`
+- **AND THEN** the same guidance distinguishes that address from principal id `HOUMAO-research`
+
+#### Scenario: Reserved mailbox local-part rule is explained during mailbox account creation
+- **WHEN** the skill gives an example or recommendation for ordinary mailbox account creation under `houmao.localhost`
+- **THEN** it explains that mailbox local parts beginning with `HOUMAO-` are reserved for Houmao-owned system principals
+- **AND THEN** it does not present `HOUMAO-research@houmao.localhost` as the normal mailbox-address example for an ordinary managed agent
+
+### Requirement: `houmao-mailbox-mgr` distinguishes manual registration from launch-owned and late-binding mailbox association
+The packaged `houmao-mailbox-mgr` skill SHALL describe `mailbox register` and `project mailbox register` as manual filesystem mailbox-account administration rather than as the default preparation step for every mailbox-enabled managed-agent launch.
+
+When the user is preparing a new specialist-backed easy instance whose filesystem mailbox identity will be derived from the managed-agent instance name under the same shared mailbox root, the skill SHALL explain that launch-time mailbox bootstrap may own registration for that address and SHALL NOT present manual preregistration of the same address as the default lane.
+
+When the user wants to add or update filesystem mailbox support for an already-running local managed agent, the skill SHALL direct that work to `agents mailbox register` rather than to `project mailbox register`.
+
+When the user wants a standalone shared, team, integration, or operator-facing mailbox account that is not being created by immediate easy launch and is not an existing-agent late binding case, the skill SHALL continue to treat `mailbox register` or `project mailbox register` as the correct maintained lane.
+
+#### Scenario: Same-root easy launch mailbox setup is not treated as mandatory manual preregistration
+- **WHEN** the user asks `houmao-mailbox-mgr` how to prepare mailbox support for a new specialist-backed easy instance
+- **AND WHEN** the intended mailbox address matches the ordinary launch-owned pattern derived from the managed-agent instance name under the same shared root
+- **THEN** the skill explains that manual `project mailbox register` for that address is not the default preparatory step
+- **AND THEN** it distinguishes mailbox-root bootstrap from later launch-owned registration
+
+#### Scenario: Existing live managed agent uses the late-binding lane
+- **WHEN** the user asks to add filesystem mailbox support to one already-running local managed agent
+- **THEN** the skill directs the caller to `houmao-mgr agents mailbox register`
+- **AND THEN** it does not reinterpret that task as generic `project mailbox register` account administration
+
+#### Scenario: Shared mailbox account still uses manual registration
+- **WHEN** the user asks to create one shared or manually named mailbox account under a mailbox root
+- **AND WHEN** that account is not being created by immediate easy launch and is not an existing-agent late-binding request
+- **THEN** the skill directs the caller to `houmao-mgr mailbox register` or `houmao-mgr project mailbox register` according to scope
+- **AND THEN** it keeps that task inside mailbox-account administration rather than launch guidance

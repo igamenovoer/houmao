@@ -101,6 +101,8 @@ def render_agent_state_plain(payload: object) -> None:
     if isinstance(mailbox, dict):
         click.echo(f"  mailbox:       {_pv(mailbox.get('status'))}")
 
+    click.echo(f"  memory_dir:    {_pv(data.get('memory_dir'))}")
+
     diags = data.get("diagnostics")
     if isinstance(diags, list) and diags:
         click.echo(f"  diagnostics:   {len(diags)} issue(s)")
@@ -145,6 +147,8 @@ def render_agent_state_fancy(payload: object) -> None:
     mailbox = data.get("mailbox")
     if isinstance(mailbox, dict):
         table.add_row("mailbox", _pv(mailbox.get("status")))
+
+    table.add_row("memory_dir", _pv(data.get("memory_dir")))
 
     Console().print(table)
 

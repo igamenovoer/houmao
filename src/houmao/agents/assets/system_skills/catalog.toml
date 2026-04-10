@@ -12,6 +12,10 @@ description = "Unified mailbox operations and fallback guidance skill."
 asset_subpath = "houmao-adv-usage-pattern"
 description = "Advanced Houmao workflow composition skill layered on top of direct-operation skills."
 
+[skills.houmao-touring]
+asset_subpath = "houmao-touring"
+description = "Manual guided touring skill for first-time or re-orienting Houmao users."
+
 [skills.houmao-mailbox-mgr]
 asset_subpath = "houmao-mailbox-mgr"
 description = "Filesystem mailbox administration and late mailbox-binding skill."
@@ -32,9 +36,25 @@ description = "Project-local credential management skill."
 asset_subpath = "houmao-agent-definition"
 description = "Low-level project-local role and preset definition management skill."
 
+[skills.houmao-agent-loop-pairwise]
+asset_subpath = "houmao-agent-loop-pairwise"
+description = "Manual invocation only restored stable pairwise loop authoring and `start|status|stop` master-run control skill."
+
+[skills.houmao-agent-loop-pairwise-v2]
+asset_subpath = "houmao-agent-loop-pairwise-v2"
+description = "Manual invocation only versioned enriched pairwise loop authoring, prestart, and expanded master-run control skill."
+
+[skills.houmao-agent-loop-relay]
+asset_subpath = "houmao-agent-loop-relay"
+description = "Relay loop planning and master-run control skill for user-controlled agents."
+
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
 description = "Managed agent instance lifecycle skill."
+
+[skills.houmao-agent-inspect]
+asset_subpath = "houmao-agent-inspect"
+description = "Managed agent read-only inspection skill."
 
 [skills.houmao-agent-messaging]
 asset_subpath = "houmao-agent-messaging"
@@ -65,6 +85,12 @@ skills = [
   "houmao-adv-usage-pattern",
 ]
 
+[sets.touring]
+description = "Manual guided touring skill for first-time Houmao workflows."
+skills = [
+  "houmao-touring",
+]
+
 [sets.user-control]
 description = "User-controlled agent-management system skills."
 skills = [
@@ -72,12 +98,21 @@ skills = [
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",
+  "houmao-agent-loop-pairwise",
+  "houmao-agent-loop-pairwise-v2",
+  "houmao-agent-loop-relay",
 ]
 
 [sets.agent-instance]
 description = "Managed agent instance lifecycle system skills."
 skills = [
   "houmao-agent-instance",
+]
+
+[sets.agent-inspect]
+description = "Managed agent read-only inspection system skills."
+skills = [
+  "houmao-agent-inspect",
 ]
 
 [sets.agent-messaging]
@@ -93,6 +128,6 @@ skills = [
 ]
 
 [auto_install]
-managed_launch_sets = ["mailbox-full", "advanced-usage", "user-control", "agent-messaging", "agent-gateway"]
-managed_join_sets = ["mailbox-full", "advanced-usage", "user-control", "agent-messaging", "agent-gateway"]
-cli_default_sets = ["mailbox-full", "advanced-usage", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]
+managed_launch_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+managed_join_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+cli_default_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway"]

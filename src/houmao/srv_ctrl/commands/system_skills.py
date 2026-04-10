@@ -9,10 +9,9 @@ from typing import Any
 import click
 
 from houmao.agents.system_skills import (
+    discover_installed_system_skills,
     install_system_skills_for_home,
     load_system_skill_catalog,
-    load_system_skill_install_state,
-    system_skill_state_path_for_home,
 )
 
 from .output import emit
@@ -76,37 +75,23 @@ def list_system_skills_command() -> None:
     help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
 )
 def status_system_skills_command(tool: str, home: Path | None) -> None:
-    """Show Houmao-owned system-skill install state for one resolved tool home."""
+    """Show live Houmao-owned system-skill state for one resolved tool home."""
 
     resolved_home = _resolve_effective_system_skills_home(tool=tool, home=home)
-    state = load_system_skill_install_state(tool=tool, home_path=resolved_home)
-    state_path = system_skill_state_path_for_home(resolved_home)
+    installed_records = discover_installed_system_skills(tool=tool, home_path=resolved_home)
     payload = {
         "tool": tool,
         "home_path": str(resolved_home),
-        "state_path": str(state_path),
-        "state_exists": state is not None,
-        "state_schema_version": state.schema_version if state is not None else None,
-        "installed_skills": [record.name for record in state.installed_skills]
-        if state is not None
-        else [],
-        "projected_relative_dirs": (
-            [record.projected_relative_dir for record in state.installed_skills]
-            if state is not None
-            else []
-        ),
-        "installed_skill_records": (
-            [
-                {
-                    "name": record.name,
-                    "projected_relative_dir": record.projected_relative_dir,
-                    "projection_mode": record.projection_mode,
-                }
-                for record in state.installed_skills
-            ]
-            if state is not None
-            else []
-        ),
+        "installed_skills": [record.name for record in installed_records],
+        "projected_relative_dirs": [record.projected_relative_dir for record in installed_records],
+        "installed_skill_records": [
+            {
+                "name": record.name,
+                "projected_relative_dir": record.projected_relative_dir,
+                "projection_mode": record.projection_mode,
+            }
+            for record in installed_records
+        ],
     }
     emit(payload, plain_renderer=_render_system_skills_status_plain)
 
@@ -156,7 +141,6 @@ def install_system_skills_command(
         payload = {
             "tool": result.tool,
             "home_path": str(result.home_path),
-            "state_path": str(result.state_path),
             "selected_sets": list(result.selected_set_names),
             "explicit_skills": list(result.explicit_skill_names),
             "resolved_skills": list(result.resolved_skill_names),
@@ -241,7 +225,6 @@ def _render_system_skills_status_plain(payload: object) -> None:
         return
     click.echo(f"Tool: {payload.get('tool')}")
     click.echo(f"Home: {payload.get('home_path')}")
-    click.echo(f"State: {'present' if payload.get('state_exists') else 'missing'}")
     installed_skill_records = _coerce_mapping_list(payload.get("installed_skill_records"))
     if not installed_skill_records:
         click.echo("Installed skills: (none)")
@@ -263,7 +246,6 @@ def _render_system_skills_install_plain(payload: object) -> None:
     click.echo(
         f"Installed Houmao system skills into {payload.get('home_path')} ({payload.get('tool')})"
     )
-    click.echo(f"State path: {payload.get('state_path')}")
     projection_mode = payload.get("projection_mode")
     if projection_mode is not None:
         click.echo(f"Projection mode: {projection_mode}")

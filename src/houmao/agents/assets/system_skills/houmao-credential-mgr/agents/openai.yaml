@@ -1,4 +1,4 @@
 interface:
   display_name: "Houmao Manage Credentials"
-  short_description: "Manage Houmao project-local credentials."
-  default_prompt: "Use $houmao-credential-mgr to list, inspect, add, update, or remove Houmao project-local credentials in this workspace."
+  short_description: "Manage Houmao credentials for the active project or a plain agent-definition directory."
+  default_prompt: "Use $houmao-credential-mgr to list, inspect, add, update, rename, or remove Houmao credentials in this workspace or under an explicit agent-definition directory."

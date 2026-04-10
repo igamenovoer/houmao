@@ -11,7 +11,8 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional easy profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
-- [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of the eleven packaged Houmao-owned system skills, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
+- [Managed Memory Dirs](getting-started/managed-memory-dirs.md): Durable per-agent memory roots, explicit shared paths, and `--no-memory-dir`.
+- [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of every packaged Houmao-owned system skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
 ## Reference
 
@@ -20,6 +21,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
 - [houmao-server](reference/cli/houmao-server.md): HTTP server for session management and TUI tracking.
 - [houmao-passive-server](reference/cli/houmao-passive-server.md): Registry-driven stateless server — no legacy dependencies.
+- [houmao-mgr credentials](reference/cli/houmao-mgr.md#credentials-dedicated-credential-management): Dedicated top-level credential-management command family for Claude, Codex, and Gemini, with a matching `project credentials` wrapper.
 - [system-skills](reference/cli/system-skills.md): Install and inspect packaged Houmao-owned skill sets for resolved tool homes.
 - [agents gateway](reference/cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
 - [agents turn](reference/cli/agents-turn.md): Managed headless turn submission and inspection.

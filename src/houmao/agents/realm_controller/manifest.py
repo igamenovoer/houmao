@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.agent_identity import (
 from .boundary_models import (
     LaunchPlanPayloadV1,
     RegistryLaunchAuthorityV1,
+    RuntimeMemoryBindingKindV1,
     SessionManifestAgentLaunchAuthorityV1,
     SessionManifestPayloadV2,
     SessionManifestPayloadV3,
@@ -45,6 +46,8 @@ class SessionManifestRequest:
     tmux_session_name: str | None = None
     session_id: str | None = None
     job_dir: Path | None = None
+    memory_binding: RuntimeMemoryBindingKindV1 | None = None
+    memory_dir: Path | None = None
     agent_def_dir: Path | None = None
     agent_pid: int | None = None
     created_at_utc: str | None = None
@@ -481,6 +484,10 @@ def _build_manifest_runtime_section(
     return {
         "session_id": session_id,
         "job_dir": str(job_dir.resolve()) if job_dir is not None else None,
+        "memory_binding": request.memory_binding,
+        "memory_dir": (
+            str(request.memory_dir.resolve()) if request.memory_dir is not None else None
+        ),
         "agent_def_dir": (
             str(request.agent_def_dir.resolve()) if request.agent_def_dir is not None else None
         ),

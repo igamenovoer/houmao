@@ -603,6 +603,34 @@ def test_local_interactive_send_input_ex_keeps_raw_sequence_unmodified(
     assert result.action == "control_input"
 
 
+def test_local_interactive_interrupt_uses_escape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = _make_local_interactive_session(tmp_path)
+    parse_calls: list[tuple[str, bool]] = []
+    sent_segments: list[tuple[str, tuple[TmuxControlInputSegment, ...]]] = []
+    escape_segments = (TmuxControlInputSegment(kind="special", value="Escape"),)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.parse_tmux_control_input_shared",
+        lambda *, sequence, escape_special_keys=False: (
+            parse_calls.append((sequence, escape_special_keys)) or escape_segments
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.send_tmux_control_input_shared",
+        lambda *, target, segments: sent_segments.append((target, segments)),
+    )
+
+    result = session.interrupt()
+
+    assert parse_calls == [("<[Escape]>", False)]
+    assert sent_segments == [("HOUMAO-local:0.0", escape_segments)]
+    assert result.status == "ok"
+    assert result.action == "interrupt"
+
+
 def test_local_interactive_build_launch_command_skips_empty_developer_instructions(
     tmp_path: Path,
 ) -> None:

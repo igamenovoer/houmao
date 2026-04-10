@@ -57,7 +57,7 @@ DEFAULT_INTERACTIVE_RUN_ROOT_PARENT = Path(
     "tmp/explore/claude-code-state-tracking/interactive-watch"
 )
 DEFAULT_INTERACTIVE_PRESET = Path(
-    "tests/fixtures/agents/presets/interactive-watch-claude-default.yaml"
+    "tests/fixtures/plain-agent-def/presets/interactive-watch-claude-default.yaml"
 )
 DEFAULT_SAMPLE_INTERVAL_SECONDS = 0.25
 DEFAULT_SETTLE_SECONDS = 1.0
@@ -111,7 +111,7 @@ def start_interactive_watch(
 
     build_result = build_brain_home(
         BuildRequest(
-            agent_def_dir=(repo_root / "tests" / "fixtures" / "agents").resolve(),
+            agent_def_dir=(repo_root / "tests" / "fixtures" / "plain-agent-def").resolve(),
             tool=preset.tool,
             skills=list(preset.skills),
             setup=preset.setup,

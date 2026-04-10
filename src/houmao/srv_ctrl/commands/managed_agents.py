@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
+from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessProvider,
@@ -31,6 +32,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import (
+    BrainLaunchRuntimeError,
     GatewayHttpError,
     MailboxCommandError,
     SessionManifestError,
@@ -45,9 +47,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayCurrentExecutionMode,
     GatewayMailActionResponseV1,
     GatewayMailAttachmentUploadV1,
     GatewayMailCheckResponseV1,
+    GatewayExecutionOverrideV1,
     GatewayMailPostRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
@@ -59,6 +63,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestPayloadInterruptV1,
     GatewayStatusV1,
 )
@@ -91,6 +101,7 @@ from houmao.agents.realm_controller.session_authority import resolve_manifest_se
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.mailbox.managed import ManagedMailboxOperationError
+from houmao.mailbox.protocol import OperatorOriginReplyPolicy
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -185,6 +196,45 @@ class _LocalHeadlessTurnSnapshot:
     returncode: int | None
     history_summary: str | None
     error: str | None
+
+
+def _resolve_execution_model_override(
+    *,
+    model: str | None,
+    reasoning_level: int | None,
+) -> ModelConfig | None:
+    """Normalize one request-scoped execution override from CLI flags."""
+
+    if model is not None and not model.strip():
+        raise click.ClickException("`--model` must not be empty.")
+    try:
+        return normalize_model_config(name=model, reasoning_level=reasoning_level)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _execution_override_payload(
+    model_config: ModelConfig | None,
+) -> GatewayExecutionOverrideV1 | None:
+    """Build one request payload from a normalized execution override."""
+
+    return GatewayExecutionOverrideV1.from_model_config(model_config)
+
+
+def _require_headless_execution_override_target(
+    *,
+    target: ManagedAgentTarget,
+    execution_model: ModelConfig | None,
+) -> None:
+    """Reject request-scoped execution overrides for non-headless targets."""
+
+    if execution_model is None:
+        return
+    if target.identity.transport == "headless":
+        return
+    raise click.ClickException(
+        "Execution overrides are only supported for headless managed-agent prompt routes."
+    )
 
 
 def list_managed_agents(*, port: int | None) -> HoumaoManagedAgentListResponse:
@@ -539,9 +589,19 @@ def prompt_managed_agent(
     target: ManagedAgentTarget,
     *,
     prompt: str,
+    model: str | None = None,
+    reasoning_level: int | None = None,
 ) -> object:
     """Submit the default prompt path for one managed agent."""
 
+    execution_model = _resolve_execution_model_override(
+        model=model,
+        reasoning_level=reasoning_level,
+    )
+    _require_headless_execution_override_target(
+        target=target,
+        execution_model=execution_model,
+    )
     if target.mode == "server":
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentSubmitPromptRequest
@@ -549,11 +609,17 @@ def prompt_managed_agent(
         return pair_request(
             target.client.submit_managed_agent_request,
             target.agent_ref,
-            HoumaoManagedAgentSubmitPromptRequest(prompt=prompt),
+            HoumaoManagedAgentSubmitPromptRequest(
+                prompt=prompt,
+                execution=_execution_override_payload(execution_model),
+            ),
         )
 
     assert target.controller is not None
-    target.controller.send_prompt(prompt)
+    target.controller.send_prompt(
+        prompt,
+        execution_model=execution_model,
+    )
     return HoumaoManagedAgentRequestAcceptedResponse(
         success=True,
         tracked_agent_id=target.identity.tracked_agent_id,
@@ -641,7 +707,9 @@ def attach_gateway(target: ManagedAgentTarget, *, background: bool = False) -> G
     """Attach or reuse a live gateway for one managed agent."""
 
     target = _local_gateway_target_for_passive_pair(target, operation="attach")
-    execution_mode_override = "detached_process" if background else "tmux_auxiliary_window"
+    execution_mode_override: GatewayCurrentExecutionMode = (
+        "detached_process" if background else "tmux_auxiliary_window"
+    )
     if target.mode == "server":
         assert target.client is not None
         return pair_request(
@@ -677,9 +745,19 @@ def gateway_prompt(
     *,
     prompt: str,
     force: bool = False,
+    model: str | None = None,
+    reasoning_level: int | None = None,
 ) -> GatewayPromptControlResultV1:
     """Submit one direct gateway prompt for a managed agent."""
 
+    execution_model = _resolve_execution_model_override(
+        model=model,
+        reasoning_level=reasoning_level,
+    )
+    _require_headless_execution_override_target(
+        target=target,
+        execution_model=execution_model,
+    )
     if target.mode == "server":
         assert target.client is not None
         try:
@@ -688,6 +766,7 @@ def gateway_prompt(
                 HoumaoManagedAgentGatewayPromptControlRequest(
                     prompt=prompt,
                     force=force,
+                    execution=_execution_override_payload(execution_model),
                 ),
             )
         except CaoApiError as exc:
@@ -702,6 +781,7 @@ def gateway_prompt(
             GatewayPromptControlRequestV1(
                 prompt=prompt,
                 force=force,
+                execution=_execution_override_payload(execution_model),
             )
         )
     except GatewayHttpError as exc:
@@ -891,6 +971,115 @@ def gateway_tui_note_prompt(
     client = _require_live_gateway_client_for_controller(target.controller)
     try:
         return client.note_tui_prompt_submission(prompt=prompt)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_list_reminders(target: ManagedAgentTarget) -> GatewayReminderListV1:
+    """Return the live gateway reminder set for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(target.client.list_managed_agent_gateway_reminders, target.agent_ref)
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.list_reminders()
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_get_reminder(
+    target: ManagedAgentTarget,
+    *,
+    reminder_id: str,
+) -> GatewayReminderV1:
+    """Return one live gateway reminder for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.get_managed_agent_gateway_reminder,
+            target.agent_ref,
+            reminder_id,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.get_reminder(reminder_id=reminder_id)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_create_reminders(
+    target: ManagedAgentTarget,
+    *,
+    payload: GatewayReminderCreateBatchV1,
+) -> GatewayReminderCreateResultV1:
+    """Create one or more live gateway reminders for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.create_managed_agent_gateway_reminders,
+            target.agent_ref,
+            payload,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.create_reminders(payload)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_put_reminder(
+    target: ManagedAgentTarget,
+    *,
+    reminder_id: str,
+    payload: GatewayReminderPutV1,
+) -> GatewayReminderV1:
+    """Replace one live gateway reminder for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.put_managed_agent_gateway_reminder,
+            target.agent_ref,
+            reminder_id,
+            payload,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.put_reminder(reminder_id=reminder_id, payload=payload)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_delete_reminder(
+    target: ManagedAgentTarget,
+    *,
+    reminder_id: str,
+) -> GatewayReminderDeleteResultV1:
+    """Delete one live gateway reminder for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.delete_managed_agent_gateway_reminder,
+            target.agent_ref,
+            reminder_id,
+        )
+
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.delete_reminder(reminder_id=reminder_id)
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 
@@ -1170,6 +1359,7 @@ def _local_manager_mail_post(
     *,
     subject: str,
     body_content: str,
+    reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through manager-owned local execution."""
@@ -1179,6 +1369,7 @@ def _local_manager_mail_post(
         message = adapter.post(
             subject=subject,
             body_content=body_content,
+            reply_policy=reply_policy,
             attachments=attachments,
         )
         status = adapter.status()
@@ -1278,6 +1469,7 @@ def _gateway_mail_post(
     *,
     subject: str,
     body_content: str,
+    reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through one live loopback gateway client."""
@@ -1287,6 +1479,7 @@ def _gateway_mail_post(
             GatewayMailPostRequestV1(
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=list(attachments),
             )
         )
@@ -1466,6 +1659,7 @@ def mail_post(
     *,
     subject: str,
     body_content: str,
+    reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
 ) -> object:
     """Post one operator-origin mailbox note into one managed agent inbox."""
@@ -1483,6 +1677,7 @@ def mail_post(
                 HoumaoManagedAgentMailPostRequest(
                     subject=subject,
                     body_content=body_content,
+                    reply_policy=reply_policy,
                     attachments=list(attachments),
                 ),
             ),
@@ -1497,6 +1692,7 @@ def mail_post(
                 target.controller,
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=attachments,
             ),
         )
@@ -1510,6 +1706,7 @@ def mail_post(
                 target.controller,
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=attachments,
             ),
         )
@@ -1523,6 +1720,7 @@ def mail_post(
                 gateway_client,
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=attachments,
             ),
         )
@@ -1754,21 +1952,38 @@ def submit_headless_turn(
     target: ManagedAgentTarget,
     *,
     prompt: str,
+    model: str | None = None,
+    reasoning_level: int | None = None,
 ) -> HoumaoHeadlessTurnAcceptedResponse:
     """Submit one headless turn for a managed agent."""
 
+    execution_model = _resolve_execution_model_override(
+        model=model,
+        reasoning_level=reasoning_level,
+    )
+    _require_headless_execution_override_target(
+        target=target,
+        execution_model=execution_model,
+    )
     if target.mode == "server":
         assert target.client is not None
         return pair_request(
             target.client.submit_headless_turn,
             target.agent_ref,
-            HoumaoHeadlessTurnRequest(prompt=prompt),
+            HoumaoHeadlessTurnRequest(
+                prompt=prompt,
+                execution=_execution_override_payload(execution_model),
+            ),
         )
 
     assert target.controller is not None
     turn_index = _next_turn_index(target.controller)
     turn_id = f"turn-{turn_index:04d}"
-    target.controller.send_prompt(prompt)
+    target.controller.send_prompt(
+        prompt,
+        turn_artifact_dir_name=turn_id,
+        execution_model=execution_model,
+    )
     snapshot = _turn_snapshot_from_id(controller=target.controller, turn_id=turn_id)
     return HoumaoHeadlessTurnAcceptedResponse(
         success=True,
@@ -1944,10 +2159,18 @@ def _resume_controller_from_record(record: LiveAgentRegistryRecordV2) -> Runtime
         )
     agent_def_dir = Path(agent_def_dir_raw).expanduser().resolve()
     manifest_path = Path(record.runtime.manifest_path).expanduser().resolve()
-    return resume_runtime_session(
-        agent_def_dir=agent_def_dir,
-        session_manifest_path=manifest_path,
-    )
+    try:
+        return resume_runtime_session(
+            agent_def_dir=agent_def_dir,
+            session_manifest_path=manifest_path,
+        )
+    except BrainLaunchRuntimeError as exc:
+        tracked_name = record.agent_name or record.agent_id or record.terminal.session_name
+        raise click.ClickException(
+            f"Managed agent `{tracked_name}` is registered in the shared registry but "
+            f"its local tmux-backed runtime authority is no longer live or otherwise "
+            f"unusable: {exc}"
+        ) from exc
 
 
 def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoManagedAgentIdentity:
@@ -2262,6 +2485,7 @@ def _local_tui_state_response_from_state(
 
     diagnostics = _tracked_errors(tracked_state=tracked_state)
     turn_phase = tracked_state.turn.phase
+    memory_dir = getattr(controller, "memory_dir", None)
     return HoumaoManagedAgentStateResponse(
         tracked_agent_id=tracked_state.tracked_session.tracked_session_id,
         identity=_managed_identity_from_local_tui_state(
@@ -2286,6 +2510,7 @@ def _local_tui_state_response_from_state(
         diagnostics=diagnostics,
         mailbox=_local_mailbox_summary(controller),
         gateway=_local_gateway_summary(controller),
+        memory_dir=str(memory_dir) if memory_dir is not None else None,
     )
 
 
@@ -2365,6 +2590,7 @@ def _local_headless_state_response(
     latest_turn = _latest_local_headless_turn(controller=controller)
     gateway_summary = _local_gateway_summary(controller)
     mailbox_summary = _local_mailbox_summary(controller)
+    memory_dir = getattr(controller, "memory_dir", None)
     if latest_turn is None:
         turn_view = HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None)
         last_turn = HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None)
@@ -2389,6 +2615,7 @@ def _local_headless_state_response(
         diagnostics=[],
         mailbox=mailbox_summary,
         gateway=gateway_summary,
+        memory_dir=str(memory_dir) if memory_dir is not None else None,
     )
 
 

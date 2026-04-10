@@ -823,7 +823,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     assert register_result.exit_code == 0, register_result.output
     register_payload = json.loads(register_result.output)
     assert register_payload["activation_state"] == "active"
-    assert register_payload["address"] == "HOUMAO-gpu@agents.localhost"
+    assert register_payload["address"] == "gpu@houmao.localhost"
     assert register_payload["mailbox_root"] == str(mailbox_root)
 
     status_result = runner.invoke(
@@ -838,7 +838,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     record = resolve_live_agent_record("gpu")
     assert record is not None
     assert record.mailbox is not None
-    assert record.mailbox.address == "HOUMAO-gpu@agents.localhost"
+    assert record.mailbox.address == "gpu@houmao.localhost"
 
     mail_status_result = runner.invoke(
         cli, ["--print-json", "agents", "mail", "status", "--agent-name", "gpu"]
@@ -1679,6 +1679,7 @@ def _fake_joined_session_artifacts(
         session_root=Path("/tmp/runtime"),
         agent_name=agent_name,
         agent_id=agent_id,
+        memory_dir=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}"),
         runtime_root=Path("/tmp/runtime"),
         jobs_root=Path("/tmp/project/.houmao/jobs"),
         runtime_root_detail="Selected runtime root from the explicit `--runtime-root` override.",

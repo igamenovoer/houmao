@@ -14,15 +14,19 @@ import shutil
 import sqlite3
 import tomllib
 from typing import TYPE_CHECKING, Any, Iterator, cast
+from uuid import uuid4
 
+from houmao.agents.memory_dir import (
+    resolve_stored_memory_binding,
+    stored_memory_binding_kind,
+)
 from houmao.agents.model_selection import parse_reasoning_level
-from houmao.agents.definition_parser import parse_agent_preset
 from houmao.agents.managed_prompt_header import ManagedHeaderPolicy, normalize_managed_header_policy
 
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 5
+CATALOG_SCHEMA_VERSION = 7
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -76,7 +80,9 @@ class SpecialistCatalogEntry:
     preset_name: str
     tool: str
     provider: str
+    auth_profile_id: int
     credential_name: str
+    auth_bundle_ref: str
     role_name: str
     setup_name: str
     skills: tuple[str, ...]
@@ -101,7 +107,7 @@ class SpecialistCatalogEntry:
     def resolved_auth_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection auth bundle path."""
 
-        return (overlay.agents_root / "tools" / self.tool / "auth" / self.credential_name).resolve()
+        return (overlay.agents_root / "tools" / self.tool / "auth" / self.auth_bundle_ref).resolve()
 
     def resolved_skill_paths(self, overlay: HoumaoProjectOverlay) -> tuple[Path, ...]:
         """Return the compatibility projection skill paths."""
@@ -122,7 +128,11 @@ class LaunchProfileCatalogEntry:
     managed_agent_name: str | None
     managed_agent_id: str | None
     workdir: str | None
+    auth_profile_id: int | None
     auth_name: str | None
+    auth_bundle_ref: str | None
+    memory_dir: str | None
+    memory_disabled: bool
     model_name: str | None
     reasoning_level: int | None
     operator_prompt_mode: str | None
@@ -133,6 +143,15 @@ class LaunchProfileCatalogEntry:
     prompt_overlay_mode: str | None
     prompt_overlay_ref: ManagedContentRef | None
     metadata_path: Path | None = None
+
+    @property
+    def memory_binding(self) -> str:
+        """Return the stored memory-binding intent for this launch profile."""
+
+        return stored_memory_binding_kind(
+            memory_dir=self.memory_dir,
+            memory_disabled=self.memory_disabled,
+        )
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection launch-profile path."""
@@ -152,6 +171,23 @@ class CatalogIntegrityReport:
         """Return whether the catalog passed integrity validation."""
 
         return not self.missing_content
+
+
+@dataclass(frozen=True)
+class AuthProfileCatalogEntry:
+    """Resolved project-local auth profile semantics loaded from the catalog."""
+
+    id: int
+    tool: str
+    display_name: str
+    bundle_ref: str
+    content_ref: ManagedContentRef
+    metadata_path: Path | None = None
+
+    def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
+        """Return the compatibility projection auth path."""
+
+        return (overlay.agents_root / "tools" / self.tool / "auth" / self.bundle_ref).resolve()
 
 
 class ProjectCatalog:
@@ -241,25 +277,261 @@ class ProjectCatalog:
                         f"{metadata_path}: referenced skill `{skill_name}` does not exist: {skill_path}"
                     )
 
-            preset = parse_agent_preset(preset_path)
+            auth_profile = self.ensure_auth_profile_from_source(
+                tool=payload["tool"],
+                display_name=payload["credential_name"],
+                source_path=auth_path,
+            )
             self.store_specialist_from_sources(
                 name=payload["name"],
-                preset_name=preset.name,
+                preset_name=preset_path.stem,
                 tool=payload["tool"],
                 provider=payload["provider"],
-                credential_name=payload["credential_name"],
+                auth_profile=auth_profile,
                 role_name=payload["role_name"],
-                setup_name=preset.setup,
+                setup_name=_load_legacy_preset_setup_name(preset_path),
                 prompt_path=prompt_path,
-                auth_path=auth_path,
                 skill_paths=skill_paths,
                 setup_path=(
-                    self.m_projection_root / "tools" / preset.tool / "setups" / preset.setup
+                    self.m_projection_root
+                    / "tools"
+                    / payload["tool"]
+                    / "setups"
+                    / _load_legacy_preset_setup_name(preset_path)
                 ),
                 launch_mapping=_load_preset_top_level_mapping(preset_path, "launch"),
                 mailbox_mapping=_load_preset_top_level_mapping(preset_path, "mailbox"),
                 extra_mapping=_load_preset_top_level_mapping(preset_path, "extra"),
             )
+
+    def list_auth_profiles(self, *, tool: str | None = None) -> list[AuthProfileCatalogEntry]:
+        """Return persisted auth profiles, optionally filtered by tool."""
+
+        self.initialize()
+        with self._connect() as connection:
+            if tool is None:
+                rows = connection.execute(
+                    """
+                    SELECT
+                        auth_profiles.id,
+                        auth_profiles.tool,
+                        auth_profiles.display_name,
+                        auth_profiles.bundle_ref,
+                        content_refs.content_kind,
+                        content_refs.storage_kind,
+                        content_refs.relative_path
+                    FROM auth_profiles
+                    INNER JOIN content_refs ON content_refs.id = auth_profiles.content_ref_id
+                    ORDER BY auth_profiles.tool, auth_profiles.display_name
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT
+                        auth_profiles.id,
+                        auth_profiles.tool,
+                        auth_profiles.display_name,
+                        auth_profiles.bundle_ref,
+                        content_refs.content_kind,
+                        content_refs.storage_kind,
+                        content_refs.relative_path
+                    FROM auth_profiles
+                    INNER JOIN content_refs ON content_refs.id = auth_profiles.content_ref_id
+                    WHERE auth_profiles.tool = ?
+                    ORDER BY auth_profiles.display_name
+                    """,
+                    (tool,),
+                ).fetchall()
+        return [self._auth_profile_from_row(row) for row in rows]
+
+    def load_auth_profile(self, *, tool: str, name: str) -> AuthProfileCatalogEntry:
+        """Load one auth profile by tool and display name."""
+
+        self.initialize()
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    auth_profiles.id,
+                    auth_profiles.tool,
+                    auth_profiles.display_name,
+                    auth_profiles.bundle_ref,
+                    content_refs.content_kind,
+                    content_refs.storage_kind,
+                    content_refs.relative_path
+                FROM auth_profiles
+                INNER JOIN content_refs ON content_refs.id = auth_profiles.content_ref_id
+                WHERE auth_profiles.tool = ? AND auth_profiles.display_name = ?
+                LIMIT 1
+                """,
+                (tool, name),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError(
+                f"Auth profile `{tool}/{name}` was not found: {self.m_catalog_path}"
+            )
+        return self._auth_profile_from_row(row)
+
+    def load_auth_profile_by_id(self, auth_profile_id: int) -> AuthProfileCatalogEntry:
+        """Load one auth profile by its catalog id."""
+
+        self.initialize()
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    auth_profiles.id,
+                    auth_profiles.tool,
+                    auth_profiles.display_name,
+                    auth_profiles.bundle_ref,
+                    content_refs.content_kind,
+                    content_refs.storage_kind,
+                    content_refs.relative_path
+                FROM auth_profiles
+                INNER JOIN content_refs ON content_refs.id = auth_profiles.content_ref_id
+                WHERE auth_profiles.id = ?
+                LIMIT 1
+                """,
+                (auth_profile_id,),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError(
+                f"Auth profile id `{auth_profile_id}` was not found: {self.m_catalog_path}"
+            )
+        return self._auth_profile_from_row(row)
+
+    def create_auth_profile_from_source(
+        self,
+        *,
+        tool: str,
+        display_name: str,
+        source_path: Path,
+    ) -> AuthProfileCatalogEntry:
+        """Create one new auth profile from a file-backed auth tree source."""
+
+        return self._store_auth_profile_from_source(
+            tool=tool,
+            display_name=display_name,
+            source_path=source_path,
+            operation="add",
+        )
+
+    def update_auth_profile_from_source(
+        self,
+        *,
+        tool: str,
+        display_name: str,
+        source_path: Path,
+    ) -> AuthProfileCatalogEntry:
+        """Update one existing auth profile from a file-backed auth tree source."""
+
+        return self._store_auth_profile_from_source(
+            tool=tool,
+            display_name=display_name,
+            source_path=source_path,
+            operation="set",
+        )
+
+    def ensure_auth_profile_from_source(
+        self,
+        *,
+        tool: str,
+        display_name: str,
+        source_path: Path,
+    ) -> AuthProfileCatalogEntry:
+        """Create or update one auth profile from a file-backed auth tree source."""
+
+        return self._store_auth_profile_from_source(
+            tool=tool,
+            display_name=display_name,
+            source_path=source_path,
+            operation="upsert",
+        )
+
+    def rename_auth_profile(
+        self,
+        *,
+        tool: str,
+        name: str,
+        new_name: str,
+    ) -> AuthProfileCatalogEntry:
+        """Rename one auth profile display name without changing stable identity."""
+
+        resolved_name = _require_catalog_name(name, field_name="name")
+        resolved_new_name = _require_catalog_name(new_name, field_name="new_name")
+        if resolved_name == resolved_new_name:
+            return self.load_auth_profile(tool=tool, name=resolved_name)
+
+        self.ensure_legacy_import()
+        with self._connect() as connection:
+            row = self._find_auth_profile_row(
+                connection=connection,
+                tool=tool,
+                display_name=resolved_name,
+            )
+            if row is None:
+                raise FileNotFoundError(
+                    f"Auth profile `{tool}/{resolved_name}` was not found: {self.m_catalog_path}"
+                )
+            try:
+                connection.execute(
+                    """
+                    UPDATE auth_profiles
+                    SET display_name = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (resolved_new_name, _utcnow_iso(), int(row["id"])),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Auth profile `{tool}/{resolved_new_name}` already exists in "
+                    f"{self.m_catalog_path}"
+                ) from exc
+        return self.load_auth_profile(tool=tool, name=resolved_new_name)
+
+    def remove_auth_profile(self, *, tool: str, name: str) -> AuthProfileCatalogEntry:
+        """Remove one existing auth profile and its managed auth content."""
+
+        profile = self.load_auth_profile(tool=tool, name=name)
+        content_path = profile.content_ref.resolve_under_content_root(self.m_content_root)
+        projection_path = (
+            self.m_projection_root / "tools" / profile.tool / "auth" / profile.bundle_ref
+        ).resolve()
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, content_ref_id
+                FROM auth_profiles
+                WHERE tool = ? AND display_name = ?
+                LIMIT 1
+                """,
+                (tool, profile.display_name),
+            ).fetchone()
+            if row is None:
+                raise FileNotFoundError(
+                    f"Auth profile `{tool}/{profile.display_name}` was not found: "
+                    f"{self.m_catalog_path}"
+                )
+            try:
+                connection.execute(
+                    "DELETE FROM auth_profiles WHERE id = ?",
+                    (int(row["id"]),),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Auth profile `{tool}/{profile.display_name}` is still referenced and "
+                    "cannot be removed."
+                ) from exc
+            connection.execute(
+                "DELETE FROM content_refs WHERE id = ?",
+                (int(row["content_ref_id"]),),
+            )
+        if content_path.is_dir():
+            shutil.rmtree(content_path)
+        if projection_path.is_dir():
+            shutil.rmtree(projection_path)
+        return profile
 
     def specialist_exists(self, name: str) -> bool:
         """Return whether one specialist already exists in the catalog."""
@@ -284,7 +556,9 @@ class ProjectCatalog:
                     presets.name AS preset_name,
                     specialists.tool,
                     specialists.provider,
-                    specialists.credential_name,
+                    auth_profiles.id AS auth_profile_id,
+                    auth_profiles.display_name AS credential_name,
+                    auth_profiles.bundle_ref AS auth_bundle_ref,
                     roles.name AS role_name,
                     setup_profiles.name AS setup_name,
                     prompt_refs.content_kind AS prompt_kind,
@@ -322,7 +596,9 @@ class ProjectCatalog:
                     presets.name AS preset_name,
                     specialists.tool,
                     specialists.provider,
-                    specialists.credential_name,
+                    auth_profiles.id AS auth_profile_id,
+                    auth_profiles.display_name AS credential_name,
+                    auth_profiles.bundle_ref AS auth_bundle_ref,
                     roles.name AS role_name,
                     setup_profiles.name AS setup_name,
                     prompt_refs.content_kind AS prompt_kind,
@@ -359,11 +635,10 @@ class ProjectCatalog:
         preset_name: str,
         tool: str,
         provider: str,
-        credential_name: str,
+        auth_profile: AuthProfileCatalogEntry,
         role_name: str,
         setup_name: str,
         prompt_path: Path,
-        auth_path: Path,
         skill_paths: tuple[Path, ...],
         setup_path: Path | None = None,
         launch_mapping: dict[str, Any] | None,
@@ -377,11 +652,6 @@ class ProjectCatalog:
             source_path=prompt_path,
             content_kind=_CONTENT_KIND_PROMPT,
             relative_path=f"prompts/{role_name}.md",
-        )
-        auth_ref = self._snapshot_tree(
-            source_path=auth_path,
-            content_kind=_CONTENT_KIND_AUTH,
-            relative_path=f"auth/{tool}/{credential_name}",
         )
         skill_refs = tuple(
             self._snapshot_tree(
@@ -403,17 +673,11 @@ class ProjectCatalog:
                 (name,),
             ).fetchone()
             prompt_ref_id = self._upsert_content_ref(connection, prompt_ref)
-            auth_ref_id = self._upsert_content_ref(connection, auth_ref)
+            self._upsert_content_ref(connection, auth_profile.content_ref)
             role_id = self._upsert_role(
                 connection=connection,
                 role_name=role_name,
                 prompt_ref_id=prompt_ref_id,
-            )
-            auth_profile_id = self._upsert_auth_profile(
-                connection=connection,
-                tool=tool,
-                auth_name=credential_name,
-                content_ref_id=auth_ref_id,
             )
             preset_id = self._upsert_preset(
                 connection=connection,
@@ -421,7 +685,7 @@ class ProjectCatalog:
                 role_id=role_id,
                 tool=tool,
                 setup_profile_id=setup_profile_id,
-                auth_profile_id=auth_profile_id,
+                auth_profile_id=auth_profile.id,
                 launch_mapping=launch_mapping,
                 mailbox_mapping=mailbox_mapping,
                 extra_mapping=extra_mapping,
@@ -438,16 +702,14 @@ class ProjectCatalog:
                     name,
                     tool,
                     provider,
-                    credential_name,
                     role_id,
                     preset_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     tool = excluded.tool,
                     provider = excluded.provider,
-                    credential_name = excluded.credential_name,
                     role_id = excluded.role_id,
                     preset_id = excluded.preset_id,
                     updated_at = excluded.updated_at
@@ -456,7 +718,6 @@ class ProjectCatalog:
                     name,
                     tool,
                     provider,
-                    credential_name,
                     role_id,
                     preset_id,
                     timestamp,
@@ -553,7 +814,11 @@ class ProjectCatalog:
                     launch_profiles.managed_agent_name,
                     launch_profiles.managed_agent_id,
                     launch_profiles.workdir,
-                    launch_profiles.auth_name,
+                    launch_profiles.auth_profile_id,
+                    auth_profiles.display_name AS auth_name,
+                    auth_profiles.bundle_ref AS auth_bundle_ref,
+                    launch_profiles.memory_dir,
+                    launch_profiles.memory_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -566,6 +831,7 @@ class ProjectCatalog:
                     prompt_refs.storage_kind AS prompt_storage_kind,
                     prompt_refs.relative_path AS prompt_relative_path
                 FROM launch_profiles
+                LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
                 LEFT JOIN content_refs AS prompt_refs
                     ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
                 ORDER BY launch_profiles.name
@@ -588,7 +854,11 @@ class ProjectCatalog:
                     launch_profiles.managed_agent_name,
                     launch_profiles.managed_agent_id,
                     launch_profiles.workdir,
-                    launch_profiles.auth_name,
+                    launch_profiles.auth_profile_id,
+                    auth_profiles.display_name AS auth_name,
+                    auth_profiles.bundle_ref AS auth_bundle_ref,
+                    launch_profiles.memory_dir,
+                    launch_profiles.memory_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -601,6 +871,7 @@ class ProjectCatalog:
                     prompt_refs.storage_kind AS prompt_storage_kind,
                     prompt_refs.relative_path AS prompt_relative_path
                 FROM launch_profiles
+                LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
                 LEFT JOIN content_refs AS prompt_refs
                     ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
                 WHERE launch_profiles.name = ?
@@ -622,7 +893,10 @@ class ProjectCatalog:
         managed_agent_name: str | None,
         managed_agent_id: str | None,
         workdir: str | None,
+        auth_tool: str | None,
         auth_name: str | None,
+        memory_dir: str | None,
+        memory_disabled: bool,
         operator_prompt_mode: str | None,
         env_mapping: dict[str, str] | None,
         mailbox_mapping: dict[str, Any] | None,
@@ -655,6 +929,10 @@ class ProjectCatalog:
         resolved_model_name = (
             model_name.strip() if model_name is not None and model_name.strip() else None
         )
+        resolved_memory_binding = resolve_stored_memory_binding(
+            memory_dir=memory_dir,
+            memory_disabled=memory_disabled,
+        )
         resolved_reasoning_level = (
             parse_reasoning_level(reasoning_level, source="launch_profiles.reasoning_level")
             if reasoning_level is not None
@@ -674,6 +952,15 @@ class ProjectCatalog:
             )
 
         with self._connect() as connection:
+            auth_profile_id = (
+                self._auth_profile_id_for_name(
+                    connection=connection,
+                    tool=auth_tool,
+                    display_name=auth_name,
+                )
+                if auth_name is not None
+                else None
+            )
             prompt_overlay_ref_id = (
                 self._upsert_content_ref(connection, prompt_overlay_ref)
                 if prompt_overlay_ref is not None
@@ -690,7 +977,9 @@ class ProjectCatalog:
                     managed_agent_name,
                     managed_agent_id,
                     workdir,
-                    auth_name,
+                    auth_profile_id,
+                    memory_dir,
+                    memory_disabled,
                     model_name,
                     reasoning_level,
                     operator_prompt_mode,
@@ -702,7 +991,7 @@ class ProjectCatalog:
                     prompt_overlay_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -710,7 +999,9 @@ class ProjectCatalog:
                     managed_agent_name = excluded.managed_agent_name,
                     managed_agent_id = excluded.managed_agent_id,
                     workdir = excluded.workdir,
-                    auth_name = excluded.auth_name,
+                    auth_profile_id = excluded.auth_profile_id,
+                    memory_dir = excluded.memory_dir,
+                    memory_disabled = excluded.memory_disabled,
                     model_name = excluded.model_name,
                     reasoning_level = excluded.reasoning_level,
                     operator_prompt_mode = excluded.operator_prompt_mode,
@@ -730,7 +1021,13 @@ class ProjectCatalog:
                     managed_agent_name,
                     managed_agent_id,
                     workdir,
-                    auth_name,
+                    auth_profile_id,
+                    (
+                        str(resolved_memory_binding.directory)
+                        if resolved_memory_binding.directory is not None
+                        else None
+                    ),
+                    1 if resolved_memory_binding.kind == "disabled" else 0,
                     resolved_model_name,
                     resolved_reasoning_level,
                     operator_prompt_mode,
@@ -772,6 +1069,7 @@ class ProjectCatalog:
         self._ensure_projection_starter_tree()
         entries = self.list_specialists()
         launch_profiles = self.list_launch_profiles()
+        auth_profiles = self.list_auth_profiles()
         for entry in entries:
             prompt_source = entry.prompt_ref.resolve_under_content_root(self.m_content_root)
             prompt_target = (
@@ -789,16 +1087,31 @@ class ProjectCatalog:
                 encoding="utf-8",
             )
 
-            auth_source = entry.auth_ref.resolve_under_content_root(self.m_content_root)
-            auth_target = (
-                self.m_projection_root / "tools" / entry.tool / "auth" / entry.credential_name
-            ).resolve()
-            _replace_tree(source=auth_source, destination=auth_target)
-
             for skill_name, skill_ref in zip(entry.skills, entry.skill_refs, strict=True):
                 skill_source = skill_ref.resolve_under_content_root(self.m_content_root)
                 skill_target = (self.m_projection_root / "skills" / skill_name).resolve()
                 _replace_tree(source=skill_source, destination=skill_target)
+        desired_auth_dirs: dict[str, set[str]] = {}
+        for auth_profile in auth_profiles:
+            auth_source = auth_profile.content_ref.resolve_under_content_root(self.m_content_root)
+            auth_target = (
+                self.m_projection_root / "tools" / auth_profile.tool / "auth" / auth_profile.bundle_ref
+            ).resolve()
+            _replace_tree(source=auth_source, destination=auth_target)
+            desired_auth_dirs.setdefault(auth_profile.tool, set()).add(auth_profile.bundle_ref)
+        tools_root = (self.m_projection_root / "tools").resolve()
+        if tools_root.is_dir():
+            for tool_dir in sorted(path for path in tools_root.iterdir() if path.is_dir()):
+                auth_root = (tool_dir / "auth").resolve()
+                auth_root.mkdir(parents=True, exist_ok=True)
+                desired = desired_auth_dirs.get(tool_dir.name, set())
+                for child in sorted(auth_root.iterdir(), key=lambda path: path.name):
+                    if child.name in desired:
+                        continue
+                    if child.is_dir() and not child.is_symlink():
+                        shutil.rmtree(child)
+                    else:
+                        child.unlink(missing_ok=True)
         launch_profiles_root = (self.m_projection_root / "launch-profiles").resolve()
         launch_profiles_root.mkdir(parents=True, exist_ok=True)
         for launch_profile in launch_profiles:
@@ -945,75 +1258,22 @@ class ProjectCatalog:
         """Apply in-place catalog migrations required by the current schema."""
 
         current_version = _catalog_schema_version(connection)
-        if current_version >= CATALOG_SCHEMA_VERSION:
+        if current_version == CATALOG_SCHEMA_VERSION:
             return
-        if current_version == 1 and not _table_has_column(
-            connection, table_name="presets", column_name="name"
+        required_columns = (
+            ("auth_profiles", "display_name"),
+            ("auth_profiles", "bundle_ref"),
+            ("launch_profiles", "auth_profile_id"),
+        )
+        if current_version == 0 and all(
+            _table_has_column(connection, table_name=table_name, column_name=column_name)
+            for table_name, column_name in required_columns
         ):
-            connection.execute("ALTER TABLE presets ADD COLUMN name TEXT")
-        if current_version <= 1:
-            connection.execute(
-                """
-                UPDATE presets
-                SET name = (
-                    SELECT roles.name || '-' || presets.tool || '-' || setup_profiles.name
-                    FROM roles
-                    INNER JOIN setup_profiles ON setup_profiles.id = presets.setup_profile_id
-                    WHERE roles.id = presets.role_id
-                )
-                WHERE name IS NULL OR TRIM(name) = ''
-                """
-            )
-            connection.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_presets_name ON presets(name)"
-            )
-        if current_version <= 2:
-            connection.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS launch_profiles (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL UNIQUE,
-                    profile_lane TEXT NOT NULL CHECK(profile_lane IN (
-                        '{_PROFILE_LANE_EASY}',
-                        '{_PROFILE_LANE_EXPLICIT}'
-                    )),
-                    source_kind TEXT NOT NULL CHECK(source_kind IN (
-                        '{_SOURCE_KIND_SPECIALIST}',
-                        '{_SOURCE_KIND_RECIPE}'
-                    )),
-                    source_name TEXT NOT NULL,
-                    managed_agent_name TEXT,
-                    managed_agent_id TEXT,
-                    workdir TEXT,
-                    auth_name TEXT,
-                    model_name TEXT,
-                    reasoning_level INTEGER,
-                    operator_prompt_mode TEXT,
-                    env_payload TEXT NOT NULL DEFAULT '{{}}',
-                    mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
-                    posture_payload TEXT NOT NULL DEFAULT '{{}}',
-                    managed_header_policy TEXT,
-                    prompt_overlay_mode TEXT,
-                    prompt_overlay_content_ref_id INTEGER
-                        REFERENCES content_refs(id) ON DELETE SET NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-        if current_version <= 3:
-            if not _table_has_column(
-                connection, table_name="launch_profiles", column_name="model_name"
-            ):
-                connection.execute("ALTER TABLE launch_profiles ADD COLUMN model_name TEXT")
-            if not _table_has_column(
-                connection, table_name="launch_profiles", column_name="reasoning_level"
-            ):
-                connection.execute("ALTER TABLE launch_profiles ADD COLUMN reasoning_level INTEGER")
-        if current_version <= 4 and not _table_has_column(
-            connection, table_name="launch_profiles", column_name="managed_header_policy"
-        ):
-            connection.execute("ALTER TABLE launch_profiles ADD COLUMN managed_header_policy TEXT")
+            return
+        raise ValueError(
+            "Unsupported project catalog schema. Reinitialize the project overlay to adopt the "
+            "current catalog format."
+        )
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -1107,6 +1367,83 @@ class ProjectCatalog:
             relative_path=relative_path,
         )
 
+    def _store_auth_profile_from_source(
+        self,
+        *,
+        tool: str,
+        display_name: str,
+        source_path: Path,
+        operation: str,
+    ) -> AuthProfileCatalogEntry:
+        """Create or update one auth profile from a file-backed source tree."""
+
+        resolved_display_name = _require_catalog_name(display_name, field_name="display_name")
+        if operation not in {"add", "set", "upsert"}:
+            raise ValueError(f"Unsupported auth-profile store operation: {operation!r}")
+
+        self.initialize()
+        with self._connect() as connection:
+            existing_row = self._find_auth_profile_row(
+                connection=connection,
+                tool=tool,
+                display_name=resolved_display_name,
+            )
+            if operation == "add" and existing_row is not None:
+                raise ValueError(
+                    f"Auth profile `{tool}/{resolved_display_name}` already exists in "
+                    f"{self.m_catalog_path}"
+                )
+            if operation == "set" and existing_row is None:
+                raise FileNotFoundError(
+                    f"Auth profile `{tool}/{resolved_display_name}` was not found: "
+                    f"{self.m_catalog_path}"
+                )
+            bundle_ref = (
+                str(existing_row["bundle_ref"]) if existing_row is not None else uuid4().hex
+            )
+            content_ref = self._snapshot_tree(
+                source_path=source_path,
+                content_kind=_CONTENT_KIND_AUTH,
+                relative_path=f"auth/{tool}/{bundle_ref}",
+            )
+            content_ref_id = self._upsert_content_ref(connection, content_ref)
+            if existing_row is None:
+                self._insert_auth_profile(
+                    connection=connection,
+                    tool=tool,
+                    display_name=resolved_display_name,
+                    bundle_ref=bundle_ref,
+                    content_ref_id=content_ref_id,
+                )
+            else:
+                self._update_auth_profile_content(
+                    connection=connection,
+                    auth_profile_id=int(existing_row["id"]),
+                    display_name=resolved_display_name,
+                    bundle_ref=bundle_ref,
+                    content_ref_id=content_ref_id,
+                )
+        return self.load_auth_profile(tool=tool, name=resolved_display_name)
+
+    def _find_auth_profile_row(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        tool: str,
+        display_name: str,
+    ) -> sqlite3.Row | None:
+        """Return one auth-profile row for a `(tool, display_name)` lookup when present."""
+
+        return connection.execute(
+            """
+            SELECT id, bundle_ref, content_ref_id
+            FROM auth_profiles
+            WHERE tool = ? AND display_name = ?
+            LIMIT 1
+            """,
+            (tool, display_name),
+        ).fetchone()
+
     def _upsert_content_ref(
         self,
         connection: sqlite3.Connection,
@@ -1165,29 +1502,88 @@ class ProjectCatalog:
         assert row is not None
         return int(row["id"])
 
-    def _upsert_auth_profile(
+    def _insert_auth_profile(
         self,
         *,
         connection: sqlite3.Connection,
         tool: str,
-        auth_name: str,
+        display_name: str,
+        bundle_ref: str,
         content_ref_id: int,
     ) -> int:
-        """Insert or update one auth profile row and return its id."""
+        """Insert one new auth-profile row and return its id."""
 
+        timestamp = _utcnow_iso()
         connection.execute(
             """
-            INSERT INTO auth_profiles(tool, name, content_ref_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT(tool, name) DO UPDATE SET content_ref_id = excluded.content_ref_id
+            INSERT INTO auth_profiles(
+                tool,
+                display_name,
+                bundle_ref,
+                content_ref_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (tool, auth_name, content_ref_id),
+            (tool, display_name, bundle_ref, content_ref_id, timestamp, timestamp),
         )
-        row = connection.execute(
-            "SELECT id FROM auth_profiles WHERE tool = ? AND name = ? LIMIT 1",
-            (tool, auth_name),
-        ).fetchone()
+        row = self._find_auth_profile_row(
+            connection=connection,
+            tool=tool,
+            display_name=display_name,
+        )
         assert row is not None
+        return int(row["id"])
+
+    def _update_auth_profile_content(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        auth_profile_id: int,
+        display_name: str,
+        bundle_ref: str,
+        content_ref_id: int,
+    ) -> None:
+        """Update one existing auth-profile row without changing its stable identity."""
+
+        try:
+            connection.execute(
+                """
+                UPDATE auth_profiles
+                SET display_name = ?,
+                    bundle_ref = ?,
+                    content_ref_id = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (display_name, bundle_ref, content_ref_id, _utcnow_iso(), auth_profile_id),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                f"Auth profile display name `{display_name}` is already in use."
+            ) from exc
+
+    def _auth_profile_id_for_name(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        tool: str | None,
+        display_name: str | None,
+    ) -> int:
+        """Return one auth-profile id for a `(tool, display_name)` lookup."""
+
+        if display_name is None:
+            raise ValueError("Auth profile display name is required.")
+        if tool is None:
+            raise ValueError("Auth profile tool is required when resolving auth by display name.")
+        row = self._find_auth_profile_row(
+            connection=connection,
+            tool=tool,
+            display_name=_require_catalog_name(display_name, field_name="display_name"),
+        )
+        if row is None:
+            raise FileNotFoundError(f"Auth profile `{tool}/{display_name}` was not found.")
         return int(row["id"])
 
     def _upsert_preset(
@@ -1280,6 +1676,22 @@ class ProjectCatalog:
                 (preset_id, int(skill_row["id"]), ordinal),
             )
 
+    def _auth_profile_from_row(self, row: sqlite3.Row) -> AuthProfileCatalogEntry:
+        """Build one structured auth-profile entry from a joined row."""
+
+        return AuthProfileCatalogEntry(
+            id=int(row["id"]),
+            tool=str(row["tool"]),
+            display_name=str(row["display_name"]),
+            bundle_ref=str(row["bundle_ref"]),
+            content_ref=ManagedContentRef(
+                content_kind=str(row["content_kind"]),
+                storage_kind=str(row["storage_kind"]),
+                relative_path=str(row["relative_path"]),
+            ),
+            metadata_path=self.m_catalog_path,
+        )
+
     def _entry_from_row(
         self,
         connection: sqlite3.Connection,
@@ -1325,7 +1737,9 @@ class ProjectCatalog:
             preset_name=str(row["preset_name"]),
             tool=str(row["tool"]),
             provider=str(row["provider"]),
+            auth_profile_id=int(row["auth_profile_id"]),
             credential_name=str(row["credential_name"]),
+            auth_bundle_ref=str(row["auth_bundle_ref"]),
             role_name=str(row["role_name"]),
             setup_name=str(row["setup_name"]),
             skills=skill_names,
@@ -1373,6 +1787,8 @@ class ProjectCatalog:
             else None,
             workdir=str(row["workdir"]) if row["workdir"] is not None else None,
             auth_name=str(row["auth_name"]) if row["auth_name"] is not None else None,
+            memory_dir=str(row["memory_dir"]) if row["memory_dir"] is not None else None,
+            memory_disabled=bool(row["memory_disabled"]),
             model_name=str(row["model_name"]) if row["model_name"] is not None else None,
             reasoning_level=(
                 parse_reasoning_level(
@@ -1381,6 +1797,12 @@ class ProjectCatalog:
                 )
                 if row["reasoning_level"] is not None
                 else None
+            ),
+            auth_profile_id=(
+                int(row["auth_profile_id"]) if row["auth_profile_id"] is not None else None
+            ),
+            auth_bundle_ref=(
+                str(row["auth_bundle_ref"]) if row["auth_bundle_ref"] is not None else None
             ),
             operator_prompt_mode=(
                 str(row["operator_prompt_mode"])
@@ -1453,9 +1875,12 @@ def _table_schema_sql() -> str:
     CREATE TABLE IF NOT EXISTS auth_profiles (
         id INTEGER PRIMARY KEY,
         tool TEXT NOT NULL,
-        name TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        bundle_ref TEXT NOT NULL UNIQUE,
         content_ref_id INTEGER NOT NULL REFERENCES content_refs(id) ON DELETE RESTRICT,
-        UNIQUE(tool, name)
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(tool, display_name)
     );
 
     CREATE TABLE IF NOT EXISTS skill_packages (
@@ -1497,7 +1922,6 @@ def _table_schema_sql() -> str:
         name TEXT NOT NULL UNIQUE,
         tool TEXT NOT NULL,
         provider TEXT NOT NULL,
-        credential_name TEXT NOT NULL,
         role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
         preset_id INTEGER NOT NULL REFERENCES presets(id) ON DELETE RESTRICT,
         created_at TEXT NOT NULL,
@@ -1513,7 +1937,9 @@ def _table_schema_sql() -> str:
         managed_agent_name TEXT,
         managed_agent_id TEXT,
         workdir TEXT,
-        auth_name TEXT,
+        auth_profile_id INTEGER REFERENCES auth_profiles(id) ON DELETE RESTRICT,
+        memory_dir TEXT,
+        memory_disabled INTEGER NOT NULL DEFAULT 0,
         model_name TEXT,
         reasoning_level INTEGER,
         operator_prompt_mode TEXT,
@@ -1562,7 +1988,7 @@ def _view_sql() -> str:
         roles.name AS role_name,
         presets.tool AS tool,
         setup_profiles.name AS setup_name,
-        auth_profiles.name AS auth_name,
+        auth_profiles.display_name AS auth_name,
         presets.launch_payload AS launch_payload,
         presets.mailbox_payload AS mailbox_payload,
         presets.extra_payload AS extra_payload
@@ -1577,7 +2003,7 @@ def _view_sql() -> str:
         presets.name AS preset_name,
         specialists.tool AS tool,
         specialists.provider AS provider,
-        specialists.credential_name AS credential_name,
+        auth_profiles.display_name AS credential_name,
         roles.name AS role_name,
         setup_profiles.name AS setup_name,
         prompt_refs.relative_path AS prompt_relative_path,
@@ -1599,7 +2025,9 @@ def _view_sql() -> str:
         launch_profiles.managed_agent_name AS managed_agent_name,
         launch_profiles.managed_agent_id AS managed_agent_id,
         launch_profiles.workdir AS workdir,
-        launch_profiles.auth_name AS auth_name,
+        auth_profiles.display_name AS auth_name,
+        launch_profiles.memory_dir AS memory_dir,
+        launch_profiles.memory_disabled AS memory_disabled,
         launch_profiles.model_name AS model_name,
         launch_profiles.reasoning_level AS reasoning_level,
         launch_profiles.operator_prompt_mode AS operator_prompt_mode,
@@ -1610,6 +2038,7 @@ def _view_sql() -> str:
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
         prompt_refs.relative_path AS prompt_overlay_relative_path
     FROM launch_profiles
+    LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
     LEFT JOIN content_refs AS prompt_refs
         ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id;
     """
@@ -1684,6 +2113,19 @@ def _load_legacy_specialist_payload(path: Path) -> dict[str, Any]:
     return result
 
 
+def _load_legacy_preset_setup_name(path: Path) -> str:
+    """Return the `setup` field from one legacy YAML-like preset file."""
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or not line.startswith("setup:"):
+            continue
+        value = line.partition(":")[2].strip().strip('"').strip("'")
+        if value:
+            return value
+    raise ValueError(f"{path}: missing `setup` field.")
+
+
 def _render_preset_yaml(entry: SpecialistCatalogEntry) -> str:
     """Render one compatibility projection preset file."""
 
@@ -1733,6 +2175,8 @@ def _render_launch_profile_yaml(
         defaults["workdir"] = entry.workdir
     if entry.auth_name is not None:
         defaults["auth"] = entry.auth_name
+    defaults["memory_binding"] = entry.memory_binding
+    defaults["memory_dir"] = entry.memory_dir
     if entry.model_name is not None or entry.reasoning_level is not None:
         defaults["model"] = {}
         if entry.model_name is not None:
@@ -1843,3 +2287,12 @@ def _load_preset_top_level_mapping(path: Path, key: str) -> dict[str, Any] | Non
     if not isinstance(value, dict):
         raise ValueError(f"{path}: expected `{key}` to be a mapping when present.")
     return cast(dict[str, Any], value)
+
+
+def _require_catalog_name(value: str, *, field_name: str) -> str:
+    """Return one non-empty catalog-facing display name."""
+
+    resolved = value.strip()
+    if not resolved:
+        raise ValueError(f"`{field_name}` must not be empty.")
+    return resolved

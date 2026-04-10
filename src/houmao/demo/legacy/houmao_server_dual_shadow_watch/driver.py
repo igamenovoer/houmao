@@ -75,6 +75,17 @@ class HoumaoServerDualShadowWatchError(RuntimeError):
     """Raised when the standalone demo cannot proceed safely."""
 
 
+def _removed_fixture_root_error() -> str:
+    """Return the archived-demo guard message for this entry point."""
+
+    return (
+        "Archived demo `houmao_server_dual_shadow_watch` is not runnable. "
+        "This legacy workflow depends on the removed `tests/fixtures/agents/` "
+        "fixture-root contract. Use maintained demo surfaces such as "
+        "`scripts/demo/shared-tui-tracking-demo-pack/` instead."
+    )
+
+
 @dataclass(frozen=True)
 class LanePreflight:
     """Resolved preflight and runtime-home preparation inputs for one lane."""
@@ -139,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv or sys.argv[1:])
     try:
+        raise HoumaoServerDualShadowWatchError(_removed_fixture_root_error())
         if args.command == "preflight":
             payload = preflight_demo(
                 repo_root=_repo_root(),

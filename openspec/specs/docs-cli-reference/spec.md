@@ -5,7 +5,7 @@ Define the documentation requirements for Houmao CLI reference content.
 ## Requirements
 ### Requirement: houmao-mgr reference documents all command groups
 
-The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `mailbox`, `project`, and `server`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
+The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `credentials`, `mailbox`, `project`, and `server`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
 
 The CLI reference SHALL make the major nested managed-agent and project command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
 
@@ -16,6 +16,7 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 - `agents mailbox`,
 - `agents cleanup`,
 - `project agents`,
+- `project credentials`,
 - `project easy`,
 - `project mailbox`,
 - `admin cleanup`.
@@ -31,15 +32,15 @@ When the CLI reference documents `agents gateway`, that coverage SHALL include t
 
 The `brains build` options table in the CLI reference SHALL reflect the current live CLI flag names: `--preset`, `--setup`, and `--auth`. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
 
-When the `houmao-mgr` reference describes Claude credential lanes for `project easy specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed `project agents tools claude auth` flag names (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
+When the `houmao-mgr` reference describes Claude credential lanes for `project easy specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed dedicated credential-management flag names used by `project credentials claude` and `credentials claude --agent-def-dir <path>` (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
 
 #### Scenario: Reader finds current agent lifecycle and project command groups
 - **WHEN** a reader looks up `houmao-mgr`
-- **THEN** they find documented subcommands for `agents`, `brains`, `mailbox`, `project`, `server`, and `admin`
+- **THEN** they find documented subcommands for `agents`, `brains`, `credentials`, `mailbox`, `project`, `server`, and `admin`
 - **AND THEN** the CLI reference does not present removed or outdated project group names such as `agent-tools` as the supported public project surface
 
 #### Scenario: Reader can discover nested managed-agent and project command families
-- **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project easy`, `project mailbox`, or `admin cleanup`
+- **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project credentials`, `project easy`, `project mailbox`, or `admin cleanup`
 - **THEN** the CLI reference provides a direct path to formal reference coverage for those nested families
 - **AND THEN** the reader does not need to reconstruct those command surfaces only from source code or scattered prose pages
 
@@ -75,9 +76,33 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 
 #### Scenario: Reader sees correct Claude auth flag-name distinction
 - **WHEN** a reader looks up Claude credential lanes in the `houmao-mgr` reference
-- **THEN** the page shows that `project agents tools claude auth` uses `--auth-token`, `--oauth-token`, `--config-dir`
+- **THEN** the page shows that `project credentials claude` and `credentials claude --agent-def-dir <path>` use `--auth-token`, `--oauth-token`, `--config-dir`
 - **AND THEN** the page shows that `project easy specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
 - **AND THEN** the page states that both surfaces accept the same credential semantics
+
+### Requirement: CLI reference documents the dedicated credential-management families
+The CLI reference SHALL document the dedicated credential-management families for `houmao-mgr`.
+
+At minimum, that coverage SHALL include:
+
+- the top-level `credentials` command family,
+- the project-scoped `project credentials` wrapper,
+- the supported tool lanes `claude`, `codex`, and `gemini`,
+- the supported verbs `list`, `get`, `add`, `set`, `rename`, and `remove`,
+- the target-selection model for project-backed versus `--agent-def-dir` usage,
+- the removal of credential CRUD from `project agents tools <tool>`.
+
+The `houmao-mgr` reference SHALL position `credentials` as the first-class credential-management surface and SHALL position `project credentials` as the explicit project-scoped wrapper.
+
+#### Scenario: Reader can find the dedicated top-level credential family
+- **WHEN** a reader looks up `houmao-mgr`
+- **THEN** the CLI reference documents `credentials` as a supported top-level command family
+- **AND THEN** the page explains when to use `credentials ...` versus `project credentials ...`
+
+#### Scenario: Reader sees that credential CRUD moved out of project agents tools
+- **WHEN** a reader checks the CLI reference for project-local tool management
+- **THEN** the reference explains that `project agents tools <tool>` remains for tool inspection and setup bundles
+- **AND THEN** the reference directs credential CRUD to `credentials ...` or `project credentials ...`
 
 ### Requirement: houmao-server reference documents serve and query commands
 
@@ -190,6 +215,38 @@ Each completed page SHALL follow the style of `docs/reference/cli/admin-cleanup.
 - **THEN** they find complete documentation for `submit`, `status`, `events`, `stdout`, and `stderr` with option tables
 - **AND THEN** the page is not truncated mid-content
 
+### Requirement: CLI reference documents the `agents gateway reminders` subgroup
+The CLI reference SHALL document `houmao-mgr agents gateway reminders` as a first-class subgroup of `agents gateway`.
+
+At minimum, that coverage SHALL include:
+
+- `list`
+- `get`
+- `create`
+- `set`
+- `remove`
+
+The `agents-gateway` reference page SHALL provide full option tables and brief usage guidance for those reminder commands.
+
+That reminder coverage SHALL explain:
+
+- the same managed-agent selector rules used by the rest of `agents gateway`,
+- that reminder commands work through pair-managed authority when `--pair-port` is used,
+- that ranking remains numeric,
+- that `--before-all` places a reminder ahead of the current minimum ranking,
+- that `--after-all` places a reminder after the current maximum ranking,
+- that direct `/v1/reminders` remains the lower-level gateway contract underneath the CLI.
+
+#### Scenario: Reader finds all reminder subcommands from the `agents gateway` CLI reference
+- **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
+- **THEN** the page documents `reminders list`, `reminders get`, `reminders create`, `reminders set`, and `reminders remove`
+- **AND THEN** the reminder subgroup appears alongside the other current `agents gateway` operator surfaces rather than as an undocumented exception
+
+#### Scenario: Reader can understand ranking placement flags from the CLI reference
+- **WHEN** a reader looks up `houmao-mgr agents gateway reminders create` or `set`
+- **THEN** the option tables and prose explain `--ranking`, `--before-all`, and `--after-all`
+- **AND THEN** the page makes clear that ranking is numeric and that the convenience flags resolve to concrete numeric positions relative to the live reminder set
+
 ### Requirement: houmao-passive-server reference rewritten with operational depth
 
 The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be rewritten from the current 30-line stub to a comprehensive reference covering:
@@ -212,15 +269,15 @@ The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be re
 - **AND THEN** the page notes which `houmao-mgr` commands are compatible with the passive-server
 
 ### Requirement: CLI reference distinguishes Claude credential inputs from the optional state template
-The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both:
+The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both the dedicated credential-management surface and the easy-specialist surface:
 
-- `project agents tools claude auth ...`
+- `project credentials claude ...` or `credentials claude ... --agent-def-dir <path>`
 - `project easy specialist create --tool claude`
 
 When the reference documents Claude-specific flags, it SHALL make clear that `claude_state.template.json` or `--claude-state-template-file` is optional runtime bootstrap state and not itself a credential-providing method.
 
 #### Scenario: Reader sees the Claude state template documented separately in the CLI reference
-- **WHEN** a reader looks up the Claude project-auth or easy-specialist options in `docs/reference/cli/houmao-mgr.md`
+- **WHEN** a reader looks up the Claude credential-management or easy-specialist options in `docs/reference/cli/houmao-mgr.md`
 - **THEN** the page distinguishes credential-providing Claude inputs from the optional state-template input
 - **AND THEN** it does not present the state-template input as one of the ways to authenticate Claude
 
@@ -274,7 +331,7 @@ That page SHALL explain that `houmao-project-mgr` covers project overlay discove
 That page SHALL explain that neighboring renamed packaged skills keep their current ownership boundaries:
 
 - `houmao-specialist-mgr` owns easy specialist and easy profile authoring plus easy `launch|stop`
-- `houmao-credential-mgr` owns project-local auth bundle CRUD
+- `houmao-credential-mgr` owns dedicated credential-management routing and CRUD
 - `houmao-agent-definition` owns low-level roles and recipes
 - `houmao-agent-instance` owns generic managed-agent lifecycle after project-scoped routing
 - `houmao-mailbox-mgr` owns mailbox-administration guidance
@@ -550,13 +607,15 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `hou
 That page SHALL describe the packaged skill as the Houmao-owned entry point for gateway-focused work across:
 
 - `agents gateway attach|detach|status`
+- `agents gateway reminders list|get|create|set|remove`
 - `agents gateway mail-notifier status|enable|disable`
 - current-session versus explicit managed-agent gateway targeting
+- managed-agent gateway reminder proxy routes such as `/houmao/agents/{agent_ref}/gateway/reminders...` when the task is already operating through pair-managed HTTP
 - direct live gateway route families such as `/v1/status`, `/v1/reminders`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
 
 That page SHALL explain that the packaged gateway skill prefers `houmao-mgr agents gateway ...` and managed-agent `/houmao/agents/{agent_ref}/gateway...` routes when those higher-level surfaces exist.
 
-That page SHALL explain that reminders are direct live-gateway HTTP in the current implementation, remain in-memory state that does not survive gateway restart, and are selected by smallest ranking value rather than by independent wakeup-job ownership.
+That page SHALL explain that reminder work uses `agents gateway reminders ...` or managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` when those higher-level surfaces already satisfy the task, that direct `/v1/reminders` remains the lower-level live contract, that reminder state remains in-memory and non-durable across gateway restart, and that effective reminder selection still follows smallest ranking value rather than independent wakeup-job ownership.
 
 That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-agent-messaging` and the mailbox skill family rather than in `houmao-agent-gateway`.
 
@@ -567,8 +626,8 @@ That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-a
 
 #### Scenario: Reader sees the reminder boundary clearly
 - **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that current reminder control uses direct live gateway `/v1/reminders` routes
-- **AND THEN** it does not imply that reminders are durable across gateway restart or already projected through `houmao-mgr agents gateway ...`
+- **THEN** the page explains that current reminder control prefers `houmao-mgr agents gateway reminders ...` or the matching managed-agent reminder proxy when available and keeps direct live `/v1/reminders` as the lower-level contract
+- **AND THEN** it does not imply that reminders are durable across gateway restart
 
 ### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
 The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
@@ -725,4 +784,88 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL link to the n
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the introduction or top section of the page contains a link to `docs/getting-started/system-skills-overview.md`
 - **AND THEN** the link is presented as a "see also" or "narrative overview" pointer rather than buried in the bottom of the page
+
+### Requirement: houmao-mgr reference dedicates a section to the credentials command group
+
+`docs/reference/cli/houmao-mgr.md` SHALL include a dedicated `credentials` command-group section inside its "Command Groups" heading, parallel to the existing `admin`, `agents`, `brains`, `mailbox`, `project`, `server`, and `system-skills` sections.
+
+That section SHALL:
+
+- present `houmao-mgr credentials` as the first-class top-level credential-management surface,
+- document the `claude`, `codex`, and `gemini` tool subcommands and the supported CRUD verbs (`list`, `get`, `add`, `set`, `remove`, `rename`) derived from live Click help output,
+- explain how `credentials ...` relates to `project credentials ...` — the top-level family is agent-definition-directory-capable through `--agent-def-dir <path>` and the project-scoped wrapper targets the active project overlay,
+- describe when to reach for which surface (plain agent-definition directories vs active project overlays),
+- cross-link the packaged `houmao-credential-mgr` system-skill guidance and the existing credential-lane notes in the `project easy` and `project agents tools <tool> auth` sections.
+
+#### Scenario: Reader finds the credentials command group in the reference
+- **WHEN** a reader opens `docs/reference/cli/houmao-mgr.md`
+- **THEN** the "Command Groups" outline contains an explicit `### credentials — <section title>` heading alongside the other top-level command groups
+- **AND THEN** the section is discoverable from the page table of contents without reading unrelated command-group prose first
+
+#### Scenario: Reader understands when to use credentials vs project credentials
+- **WHEN** a reader opens the `credentials` section
+- **THEN** the page explains that `houmao-mgr credentials <tool> ...` is the dedicated credential-management surface and that `--agent-def-dir <path>` targets plain agent-definition directories outside of any project overlay
+- **AND THEN** the page explains that `houmao-mgr project credentials <tool> ...` is the project-scoped wrapper that targets the active Houmao project overlay
+- **AND THEN** the page states that the two surfaces share semantics and that the project-scoped wrapper is the preferred entry point when an active overlay is present
+
+#### Scenario: Reader finds supported credentials subcommands per tool
+- **WHEN** a reader opens the `credentials` section
+- **THEN** the page documents `claude`, `codex`, and `gemini` as the three supported tool subcommands
+- **AND THEN** it lists `list`, `get`, `add`, `set`, `remove`, and `rename` as the supported CRUD verbs
+- **AND THEN** the supported credential input flags on each tool subcommand (for example `--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`, `--oauth-creds`) match the current Click decorators at `src/houmao/srv_ctrl/commands/credentials.py`
+
+### Requirement: docs/index.md surfaces the credentials command family
+
+`docs/index.md` SHALL list the `houmao-mgr credentials` command family (or its `houmao-mgr.md` in-page anchor) alongside the other CLI Surfaces entries, so the credentials surface is discoverable from the documentation site landing page.
+
+#### Scenario: Reader finds credentials from the docs landing page
+- **WHEN** a reader opens `docs/index.md`
+- **THEN** the "CLI Surfaces" section either links directly to the `credentials` heading inside `docs/reference/cli/houmao-mgr.md` or lists the `credentials` command family as a top-level entry point
+- **AND THEN** a reader arriving via `docs/index.md` never has to guess that `houmao-mgr credentials` exists
+
+### Requirement: CLI reference documents headless execution overrides on all supported prompt surfaces
+
+`docs/reference/cli/houmao-mgr.md` (and its child reference pages for `agents turn` and `agents gateway`) SHALL document the request-scoped headless execution overrides on every supported prompt submission CLI surface.
+
+At minimum the coverage SHALL include:
+
+- `houmao-mgr agents prompt`
+- `houmao-mgr agents turn submit`
+- `houmao-mgr agents gateway prompt`
+
+For each of those three surfaces the reference SHALL document:
+
+- `--model TEXT` as a request-scoped headless execution model override,
+- `--reasoning-level INTEGER` as a tool/model-specific reasoning preset index rather than as a normalized portable `1..10` knob,
+- that the interpretation of `--reasoning-level` depends on the resolved tool/model ladder and that positive overflow saturates to the highest maintained Houmao preset for that ladder,
+- that the overrides apply to exactly the submitted prompt, turn, or gateway request and do not mutate launch profiles, recipes, specialists, manifests, stored easy profiles, or any other live session defaults,
+- that the overrides are rejected clearly when the resolved target is a TUI-backed prompt route rather than silently dropped,
+- that partial overrides (for example supplying `--reasoning-level` without `--model`) merge with launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden,
+- that Gemini reasoning levels are Houmao-documented presets which may map to multiple native Gemini settings together,
+- that operators who need finer native control should omit Houmao `--reasoning-level` and manage native tool config or env directly.
+
+#### Scenario: Reader finds headless overrides on agents prompt
+- **WHEN** a reader opens the `agents prompt` coverage inside `docs/reference/cli/houmao-mgr.md`
+- **THEN** the page documents `--model` and `--reasoning-level` as supported options
+- **AND THEN** the page states that those overrides apply to exactly the submitted prompt and never rewrite persistent launch-resolved state
+
+#### Scenario: Reader finds headless overrides on agents turn submit
+- **WHEN** a reader opens the `agents turn submit` coverage
+- **THEN** the page documents `--model` and `--reasoning-level` as request-scoped overrides
+- **AND THEN** the page explains that those overrides apply only to the submitted turn
+
+#### Scenario: Reader finds headless overrides on agents gateway prompt
+- **WHEN** a reader opens the `agents gateway prompt` coverage
+- **THEN** the page documents `--model` and `--reasoning-level` as request-scoped overrides
+- **AND THEN** the page explains that the overrides apply to exactly the addressed gateway prompt submission, including when that submission is queued through `submit_prompt`
+
+#### Scenario: Reader understands TUI-target rejection
+- **WHEN** a reader looks up any of the three supported prompt surfaces
+- **THEN** the reference states that supplying `--model` or `--reasoning-level` for a TUI-backed target results in a clear failure rather than a silent drop
+- **AND THEN** the reference does not suggest that TUI-backed sessions can be retargeted to a different model through these flags
+
+#### Scenario: Reader finds Gemini preset guidance and native-control escape hatch
+- **WHEN** a reader looks up reasoning-level documentation for Gemini-backed launch or prompt submission
+- **THEN** the reference explains that Gemini reasoning levels are Houmao-maintained presets that may map to multiple native Gemini settings together
+- **AND THEN** the reference explains that operators needing finer Gemini-native control should omit Houmao reasoning-level and manage native config or env directly
 

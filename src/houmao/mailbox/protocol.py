@@ -30,6 +30,8 @@ HOUMAO_ORIGIN_HEADER_NAME = "x-houmao-origin"
 HOUMAO_REPLY_POLICY_HEADER_NAME = "x-houmao-reply-policy"
 HOUMAO_OPERATOR_ORIGIN_VALUE = "operator"
 HOUMAO_NO_REPLY_POLICY_VALUE = "none"
+HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE = "operator_mailbox"
+OperatorOriginReplyPolicy = Literal["none", "operator_mailbox"]
 MESSAGE_ID_PATTERN = re.compile(r"^msg-\d{8}T\d{6}Z-[0-9a-f]{32}$")
 _RFC3339_UTC_SUFFIX = "Z"
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -289,12 +291,32 @@ def is_operator_origin_headers(headers: Mapping[str, object]) -> bool:
     return origin.strip().lower() == HOUMAO_OPERATOR_ORIGIN_VALUE
 
 
-def operator_origin_headers() -> dict[str, str]:
+def operator_origin_reply_policy(headers: Mapping[str, object]) -> OperatorOriginReplyPolicy:
+    """Return the normalized operator-origin reply policy for one message."""
+
+    value = headers.get(HOUMAO_REPLY_POLICY_HEADER_NAME)
+    if not isinstance(value, str):
+        return HOUMAO_NO_REPLY_POLICY_VALUE
+    normalized = value.strip().lower()
+    if normalized == HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE:
+        return HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
+    return HOUMAO_NO_REPLY_POLICY_VALUE
+
+
+def operator_origin_headers(
+    *,
+    reply_policy: OperatorOriginReplyPolicy = HOUMAO_NO_REPLY_POLICY_VALUE,
+) -> dict[str, str]:
     """Return canonical provenance headers for operator-origin mailbox delivery."""
 
+    if reply_policy not in {
+        HOUMAO_NO_REPLY_POLICY_VALUE,
+        HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+    }:
+        raise ValueError(f"unsupported operator-origin reply policy: {reply_policy!r}")
     return {
         HOUMAO_ORIGIN_HEADER_NAME: HOUMAO_OPERATOR_ORIGIN_VALUE,
-        HOUMAO_REPLY_POLICY_HEADER_NAME: HOUMAO_NO_REPLY_POLICY_VALUE,
+        HOUMAO_REPLY_POLICY_HEADER_NAME: reply_policy,
     }
 
 

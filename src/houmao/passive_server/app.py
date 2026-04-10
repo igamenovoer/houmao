@@ -23,6 +23,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
@@ -245,6 +251,51 @@ def create_app(
     @app.delete("/houmao/agents/{agent_ref}/gateway/mail-notifier")
     def gateway_mail_notifier_disable(agent_ref: str) -> GatewayMailNotifierStatusV1:
         result = resolved_service.gateway_mail_notifier_disable(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/reminders")
+    def gateway_reminders(agent_ref: str) -> GatewayReminderListV1:
+        result = resolved_service.gateway_reminders(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/reminders")
+    def gateway_create_reminders(
+        agent_ref: str,
+        payload: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        result = resolved_service.gateway_create_reminders(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}")
+    def gateway_get_reminder(agent_ref: str, reminder_id: str) -> GatewayReminderV1:
+        result = resolved_service.gateway_get_reminder(agent_ref, reminder_id)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.put("/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}")
+    def gateway_put_reminder(
+        agent_ref: str,
+        reminder_id: str,
+        payload: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        result = resolved_service.gateway_put_reminder(agent_ref, reminder_id, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.delete("/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}")
+    def gateway_delete_reminder(
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        result = resolved_service.gateway_delete_reminder(agent_ref, reminder_id)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

@@ -54,12 +54,13 @@ The result is a fully resolved `LaunchPlan` that a backend can execute without f
 
 When a managed agent was launched from a reusable launch profile (either an easy `project easy profile` or an explicit `project agents launch-profiles`), the build manifest carries launch-profile-derived inputs into run-phase resolution. At minimum, the following profile-owned values reach the manifest before `build_launch_plan` consumes it:
 
-- effective auth selection (by bundle name; secrets remain in the auth bundle, never inline),
+- effective auth selection (rendered by auth display name; secrets remain in the auth bundle, never inline, and stored relationships resolve through auth-profile identity),
 - operator prompt-mode intent (`unattended` or `as_is`),
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal, Stalwart-only fields when applicable),
 - managed-agent identity defaults (`agent_name`, optionally `agent_id`),
-- the **effective launch prompt** — prompt composition happens in this order: source role prompt, launch-profile prompt overlay resolution, managed-header prepend when enabled, then backend-specific role injection. The runtime does not replay the overlay or managed header later as separate bootstrap steps on resumed turns.
+- the **effective launch prompt** — prompt composition happens in this order: source role prompt, launch-profile prompt overlay resolution, launch-owned appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. The runtime does not replay the overlay, appendix, or managed header later as separate bootstrap steps on resumed turns.
+- secret-free `inputs.houmao_system_prompt_layout` metadata describing the rendered structured prompt layout for new builds.
 
 The build manifest and the resulting runtime launch metadata also preserve secret-free **launch-profile provenance** sufficient for inspection and replay: the source lane (specialist or recipe), the birth-time lane (`easy_profile` or `launch_profile`), and the originating profile name when available. Inspection commands such as `houmao-mgr agents state`, `houmao-mgr agents list`, and the easy `houmao-mgr project easy instance get|list` surfaces report that provenance.
 

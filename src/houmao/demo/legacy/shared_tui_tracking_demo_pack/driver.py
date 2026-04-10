@@ -24,6 +24,17 @@ _DEBUG_LOGGER_PREFIXES = (
 )
 
 
+def _removed_fixture_root_error() -> str:
+    """Return the archived-demo guard message for this entry point."""
+
+    return (
+        "Archived demo `shared_tui_tracking_demo_pack` is not runnable. "
+        "This legacy workflow depends on the removed `tests/fixtures/agents/` "
+        "fixture-root contract. Use the maintained "
+        "`scripts/demo/shared-tui-tracking-demo-pack/` surface instead."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the tracked-TUI demo pack driver."""
 
@@ -31,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv or sys.argv[1:])
     try:
+        raise RuntimeError(_removed_fixture_root_error())
         if args.command == "recorded-capture":
             scenario = load_scenario(_resolve_path(args.scenario))
             demo_config = resolve_demo_config(

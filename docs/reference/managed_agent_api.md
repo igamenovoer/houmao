@@ -124,7 +124,15 @@ Prompt submission:
 ```json
 {
   "request_kind": "submit_prompt",
-  "prompt": "Summarize the current state."
+  "prompt": "Summarize the current state.",
+  "execution": {
+    "model": {
+      "name": "claude-3-7-sonnet",
+      "reasoning": {
+        "level": 7
+      }
+    }
+  }
 }
 ```
 
@@ -157,6 +165,9 @@ Important rules:
 - `headless_turn_id` and `headless_turn_index` are present only when the accepted request created or targeted a managed headless turn.
 - TUI prompt submission prefers a healthy attached gateway and falls back to the direct transport only when no live gateway currently owns safe prompt admission for that session.
 - Headless prompt submission keeps server-owned durable turn creation and turn-record authority, then prefers attached gateway admission when a healthy gateway owns live headless control.
+- Headless prompt routes accept optional request-scoped `execution.model.name` plus optional `execution.model.reasoning.level` as a tool/model-specific preset index.
+- Request-scoped execution overrides merge with launch-resolved defaults for the current headless turn only and never rewrite the stored manifest or later live state.
+- TUI-backed prompt submission rejects any `execution` payload with HTTP `422` instead of silently dropping it.
 - Discovery of a gateway does not change the public request contract; callers still use `/houmao/agents/{agent_ref}/requests`.
 
 Observable admission and failure semantics:
@@ -198,7 +209,9 @@ For pair-managed `houmao_server_rest` sessions, operators normally reach this ro
 
 `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt` records explicit prompt-note provenance on the live gateway tracker without enqueueing a gateway request.
 
-`POST /houmao/agents/{agent_ref}/gateway/requests` proxies live gateway `submit_prompt` and `interrupt` requests. It rejects the request explicitly when no eligible live gateway is attached instead of silently falling back to the transport-neutral `/requests` surface.
+`POST /houmao/agents/{agent_ref}/gateway/requests` proxies live gateway `submit_prompt` and `interrupt` requests. It rejects the request explicitly when no eligible live gateway is attached instead of silently falling back to the transport-neutral `/requests` surface. For `submit_prompt`, the same optional headless-only `execution.model` shape is accepted here and rejected with HTTP `422` for TUI-backed targets.
+
+`POST /houmao/agents/{agent_ref}/gateway/control/prompt` is the immediate "send now or refuse now" gateway-control surface. It accepts the same optional headless-only `execution.model.name` plus optional `execution.model.reasoning.level` (`>=0`, interpreted against the resolved tool/model ladder) payload as the queued `submit_prompt` surface, applies the override to exactly the current prompt admission, and rejects the request with HTTP `422` when the resolved target is TUI-backed. Partial overrides merge with launch-resolved defaults through the shared headless resolution helper.
 
 `POST /houmao/agents/{agent_ref}/gateway/control/send-keys` proxies the live gateway raw control-input route. It carries the same `<[key-name]>` grammar and `escape_special_keys` behavior as the direct gateway `POST /v1/control/send-keys` contract.
 
@@ -250,6 +263,7 @@ Launch-time gateway flags are intentionally not part of this contract. Gateway l
 For managed headless agents, durable post-turn inspection stays on the `/turns/*` family:
 
 - `POST /houmao/agents/{agent_ref}/turns` accepts one managed headless prompt turn and returns a durable turn handle; it now also accepts optional `chat_session` with `mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"` and `id` required only for `mode = "exact"`. Note: `auto` and `current` are gateway-level selectors (`GatewayChatSessionSelectorMode`) resolved by the gateway before dispatch; the internal headless turn API accepts only `new`, `tool_last_or_new`, and `exact`
+- `POST /houmao/agents/{agent_ref}/turns` also accepts optional request-scoped `execution.model.name` plus optional `execution.model.reasoning.level` (`>=0`, interpreted against the resolved tool/model ladder). The override is applied only to the submitted turn and does not persist as agent state.
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}` reports persisted turn status
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` returns canonical semantic headless event records with normalized assistant, action, completion, provider, and session semantics
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `/stderr` expose the durable raw provider artifacts directly
@@ -263,6 +277,8 @@ The managed-agent API routes are also reachable through the `houmao-mgr` CLI:
 - [houmao-mgr agents gateway](cli/agents-gateway.md) — gateway lifecycle and explicit live-gateway request commands
 - [houmao-mgr agents turn](cli/agents-turn.md) — managed headless turn submission and inspection
 - [houmao-mgr agents mail](cli/agents-mail.md) — managed-agent mailbox follow-up commands
+
+`houmao-mgr agents prompt` shares the transport-neutral `/requests` surface and accepts the same headless-only request-scoped `--model` plus optional `--reasoning-level` overrides.
 
 ## Source References
 

@@ -55,7 +55,7 @@ stateDiagram-v2
     ready --> active : explicit input anchor armed<br/>or active evidence detected
     ready --> unknown : diagnostics degraded<br/>(error / tui_down / unavailable)<br/>or ambiguous interactive surface
 
-    active --> ready : turn completed —<br/>success settled +<br/>ready_posture=yes<br/>OR interrupted/failure +<br/>ready surface
+    active --> ready : turn completed —<br/>success settled +<br/>ready_posture=yes<br/>OR interrupted/failure +<br/>ready surface<br/>OR host stale-active recovery
     active --> unknown : diagnostics degraded<br/>(error / tui_down / unavailable)
 
     note right of unknown : Not an error —<br/>means the system<br/>cannot confidently classify<br/>the current posture
@@ -259,6 +259,22 @@ Each observation is processed through these checks in order. The first matching 
 4. **Success candidate** — If the detector reports `success_candidate=true`, emit `turn.phase=ready` and arm or retain the settle timer. If a previous settled success exists with a different surface signature, retract it first.
 
 5. **Default** — No strong signal matched. Cancel any pending success timer. Emit `turn.phase=ready` if `ready_posture=yes`, otherwise `turn.phase=unknown`.
+
+### Host-Side Stale-Active Recovery
+
+After the shared tracker publishes its `surface` / `turn` / `last_turn` fields, the live host adapter may still apply one corrective step for unanchored sessions.
+
+That recovery exists to handle stale active evidence that survived in tmux history after the visible surface has already become submit-ready again. The current Codex tracker is the main case that benefits from it.
+
+The host adapter recovers `turn.phase=active` to `turn.phase=ready` only when all of the following remain true through the configured recovery window:
+
+- diagnostics remain `available`
+- parsed surface is submit-ready (`availability=supported`, `business_state=idle`, `input_mode=freeform`)
+- public surface remains `accepting_input=yes` and `editing_input=no`
+- the session is unanchored (`lifecycle_authority.turn_anchor_state=absent`)
+- remaining shared-tracker active reasons are limited to stale-like `status_row` evidence
+
+This correction does not set `last_turn.result=success`. It only fixes the public readiness posture.
 
 ### Success Timer
 

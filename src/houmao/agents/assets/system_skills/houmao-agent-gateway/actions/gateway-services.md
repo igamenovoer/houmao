@@ -1,6 +1,6 @@
 # Use Gateway-Only Services
 
-Use this action when the task specifically needs the live gateway's own control, queueing, raw-input, TUI inspection, or headless-session surfaces instead of the broader transport-neutral managed-agent path.
+Use this action when the task specifically needs the live gateway's own control, queueing, raw-input, TUI inspection, or headless-session surfaces instead of the broader transport-neutral managed-agent path. If the request is generic managed-agent inspection rather than a gateway-owned service, use `houmao-agent-inspect` instead.
 
 ## Workflow
 

@@ -74,7 +74,7 @@ Each tool-specific reference page SHALL be authored from:
 - checked-in upstream source under `extern/orphan/`,
 - direct inspection of the installed executable.
 
-Each tool-specific reference page SHALL NOT instruct agents to use `tests/fixtures/agents`, demo fixtures, or other repository-only paths as deployment lookup locations.
+Each tool-specific reference page SHALL NOT instruct agents to use historical shared test-fixture roots, demo fixtures, or other repository-only paths as deployment lookup locations.
 
 #### Scenario: Selected tool loads only its own lookup guide
 

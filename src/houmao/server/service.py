@@ -22,6 +22,7 @@ from urllib import error, parse, request
 from fastapi import HTTPException, Response
 from pydantic import BaseModel
 
+from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayChatSessionSelectorV1,
@@ -33,6 +34,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessStartupDefaultV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayReminderCreateBatchV1,
+    GatewayReminderCreateResultV1,
+    GatewayReminderDeleteResultV1,
+    GatewayReminderListV1,
+    GatewayReminderPutV1,
+    GatewayReminderV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -141,6 +148,7 @@ from houmao.server.models import (
     HoumaoManagedAgentMailActionResponse,
     HoumaoManagedAgentMailCheckRequest,
     HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
     HoumaoManagedAgentMailStateRequest,
@@ -1293,6 +1301,11 @@ class HoumaoServerService:
             prompt=request_model.prompt,
             turn_id=request_model.turn_id,
             chat_session=request_model.chat_session,
+            execution_model=(
+                request_model.execution.to_model_config()
+                if request_model.execution is not None
+                else None
+            ),
         )
         detail = (
             f"Managed headless prompt `{request_model.turn_id}` dispatched."
@@ -1338,6 +1351,58 @@ class HoumaoServerService:
         client = self._require_live_managed_gateway_client(agent_ref)
         return self._invoke_live_gateway(client.delete_mail_notifier)
 
+    def list_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+    ) -> GatewayReminderListV1:
+        """Return the live gateway reminder set for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(client.list_reminders)
+
+    def create_managed_agent_gateway_reminders(
+        self,
+        agent_ref: str,
+        request_model: GatewayReminderCreateBatchV1,
+    ) -> GatewayReminderCreateResultV1:
+        """Create live gateway reminders for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.create_reminders(request_model))
+
+    def get_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderV1:
+        """Return one live gateway reminder for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.get_reminder(reminder_id=reminder_id))
+
+    def put_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+        request_model: GatewayReminderPutV1,
+    ) -> GatewayReminderV1:
+        """Replace one live gateway reminder for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(
+            lambda: client.put_reminder(reminder_id=reminder_id, payload=request_model)
+        )
+
+    def delete_managed_agent_gateway_reminder(
+        self,
+        agent_ref: str,
+        reminder_id: str,
+    ) -> GatewayReminderDeleteResultV1:
+        """Delete one live gateway reminder for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.delete_reminder(reminder_id=reminder_id))
+
     def managed_agent_mail_status(self, agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         """Return pair-owned mailbox status for one managed agent."""
 
@@ -1378,6 +1443,17 @@ class HoumaoServerService:
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
         response = self._invoke_live_gateway(lambda: client.send_mail(request_model))
+        return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
+
+    def post_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailPostRequest,
+    ) -> HoumaoManagedAgentMailActionResponse:
+        """Post one operator-origin mailbox note for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.post_mail(request_model))
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
     def reply_managed_agent_mail(
@@ -2088,6 +2164,14 @@ class HoumaoServerService:
             request_id: str,
         ) -> HoumaoManagedAgentRequestAcceptedResponse:
             if isinstance(request_model, HoumaoManagedAgentSubmitPromptRequest):
+                if request_model.execution is not None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Execution overrides are only supported for headless managed-agent "
+                            "prompt routes."
+                        ),
+                    )
                 self._invoke_live_gateway(
                     lambda: client.create_request(
                         GatewayRequestCreateV1(
@@ -2254,7 +2338,10 @@ class HoumaoServerService:
                 accepted = self._submit_headless_turn_via_gateway(
                     handle=handle,
                     client=client,
-                    request_model=HoumaoHeadlessTurnRequest(prompt=request_model.prompt),
+                    request_model=HoumaoHeadlessTurnRequest(
+                        prompt=request_model.prompt,
+                        execution=request_model.execution,
+                    ),
                 )
                 return self._headless_request_accepted_response(
                     tracked_agent_id=tracked_agent_id,
@@ -2841,6 +2928,14 @@ class HoumaoServerService:
         terminal_path = parse.quote(terminal_id, safe="")
 
         if isinstance(request_model, HoumaoManagedAgentSubmitPromptRequest):
+            if request_model.execution is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Execution overrides are only supported for headless managed-agent "
+                        "prompt routes."
+                    ),
+                )
             proxy_response = self.proxy(
                 method="POST",
                 path=f"/terminals/{terminal_path}/input",
@@ -2861,16 +2956,6 @@ class HoumaoServerService:
                 detail="Managed-agent prompt request accepted for TUI delivery.",
             )
 
-        if summary_state.turn.phase != "active":
-            return HoumaoManagedAgentRequestAcceptedResponse(
-                success=True,
-                tracked_agent_id=summary_state.tracked_agent_id,
-                request_id=request_id,
-                request_kind=request_model.request_kind,
-                disposition="no_op",
-                detail="No active interruptible TUI work is running.",
-            )
-
         proxy_response = self.proxy(
             method="POST",
             path=f"/terminals/{terminal_path}/exit",
@@ -2886,7 +2971,7 @@ class HoumaoServerService:
             request_id=request_id,
             request_kind=request_model.request_kind,
             disposition="accepted",
-            detail="Managed-agent interrupt request accepted for TUI delivery.",
+            detail="Best-effort TUI interrupt signal dispatched.",
         )
 
     def _headless_request_accepted_response(
@@ -2991,6 +3076,11 @@ class HoumaoServerService:
                 "turn_id": turn_record.turn_id,
                 "prompt": request_model.prompt,
                 "chat_session": request_model.chat_session,
+                "execution_model": (
+                    request_model.execution.to_model_config()
+                    if request_model.execution is not None
+                    else None
+                ),
             },
             daemon=True,
             name=f"houmao-headless-turn-{tracked_agent_id}-{turn_record.turn_id}",
@@ -3058,6 +3148,7 @@ class HoumaoServerService:
                             prompt=request_model.prompt,
                             turn_id=turn_record.turn_id,
                             chat_session=request_model.chat_session,
+                            execution=request_model.execution,
                         ),
                     )
                 )
@@ -3168,7 +3259,10 @@ class HoumaoServerService:
                 )
             accepted = self._submit_headless_turn_direct(
                 handle=handle,
-                request_model=HoumaoHeadlessTurnRequest(prompt=request_model.prompt),
+                request_model=HoumaoHeadlessTurnRequest(
+                    prompt=request_model.prompt,
+                    execution=request_model.execution,
+                ),
             )
             return self._headless_request_accepted_response(
                 tracked_agent_id=tracked_agent_id,
@@ -3913,6 +4007,7 @@ class HoumaoServerService:
         turn_id: str,
         prompt: str,
         chat_session: GatewayChatSessionSelectorV1 | None,
+        execution_model: ModelConfig | None,
     ) -> None:
         """Execute one accepted headless turn in a background thread."""
 
@@ -3945,25 +4040,15 @@ class HoumaoServerService:
                 handle=handle,
                 chat_session=chat_session,
             )
-            if session_selection is None:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                )
-            else:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                    session_selection=session_selection,
-                )
+            controller.send_prompt(
+                prompt,
+                session_selection=session_selection,
+                turn_artifact_dir_name=turn_id,
+                execution_model=execution_model,
+            )
         except Exception as exc:
             error_detail = f"{type(exc).__name__}: {exc}"
         finally:
-            try:
-                controller.persist_manifest()
-            except Exception as exc:
-                if error_detail is None:
-                    error_detail = f"{type(exc).__name__}: {exc}"
             handle.set_active_thread(None)
             self._refresh_headless_turn_record(
                 tracked_agent_id=tracked_agent_id,
@@ -3978,6 +4063,7 @@ class HoumaoServerService:
         prompt: str,
         turn_id: str | None,
         chat_session: GatewayChatSessionSelectorV1 | None,
+        execution_model: ModelConfig | None,
     ) -> None:
         """Execute one direct headless prompt on the server-owned controller."""
 
@@ -3998,23 +4084,14 @@ class HoumaoServerService:
             chat_session=chat_session,
         )
         try:
-            if session_selection is None:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                )
-            else:
-                backend_session.send_prompt(
-                    prompt,
-                    turn_artifact_dir_name=turn_id,
-                    session_selection=session_selection,
-                )
+            controller.send_prompt(
+                prompt,
+                session_selection=session_selection,
+                turn_artifact_dir_name=turn_id,
+                execution_model=execution_model,
+            )
         except Exception as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        try:
-            controller.persist_manifest()
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     def _headless_turn_session_selection_for_request(
         self,

@@ -38,6 +38,7 @@ When a project overlay is discovered, commands receive `ProjectAwareLocalRoots` 
 | `agent_def_dir` | `.houmao/agents/` | Agent definitions (tools, roles, skills, recipes, launch profiles). |
 | `runtime_root` | `.houmao/runtime/` | Session runtime state and build artifacts. |
 | `jobs_root` | `.houmao/jobs/` | Job tracking directories. |
+| `memory_root` | `.houmao/memory/` | Conservative default root for managed durable agent memory. |
 | `mailbox_root` | `.houmao/mailbox/` | Project-local filesystem mailbox root. |
 | `easy_root` | `.houmao/easy/` | Easy-specialist metadata. |
 
@@ -53,12 +54,13 @@ Each root can be overridden independently by its global environment variable:
 
 The project overlay includes a SQLite catalog at `.houmao/catalog.sqlite` (managed by `ProjectCatalog`) that stores:
 
-- **Specialist definitions**: Easy-specialist metadata including tool, credentials, skills, and launch configuration.
+- **Specialist definitions**: Easy-specialist metadata including tool, auth selection, skills, and launch configuration.
+- **Auth profiles**: Catalog-owned auth identities with mutable display names, stable opaque bundle refs, and managed content references under `.houmao/content/auth/`.
 - **Launch profiles**: Reusable birth-time launch configuration shared by easy `project easy profile ...` and explicit `project agents launch-profiles ...` (catalog field `profile_lane` distinguishes the two).
 - **Managed content references**: Pointers to prompt files, auth bundles, skill trees, setup trees, and prompt-overlay files stored under `.houmao/content/`.
-- **Role, recipe, and launch-profile projections**: Generated agent tree entries used during build and launch (`.houmao/agents/roles/`, `.houmao/agents/presets/`, `.houmao/agents/launch-profiles/`).
+- **Role, recipe, launch-profile, and auth projections**: Generated agent tree entries used during build and launch (`.houmao/agents/roles/`, `.houmao/agents/presets/`, `.houmao/agents/launch-profiles/`, `.houmao/agents/tools/<tool>/auth/<bundle-ref>/`).
 
-The catalog is initialized automatically during `project init` and is the authoritative source for `project easy specialist` operations.
+The catalog is initialized automatically during `project init` and is the authoritative source for project-local auth, specialist, and launch-profile relationships. The `.houmao/agents/` tree is a derived compatibility projection rather than the semantic source of truth.
 
 ## Which Commands Are Project-Aware
 
@@ -85,5 +87,6 @@ In CI or controlled automation where no `.houmao/` directory exists on disk:
 ## See Also
 
 - [Agent Definition Directory](../../getting-started/agent-definitions.md) — overlay directory structure
+- [Managed Memory Dirs](../../getting-started/managed-memory-dirs.md) — operator-facing guide to the durable memory-dir model
 - [System Files Reference](index.md) — filesystem paths reference
 - [Easy Specialists Guide](../../getting-started/easy-specialists.md) — the easy-specialist model

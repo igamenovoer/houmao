@@ -21,6 +21,11 @@ Use direct gateway `/v1/...` only when the exact live `gateway.base_url` is alre
 - `GET /houmao/agents/{agent_ref}/gateway/tui/state`
 - `GET /houmao/agents/{agent_ref}/gateway/tui/history`
 - `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`
+- `GET /houmao/agents/{agent_ref}/gateway/reminders`
+- `POST /houmao/agents/{agent_ref}/gateway/reminders`
+- `GET /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`
+- `PUT /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`
+- `DELETE /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`
 - `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
 - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`
 - `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
@@ -55,7 +60,8 @@ Use direct gateway `/v1/...` only when the exact live `gateway.base_url` is alre
 
 Use `houmao-agent-email-comms` for the exact `/v1/mail/*` request contract once the live base URL is known.
 
-## Explicit Non-Surface
+## Reminder Layering
 
-- There is no supported `/houmao/agents/{agent_ref}/gateway/reminders` projection today.
-- Reminders are direct live gateway HTTP only.
+- Prefer `houmao-mgr agents gateway reminders ...` for operator-facing CLI work.
+- Use `/houmao/agents/{agent_ref}/gateway/reminders...` when the current task is already operating through pair-managed HTTP.
+- Use direct `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live gateway contract.

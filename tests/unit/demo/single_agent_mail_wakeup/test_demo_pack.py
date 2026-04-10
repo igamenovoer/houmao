@@ -7,6 +7,31 @@ import pytest
 from houmao.agents.mailbox_runtime_support import install_runtime_mailbox_system_skills_for_tool
 from houmao.demo.single_agent_mail_wakeup import driver, reporting, runtime
 from houmao.demo.single_agent_mail_wakeup.models import DemoState, DeliveryState, build_demo_layout
+from houmao.project.catalog import ProjectCatalog
+from houmao.project.overlay import (
+    PROJECT_CONFIG_FILENAME,
+    bootstrap_project_overlay_at_root,
+    load_project_overlay,
+)
+
+
+def _bootstrap_demo_overlay(paths: object) -> None:
+    """Create the redirected overlay root used by demo tests."""
+
+    overlay_dir = getattr(paths, "overlay_dir")
+    bootstrap_project_overlay_at_root(overlay_dir)
+
+
+def _seed_existing_project_auth(*, paths: object, tool: str, name: str, source_path: Path) -> None:
+    """Create one existing project-backed credential bundle for demo tests."""
+
+    _bootstrap_demo_overlay(paths)
+    overlay = load_project_overlay(getattr(paths, "overlay_dir") / PROJECT_CONFIG_FILENAME)
+    ProjectCatalog.from_overlay(overlay).create_auth_profile_from_source(
+        tool=tool,
+        display_name=name,
+        source_path=source_path,
+    )
 
 
 def test_build_demo_layout_includes_project_overlay_and_runtime_roots(tmp_path: Path) -> None:
@@ -60,6 +85,7 @@ def test_import_project_auth_from_fixture_shapes_claude_command(
     (fixture_root / "files/claude_state.template.json").write_text("{}\n", encoding="utf-8")
     paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
+    _bootstrap_demo_overlay(paths)
 
     captured: dict[str, object] = {}
 
@@ -87,16 +113,15 @@ def test_import_project_auth_from_fixture_shapes_claude_command(
     )
 
     command = captured["command"]
-    assert command[:9] == [
+    assert command[:8] == [
         "pixi",
         "run",
         "houmao-mgr",
         "--print-json",
         "project",
-        "agents",
-        "tools",
+        "credentials",
         "claude",
-        "auth",
+        "add",
     ]
     assert "--name" in command
     assert "kimi-coding" in command
@@ -122,6 +147,7 @@ def test_import_project_auth_from_fixture_shapes_codex_command(
     (fixture_root / "files/auth.json").write_text("{\"logged_in\": true}\n", encoding="utf-8")
     paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
+    _bootstrap_demo_overlay(paths)
 
     captured: dict[str, object] = {}
 
@@ -173,7 +199,12 @@ def test_import_project_auth_from_fixture_reuses_existing_bundle_with_set(
     (fixture_root / "files/auth.json").write_text("{\"logged_in\": true}\n", encoding="utf-8")
     paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
-    (paths.overlay_dir / "agents/tools/codex/auth/yunwu-openai").mkdir(parents=True, exist_ok=True)
+    _seed_existing_project_auth(
+        paths=paths,
+        tool="codex",
+        name="yunwu-openai",
+        source_path=fixture_root,
+    )
 
     captured: dict[str, object] = {}
 
@@ -201,8 +232,16 @@ def test_import_project_auth_from_fixture_reuses_existing_bundle_with_set(
     )
 
     command = captured["command"]
-    assert command[8] == "auth"
-    assert command[9] == "set"
+    assert command[:8] == [
+        "pixi",
+        "run",
+        "houmao-mgr",
+        "--print-json",
+        "project",
+        "credentials",
+        "codex",
+        "set",
+    ]
 
 
 def test_driver_parser_accepts_supported_command_surface() -> None:

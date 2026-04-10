@@ -1,20 +1,29 @@
+# houmao-manage-credentials-skill Specification
+
 ## Purpose
-Define the packaged Houmao-owned `houmao-credential-mgr` skill for project-local auth-bundle management guidance.
+Define the packaged Houmao-owned `houmao-credential-mgr` skill for credential-management guidance across project overlays and plain agent-definition directories.
 
 ## Requirements
 
 ### Requirement: Houmao provides a packaged `houmao-credential-mgr` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-credential-mgr` under the maintained system-skill asset root.
 
-That skill SHALL instruct agents to manage project-local auth bundles through these supported commands:
+That skill SHALL instruct agents to manage credentials through these supported commands:
 
-- `houmao-mgr project agents tools <tool> auth list`
-- `houmao-mgr project agents tools <tool> auth get`
-- `houmao-mgr project agents tools <tool> auth add`
-- `houmao-mgr project agents tools <tool> auth set`
-- `houmao-mgr project agents tools <tool> auth remove`
+- `houmao-mgr project credentials <tool> list`
+- `houmao-mgr project credentials <tool> get`
+- `houmao-mgr project credentials <tool> add`
+- `houmao-mgr project credentials <tool> set`
+- `houmao-mgr project credentials <tool> rename`
+- `houmao-mgr project credentials <tool> remove`
+- `houmao-mgr credentials <tool> list --agent-def-dir <path>`
+- `houmao-mgr credentials <tool> get --agent-def-dir <path> --name <name>`
+- `houmao-mgr credentials <tool> add --agent-def-dir <path> --name <name>`
+- `houmao-mgr credentials <tool> set --agent-def-dir <path> --name <name>`
+- `houmao-mgr credentials <tool> rename --agent-def-dir <path> --name <name> --to <new-name>`
+- `houmao-mgr credentials <tool> remove --agent-def-dir <path> --name <name>`
 
-The packaged skill SHALL scope that guidance to the supported project-local tool families:
+The packaged skill SHALL scope that guidance to the supported tool families:
 
 - `claude`
 - `codex`
@@ -26,6 +35,7 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `get`
 - `add`
 - `set`
+- `rename`
 - `remove`
 
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
@@ -36,22 +46,22 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - `project agents tools <tool> setups ...`
 - `project agents roles ...`
 - `project mailbox ...`, `agents cleanup mailbox`, and `admin cleanup runtime ...`
-- direct hand-editing of auth-bundle files under `.houmao/agents/tools/`
+- direct hand-editing of credential files under `.houmao/agents/tools/` or plain agent-definition directories
 
-#### Scenario: Installed skill points the agent at project-local auth-bundle commands
+#### Scenario: Installed skill points the agent at the supported credential commands
 - **WHEN** an agent opens the installed `houmao-credential-mgr` skill
-- **THEN** the skill directs the agent to use the supported `project agents tools <tool> auth ...` command surface for auth-bundle work
+- **THEN** the skill directs the agent to use the supported `project credentials ...` or `credentials ... --agent-def-dir <path>` command surfaces for credential work
 - **AND THEN** it does not redirect the agent to ad hoc filesystem editing or unrelated runtime-control surfaces
 
-#### Scenario: Installed skill routes to action-specific local guidance
+#### Scenario: Installed skill routes to action-specific local guidance including rename
 - **WHEN** an agent reads the installed `houmao-credential-mgr` skill
-- **THEN** the top-level `SKILL.md` acts as an index/router for `list`, `get`, `add`, `set`, and `remove`
+- **THEN** the top-level `SKILL.md` acts as an index/router for `list`, `get`, `add`, `set`, `rename`, and `remove`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than one flattened entry page
 
-#### Scenario: Installed skill keeps non-auth project and runtime surfaces out of scope
+#### Scenario: Installed skill keeps non-credential project and runtime surfaces out of scope
 - **WHEN** an agent reads the installed `houmao-credential-mgr` skill
 - **THEN** the skill marks specialist CRUD, managed-agent lifecycle work, mailbox cleanup, and direct file editing as outside the packaged skill scope
-- **AND THEN** it does not present those actions as part of project-local credential-management guidance
+- **AND THEN** it does not present those actions as part of the supported credential-management guidance
 
 ### Requirement: `houmao-credential-mgr` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-credential-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
@@ -68,7 +78,7 @@ The skill SHALL only probe development-project hints such as `.venv`, Pixi files
 
 The skill SHALL honor an explicit user instruction to use a specific launcher family even when a higher-priority default launcher is available.
 
-The resolved launcher SHALL be reused for any routed auth-bundle action selected through the packaged skill.
+The resolved launcher SHALL be reused for any routed credential action selected through the packaged skill.
 
 #### Scenario: PATH launcher is preferred before development probing
 - **WHEN** `command -v houmao-mgr` succeeds in the current workspace
@@ -92,58 +102,59 @@ The resolved launcher SHALL be reused for any routed auth-bundle action selected
 - **THEN** the skill tells the agent to honor that requested launcher
 - **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
-### Requirement: `houmao-credential-mgr` selects the correct auth-bundle action and asks before guessing
-The packaged `houmao-credential-mgr` skill SHALL tell the agent to recover omitted auth-bundle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
+### Requirement: `houmao-credential-mgr` selects the correct credential action and target before acting
+The packaged `houmao-credential-mgr` skill SHALL tell the agent to recover omitted credential inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 
+The skill SHALL resolve both action and target:
+
+- use `project credentials <tool> list|get|add|set|rename|remove` when the request is clearly project-local or the active project overlay is the intended target,
+- use `credentials <tool> list|get|add|set|rename|remove --agent-def-dir <path>` when the user explicitly targets a plain agent-definition directory,
+- ask the user before proceeding when the action or target remains ambiguous.
+
 The skill SHALL select commands by requested action:
 
-- use `auth list` for listing bundle names for one supported tool,
-- use `auth get --name <name>` for safe redacted inspection of one existing bundle,
-- use `auth add --name <name>` for creating one new bundle,
-- use `auth set --name <name>` for updating one existing bundle,
-- use `auth remove --name <name>` for removing one existing bundle.
+- use `list` for listing credential names for one supported tool,
+- use `get --name <name>` for safe redacted inspection of one existing credential,
+- use `add --name <name>` for creating one new credential,
+- use `set --name <name>` for updating one existing credential,
+- use `rename --name <name> --to <new-name>` for renaming one existing credential,
+- use `remove --name <name>` for removing one existing credential.
 
 At minimum, the skill SHALL require the agent to obtain:
 
-- for `list`: the tool family,
-- for `get`: the tool family and bundle name,
-- for `remove`: the tool family and bundle name,
-- for `add`: the tool family, bundle name, and enough supported auth input for that selected tool,
-- for `set`: the tool family, bundle name, and at least one supported change for that selected tool.
+- for `list`: the tool family and a resolvable target,
+- for `get`: the tool family, target, and credential name,
+- for `remove`: the tool family, target, and credential name,
+- for `add`: the tool family, target, credential name, and enough supported credential input for that selected tool,
+- for `set`: the tool family, target, credential name, and at least one supported change for that selected tool,
+- for `rename`: the tool family, target, current credential name, and target credential name.
 
-When the user asks to update credentials, the skill SHALL map that request to the `set` action rather than guessing another verb.
+For mutating actions, the skill SHALL use only documented per-tool credential flags and SHALL NOT invent unsupported file flags, clear-style flags, or provider-neutral abstractions that the selected CLI surface does not actually support.
 
-For mutating actions, the skill SHALL use only documented per-tool auth flags and SHALL NOT invent unsupported file flags, clear-style flags, or provider-neutral abstractions that the selected CLI surface does not actually support.
+For `get`, the skill SHALL rely on the command's structured redacted output and SHALL NOT print secret env values or raw credential-file contents by bypassing that safe inspection surface.
 
-For `get`, the skill SHALL rely on the command's structured redacted output and SHALL NOT print secret env values or raw auth-file contents by bypassing that safe inspection surface.
+Unless the user explicitly asks for a narrower path-based inspection as part of the current request, the skill SHALL NOT scan environment variables, home directories, repo-local tool homes, or unrelated filesystem locations to infer missing credential inputs for `add` or `set`.
 
-Unless the user explicitly asks for a narrower path-based inspection as part of the current request, the skill SHALL NOT scan environment variables, home directories, repo-local tool homes, or unrelated filesystem locations to infer missing auth inputs for `add` or `set`.
+#### Scenario: Project-local credential work uses the project wrapper
+- **WHEN** the current prompt asks the agent to manage one credential in the current project workspace
+- **AND WHEN** no explicit plain agent-definition directory target is provided
+- **THEN** the skill routes that work through `houmao-mgr project credentials <tool> ...`
+- **AND THEN** it does not route the request through the removed `project agents tools <tool> auth ...` surface
 
-#### Scenario: List action does not require a bundle name
-- **WHEN** the current prompt asks the agent to list project-local credentials for one supported tool
-- **THEN** the skill allows the agent to proceed without asking for a credential-bundle name
-- **AND THEN** it does not invent a target bundle just because other actions require one
+#### Scenario: Explicit agent-definition-directory work uses the dedicated direct-dir form
+- **WHEN** the current prompt asks the agent to manage credentials under `tests/fixtures/plain-agent-def`
+- **THEN** the skill routes that work through `houmao-mgr credentials <tool> ... --agent-def-dir tests/fixtures/plain-agent-def`
+- **AND THEN** it does not reinterpret that request as project-local credential management
 
-#### Scenario: Get or remove asks before guessing the target bundle
-- **WHEN** the current prompt asks for auth-bundle inspection or removal
-- **AND WHEN** the tool or bundle name is not explicit in current or recent conversation context
-- **THEN** the skill tells the agent to ask the user for the missing tool or bundle name before proceeding
-- **AND THEN** it does not guess which stored auth bundle the user intended
+#### Scenario: Rename requires both the current and target names
+- **WHEN** the current prompt asks the agent to rename one credential
+- **AND WHEN** the tool, target, current credential name, or target credential name is not explicit in current or recent conversation context
+- **THEN** the skill tells the agent to ask the user for the missing rename input before proceeding
+- **AND THEN** it does not guess either side of the rename
 
-#### Scenario: Set requires an explicit supported change
-- **WHEN** the current prompt asks the agent to update one existing auth bundle
-- **AND WHEN** the prompt does not provide any explicit supported env value, auth file input, or clear-style change for the selected tool
-- **THEN** the skill tells the agent to ask the user for the missing change before proceeding
-- **AND THEN** it does not fabricate a default mutation or widen into ambient credential discovery
-
-#### Scenario: Inspecting one bundle stays redacted
-- **WHEN** the current prompt asks the agent to inspect one existing auth bundle
-- **THEN** the skill uses the structured `auth get` output as the inspection contract
-- **AND THEN** it reports presence and non-secret metadata without dumping raw secret values or raw auth-file contents
-
-#### Scenario: Skill does not invent unsupported clear semantics
-- **WHEN** the user asks the agent for a file-clear action that the selected tool's current `auth set` surface does not support
-- **THEN** the skill reports that limitation explicitly
-- **AND THEN** it does not invent an unsupported clear flag or silently reinterpret the request as another action
+#### Scenario: Inspecting one credential stays redacted
+- **WHEN** the current prompt asks the agent to inspect one existing credential
+- **THEN** the skill uses the structured `get` output as the inspection contract
+- **AND THEN** it reports presence and non-secret metadata without dumping raw secret values or raw credential-file contents

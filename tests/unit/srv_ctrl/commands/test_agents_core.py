@@ -172,6 +172,12 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     assert captured["gateway_host"] == "127.0.0.1"
     assert captured["gateway_port"] == 0
     assert captured["gateway_execution_mode_override"] == "tmux_auxiliary_window"
+    memory_binding = captured["memory_binding"]
+    assert getattr(memory_binding, "kind") == "auto"
+    assert (
+        getattr(memory_binding, "directory")
+        == (overlay_root / "memory" / "agents" / "6ee1c825367e868092eda76cb18a96e0").resolve()
+    )
     assert launch_result.controller.agent_identity == "repo-research-1"
 
 
