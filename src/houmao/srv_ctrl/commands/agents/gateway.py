@@ -244,9 +244,9 @@ def status_gateway_command(
 )
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Request-scoped headless reasoning override (1-10).",
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
 )
 @_current_session_option
 @_target_tmux_session_option
@@ -754,6 +754,7 @@ def create_gateway_reminder_command(
         after_all=after_all,
         require_choice=True,
     )
+    assert ranking_value is not None
     definition = _build_create_reminder_definition(
         title=title,
         mode=mode,

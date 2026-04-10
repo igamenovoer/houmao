@@ -42,7 +42,7 @@ houmao-mgr project easy specialist create \
 
 In both cases, Houmao imports `.credentials.json` from that config root and also carries companion `.claude.json` when present.
 
-Optional Claude settings such as `--base-url`, launch-owned `--model`, and launch-owned `--reasoning-level` can be layered on top of the vendor login lane. `--claude-model` remains a compatibility alias for `--model` on the easy-specialist surface only. `--claude-state-template-file` remains optional bootstrap state only.
+Optional Claude settings such as `--base-url`, launch-owned `--model`, and launch-owned `--reasoning-level` can be layered on top of the vendor login lane. For Claude, Houmao currently interprets `--reasoning-level` as `1=low`, `2=medium`, `3=high`, and `4=max` only on models that support Claude `max`; higher values saturate to the highest maintained Claude preset. `--claude-model` remains a compatibility alias for `--model` on the easy-specialist surface only. `--claude-state-template-file` remains optional bootstrap state only.
 
 ## What Not To Do
 

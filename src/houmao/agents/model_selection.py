@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ModelReasoningConfig:
-    """Normalized reasoning configuration."""
+    """Tool/model-relative reasoning configuration."""
 
     level: int
 
@@ -63,12 +63,12 @@ class ResolvedModelConfig:
 
 
 def parse_reasoning_level(raw_value: object, *, source: str) -> int | None:
-    """Parse one optional normalized reasoning level."""
+    """Parse one optional non-negative reasoning preset index."""
 
     if raw_value is None:
         return None
     if isinstance(raw_value, bool):
-        raise ValueError(f"{source}: reasoning.level must be an integer from 1 through 10")
+        raise ValueError(f"{source}: reasoning.level must be a non-negative integer")
 
     parsed_value: int | None = None
     if isinstance(raw_value, int):
@@ -77,12 +77,10 @@ def parse_reasoning_level(raw_value: object, *, source: str) -> int | None:
         try:
             parsed_value = int(raw_value.strip())
         except ValueError as exc:
-            raise ValueError(
-                f"{source}: reasoning.level must be an integer from 1 through 10"
-            ) from exc
+            raise ValueError(f"{source}: reasoning.level must be a non-negative integer") from exc
 
-    if parsed_value is None or parsed_value < 1 or parsed_value > 10:
-        raise ValueError(f"{source}: reasoning.level must be an integer from 1 through 10")
+    if parsed_value is None or parsed_value < 0:
+        raise ValueError(f"{source}: reasoning.level must be a non-negative integer")
     return parsed_value
 
 

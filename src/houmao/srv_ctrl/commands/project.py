@@ -681,9 +681,9 @@ def get_project_preset_command(name: str) -> None:
 @click.option("--model", default=None, help="Optional launch-owned model name.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index (>=0).",
 )
 def add_project_preset_command(
     name: str,
@@ -766,9 +766,9 @@ def add_project_preset_command(
 @click.option("--clear-model", is_flag=True, help="Clear launch.model.name.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning level override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--clear-reasoning-level",
@@ -1020,9 +1020,9 @@ def get_project_launch_profile_command(name: str) -> None:
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--prompt-mode",
@@ -1192,9 +1192,9 @@ def add_project_launch_profile_command(
 @click.option("--clear-model", is_flag=True, help="Clear the stored launch-owned model.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--clear-reasoning-level",
@@ -1421,9 +1421,9 @@ def easy_profile_group() -> None:
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning override (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option(
     "--prompt-mode",
@@ -1645,9 +1645,9 @@ def easy_specialist_group() -> None:
 @click.option("--model", default=None, help="Optional launch-owned default model name.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional Houmao-defined launch-owned reasoning level (1..10).",
+    help="Optional launch-owned tool/model-specific reasoning preset index (>=0).",
 )
 @click.option(
     "--claude-model",
@@ -1950,9 +1950,9 @@ def easy_instance_group() -> None:
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional one-off Houmao-defined reasoning override (1..10).",
+    help="Optional one-off tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option(

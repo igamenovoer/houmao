@@ -60,7 +60,7 @@ Key options:
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 | `--model` | None | Optional launch-owned default model name. |
-| `--reasoning-level` | None | Optional Houmao-defined launch-owned reasoning level on the normalized `1..10` scale. |
+| `--reasoning-level` | None | Optional launch-owned tool/model-specific reasoning preset index. |
 
 Those two flags set the **launch-owned default** model selection that is written into the specialist-backed launch profile. After the agent is already running, headless prompt routes also support one-turn overrides through `houmao-mgr agents prompt`, `houmao-mgr agents gateway prompt`, and `houmao-mgr agents turn submit` with the same `--model` plus optional `--reasoning-level` shape. Those runtime overrides apply only to the submitted headless turn and never rewrite the specialist, launch profile, or persisted manifest defaults.
 
@@ -74,7 +74,16 @@ Claude-specific auth inputs now support four maintained credential lanes plus se
 
 `--claude-state-template-file` is not itself a credential-providing method. It only carries reusable Claude runtime bootstrap state. Optional `--base-url`, `--model`, and `--reasoning-level` can be layered onto any supported Claude credential lane. `--claude-model` remains available only as a temporary compatibility alias for `--model` on Claude specialists.
 
-Use `--reasoning-level` as Houmao's portable `1..10` reasoning scale. If you need vendor-native tuning beyond that portable surface, keep it in tool-specific skills or credential/bootstrap content instead of the core easy-specialist CLI.
+`--reasoning-level` is not a portable `1..10` scale anymore. It is interpreted relative to the resolved tool and model, one preset step at a time, and higher unused numbers saturate to that runtime's highest maintained Houmao preset.
+
+Current maintained ladders:
+
+- Claude: `1=low`, `2=medium`, `3=high`, and `4=max` only on models that support Claude `max`; higher numbers saturate to the highest supported Claude preset.
+- Codex: `0=none`, `1=minimal`, `2=low`, `3=medium`, `4=high`, `5=xhigh`; higher numbers saturate to `xhigh`.
+- Gemini 3 models: Houmao preset rows currently map `1=(thinkingLevel LOW, thinkingBudget 1024)`, `2=(MEDIUM, 4096)`, `3=(HIGH, 16384)`; higher numbers saturate to the highest maintained row.
+- Other Gemini models: `0=thinkingBudget 0`, `1=512`, `2=2048`, `3=4096`, `4=8192`, `5=16384`; higher numbers saturate to `16384`.
+
+If you need finer vendor-native tuning than those maintained Houmao presets, omit `--reasoning-level` and manage the native tool config or environment directly.
 
 For the file-level handling rules, including what `.credentials.json` vs `.claude.json` means and how to validate the lane locally, see [Claude Vendor Login Files](../reference/claude-vendor-login-files.md).
 

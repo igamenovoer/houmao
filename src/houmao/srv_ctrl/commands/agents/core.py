@@ -812,9 +812,9 @@ def agents_group() -> None:
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Optional one-off Houmao-defined reasoning override (1..10).",
+    help="Optional one-off tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
@@ -1236,9 +1236,9 @@ def state_agent_command(port: int | None, agent_id: str | None, agent_name: str 
 )
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Request-scoped headless reasoning override (1-10).",
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
 )
 @pair_port_option(help_text="Houmao server port override; skips registry discovery when set.")
 @managed_agent_selector_options

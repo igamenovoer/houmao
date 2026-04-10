@@ -1023,6 +1023,55 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
     assert clear_payload["launch"] == {"prompt_mode": "unattended"}
 
 
+def test_project_agents_recipes_add_rejects_negative_reasoning_level(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "roles",
+                "init",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "Research carefully.",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "recipes",
+            "add",
+            "--name",
+            "researcher-codex-default",
+            "--role",
+            "researcher",
+            "--tool",
+            "codex",
+            "--reasoning-level",
+            "-1",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--reasoning-level" in result.output
+
+
 def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3108,7 +3157,7 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
             "--model",
             "gpt-5.4-nano",
             "--reasoning-level",
-            "9",
+            "12",
             "--no-headless",
         ],
     )
@@ -3130,7 +3179,7 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["launch_profile_model_config"].name == "gpt-5.4-mini"
     assert captured["launch_profile_model_config"].reasoning.level == 4
     assert captured["direct_model_config"].name == "gpt-5.4-nano"
-    assert captured["direct_model_config"].reasoning.level == 9
+    assert captured["direct_model_config"].reasoning.level == 12
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
     assert captured["launch_profile_provenance"] == {

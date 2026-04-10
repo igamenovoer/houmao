@@ -22,12 +22,12 @@ houmao-mgr agents turn submit [OPTIONS]
 |---|---|
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
 | `--model TEXT` | Request-scoped headless execution model override for this turn only. |
-| `--reasoning-level INTEGER` | Optional normalized `1..10` reasoning override for this turn only. |
+| `--reasoning-level INTEGER` | Optional tool/model-specific reasoning preset index override for this turn only. |
 | `--port INTEGER` | Houmao pair authority port to use. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
-The override flags affect only the submitted turn. They do not rewrite the stored manifest or future turns for the managed headless agent. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden. Because `agents turn submit` targets managed headless routes directly, TUI-target rejection does not apply here — but the same overrides are rejected clearly when reached through `agents prompt` or `agents gateway prompt` for a TUI-backed target.
+The override flags affect only the submitted turn. They do not rewrite the stored manifest or future turns for the managed headless agent. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden. The meaning of `--reasoning-level` depends on the resolved tool/model ladder, higher unused numbers saturate to that ladder's highest maintained Houmao preset, and `0` means explicit off only when that ladder supports it. Because `agents turn submit` targets managed headless routes directly, TUI-target rejection does not apply here — but the same overrides are rejected clearly when reached through `agents prompt` or `agents gateway prompt` for a TUI-backed target.
 
 ### `status`
 

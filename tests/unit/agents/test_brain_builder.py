@@ -1181,13 +1181,26 @@ def test_build_brain_home_projects_claude_model_selection(tmp_path: Path) -> Non
     assert manifest["runtime"]["launch_contract"]["model_selection"]["native_projection"][
         "reasoning"
     ] == {
+        "effective_level": 3,
         "tool": "claude",
         "tool_version": None,
         "requested_level": 10,
         "model_name": "claude-sonnet-4-5",
+        "saturated": True,
+        "off_requested": False,
         "native_scale": "effortLevel",
         "native_value": "high",
-        "clamped": True,
+        "native_settings": [
+            {
+                "native_scale": "effortLevel",
+                "native_value": "high",
+                "projection_target": {
+                    "surface": "json",
+                    "path": "settings.json",
+                    "key_path": ["effortLevel"],
+                },
+            }
+        ],
         "projection_target": {
             "surface": "json",
             "path": "settings.json",

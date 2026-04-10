@@ -49,9 +49,9 @@ def turn_group() -> None:
 )
 @click.option(
     "--reasoning-level",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(min=0),
     default=None,
-    help="Request-scoped headless reasoning override (1-10).",
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
 )
 @pair_port_option()
 @managed_agent_selector_options
