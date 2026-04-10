@@ -75,18 +75,18 @@ uv tool install houmao
 command -v tmux
 ```
 
-### 1. Drive with Your CLI Agent
+### 1. Drive with Your CLI Agent (Recommended)
 
-Install system skills so the agent can self-manage Houmao workflows through its native skill interface. Run this from your working directory (a project repo or a dedicated workspace). Skills are installed to `<cwd>/.claude/skills/` (or `.codex/`, `.gemini/` for other tools):
+Houmao is designed to be driven from inside a CLI agent. Install system skills, start your agent, and let it handle everything — project setup, specialist creation, agent launching, and coordination all happen through conversation.
 
 ```bash
 houmao-mgr system-skills install --tool claude
 # Or install into user home: houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-Now start your agent (e.g. `claude`) from the same directory and ask it to invoke the `houmao-touring` skill. The tour will walk you through project setup, specialist creation, agent launching, and more — all from inside your agent's conversation.
+Skills are installed to `<cwd>/.claude/skills/` (or `.codex/`, `.gemini/` for other tools). Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
 
-> **Just want to try `agents join`?** Skip to [Step 5](#5-adopt-an-existing-session-agents-join). System skills are recommended but not required for the join-only path.
+> The remaining steps below show the manual CLI equivalents for reference. You don't need them if you're working through your agent.
 
 For development from source:
 
