@@ -9,6 +9,12 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 
 > **Name Origin:** `Houmao` (猴毛, "monkey hair") is inspired by the classic tale *Journey to the West*. Just as Sun Wukong (The Monkey King) plucks strands of his magical hair to create independent, capable clones of himself, this framework allows you to multiply your capabilities by spinning up numerous autonomous helpers.
 
+### See it in action
+
+A team of three agents writing a sci-fi novel chapter by chapter: a **story-writer** (Claude) drafts and finalizes each chapter, a **character-designer** (Claude) details character profiles, and a **story-reviewer** (Codex) reviews for logic and pacing. The story-writer master drives the loop — the human operator just starts it and watches.
+
+https://github.com/igamenovoer/houmao/raw/main/docs/resources/agent-loop/writer-team-loop.mp4
+
 ## Why This Design
 
 **Manage agents like people.** Each agent is a standalone individual — not a function in someone else's call graph. Give it a role, point it at a task, and it figures out how to get it done. If one agent crashes, the rest keep working. Replace or restart it without tearing down the team. In hard-coded orchestration (LangGraph, AutoGen, CrewAI), a single agent failure crashes the pipeline, adding an agent means writing code, and the team only exists while the orchestrator runs.
