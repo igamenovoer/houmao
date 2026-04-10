@@ -79,6 +79,7 @@ command -v tmux
 
 ```bash
 houmao-mgr system-skills install --tool claude
+# Or install into user home: houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
 > **Just want to try `agents join`?** Skip to [Step 4](#4-adopt-an-existing-session-agents-join). System skills are recommended but not required for the join-only path.
