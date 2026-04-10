@@ -75,16 +75,18 @@ uv tool install houmao
 command -v tmux
 ```
 
-**Install system skills** so the agent can self-manage Houmao workflows through its native skill interface. Without system skills, the agent cannot autonomously create specialists, send mail, attach gateways, or drive loop plans. Run this from your working directory (a project repo or a dedicated workspace). Skills are installed to `<cwd>/.claude/skills/` (or `.codex/`, `.gemini/` for other tools):
+### 1. Drive with Your CLI Agent
+
+Install system skills so the agent can self-manage Houmao workflows through its native skill interface. Run this from your working directory (a project repo or a dedicated workspace). Skills are installed to `<cwd>/.claude/skills/` (or `.codex/`, `.gemini/` for other tools):
 
 ```bash
 houmao-mgr system-skills install --tool claude
 # Or install into user home: houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-Once system skills are installed, start your agent (e.g. `claude`) from the same directory and ask it to invoke the `houmao-touring` skill. The tour will walk you through project setup, specialist creation, agent launching, and more — all from inside your agent's conversation.
+Now start your agent (e.g. `claude`) from the same directory and ask it to invoke the `houmao-touring` skill. The tour will walk you through project setup, specialist creation, agent launching, and more — all from inside your agent's conversation.
 
-> **Just want to try `agents join`?** Skip to [Step 4](#4-adopt-an-existing-session-agents-join). System skills are recommended but not required for the join-only path.
+> **Just want to try `agents join`?** Skip to [Step 5](#5-adopt-an-existing-session-agents-join). System skills are recommended but not required for the join-only path.
 
 For development from source:
 
@@ -93,7 +95,7 @@ pixi install
 pixi shell
 ```
 
-### 1. Initialize a Project
+### 2. Initialize a Project
 
 ```bash
 houmao-mgr project init
@@ -108,7 +110,7 @@ This creates a `.houmao/` overlay in your project directory. The overlay holds:
 
 All subsequent specialist, credential, and launch-profile commands operate within this project overlay.
 
-### 2. Create Specialists & Launch Agents
+### 3. Create Specialists & Launch Agents
 
 This is the primary path for setting up agents. A **specialist** bundles a role prompt, tool choice, and credentials into one named definition.
 
@@ -131,7 +133,7 @@ houmao-mgr agents stop   --agent-name my-coder
 
 For reusable birth-time defaults (fixed agent name, working directory, mailbox, auth lane), create an **easy profile** over a specialist with `houmao-mgr project easy profile create --specialist my-coder --name my-coder-default ...`. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full easy lane and the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared conceptual model.
 
-### 3. Agent Loop: Multi-Agent Coordination
+### 4. Agent Loop: Multi-Agent Coordination
 
 A **pairwise loop** lets multiple agents collaborate on a structured task. One agent is the **master** — it owns liveness, drives pairwise edges to workers, evaluates completion, and handles stop. The **user agent stays outside the execution loop**: you plan, start, check status, and stop — the master does the rest.
 
@@ -276,7 +278,7 @@ story/review/
 
 For the full loop-planning vocabulary, plan templates, and operating pages, see the [`houmao-agent-loop-pairwise` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise/SKILL.md) and the [System Skills Overview](docs/getting-started/system-skills-overview.md).
 
-### 4. Adopt an Existing Session (`agents join`)
+### 5. Adopt an Existing Session (`agents join`)
 
 If you already have a coding agent running in tmux and just want management on top — no project setup, no specialist definition — use `agents join`. This is the lightweight, ad-hoc path.
 
@@ -336,7 +338,7 @@ The only difference: a joined agent has a *placeholder* brain manifest (no skill
 
 > **Managed prompt header.** Both `agents launch` and `agents join` prepend a short Houmao-owned prompt header to the managed agent's effective prompt by default. The header identifies the agent as Houmao-managed, names `houmao-mgr` as the canonical interface, and tells the model to prefer supported Houmao workflows for managed-runtime tasks. The behavior is per-launch opt-out via `--no-managed-header` and is also persisted in stored launch profiles. See the [Managed Launch Prompt Header](docs/reference/run-phase/managed-prompt-header.md) reference for the full content, the prompt composition order, and the precedence rules.
 
-### 5. Full Recipes and Launch Profiles
+### 6. Full Recipes and Launch Profiles
 
 For teams that need full control over roles, skills, recipes, and tool configurations, use the recipe-backed launch path. Add explicit launch profiles when you want reusable birth-time defaults that stay separate from the recipe itself. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared semantic model and the precedence chain, and the canonical `project agents recipes ...` and `project agents launch-profiles ...` authoring commands. `project agents presets ...` remains the compatibility alias for recipes.
 
