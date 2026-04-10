@@ -13,7 +13,11 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 
 A team of three agents writing a sci-fi novel chapter by chapter: a **story-writer** (Claude) drafts and finalizes each chapter, a **character-designer** (Claude) details character profiles, and a **story-reviewer** (Codex) reviews for logic and pacing. The story-writer master drives the loop — the human operator just starts it and watches.
 
-<video src="https://raw.githubusercontent.com/igamenovoer/houmao/main/docs/resources/agent-loop/writer-team-loop.mp4" controls width="100%"></video>
+<!-- TODO: Replace this URL with the user-attachments URL after uploading via GitHub web UI.
+     To get the URL: edit this README on github.com, drag-drop the .mp4 into the editor,
+     GitHub will generate a https://github.com/user-attachments/assets/... URL.
+     Replace the entire video tag below with that URL on its own line. -->
+https://github.com/igamenovoer/houmao/releases/download/v0.5.1/writer-team-loop.mp4
 
 ## Why This Design
 
