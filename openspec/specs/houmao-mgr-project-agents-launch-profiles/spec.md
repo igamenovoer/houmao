@@ -34,7 +34,7 @@ At minimum, launch-profile content SHALL support:
 - optional working directory
 - optional auth override
 - optional model override by name
-- optional normalized reasoning override by level `1..10`
+- optional reasoning override by non-negative preset index
 - optional operator prompt-mode override
 - optional durable env defaults
 - optional declarative mailbox config
@@ -43,11 +43,11 @@ At minimum, launch-profile content SHALL support:
 
 `launch-profiles add` SHALL accept `--model <name>` to store a reusable model override for that profile.
 
-`launch-profiles add` SHALL accept `--reasoning-level <1..10>` to store a reusable normalized reasoning override for that profile.
+`launch-profiles add` SHALL accept `--reasoning-level <integer>=non-negative` to store a reusable reasoning override for that profile.
 
 `launch-profiles set` SHALL support updating that stored model through `--model <name>` and clearing it through `--clear-model`.
 
-`launch-profiles set` SHALL support updating the stored reasoning override through `--reasoning-level <1..10>` and clearing it through `--clear-reasoning-level`.
+`launch-profiles set` SHALL support updating the stored reasoning override through `--reasoning-level <integer>=non-negative` and clearing it through `--clear-reasoning-level`.
 
 `launch-profiles get --name <profile>` SHALL report the profile name, source recipe, source path, and parsed profile fields as structured output.
 
@@ -60,9 +60,9 @@ At minimum, launch-profile content SHALL support:
 The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT silently assume easy-only defaults that are specific to the easy lane.
 
 #### Scenario: Add creates an explicit launch profile with one stored model override
-- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe cuda-coder-codex-default --agent-name alice --workdir /repos/alice-cuda --model gpt-5.4-mini --reasoning-level 4`
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe cuda-coder-codex-default --agent-name alice --workdir /repos/alice-cuda --model gpt-5.4-mini --reasoning-level 2`
 - **THEN** the command creates `.houmao/agents/launch-profiles/alice.yaml`
-- **AND THEN** the written launch profile records recipe `cuda-coder-codex-default`, managed-agent name `alice`, workdir `/repos/alice-cuda`, model override `gpt-5.4-mini`, and reasoning override `4`
+- **AND THEN** the written launch profile records recipe `cuda-coder-codex-default`, managed-agent name `alice`, workdir `/repos/alice-cuda`, model override `gpt-5.4-mini`, and reasoning override `2`
 
 #### Scenario: Set patches one launch profile model without dropping advanced blocks
 - **WHEN** `.houmao/agents/launch-profiles/alice.yaml` exists with mailbox and prompt-overlay blocks
@@ -77,7 +77,7 @@ The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT sil
 - **AND THEN** later launches fall back to the source recipe or lower-precedence model source unless another override is supplied
 
 #### Scenario: Set can clear the stored reasoning override
-- **WHEN** `.houmao/agents/launch-profiles/alice.yaml` exists with stored reasoning override `4`
+- **WHEN** `.houmao/agents/launch-profiles/alice.yaml` exists with stored reasoning override `2`
 - **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --clear-reasoning-level`
 - **THEN** the stored launch profile no longer records a profile-owned reasoning override
 - **AND THEN** later launches fall back to the source recipe or lower-precedence reasoning source unless another override is supplied
@@ -159,3 +159,4 @@ Operator-facing launch-profile inspection SHALL render the current auth display 
 - **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles get --name alice`
 - **THEN** the command reports auth override `breakglass`
 - **AND THEN** it does not require the caller to know the internal auth profile id or opaque bundle reference
+

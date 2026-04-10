@@ -76,7 +76,8 @@ def _legacy_mailbox_skill_contract_error() -> str:
     return (
         "Archived demo `gateway_mail_wakeup_demo_pack` is not runnable. "
         "This legacy workflow depends on a deprecated project-local mailbox-skill "
-        "mirror and skill-path prompting contract. Use maintained demo surfaces "
+        "mirror, skill-path prompting contract, and removed "
+        "`tests/fixtures/agents/` fixture-root contract. Use maintained demo surfaces "
         "`scripts/demo/single-agent-mail-wakeup/` or "
         "`scripts/demo/single-agent-gateway-wakeup-headless/` instead."
     )

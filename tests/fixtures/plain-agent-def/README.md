@@ -38,5 +38,3 @@ When a direct-dir workflow needs local credentials, materialize them into a copi
 2. Build explicitly from this root:
    - `pixi run houmao-mgr brains build --agent-def-dir tests/fixtures/plain-agent-def --preset tests/fixtures/plain-agent-def/presets/gpu-kernel-coder-claude-default.yaml`
 3. If the run needs host-local auth, copy or link the chosen bundle from `tests/fixtures/auth-bundles/` into a temp direct-dir root instead of mutating the tracked tree.
-
-The retired `tests/fixtures/agents/` path now exists only as a redirect for older local worktrees.

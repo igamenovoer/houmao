@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the maintained minimal runnable demo surface, its tracked agent assets, and the overlay-local execution contract used for the tutorial workflow.
-
 ## Requirements
-
 ### Requirement: `scripts/demo/` publishes a supported minimal launch tutorial surface
 
 The repository SHALL publish one supported runnable tutorial demo under `scripts/demo/minimal-agent-launch/` and SHALL present it from `scripts/demo/README.md` as the maintained demo surface. Historical material under `scripts/demo/legacy/` SHALL remain clearly labeled as archived reference content.
@@ -34,17 +32,16 @@ The tracked demo tree SHALL NOT commit plaintext auth contents under `inputs/age
 - **AND THEN** the tracked tree does not contain committed plaintext auth bundles
 
 ### Requirement: The demo creates provider-specific local auth aliases at run time
-
-The demo run workflow SHALL create a generated working tree under the demo output root and SHALL materialize one demo-local auth alias named `default` for the selected provider by symlinking to the corresponding local fixture auth bundle under `tests/fixtures/agents/tools/<tool>/auth/`.
+The demo run workflow SHALL create a generated working tree under the demo output root and SHALL materialize one demo-local auth alias named `default` for the selected provider by symlinking to the corresponding local fixture auth bundle under `tests/fixtures/auth-bundles/<tool>/`.
 
 #### Scenario: Claude run aliases local fixture auth
 - **WHEN** an operator runs the demo for provider `claude_code`
-- **THEN** the generated working tree contains `tools/claude/auth/default` as a symlink to `tests/fixtures/agents/tools/claude/auth/kimi-coding`
+- **THEN** the generated working tree contains `tools/claude/auth/default` as a symlink to one maintained Claude bundle under `tests/fixtures/auth-bundles/claude/`
 - **AND THEN** the tracked Claude preset may continue to declare `auth: default`
 
 #### Scenario: Codex run aliases local fixture auth
 - **WHEN** an operator runs the demo for provider `codex`
-- **THEN** the generated working tree contains `tools/codex/auth/default` as a symlink to `tests/fixtures/agents/tools/codex/auth/yunwu-openai`
+- **THEN** the generated working tree contains `tools/codex/auth/default` as a symlink to one maintained Codex bundle under `tests/fixtures/auth-bundles/codex/`
 - **AND THEN** the tracked Codex preset may continue to declare `auth: default`
 
 #### Scenario: Missing fixture auth fails during preflight
@@ -108,3 +105,4 @@ The maintained runner MAY continue to use one explicit `HOUMAO_PROJECT_OVERLAY_D
 - **WHEN** an operator runs the maintained minimal demo for any supported lane
 - **THEN** the generated run tree selects one project-aware overlay root under that lane's output root
 - **AND THEN** the launch resolves agent definitions, runtime state, and jobs state from that one selected overlay rather than from separate root env overrides
+

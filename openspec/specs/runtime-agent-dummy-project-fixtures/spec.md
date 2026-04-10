@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the tracked dummy-project and lightweight fixture family used by narrow runtime-agent, mailbox, and skill-invocation validation flows.
-
 ## Requirements
-
 ### Requirement: Repository SHALL provide tracked dummy-project fixtures for narrow runtime-agent tests
 The repository SHALL include tracked dummy projects under `tests/fixtures/dummy-projects/` for mailbox, prompt-turn, and other runtime-agent tests that do not require the main repository checkout as the launched working directory.
 
@@ -25,15 +23,15 @@ Each dummy project fixture SHALL remain source-only in the tracked repository. A
 - **AND THEN** the launched agent workdir no longer needs to point at the main repository checkout
 
 ### Requirement: Repository SHALL provide lightweight mailbox-demo presets separate from heavyweight engineering roles
-The repository SHALL provide a dedicated lightweight role family for mailbox and runtime-contract tests under `tests/fixtures/agents/roles/`.
+The repository SHALL provide a dedicated lightweight role family for mailbox and runtime-contract tests under `tests/fixtures/plain-agent-def/roles/`.
 
 Those lightweight roles SHALL explicitly bias the agent toward the requested mailbox or runtime-contract action over broad project discovery. They SHALL avoid unrelated benchmarking, CUDA, or large-repo exploration guidance unless a specific fixture explicitly needs that behavior.
 
-The repository SHALL also provide dedicated mailbox-demo named presets at `tests/fixtures/agents/presets/mailbox-demo-claude-default.yaml` and `tests/fixtures/agents/presets/mailbox-demo-codex-default.yaml` so supported flows can select the lightweight mailbox role through the canonical preset model instead of through legacy recipes or blueprints.
+The repository SHALL also provide dedicated mailbox-demo named presets at `tests/fixtures/plain-agent-def/presets/mailbox-demo-claude-default.yaml` and `tests/fixtures/plain-agent-def/presets/mailbox-demo-codex-default.yaml` so supported flows can select the lightweight mailbox role through the canonical preset model instead of through legacy recipes or blueprints.
 
 #### Scenario: Maintainer can select dedicated mailbox-demo presets
-- **WHEN** a maintainer inspects the tracked agent fixtures for the mailbox/runtime-contract flow
-- **THEN** dedicated mailbox-demo presets exist under `presets/`
+- **WHEN** a maintainer inspects the tracked plain direct-dir fixture lane for the mailbox/runtime-contract flow
+- **THEN** dedicated mailbox-demo presets exist under `tests/fixtures/plain-agent-def/presets/`
 - **AND THEN** those presets resolve to the lightweight mailbox-demo role family rather than to the GPU-oriented role family
 
 ### Requirement: Fixture guidance SHALL distinguish dummy-project and lightweight-role usage from repo-worktree and heavyweight-role usage
@@ -52,14 +50,14 @@ The guidance SHALL include a short selection rubric or decision tree that helps 
 - **AND THEN** it tells the maintainer when to choose dummy-project/lightweight-role fixtures versus repo-worktree/heavyweight-role fixtures
 
 ### Requirement: Repository SHALL provide tracked reusable dummy skill fixtures for narrow skill-invocation tests
-The repository SHALL include at least one tracked reusable dummy skill fixture under `tests/fixtures/agents/skills/` for narrow skill-invocation tests and other supported non-demo validation flows.
+The repository SHALL include at least one tracked reusable dummy skill fixture under `tests/fixtures/plain-agent-def/skills/` for narrow skill-invocation tests and other supported non-demo validation flows.
 
 That dummy skill fixture SHALL remain small, deterministic, and self-contained. It SHALL define a stable probe contract that causes a visible side effect in the launched dummy-project workdir when the agent invokes the skill through its intended trigger wording.
 
 The dummy skill fixture MAY include helper assets adjacent to `SKILL.md` when needed by the probe contract.
 
 #### Scenario: Maintainer can discover a tracked reusable probe skill fixture
-- **WHEN** a maintainer inspects `tests/fixtures/agents/skills/`
+- **WHEN** a maintainer inspects `tests/fixtures/plain-agent-def/skills/`
 - **THEN** the repository contains a tracked reusable probe skill fixture suitable for supported narrow skill-invocation checks
 - **AND THEN** that skill fixture is not limited to one pack-local generated run directory
 
@@ -82,3 +80,4 @@ That same guidance SHALL preserve the canonical fixture-model boundary: presets 
 - **WHEN** a maintainer reads the tracked fixture guidance
 - **THEN** the documentation explains when to choose the reusable probe-skill fixture family for narrow skill-invocation checks
 - **AND THEN** it distinguishes that choice from mailbox-demo flows and repo-scale engineering flows
+

@@ -1,12 +1,14 @@
 ---
 name: houmao-loop-planner
-description: Use Houmao's loop-planning skill when a user-controlled agent needs to author one operator-owned loop bundle in a user-designated directory, prepare participant and distribution guidance, or prepare runtime handoff for pairwise or relay loops.
+description: Use Houmao's manual loop-planning skill only when the user explicitly asks for `houmao-loop-planner` to author one operator-owned loop bundle in a user-designated directory, prepare participant and distribution guidance, or prepare runtime handoff for pairwise or relay loops.
 license: MIT
 ---
 
 # Houmao Loop Planner
 
-Use this Houmao skill when a user-controlled agent needs to author or revise one operator-owned loop bundle in a user-designated directory before any live run starts.
+Use this Houmao skill only when the user explicitly asks for `houmao-loop-planner`. This is a manual-invocation-only operator-owned loop-bundle planner and runtime-handoff skill, not the default entrypoint for generic loop-bundle authoring, distribution-preparation, or runtime-handoff requests.
+
+When explicitly invoked, this skill helps a user-controlled agent author or revise one operator-owned loop bundle in a user-designated directory before any live run starts.
 
 `houmao-loop-planner` is intentionally above `houmao-agent-loop-pairwise` and `houmao-agent-loop-relay`. This skill does not invent a new runtime loop engine. It turns user intent into one static bundle that is easy for humans to read, revise, and distribute, with Markdown-first documents for meaning and small TOML files only where machine-shaped metadata is actually helpful.
 
@@ -29,7 +31,7 @@ This packaged skill does not cover:
 
 ## Workflow
 
-1. Confirm that the user wants one operator-owned loop bundle rather than an immediate live run-control action.
+1. Confirm that the user explicitly asked for `houmao-loop-planner` and wants one operator-owned loop bundle rather than an immediate live run-control action.
 2. Keep two stages separate from the start:
    - planning stage: author the bundle in a user-designated directory
    - runtime stage: later route live execution to the existing pairwise or relay runtime skill
@@ -97,6 +99,7 @@ This packaged skill does not cover:
 
 ## Guardrails
 
+- Do not auto-route generic loop-bundle authoring, distribution-preparation, or runtime-handoff requests here when the user did not explicitly ask for `houmao-loop-planner`.
 - Do not write the authored bundle into `HOUMAO_JOB_DIR` or `HOUMAO_MEMORY_DIR`.
 - Do not replace human-readable Markdown with many small TOML policy files by default.
 - Do not claim that distribution happens automatically.

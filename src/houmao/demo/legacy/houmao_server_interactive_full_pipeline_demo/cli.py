@@ -35,6 +35,17 @@ from houmao.demo.legacy.houmao_server_interactive_full_pipeline_demo.models impo
 )
 
 
+def _removed_fixture_root_error() -> str:
+    """Return the archived-demo guard message for this entry point."""
+
+    return (
+        "Archived demo `houmao_server_interactive_full_pipeline_demo` is not runnable. "
+        "This legacy workflow depends on the removed `tests/fixtures/agents/` "
+        "fixture-root contract. Use maintained demo surfaces from "
+        "`scripts/demo/README.md` instead."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the standalone interactive demo CLI."""
 
@@ -43,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     invocation = _resolve_demo_invocation(args)
 
     try:
+        raise DemoWorkflowError(_removed_fixture_root_error())
         if args.command == "start":
             start_payload = start_demo(
                 paths=invocation.paths,

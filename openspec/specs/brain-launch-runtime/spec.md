@@ -207,7 +207,7 @@ When a launch is started from a reusable launch profile, the build and runtime p
 At minimum, the pipeline SHALL allow launch-profile-derived values to influence:
 - effective auth selection
 - effective model selection
-- effective normalized reasoning level
+- effective tool/model-relative reasoning preset index
 - operator prompt-mode intent
 - durable non-secret env records
 - declarative mailbox configuration
@@ -235,9 +235,9 @@ The resulting build manifest or runtime launch metadata SHALL preserve profile p
 - **AND THEN** profile provenance still records that the launch originated from the named profile
 
 #### Scenario: Direct launch reasoning override wins over launch-profile-owned reasoning
-- **WHEN** a launch profile stores reasoning override `4`
-- **AND WHEN** the operator launches from that profile with direct override `--reasoning-level 8`
-- **THEN** brain construction uses normalized reasoning level `8` as the effective launch-owned value
+- **WHEN** a launch profile stores reasoning override `2`
+- **AND WHEN** the operator launches from that profile with direct override `--reasoning-level 12`
+- **THEN** brain construction uses reasoning preset index `12` as the effective launch-owned value before native mapping
 - **AND THEN** profile provenance still records that the launch originated from the named profile
 
 ### Requirement: Brain construction projects resolved model configuration into runtime homes and manifests
@@ -251,16 +251,18 @@ At minimum, the maintained direct model-name projection surfaces SHALL include:
 This projection SHALL happen after setup copy and auth projection, and before launch helper synthesis and provider-start policy mutation.
 
 For reasoning-level projection, the system SHALL consult a dedicated Houmao mapping-policy module that can consider:
-- normalized requested level
+- requested preset index
 - selected tool
 - selected model name
 - tool version when available
 - runtime config context when required
+- documented preset tables when one Houmao level maps to multiple native settings
 
 The built manifest SHALL preserve secret-free model-selection provenance sufficient to inspect:
 - the resolved effective model,
-- the requested normalized reasoning level,
+- the requested reasoning preset index,
 - the resolved native reasoning mapping summary,
+- whether saturation or explicit off selection occurred,
 - whether launch-profile or direct launch input contributed it,
 - the tool-native projection target family used for that build.
 
@@ -270,11 +272,17 @@ The built manifest SHALL preserve secret-free model-selection provenance suffici
 - **THEN** the built manifest records the direct value as the resolved effective model
 - **AND THEN** the manifest records secret-free provenance that the value came from direct launch input
 
-#### Scenario: Built manifest records requested normalized reasoning and resolved native mapping
-- **WHEN** one build resolves launch-owned reasoning level `7`
+#### Scenario: Built manifest records requested reasoning preset and resolved native mapping
+- **WHEN** one build resolves launch-owned reasoning level `3`
 - **AND WHEN** the mapping policy projects that request into one native tool-specific reasoning configuration
-- **THEN** the built manifest records requested normalized level `7`
+- **THEN** the built manifest records requested preset index `3`
 - **AND THEN** the manifest records a secret-free summary of the resolved native mapping used for that runtime
+
+#### Scenario: Built manifest records saturation when the requested preset exceeds the maintained ladder
+- **WHEN** one build resolves launch-owned reasoning level `12`
+- **AND WHEN** the resolved tool/model ladder exposes fewer positive presets than that request
+- **THEN** the mapping policy projects the highest maintained native reasoning preset for that runtime
+- **AND THEN** the manifest records both the requested preset index and that saturation occurred in the resolved native mapping summary
 
 #### Scenario: Explicit Codex model survives later launch-policy mutation
 - **WHEN** a Codex runtime build resolves model `gpt-5.4-mini`
@@ -286,7 +294,7 @@ The built manifest SHALL preserve secret-free model-selection provenance suffici
 - **WHEN** one runtime build resolves launch-owned reasoning level `9`
 - **AND WHEN** the mapping policy projects that request into native reasoning settings before unattended launch-policy mutation
 - **THEN** later unattended launch-policy mutation does not silently discard that explicit reasoning projection
-- **AND THEN** any clamp or native rewrite applied by Houmao remains visible in manifest provenance
+- **AND THEN** any saturation or native rewrite applied by Houmao remains visible in manifest provenance
 
 ### Requirement: Launch-profile prompt overlays are composed before backend-specific role injection
 When a launch profile defines a prompt overlay, the system SHALL derive one effective role prompt before backend-specific role injection planning begins.
@@ -2845,3 +2853,4 @@ When memory is disabled, the runtime SHALL omit `HOUMAO_MEMORY_DIR` from the liv
 - **WHEN** a tmux-backed managed runtime resolves memory binding as disabled
 - **THEN** the session-owned runtime metadata records that disabled state
 - **AND THEN** the live tmux session environment does not contain `HOUMAO_MEMORY_DIR`
+

@@ -416,7 +416,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "optional bootstrap state" in create_action
     assert "not a credential-providing method" in create_action
     assert "do not scan env vars, directories, repo-local tool homes" in create_action
-    assert "tests/fixtures/agents" not in create_action
+    deprecated_fixture_root = "/".join(("tests", "fixtures", "agents"))
+    assert deprecated_fixture_root not in create_action
     assert "project easy profile list" in list_action
     assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in list_action
     assert "<chosen houmao-mgr launcher>" in list_action
@@ -529,11 +530,26 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "authoring/formulate-loop-bundle.md" in loop_planner_skill
     assert "distribution/prepare-participants.md" in loop_planner_skill
     assert "handoff/prepare-run-charter.md" in loop_planner_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for `houmao-loop-planner`."
+        in loop_planner_skill
+    )
+    assert (
+        "Do not auto-route generic loop-bundle authoring, distribution-preparation, or "
+        "runtime-handoff requests here when the user did not explicitly ask for "
+        "`houmao-loop-planner`." in loop_planner_skill
+    )
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
     assert "operating/start.md" in pairwise_loop_skill
     assert (
-        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one pairwise loop run"
+        "Use this Houmao skill only when the user explicitly asks for "
+        "`houmao-agent-loop-pairwise`."
         in pairwise_loop_skill
+    )
+    assert (
+        "Do not auto-route generic pairwise loop planning or pairwise run-control "
+        "requests here when the user did not explicitly ask for "
+        "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
     )
     assert "Do not make the user agent the upstream driver of the execution loop." in pairwise_loop_skill
     assert (
@@ -569,18 +585,18 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "do not treat `.credentials.json` or `~/.claude.json` as directly importable specialist inputs"
         not in claude_reference
     )
-    assert "tests/fixtures/agents" not in claude_reference
+    assert deprecated_fixture_root not in claude_reference
 
     assert "CODEX_HOME" in codex_reference
     assert "auth.json" in codex_reference
     assert "requires_openai_auth = false" in codex_reference
     assert 'wire_api = "responses"' in codex_reference
-    assert "tests/fixtures/agents" not in codex_reference
+    assert deprecated_fixture_root not in codex_reference
 
     assert "GEMINI_CLI_HOME" in gemini_reference
     assert "oauth_creds.json" in gemini_reference
     assert "GOOGLE_APPLICATION_CREDENTIALS" in gemini_reference
-    assert "tests/fixtures/agents" not in gemini_reference
+    assert deprecated_fixture_root not in gemini_reference
 
 
 def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(
@@ -937,6 +953,15 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "handoff/prepare-run-charter.md" in loop_planner_skill
     assert "profile.toml" in loop_planner_skill
     assert "runs/charter.template.toml" in loop_planner_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for `houmao-loop-planner`."
+        in loop_planner_skill
+    )
+    assert (
+        "Do not auto-route generic loop-bundle authoring, distribution-preparation, or "
+        "runtime-handoff requests here when the user did not explicitly ask for "
+        "`houmao-loop-planner`." in loop_planner_skill
+    )
     assert "Do not write the authored bundle into `HOUMAO_JOB_DIR` or `HOUMAO_MEMORY_DIR`." in loop_planner_skill
     assert "distinguish mailbox-root bootstrap from mailbox-account creation" in touring_setup
     assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
@@ -981,6 +1006,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "operating/stop.md" in pairwise_loop_skill
     assert "references/run-charter.md" in pairwise_loop_skill
     assert "templates/single-file-plan.md" in pairwise_loop_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for "
+        "`houmao-agent-loop-pairwise`."
+        in pairwise_loop_skill
+    )
+    assert (
+        "Do not auto-route generic pairwise loop planning or pairwise run-control "
+        "requests here when the user did not explicitly ask for "
+        "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
+    )
     assert "authoring/formulate-loop-plan.md" in relay_loop_skill
     assert "authoring/render-loop-graph.md" in relay_loop_skill
     assert "operating/start.md" in relay_loop_skill

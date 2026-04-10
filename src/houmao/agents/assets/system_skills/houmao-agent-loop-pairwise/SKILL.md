@@ -1,12 +1,14 @@
 ---
 name: houmao-agent-loop-pairwise
-description: Use Houmao's pairwise loop-planning and run-control skill when a user-controlled agent needs to formulate a master-owned pairwise loop plan or operate that run through start, status, and stop.
+description: Use Houmao's manual pairwise loop-planning and run-control skill only when the user explicitly asks for `houmao-agent-loop-pairwise` to formulate a master-owned pairwise loop plan or operate that run through start, status, and stop.
 license: MIT
 ---
 
 # Houmao Agent Loop Pairwise
 
-Use this Houmao skill when a user-controlled agent needs to formulate or operate one pairwise loop run across named Houmao agents while keeping the user agent outside the execution loop.
+Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise`. This is a manual-invocation-only pairwise loop planner and run controller, not the default entrypoint for generic pairwise loop planning or pairwise run-control requests.
+
+When explicitly invoked, this skill helps a user-controlled agent formulate or operate one pairwise loop run across named Houmao agents while keeping the user agent outside the execution loop.
 
 `houmao-agent-loop-pairwise` is intentionally above the direct-operation skills and above the pairwise pattern page in `houmao-adv-usage-pattern`. This skill does not invent a new runtime loop engine. It turns user intent into one explicit plan, renders the final control graph, and routes start or follow-up control to the maintained Houmao-owned skills that already own messaging, reminders, mailbox follow-up, and pairwise execution guidance.
 
@@ -28,7 +30,7 @@ This packaged skill does not cover:
 
 ## Workflow
 
-1. Confirm that the user wants one pairwise loop plan or one run-control action rather than one ordinary direct-operation request.
+1. Confirm that the user explicitly asked for `houmao-agent-loop-pairwise` and wants one pairwise loop plan or one run-control action rather than one ordinary direct-operation request.
 2. Keep the two planes separate from the start:
    - control plane: user agent to designated master
    - execution plane: master and downstream workers using the existing pairwise edge-loop pattern
@@ -86,6 +88,7 @@ This packaged skill does not cover:
 
 ## Guardrails
 
+- Do not auto-route generic pairwise loop planning or pairwise run-control requests here when the user did not explicitly ask for `houmao-agent-loop-pairwise`.
 - Do not make the user agent the upstream driver of the execution loop.
 - Do not allow free delegation unless the plan says so explicitly.
 - Do not treat `status` polling as a keepalive signal; the master owns liveness after accepting the run.

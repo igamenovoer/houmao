@@ -144,8 +144,8 @@ Unless the user explicitly asks for a narrower path-based inspection as part of 
 - **AND THEN** it does not route the request through the removed `project agents tools <tool> auth ...` surface
 
 #### Scenario: Explicit agent-definition-directory work uses the dedicated direct-dir form
-- **WHEN** the current prompt asks the agent to manage credentials under `tests/fixtures/agents`
-- **THEN** the skill routes that work through `houmao-mgr credentials <tool> ... --agent-def-dir tests/fixtures/agents`
+- **WHEN** the current prompt asks the agent to manage credentials under `tests/fixtures/plain-agent-def`
+- **THEN** the skill routes that work through `houmao-mgr credentials <tool> ... --agent-def-dir tests/fixtures/plain-agent-def`
 - **AND THEN** it does not reinterpret that request as project-local credential management
 
 #### Scenario: Rename requires both the current and target names

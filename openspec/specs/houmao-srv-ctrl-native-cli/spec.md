@@ -60,7 +60,6 @@ Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the
 - **THEN** the printed help output includes `https://igamenovoer.github.io/houmao/`
 - **AND THEN** the operator can discover the published docs site without already knowing a subcommand
 
-
 ### Requirement: `houmao-mgr` exposes `credentials` as a top-level native command family
 `houmao-mgr` SHALL expose `credentials` as a top-level native command family in the supported root command tree.
 
@@ -1081,7 +1080,7 @@ At minimum, this SHALL apply to:
 Those commands SHALL accept:
 
 - `--model <name>`
-- `--reasoning-level <1..10>`
+- `--reasoning-level <integer>=non-negative`
 
 When either flag is supplied, the CLI SHALL construct request-scoped `execution.model` payload with the supplied subfields and omit unsupplied subfields so the server or gateway can inherit the remaining values from launch-resolved defaults.
 
@@ -1093,16 +1092,18 @@ When either flag is supplied, the CLI SHALL construct request-scoped `execution.
 
 Before dispatch, `houmao-mgr agents gateway prompt` and `houmao-mgr agents prompt` SHALL resolve the addressed managed agent and reject these execution flags clearly when the resolved target is TUI-backed rather than silently dropping them.
 
+The native CLI surface SHALL reject negative reasoning levels clearly and SHALL NOT impose a portable `1..10` upper bound at the CLI layer.
+
 #### Scenario: Managed headless turn submit accepts both execution flags
-- **WHEN** an operator runs `houmao-mgr agents turn submit --agent-id abc123 --prompt "review this" --model gpt-5.4-mini --reasoning-level 4`
+- **WHEN** an operator runs `houmao-mgr agents turn submit --agent-id abc123 --prompt "review this" --model gpt-5.4-mini --reasoning-level 3`
 - **THEN** `houmao-mgr` submits the managed headless turn successfully
-- **AND THEN** the request includes `execution.model.name = "gpt-5.4-mini"` and `execution.model.reasoning.level = 4`
+- **AND THEN** the request includes `execution.model.name = "gpt-5.4-mini"` and `execution.model.reasoning.level = 3`
 
 #### Scenario: Transport-neutral prompt forwards partial execution override for a headless target
-- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "review this" --reasoning-level 2`
+- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "review this" --reasoning-level 12`
 - **AND WHEN** the resolved managed agent is headless
 - **THEN** `houmao-mgr` submits that prompt through the supported transport-neutral managed-agent path
-- **AND THEN** the request includes only the partial execution override for reasoning level `2`
+- **AND THEN** the request includes only the partial execution override for reasoning level `12`
 
 #### Scenario: Gateway prompt rejects execution override for a TUI target
 - **WHEN** an operator runs `houmao-mgr agents gateway prompt --agent-id abc123 --prompt "review this" --model gpt-5.4-mini`
@@ -1110,7 +1111,8 @@ Before dispatch, `houmao-mgr agents gateway prompt` and `houmao-mgr agents promp
 - **THEN** `houmao-mgr` fails that command clearly
 - **AND THEN** it does not silently send a TUI gateway prompt while dropping the requested model override
 
-#### Scenario: Invalid reasoning-level flag is rejected clearly
-- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "review this" --reasoning-level 0`
+#### Scenario: Negative reasoning-level flag is rejected clearly
+- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "review this" --reasoning-level -1`
 - **THEN** `houmao-mgr` rejects that input clearly
 - **AND THEN** the CLI does not construct or send an invalid request payload
+
