@@ -61,7 +61,7 @@ Supported lanes:
 - `codex`
 - `gemini`
 
-The canonical Gemini lane uses `tests/fixtures/agents/tools/gemini/auth/personal-a-default` so the supported pack validates the OAuth-backed unattended path.
+The canonical Gemini lane uses `tests/fixtures/auth-bundles/gemini/personal-a-default` so the supported pack validates the OAuth-backed unattended path.
 
 Start here:
 

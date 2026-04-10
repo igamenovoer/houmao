@@ -72,12 +72,12 @@ case "${provider}" in
     claude_code)
         tool="claude"
         provider_executable="claude"
-        fixture_auth_source="${REPO_ROOT}/tests/fixtures/agents/tools/claude/auth/kimi-coding"
+        fixture_auth_source="${REPO_ROOT}/tests/fixtures/auth-bundles/claude/kimi-coding"
         ;;
     codex)
         tool="codex"
         provider_executable="codex"
-        fixture_auth_source="${REPO_ROOT}/tests/fixtures/agents/tools/codex/auth/yunwu-openai"
+        fixture_auth_source="${REPO_ROOT}/tests/fixtures/auth-bundles/codex/yunwu-openai"
         ;;
     *)
         echo "error: unsupported provider: ${provider}. Use claude_code or codex." >&2

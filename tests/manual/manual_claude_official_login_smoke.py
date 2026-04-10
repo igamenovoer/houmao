@@ -55,10 +55,16 @@ def _default_repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _default_agent_def_dir(repo_root: Path) -> Path:
-    """Return the default fixture agent-definition root."""
+def _default_plain_agent_def_dir(repo_root: Path) -> Path:
+    """Return the default tracked plain agent-definition fixture root."""
 
-    return repo_root / "tests" / "fixtures" / "agents"
+    return repo_root / "tests" / "fixtures" / "plain-agent-def"
+
+
+def _default_auth_bundles_dir(repo_root: Path) -> Path:
+    """Return the default local auth-bundle fixture root."""
+
+    return repo_root / "tests" / "fixtures" / "auth-bundles"
 
 
 def _default_source_config_dir() -> Path:
@@ -70,10 +76,10 @@ def _default_source_config_dir() -> Path:
     return Path.home() / ".claude"
 
 
-def _official_login_auth_root(agent_def_dir: Path, auth_name: str) -> Path:
+def _official_login_auth_root(auth_bundles_dir: Path, auth_name: str) -> Path:
     """Return the local-only Claude auth bundle root."""
 
-    return agent_def_dir / "tools" / "claude" / "auth" / auth_name
+    return auth_bundles_dir / "claude" / auth_name
 
 
 def _prepare_official_login_bundle(*, auth_root: Path, source_config_dir: Path) -> Path:
@@ -104,6 +110,45 @@ def _prepare_official_login_bundle(*, auth_root: Path, source_config_dir: Path) 
     return auth_root
 
 
+def _materialize_temp_agent_def_dir(
+    *,
+    source_agent_def_dir: Path,
+    auth_bundle_root: Path,
+    auth_name: str,
+    workdir: Path,
+) -> Path:
+    """Copy the tracked plain fixture tree and materialize one auth bundle into it."""
+
+    def _ignore_auth_contents(directory: str, names: list[str]) -> set[str]:
+        if Path(directory).name != "auth":
+            return set()
+        return {name for name in names if name != ".gitignore"}
+
+    if not source_agent_def_dir.is_dir():
+        raise RuntimeError(
+            f"Tracked plain agent-definition fixture root is missing: `{source_agent_def_dir}`."
+        )
+    if not auth_bundle_root.is_dir():
+        raise RuntimeError(
+            f"Local Claude auth bundle missing: `{auth_bundle_root}`. "
+            "Provision it first or drop `--skip-provision`."
+        )
+
+    materialized_agent_def_dir = (workdir / "agent-def").resolve()
+    shutil.copytree(
+        source_agent_def_dir,
+        materialized_agent_def_dir,
+        symlinks=True,
+        ignore=_ignore_auth_contents,
+    )
+    destination_auth_root = (
+        materialized_agent_def_dir / "tools" / "claude" / "auth" / auth_name
+    ).resolve()
+    destination_auth_root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(auth_bundle_root, destination_auth_root, symlinks=True)
+    return materialized_agent_def_dir
+
+
 def _load_launch_payload(output: str) -> dict[str, object]:
     """Extract the managed-agent launch payload from CLI JSON stream output."""
 
@@ -117,25 +162,31 @@ def _load_launch_payload(output: str) -> dict[str, object]:
     raise RuntimeError(f"Did not find launch-complete payload in output:\n{output}")
 
 
-def _validated_env(*, agent_def_dir: Path, overlay_root: Path | None = None) -> dict[str, str]:
+def _validated_env(*, agent_def_dir: Path) -> dict[str, str]:
     """Return the sanitized environment for the smoke launch."""
 
     env = dict(os.environ)
     env["HOUMAO_AGENT_DEF_DIR"] = str(agent_def_dir.resolve())
     env["HOUMAO_CLI_PRINT_STYLE"] = "json"
-    if overlay_root is not None:
-        env["HOUMAO_PROJECT_OVERLAY_DIR"] = str(overlay_root.resolve())
+    env["HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE"] = "cwd_only"
     for variable in (
         "HOUMAO_GLOBAL_RUNTIME_DIR",
         "HOUMAO_GLOBAL_MAILBOX_DIR",
         "HOUMAO_LOCAL_JOBS_DIR",
         "HOUMAO_JOB_DIR",
+        "HOUMAO_PROJECT_OVERLAY_DIR",
     ):
         env.pop(variable, None)
     return env
 
 
-def _run_smoke_launch(*, repo_root: Path, agent_def_dir: Path, auth_name: str) -> tuple[Path, dict[str, object]]:
+def _run_smoke_launch(
+    *,
+    repo_root: Path,
+    source_agent_def_dir: Path,
+    auth_bundle_root: Path,
+    auth_name: str,
+) -> tuple[Path, Path, dict[str, object]]:
     """Run the headless Claude smoke launch from a fresh temp workdir."""
 
     tmp_root = repo_root / "tmp"
@@ -143,8 +194,18 @@ def _run_smoke_launch(*, repo_root: Path, agent_def_dir: Path, auth_name: str) -
     workdir = Path(
         tempfile.mkdtemp(prefix="claude-official-login-smoke-", dir=str(tmp_root))
     ).resolve()
-    overlay_root = workdir / ".houmao"
-    env = _validated_env(agent_def_dir=agent_def_dir, overlay_root=overlay_root)
+    materialized_agent_def_dir = _materialize_temp_agent_def_dir(
+        source_agent_def_dir=source_agent_def_dir,
+        auth_bundle_root=auth_bundle_root,
+        auth_name=auth_name,
+        workdir=workdir,
+    )
+    env = _validated_env(agent_def_dir=materialized_agent_def_dir)
+    preset_path = (
+        materialized_agent_def_dir / "presets" / "server-api-smoke-claude-default.yaml"
+    ).resolve()
+    if not preset_path.is_file():
+        raise RuntimeError(f"Expected smoke preset at `{preset_path}`.")
 
     process = _run_command(
         args=[
@@ -154,7 +215,7 @@ def _run_smoke_launch(*, repo_root: Path, agent_def_dir: Path, auth_name: str) -
             "agents",
             "launch",
             "--agents",
-            "server-api-smoke",
+            str(preset_path),
             "--provider",
             "claude_code",
             "--auth",
@@ -165,7 +226,7 @@ def _run_smoke_launch(*, repo_root: Path, agent_def_dir: Path, auth_name: str) -
         env=env,
     )
     payload = _load_launch_payload(process.stdout)
-    return workdir, payload
+    return workdir, materialized_agent_def_dir, payload
 
 
 def _stop_and_cleanup_session(
@@ -177,7 +238,7 @@ def _stop_and_cleanup_session(
 ) -> None:
     """Stop and clean up the launched managed session."""
 
-    env = _validated_env(agent_def_dir=agent_def_dir, overlay_root=workdir / ".houmao")
+    env = _validated_env(agent_def_dir=agent_def_dir)
     _run_command(
         args=[
             "pixi",
@@ -222,10 +283,16 @@ def main() -> None:
         help="Repository root (defaults to the current checkout).",
     )
     parser.add_argument(
-        "--agent-def-dir",
+        "--plain-agent-def-dir",
         type=Path,
-        default=_default_agent_def_dir(repo_root),
-        help="Agent definition root (defaults to tests/fixtures/agents).",
+        default=_default_plain_agent_def_dir(repo_root),
+        help="Tracked plain fixture root copied into one temp direct-dir launch tree.",
+    )
+    parser.add_argument(
+        "--auth-bundles-dir",
+        type=Path,
+        default=_default_auth_bundles_dir(repo_root),
+        help="Local auth-bundle fixture root (defaults to tests/fixtures/auth-bundles).",
     )
     parser.add_argument(
         "--auth-name",
@@ -251,8 +318,9 @@ def main() -> None:
     args = parser.parse_args()
 
     resolved_repo_root = args.repo_root.resolve()
-    resolved_agent_def_dir = args.agent_def_dir.resolve()
-    auth_root = _official_login_auth_root(resolved_agent_def_dir, args.auth_name)
+    resolved_plain_agent_def_dir = args.plain_agent_def_dir.resolve()
+    resolved_auth_bundles_dir = args.auth_bundles_dir.resolve()
+    auth_root = _official_login_auth_root(resolved_auth_bundles_dir, args.auth_name)
 
     if not args.skip_provision:
         source_config_dir = (
@@ -265,7 +333,7 @@ def main() -> None:
             source_config_dir=source_config_dir,
         )
         print("claude-official-login-prepare=PASS")
-        print(f"auth_root={prepared_root}")
+        print(f"auth_bundle_root={prepared_root}")
         print(f"source_config_dir={source_config_dir}")
 
     if args.prepare_only:
@@ -274,34 +342,30 @@ def main() -> None:
     if shutil.which("tmux") is None:
         raise RuntimeError("tmux not found on PATH")
 
-    workdir, launch_payload = _run_smoke_launch(
+    workdir, materialized_agent_def_dir, launch_payload = _run_smoke_launch(
         repo_root=resolved_repo_root,
-        agent_def_dir=resolved_agent_def_dir,
+        source_agent_def_dir=resolved_plain_agent_def_dir,
+        auth_bundle_root=auth_root,
         auth_name=args.auth_name,
     )
     agent_id = str(launch_payload["agent_id"])
     manifest_path = Path(str(launch_payload["manifest_path"])).resolve()
-    overlay_root = Path(str(launch_payload["overlay_root"])).resolve()
-
-    if overlay_root != workdir / ".houmao":
-        raise RuntimeError(
-            f"Expected overlay root `{workdir / '.houmao'}`, got `{overlay_root}`."
-        )
     if not manifest_path.is_file():
         raise RuntimeError(f"Expected manifest path `{manifest_path}` to exist after launch.")
 
     _stop_and_cleanup_session(
         workdir=workdir,
-        agent_def_dir=resolved_agent_def_dir,
+        agent_def_dir=materialized_agent_def_dir,
         agent_id=agent_id,
         manifest_path=manifest_path,
     )
 
     print("claude-official-login-smoke=PASS")
     print(f"workdir={workdir}")
+    print(f"agent_def_dir={materialized_agent_def_dir}")
     print(f"agent_id={agent_id}")
     print(f"manifest_path={manifest_path}")
-    print(f"auth_root={auth_root}")
+    print(f"auth_bundle_root={auth_root}")
 
 
 if __name__ == "__main__":

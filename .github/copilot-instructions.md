@@ -36,7 +36,7 @@ pixi run python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 
 The active project-local model is a catalog-backed `.houmao/` overlay: `.houmao/houmao-config.toml` is the discovery anchor, `.houmao/catalog.sqlite` plus `.houmao/content/` are canonical, and `.houmao/agents/` is the compatibility projection materialized when file-tree consumers still need an agent definition directory.
 
-When code resolves a filesystem agent definition directory without an explicit override, the precedence is: `--agent-def-dir`, then `HOUMAO_AGENT_DEF_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then default `.houmao/agents`. The best in-repo template/reference for raw file-tree inputs is `tests/fixtures/agents/`.
+When code resolves a filesystem agent definition directory without an explicit override, the precedence is: `--agent-def-dir`, then `HOUMAO_AGENT_DEF_DIR`, then nearest ancestor `.houmao/houmao-config.toml`, then default `.houmao/agents`. The best in-repo template/reference for raw file-tree inputs is `tests/fixtures/plain-agent-def/`.
 
 Committed inputs are split by responsibility:
 
@@ -70,7 +70,7 @@ Role injection is backend-specific in `launch_plan.py`:
 - Gemini headless uses a bootstrap message.
 - CAO-backed and Houmao-server-backed sessions use a profile-based role injection path.
 
-For concrete supported workflows, prefer the canonical fixtures under `tests/fixtures/agents/`, the current getting-started docs, and the live explore helpers under `scripts/explore/`. Archived demos under `scripts/demo/legacy/` are historical reference only.
+For concrete supported workflows, prefer the maintained split fixture lanes under `tests/fixtures/plain-agent-def/` and `tests/fixtures/auth-bundles/`, the current getting-started docs, and the live explore helpers under `scripts/explore/`. Archived demos under `scripts/demo/legacy/` are historical reference only.
 
 ## Key conventions
 

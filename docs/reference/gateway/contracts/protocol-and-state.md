@@ -48,7 +48,7 @@ Representative internal bootstrap payload for a `cao_rest` session:
     "parsing_mode": "shadow_only"
   },
   "manifest_path": "/abs/path/.houmao/runtime/sessions/cao_rest/cao-rest-1/manifest.json",
-  "agent_def_dir": "/abs/path/tests/fixtures/agents",
+  "agent_def_dir": "/abs/path/tests/fixtures/plain-agent-def",
   "runtime_session_id": "cao-rest-1",
   "desired_host": "127.0.0.1",
   "desired_port": 43123

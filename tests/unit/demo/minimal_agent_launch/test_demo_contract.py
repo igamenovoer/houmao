@@ -12,6 +12,8 @@ def test_runner_uses_one_overlay_override_without_legacy_root_overrides() -> Non
     script_text = _RUNNER_PATH.read_text(encoding="utf-8")
 
     assert 'overlay_root="${workdir}/.houmao"' in script_text
+    assert "tests/fixtures/auth-bundles/claude/kimi-coding" in script_text
+    assert "tests/fixtures/auth-bundles/codex/yunwu-openai" in script_text
     assert "unset HOUMAO_AGENT_DEF_DIR HOUMAO_GLOBAL_RUNTIME_DIR" in script_text
     assert 'export HOUMAO_PROJECT_OVERLAY_DIR="${overlay_root}"' in script_text
     assert "export HOUMAO_AGENT_DEF_DIR" not in script_text
@@ -22,6 +24,8 @@ def test_tutorial_documents_overlay_local_runtime_and_jobs_layout() -> None:
     tutorial_text = _TUTORIAL_PATH.read_text(encoding="utf-8")
 
     assert 'overlay_root="${run_root}/workdir/.houmao"' in tutorial_text
+    assert "tests/fixtures/auth-bundles/claude/kimi-coding" in tutorial_text
+    assert "tests/fixtures/auth-bundles/codex/yunwu-openai" in tutorial_text
     assert "unset HOUMAO_AGENT_DEF_DIR HOUMAO_GLOBAL_RUNTIME_DIR" in tutorial_text
     assert 'HOUMAO_PROJECT_OVERLAY_DIR="$PWD/${overlay_root}" \\' in tutorial_text
     assert "HOUMAO_AGENT_DEF_DIR=" not in tutorial_text

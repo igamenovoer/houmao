@@ -66,7 +66,7 @@ Use `start-session` with `--mailbox-transport stalwart` and either a base URL or
 
 ```bash
 pixi run python -m houmao.agents.realm_controller start-session \
-  --agent-def-dir tests/fixtures/agents \
+  --agent-def-dir tests/fixtures/plain-agent-def \
   --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
   --role gpu-kernel-coder \
   --backend claude_headless \

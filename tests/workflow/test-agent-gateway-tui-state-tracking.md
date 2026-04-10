@@ -28,8 +28,8 @@ This is not the pair-managed `houmao-server + houmao-mgr` workflow.
 - `pixi` is installed and the default environment is usable.
 - `tmux` is installed and available on `PATH`.
 - `codex` is installed and available on `PATH`.
-- The local fixture agent definitions exist under `tests/fixtures/agents`.
-- The local Codex auth bundle exists under `tests/fixtures/agents/tools/codex/auth/personal-a-default/`.
+- The local fixture agent definitions exist under `tests/fixtures/plain-agent-def`.
+- The local Codex auth bundle exists under `tests/fixtures/plain-agent-def/tools/codex/auth/personal-a-default/`.
 
 Useful checks:
 
@@ -61,7 +61,7 @@ In the example run below, the agent name was `projection-demo-codex`, while the 
 Set the fixture agent-definition directory explicitly:
 
 ```bash
-export AGENTSYS_AGENT_DEF_DIR="$PWD/tests/fixtures/agents"
+export AGENTSYS_AGENT_DEF_DIR="$PWD/tests/fixtures/plain-agent-def"
 ```
 
 Launch one serverless local interactive Codex session:

@@ -1,0 +1,8 @@
+# Minimal `profile.toml` template
+
+profile_id = "<profile-id>"
+version = 1
+loop_kind = "<pairwise-or-relay>"
+master = "<master-agent>"
+participants = ["<master-agent>", "<worker-a>"]
+default_stop_mode = "interrupt-first"

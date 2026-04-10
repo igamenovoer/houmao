@@ -28,8 +28,8 @@ from houmao.demo.shared_tui_tracking_demo_pack.scenario import (
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 _DEMO_INPUTS_SOURCE = _WORKSPACE_ROOT / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents"
 _FIXTURE_AUTH_RELATIVE_BY_TOOL = {
-    "claude": Path("tests/fixtures/agents/tools/claude/auth/kimi-coding"),
-    "codex": Path("tests/fixtures/agents/tools/codex/auth/yunwu-openai"),
+    "claude": Path("tests/fixtures/auth-bundles/claude/kimi-coding"),
+    "codex": Path("tests/fixtures/auth-bundles/codex/yunwu-openai"),
 }
 
 

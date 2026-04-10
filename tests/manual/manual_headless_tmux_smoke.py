@@ -106,8 +106,8 @@ def main() -> None:
     parser.add_argument(
         "--agent-def-dir",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "fixtures" / "agents",
-        help="Agent definition directory (defaults to tests/fixtures/agents).",
+        default=Path(__file__).resolve().parents[1] / "fixtures" / "plain-agent-def",
+        help="Agent definition directory (defaults to tests/fixtures/plain-agent-def).",
     )
     parser.add_argument(
         "--role",

@@ -31,6 +31,7 @@ _CATALOG_SKILLS = [
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
     "houmao-agent-definition",
+    "houmao-loop-planner",
     "houmao-agent-loop-pairwise",
     "houmao-agent-loop-relay",
     "houmao-agent-instance",
@@ -47,6 +48,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
     "houmao-agent-definition",
+    "houmao-loop-planner",
     "houmao-agent-loop-pairwise",
     "houmao-agent-loop-relay",
     "houmao-agent-instance",
@@ -190,6 +192,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-loop-planner",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-relay",
     ]
@@ -236,6 +239,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-loop-planner/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-loop-relay/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
@@ -372,6 +376,7 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
     assert (workspace / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-definition/SKILL.md").is_file()
+    assert (workspace / ".gemini/skills/houmao-loop-planner/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-loop-relay/SKILL.md").is_file()
     assert not (workspace / ".agents/skills").exists()

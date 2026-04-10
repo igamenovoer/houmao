@@ -153,7 +153,7 @@ if [[ -z "$REPO_ROOT" ]]; then
 fi
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 if [[ -z "$AGENT_DEF_DIR" ]]; then
-  AGENT_DEF_DIR="$REPO_ROOT/tests/fixtures/agents"
+  AGENT_DEF_DIR="$REPO_ROOT/tests/fixtures/plain-agent-def"
 fi
 AGENT_DEF_DIR="$(cd "$AGENT_DEF_DIR" && pwd)"
 

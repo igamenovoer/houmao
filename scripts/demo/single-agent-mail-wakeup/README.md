@@ -39,8 +39,8 @@ Generated outputs are ignored through [outputs/.gitignore](outputs/.gitignore).
 - `tmux`
 - `claude` for the Claude lane or `codex` for the Codex lane
 - local fixture auth bundles at:
-  - `tests/fixtures/agents/tools/claude/auth/kimi-coding`
-  - `tests/fixtures/agents/tools/codex/auth/yunwu-openai`
+  - `tests/fixtures/auth-bundles/claude/kimi-coding`
+  - `tests/fixtures/auth-bundles/codex/yunwu-openai`
 
 The demo fails early and names the missing fixture path when a required auth bundle is absent.
 

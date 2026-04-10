@@ -65,6 +65,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-loop-planner",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-relay",
         "houmao-agent-instance",
@@ -135,6 +136,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-loop-planner",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-relay",
         "houmao-agent-messaging",
@@ -160,6 +162,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-loop-planner",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-relay",
         "houmao-agent-instance",
@@ -225,6 +228,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
     manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
+    loop_planner_skill_path = home_path / "skills/houmao-loop-planner/SKILL.md"
+    loop_planner_authoring = home_path / "skills/houmao-loop-planner/authoring"
+    loop_planner_distribution = home_path / "skills/houmao-loop-planner/distribution"
+    loop_planner_handoff = home_path / "skills/houmao-loop-planner/handoff"
     pairwise_loop_skill_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
     pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
     pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
@@ -239,11 +246,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-loop-planner",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-relay",
     )
     assert tuple(record.name for record in installed_records) == result.resolved_skill_names
     assert tuple(record.projection_mode for record in installed_records) == (
+        "copy",
         "copy",
         "copy",
         "copy",
@@ -261,6 +270,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
+    assert loop_planner_skill_path.is_file()
+    assert (loop_planner_authoring / "formulate-loop-bundle.md").is_file()
+    assert (loop_planner_distribution / "prepare-participants.md").is_file()
+    assert (loop_planner_handoff / "prepare-run-charter.md").is_file()
     assert pairwise_loop_skill_path.is_file()
     assert (pairwise_loop_authoring / "formulate-loop-plan.md").is_file()
     assert (pairwise_loop_operating / "start.md").is_file()
@@ -271,6 +284,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
+    loop_planner_skill = loop_planner_skill_path.read_text(encoding="utf-8")
     pairwise_loop_skill = pairwise_loop_skill_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
@@ -512,6 +526,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "project agents recipes remove --name <recipe>"
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
+    assert "authoring/formulate-loop-bundle.md" in loop_planner_skill
+    assert "distribution/prepare-participants.md" in loop_planner_skill
+    assert "handoff/prepare-run-charter.md" in loop_planner_skill
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
     assert "operating/start.md" in pairwise_loop_skill
     assert (
@@ -593,6 +610,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_path = home_path / "skills/houmao-touring/SKILL.md"
     touring_branches = home_path / "skills/houmao-touring/branches"
     touring_references = home_path / "skills/houmao-touring/references"
+    loop_planner_path = home_path / "skills/houmao-loop-planner/SKILL.md"
+    loop_planner_authoring = home_path / "skills/houmao-loop-planner/authoring"
+    loop_planner_distribution = home_path / "skills/houmao-loop-planner/distribution"
+    loop_planner_handoff = home_path / "skills/houmao-loop-planner/handoff"
+    loop_planner_references = home_path / "skills/houmao-loop-planner/references"
+    loop_planner_templates = home_path / "skills/houmao-loop-planner/templates"
     pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
     pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
     pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
@@ -624,6 +647,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-loop-planner",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-relay",
         "houmao-agent-instance",
@@ -639,6 +663,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert manage_agent_instance_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
+    assert loop_planner_path.is_file()
     assert pairwise_loop_path.is_file()
     assert relay_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
@@ -647,6 +672,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
     advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
     touring_skill = touring_path.read_text(encoding="utf-8")
+    loop_planner_skill = loop_planner_path.read_text(encoding="utf-8")
     pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
@@ -689,6 +715,25 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_live_ops_path = touring_branches / "live-operations.md"
     touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
     touring_question_style_path = touring_references / "question-style.md"
+    loop_planner_formulate_path = loop_planner_authoring / "formulate-loop-bundle.md"
+    loop_planner_revise_path = loop_planner_authoring / "revise-loop-bundle.md"
+    loop_planner_graph_path = loop_planner_authoring / "render-loop-graph.md"
+    loop_planner_participants_path = loop_planner_distribution / "prepare-participants.md"
+    loop_planner_execution_path = loop_planner_distribution / "prepare-execution.md"
+    loop_planner_distribution_path = loop_planner_distribution / "prepare-distribution.md"
+    loop_planner_charter_path = loop_planner_handoff / "prepare-run-charter.md"
+    loop_planner_route_path = loop_planner_handoff / "route-to-runtime-skill.md"
+    loop_planner_dir_structure_path = loop_planner_references / "dir-structure.md"
+    loop_planner_sections_path = loop_planner_references / "section-conventions.md"
+    loop_planner_profile_schema_path = loop_planner_references / "profile-schema.md"
+    loop_planner_charter_schema_path = loop_planner_references / "charter-template-schema.md"
+    loop_planner_storage_rules_path = loop_planner_references / "storage-rules.md"
+    loop_planner_plan_template_path = loop_planner_templates / "plan.md"
+    loop_planner_participants_template_path = loop_planner_templates / "participants.md"
+    loop_planner_execution_template_path = loop_planner_templates / "execution.md"
+    loop_planner_distribution_template_path = loop_planner_templates / "distribution.md"
+    loop_planner_profile_template_path = loop_planner_templates / "profile.toml"
+    loop_planner_charter_template_path = loop_planner_templates / "charter.template.toml"
     pairwise_loop_formulate_path = pairwise_loop_authoring / "formulate-loop-plan.md"
     pairwise_loop_revise_path = pairwise_loop_authoring / "revise-loop-plan.md"
     pairwise_loop_graph_path = pairwise_loop_authoring / "render-loop-graph.md"
@@ -741,6 +786,31 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
     relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
+    loop_planner_formulate = loop_planner_formulate_path.read_text(encoding="utf-8")
+    loop_planner_graph = loop_planner_graph_path.read_text(encoding="utf-8")
+    loop_planner_participants = loop_planner_participants_path.read_text(encoding="utf-8")
+    loop_planner_execution = loop_planner_execution_path.read_text(encoding="utf-8")
+    loop_planner_distribution_guide = loop_planner_distribution_path.read_text(
+        encoding="utf-8"
+    )
+    loop_planner_route = loop_planner_route_path.read_text(encoding="utf-8")
+    loop_planner_storage_rules = loop_planner_storage_rules_path.read_text(encoding="utf-8")
+    loop_planner_plan_template = loop_planner_plan_template_path.read_text(encoding="utf-8")
+    loop_planner_participants_template = loop_planner_participants_template_path.read_text(
+        encoding="utf-8"
+    )
+    loop_planner_execution_template = loop_planner_execution_template_path.read_text(
+        encoding="utf-8"
+    )
+    loop_planner_distribution_template = loop_planner_distribution_template_path.read_text(
+        encoding="utf-8"
+    )
+    loop_planner_profile_template = loop_planner_profile_template_path.read_text(
+        encoding="utf-8"
+    )
+    loop_planner_charter_template = loop_planner_charter_template_path.read_text(
+        encoding="utf-8"
+    )
     pairwise_loop_formulate = pairwise_loop_formulate_path.read_text(encoding="utf-8")
     pairwise_loop_graph = pairwise_loop_graph_path.read_text(encoding="utf-8")
     pairwise_loop_start = pairwise_loop_start_path.read_text(encoding="utf-8")
@@ -862,10 +932,49 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "references/question-style.md" in touring_skill
     assert "houmao-project-mgr" in touring_skill
     assert "houmao-agent-instance" in touring_skill
+    assert "authoring/formulate-loop-bundle.md" in loop_planner_skill
+    assert "distribution/prepare-participants.md" in loop_planner_skill
+    assert "handoff/prepare-run-charter.md" in loop_planner_skill
+    assert "profile.toml" in loop_planner_skill
+    assert "runs/charter.template.toml" in loop_planner_skill
+    assert "Do not write the authored bundle into `HOUMAO_JOB_DIR` or `HOUMAO_MEMORY_DIR`." in loop_planner_skill
     assert "distinguish mailbox-root bootstrap from mailbox-account creation" in touring_setup
     assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
     assert "initialize the shared mailbox root now" in touring_question_style
     assert "created by the later launch step" in touring_question_style
+    assert loop_planner_formulate_path.is_file()
+    assert loop_planner_revise_path.is_file()
+    assert loop_planner_graph_path.is_file()
+    assert loop_planner_participants_path.is_file()
+    assert loop_planner_execution_path.is_file()
+    assert loop_planner_distribution_path.is_file()
+    assert loop_planner_charter_path.is_file()
+    assert loop_planner_route_path.is_file()
+    assert loop_planner_dir_structure_path.is_file()
+    assert loop_planner_sections_path.is_file()
+    assert loop_planner_profile_schema_path.is_file()
+    assert loop_planner_charter_schema_path.is_file()
+    assert loop_planner_storage_rules_path.is_file()
+    assert loop_planner_plan_template_path.is_file()
+    assert loop_planner_participants_template_path.is_file()
+    assert loop_planner_execution_template_path.is_file()
+    assert loop_planner_distribution_template_path.is_file()
+    assert loop_planner_profile_template_path.is_file()
+    assert loop_planner_charter_template_path.is_file()
+    assert "Keep TOML minimal by using only:" in loop_planner_formulate
+    assert "The final bundle must include one Mermaid fenced code block in `plan.md`." in loop_planner_graph
+    assert "`Must Not`" in loop_planner_participants
+    assert "`execution.md` should include at minimum:" in loop_planner_execution
+    assert "Distribution remains the operator's responsibility." in loop_planner_distribution_guide
+    assert "`pairwise` -> `houmao-agent-loop-pairwise`" in loop_planner_route
+    assert "Do not write the authored bundle into `HOUMAO_JOB_DIR` or `HOUMAO_MEMORY_DIR`." in loop_planner_storage_rules
+    assert "# Mermaid Graph" in loop_planner_plan_template
+    assert "```mermaid" in loop_planner_plan_template
+    assert "## Agent: <master-or-worker-name>" in loop_planner_participants_template
+    assert "# Message Flow" in loop_planner_execution_template
+    assert "# Next Runtime Skill" in loop_planner_distribution_template
+    assert 'loop_kind = "<pairwise-or-relay>"' in loop_planner_profile_template
+    assert 'run_id = "<fill-me>"' in loop_planner_charter_template
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
     assert "authoring/render-loop-graph.md" in pairwise_loop_skill
     assert "operating/start.md" in pairwise_loop_skill

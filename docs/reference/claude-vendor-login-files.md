@@ -52,7 +52,7 @@ Do not treat `claude_state.template.json` as one of the ways to provide Claude c
 
 Do not import a standalone `.claude.json` without the maintained `.credentials.json` login-state file and expect that to count as a supported Claude credential lane.
 
-Do not commit vendor login files into tracked repository content. Under `tests/fixtures/agents`, `tools/**/auth/**` remains local-only host state.
+Do not commit vendor login files into tracked repository content. Use `tests/fixtures/auth-bundles/claude/official-login/` for this local-only bundle lane.
 
 ## Runtime Behavior
 
@@ -67,7 +67,7 @@ For the maintained vendor-login lane, a minimized projected `.claude.json` such 
 For local smoke validation, reserve this local-only fixture name:
 
 ```text
-tests/fixtures/agents/tools/claude/auth/official-login/
+tests/fixtures/auth-bundles/claude/official-login/
   env/vars.env
   files/.credentials.json
   files/.claude.json
@@ -91,9 +91,11 @@ That script:
 
 - provisions or refreshes the local-only `official-login` bundle
 - launches `server-api-smoke` from a fresh workdir under `tmp/`
-- sets `HOUMAO_AGENT_DEF_DIR` to `tests/fixtures/agents`
+- copies `tests/fixtures/plain-agent-def/` into one temporary direct-dir root under `tmp/`
+- materializes `tools/claude/auth/official-login/` there from `tests/fixtures/auth-bundles/claude/official-login/`
+- sets `HOUMAO_AGENT_DEF_DIR` to that temporary direct-dir root
 - forces an overlay-local `.houmao` inside the temp workdir
-- runs the Claude launch headlessly with `--auth official-login --headless`
+- runs the Claude launch with `--auth official-login --headless` while the tracked `server-api-smoke` preset keeps `launch.prompt_mode: unattended`
 - stops and cleans up the managed session after validation
 
 If you only want to refresh the local fixture without launching, run:

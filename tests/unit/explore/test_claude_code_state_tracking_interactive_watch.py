@@ -64,7 +64,7 @@ def _watch_manifest(paths: InteractiveWatchPaths) -> InteractiveWatchManifest:
         repo_root="/repo",
         run_root=str(paths.run_root),
         runtime_root=str(paths.runtime_root),
-        preset_path="/repo/tests/fixtures/agents/presets/interactive-watch-claude-default.yaml",
+        preset_path="/repo/tests/fixtures/plain-agent-def/presets/interactive-watch-claude-default.yaml",
         brain_home_path=str(paths.runtime_root / "homes" / "claude-home"),
         brain_manifest_path=str(paths.runtime_root / "manifests" / "claude-home.yaml"),
         launch_helper_path=str(paths.runtime_root / "homes" / "claude-home" / "launch.sh"),
