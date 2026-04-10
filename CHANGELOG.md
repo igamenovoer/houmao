@@ -4,6 +4,23 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.5.1] - 2026-04-10
+
+### Added
+
+- **`houmao-agent-loop-pairwise-v2` system skill**: enriched versioned pairwise loop workflow skill with `initialize`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill` lifecycle verbs, split out from the stable `houmao-agent-loop-pairwise` skill which now retains only the `plan` + `start` / `status` / `stop` surface. Both skills are included in the `user-control` set and auto-installed into managed homes.
+- **`readme-structure` spec**: new OpenSpec main spec tracking the README section layout and specialist-first onboarding ordering requirements.
+
+### Changed
+
+- **README rewritten for specialist-first workflow**: the README now leads with system-skills install (step 0), project init (step 1), and specialist creation/launch (step 2) as the primary onboarding path. A new Agent Loop section (step 3) showcases pairwise multi-agent coordination with a real story-writing example (3 specialists, per-chapter pipeline, mermaid control graph, produced artifacts). `agents join` is repositioned as a secondary lightweight/ad-hoc path (step 4). The intro is condensed from four subsections to two. Section ordering follows: Quick Start, Typical Use Cases, System Skills, Subsystems, Runnable Demos, CLI Entry Points, Full Docs, Development.
+- **Stable pairwise loop skill simplified**: `houmao-agent-loop-pairwise` is trimmed to three operating pages (`start`, `status`, `stop`) and compact references/templates, with enriched lifecycle verbs moved to the new v2 skill.
+- **System skills catalog updated**: `catalog.toml` now declares both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` in the `user-control` set. Docs and README system-skills tables updated to reflect the split.
+
+### Notes
+
+- The `gh release create v0.5.1` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.5.0] - 2026-04-09
 
 ### Added
