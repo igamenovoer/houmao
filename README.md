@@ -82,6 +82,8 @@ houmao-mgr system-skills install --tool claude
 # Or install into user home: houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
+Once system skills are installed, start your agent (e.g. `claude`) from the same directory and ask it to invoke the `houmao-touring` skill. The tour will walk you through project setup, specialist creation, agent launching, and more — all from inside your agent's conversation.
+
 > **Just want to try `agents join`?** Skip to [Step 4](#4-adopt-an-existing-session-agents-join). System skills are recommended but not required for the join-only path.
 
 For development from source:
