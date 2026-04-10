@@ -17,7 +17,7 @@ A team of three agents writing a sci-fi novel chapter by chapter: a **story-writ
      To get the URL: edit this README on github.com, drag-drop the .mp4 into the editor,
      GitHub will generate a https://github.com/user-attachments/assets/... URL.
      Replace the entire video tag below with that URL on its own line. -->
-https://github.com/igamenovoer/houmao/releases/download/v0.5.1/writer-team-loop.mp4
+https://github.com/igamenovoer/houmao/blob/main/docs/resources/agent-loop/writer-team-loop.mp4
 
 ## Why This Design
 
