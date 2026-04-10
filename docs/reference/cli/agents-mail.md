@@ -102,12 +102,13 @@ houmao-mgr agents mail post [OPTIONS]
 | `--subject TEXT` | Message subject. Required. |
 | `--body-content TEXT` | Inline body content. |
 | `--body-file TEXT` | Body content file path. |
+| `--reply-policy [none\|operator_mailbox]` | Operator-origin reply policy. Defaults to `none`. |
 | `--attach TEXT` | Attachment file path. Repeatable. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
-`post` is filesystem-only in v1. It delivers from the reserved Houmao-owned sender `HOUMAO-operator@houmao.localhost` into the selected managed agent mailbox and marks the message as operator-origin and one-way. This action does not allow TUI submission fallback.
+`post` is filesystem-only in v1. It delivers from the reserved Houmao-owned sender `HOUMAO-operator@houmao.localhost` into the selected managed agent mailbox and marks the message as operator-origin with explicit reply policy metadata. The default `reply_policy=none` keeps operator-origin mail one-way. `reply_policy=operator_mailbox` allows replies to that specific operator-origin message back to the reserved operator mailbox. This action does not allow TUI submission fallback.
 
 ### `reply`
 
@@ -126,6 +127,8 @@ houmao-mgr agents mail reply [OPTIONS]
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+Replies to operator-origin parent messages succeed only when the parent was posted with `reply_policy=operator_mailbox`. When the parent used the default `none`, reply is rejected explicitly.
 
 ### `mark-read`
 

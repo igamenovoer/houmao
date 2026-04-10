@@ -23,11 +23,11 @@ This packaged skill covers a branching guided tour for:
 - optional easy-profile creation
 - easy-instance launch
 - post-launch prompt entry
-- gateway or TUI state watching
+- post-launch read-only inspection or screen watching
 - ordinary mailbox send or read entry
 - gateway mail-notifier follow-up when a live gateway and mailbox are both ready
 - reminders
-- managed-agent list, stop, relaunch, and cleanup follow-up
+- managed-agent inspection, stop, relaunch, and cleanup follow-up
 
 This packaged skill does not cover:
 
@@ -65,7 +65,7 @@ This packaged skill does not cover:
 - Read [branches/orient.md](branches/orient.md) to inspect current Houmao posture and present the next likely tour branches.
 - Read [branches/setup-project-and-mailbox.md](branches/setup-project-and-mailbox.md) when the user wants project overlay setup or optional project-local mailbox setup.
 - Read [branches/author-and-launch.md](branches/author-and-launch.md) when the user wants to create specialists or profiles, or launch another agent.
-- Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, watch gateway or TUI state, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
+- Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, inspect live state or screen posture, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
 - Read [branches/lifecycle-follow-up.md](branches/lifecycle-follow-up.md) when the user wants to inspect, stop, relaunch, or clean up managed-agent sessions.
 
 ## References
@@ -77,10 +77,11 @@ This packaged skill does not cover:
 - Route project overlay setup or explanation to `houmao-project-mgr`.
 - Route mailbox administration to `houmao-mailbox-mgr`.
 - Route specialist or profile authoring plus easy-instance launch to `houmao-specialist-mgr`.
+- Route generic managed-agent inspection, live screen watching, mailbox-posture inspection, and runtime artifact inspection to `houmao-agent-inspect`.
 - Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
 - Route ordinary mailbox send, read, reply, or mark-read follow-up to `houmao-agent-email-comms`.
-- Route managed-agent list, stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
+- Route stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
 
 ## Guardrails
 

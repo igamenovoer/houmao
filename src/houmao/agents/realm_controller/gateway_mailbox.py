@@ -36,14 +36,18 @@ from houmao.mailbox.managed import (
     update_mailbox_state,
 )
 from houmao.mailbox.protocol import (
+    HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_ADDRESS,
     HOUMAO_OPERATOR_DISPLAY_NAME,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_PRINCIPAL_ID,
     HOUMAO_OPERATOR_ROLE,
     MailboxAttachment,
     MailboxMessage,
     MailboxPrincipal,
     is_operator_origin_headers,
+    operator_origin_reply_policy,
+    OperatorOriginReplyPolicy,
     operator_origin_headers,
     parse_message_document,
     serialize_message_document,
@@ -99,6 +103,7 @@ class GatewayMailboxAdapter(Protocol):
         *,
         subject: str,
         body_content: str,
+        reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
     ) -> GatewayMailboxMessageV1:
         """Deliver one operator-origin mailbox note into the current mailbox."""
@@ -230,6 +235,7 @@ class FilesystemGatewayMailboxAdapter:
         *,
         subject: str,
         body_content: str,
+        reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
     ) -> GatewayMailboxMessageV1:
         self._ensure_operator_registration()
@@ -248,7 +254,12 @@ class FilesystemGatewayMailboxAdapter:
             body_content=body_content,
             attachments=attachments,
             sender=self._operator_sender(),
-            headers=operator_origin_headers(),
+            reply_to=(
+                (self._operator_sender(),)
+                if reply_policy == HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
+                else ()
+            ),
+            headers=operator_origin_headers(reply_policy=reply_policy),
         )
         try:
             deliver_message(self.m_mailbox.filesystem_root, request)
@@ -274,9 +285,10 @@ class FilesystemGatewayMailboxAdapter:
         parent_message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
         parent_message = self._load_message_by_id(parent_message_id)
         if is_operator_origin_headers(parent_message.headers):
-            raise GatewayMailboxUnsupportedError(
-                "reply is unsupported for operator-origin mailbox messages"
-            )
+            if operator_origin_reply_policy(parent_message.headers) == HOUMAO_NO_REPLY_POLICY_VALUE:
+                raise GatewayMailboxUnsupportedError(
+                    "reply is unsupported for operator-origin mailbox messages"
+                )
         reply_targets = parent_message.reply_to or [parent_message.sender]
         now = datetime.now(UTC)
         message_id = _generate_filesystem_message_id(now)
@@ -350,6 +362,7 @@ class FilesystemGatewayMailboxAdapter:
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
         sender: ManagedPrincipal | None = None,
+        reply_to: Sequence[ManagedPrincipal] = (),
         headers: Mapping[str, object] | None = None,
     ) -> DeliveryRequest:
         staged_message_path = (
@@ -380,7 +393,7 @@ class FilesystemGatewayMailboxAdapter:
             ),
             to=tuple(to_principals),
             cc=tuple(cc_principals),
-            reply_to=(),
+            reply_to=tuple(reply_to),
             subject=subject,
             attachments=tuple(_managed_attachment_from_upload(item) for item in attachments),
             headers=dict(headers or {}),
@@ -606,9 +619,10 @@ class StalwartGatewayMailboxAdapter:
         *,
         subject: str,
         body_content: str,
+        reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
     ) -> GatewayMailboxMessageV1:
-        del subject, body_content, attachments
+        del subject, body_content, reply_policy, attachments
         raise GatewayMailboxUnsupportedError(
             "operator-origin mailbox post is unsupported for stalwart mailbox bindings"
         )

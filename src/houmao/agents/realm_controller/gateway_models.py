@@ -24,6 +24,10 @@ from pydantic import (
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig, parse_reasoning_level
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
+from houmao.mailbox.protocol import (
+    HOUMAO_NO_REPLY_POLICY_VALUE,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+)
 
 GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
@@ -52,6 +56,7 @@ GatewayStoredRequestState = Literal[
     "completed",
     "failed",
 ]
+GatewayMailPostReplyPolicy = Literal["none", "operator_mailbox"]
 GatewayJsonScalar: TypeAlias = str | int | float | bool | None
 GatewayJsonValue: TypeAlias = (
     GatewayJsonScalar | list["GatewayJsonValue"] | dict[str, "GatewayJsonValue"]
@@ -1500,6 +1505,7 @@ class GatewayMailPostRequestV1(_StrictGatewayModel):
     schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
     subject: str
     body_content: str
+    reply_policy: GatewayMailPostReplyPolicy = Field(default=HOUMAO_NO_REPLY_POLICY_VALUE)
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
 
     @field_validator("subject")
@@ -1514,6 +1520,16 @@ class GatewayMailPostRequestV1(_StrictGatewayModel):
     def _body_no_nul(cls, value: str) -> str:
         if "\x00" in value:
             raise ValueError("must not contain NUL bytes")
+        return value
+
+    @field_validator("reply_policy")
+    @classmethod
+    def _reply_policy_known(cls, value: GatewayMailPostReplyPolicy) -> GatewayMailPostReplyPolicy:
+        if value not in {
+            HOUMAO_NO_REPLY_POLICY_VALUE,
+            HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+        }:
+            raise ValueError("unsupported reply policy")
         return value
 
     @model_validator(mode="after")

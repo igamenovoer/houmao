@@ -403,7 +403,9 @@ class _RestBackedGatewayAdapter:
 
         del turn_id, session_selection
         if execution_model is not None and not execution_model.is_empty():
-            raise GatewayError("Execution overrides are only supported for headless gateway targets.")
+            raise GatewayError(
+                "Execution overrides are only supported for headless gateway targets."
+            )
         terminal_id = self._read_current_terminal_id()
         result = self.m_client.send_terminal_input(terminal_id, prompt)
         if not result.success:
@@ -2300,6 +2302,7 @@ class GatewayServiceRuntime:
                 message = adapter.post(
                     subject=request_payload.subject,
                     body_content=request_payload.body_content,
+                    reply_policy=request_payload.reply_policy,
                     attachments=request_payload.attachments,
                 )
             except GatewayMailboxUnsupportedError as exc:

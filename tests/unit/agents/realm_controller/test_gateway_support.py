@@ -106,8 +106,11 @@ from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import (
     HOUMAO_OPERATOR_ADDRESS,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+    HOUMAO_REPLY_POLICY_HEADER_NAME,
     MailboxMessage,
     is_operator_origin_headers,
+    operator_origin_reply_policy,
     parse_message_document,
     serialize_message_document,
 )
@@ -3952,6 +3955,8 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert post_row is not None
     post_message = parse_message_document(Path(str(post_row[0])).read_text(encoding="utf-8"))
     assert is_operator_origin_headers(post_message.headers) is True
+    assert post_message.headers[HOUMAO_REPLY_POLICY_HEADER_NAME] == "none"
+    assert operator_origin_reply_policy(post_message.headers) == "none"
 
     reply_response = client.post(
         "/v1/mail/reply",
@@ -3983,6 +3988,66 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
             (HOUMAO_OPERATOR_ADDRESS,),
         ).fetchone()
     assert operator_count == (1,)
+
+
+def test_gateway_mail_reply_enabled_operator_post_routes_reply_to_reserved_operator_mailbox(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    post_response = client.post(
+        "/v1/mail/post",
+        json=GatewayMailPostRequestV1(
+            subject="Gateway route post",
+            body_content="filesystem operator-origin body",
+            reply_policy=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+        ).model_dump(mode="json"),
+    )
+    assert post_response.status_code == 200
+    post_payload = post_response.json()
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        post_row = connection.execute(
+            "SELECT canonical_path FROM messages WHERE message_id = ?",
+            (post_payload["message"]["message_ref"].split(":", 1)[1],),
+        ).fetchone()
+    assert post_row is not None
+    post_message = parse_message_document(Path(str(post_row[0])).read_text(encoding="utf-8"))
+    assert is_operator_origin_headers(post_message.headers) is True
+    assert (
+        operator_origin_reply_policy(post_message.headers)
+        == HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
+    )
+    assert [principal.address for principal in post_message.reply_to] == [HOUMAO_OPERATOR_ADDRESS]
+
+    reply_response = client.post(
+        "/v1/mail/reply",
+        json=GatewayMailReplyRequestV1(
+            message_ref=post_payload["message"]["message_ref"],
+            body_content="ready",
+        ).model_dump(mode="json"),
+    )
+    assert reply_response.status_code == 200
+    reply_payload = reply_response.json()
+    assert reply_payload["operation"] == "reply"
+    with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
+        reply_row = connection.execute(
+            "SELECT canonical_path FROM messages WHERE message_id = ?",
+            (reply_payload["message"]["message_ref"].split(":", 1)[1],),
+        ).fetchone()
+    assert reply_row is not None
+    reply_message = parse_message_document(Path(str(reply_row[0])).read_text(encoding="utf-8"))
+    assert [principal.address for principal in reply_message.to] == [HOUMAO_OPERATOR_ADDRESS]
 
 
 def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(

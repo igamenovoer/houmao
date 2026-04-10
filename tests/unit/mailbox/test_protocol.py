@@ -8,6 +8,7 @@ import pytest
 from houmao.mailbox.errors import MailboxProtocolError
 from houmao.mailbox.protocol import (
     HOUMAO_OPERATOR_ADDRESS,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
     HOUMAO_ORIGIN_HEADER_NAME,
     HOUMAO_REPLY_POLICY_HEADER_NAME,
     HOUMAO_OPERATOR_ORIGIN_VALUE,
@@ -18,6 +19,7 @@ from houmao.mailbox.protocol import (
     MailboxPrincipal,
     generate_message_id,
     is_operator_origin_headers,
+    operator_origin_reply_policy,
     operator_origin_headers,
     parse_message_document,
     serialize_message_document,
@@ -101,12 +103,24 @@ def test_parse_message_document_rejects_missing_front_matter() -> None:
 
 def test_operator_origin_header_helpers_are_stable() -> None:
     headers = operator_origin_headers()
+    reply_enabled_headers = operator_origin_headers(
+        reply_policy=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
+    )
 
     assert headers == {
         HOUMAO_ORIGIN_HEADER_NAME: HOUMAO_OPERATOR_ORIGIN_VALUE,
         HOUMAO_REPLY_POLICY_HEADER_NAME: HOUMAO_NO_REPLY_POLICY_VALUE,
     }
+    assert reply_enabled_headers == {
+        HOUMAO_ORIGIN_HEADER_NAME: HOUMAO_OPERATOR_ORIGIN_VALUE,
+        HOUMAO_REPLY_POLICY_HEADER_NAME: HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+    }
     assert is_operator_origin_headers(headers) is True
+    assert operator_origin_reply_policy(headers) == HOUMAO_NO_REPLY_POLICY_VALUE
+    assert (
+        operator_origin_reply_policy(reply_enabled_headers)
+        == HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
+    )
     assert is_operator_origin_headers({"other": "value"}) is False
 
 

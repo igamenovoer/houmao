@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Inspect"
+  short_description: "Inspect Houmao managed agents through read-only supported surfaces."
+  default_prompt: "Use $houmao-agent-inspect to inspect Houmao managed agents through supported read-only surfaces such as state, detail, gateway TUI tracking, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking when necessary."

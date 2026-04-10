@@ -2,6 +2,8 @@
 
 Use this table when you know what you want to do but need the supported Houmao surface that matches that intent.
 
+For generic read-only managed-agent inspection that is not inseparable from a messaging workflow, use `houmao-agent-inspect` instead of this matrix.
+
 | Intent | Preferred CLI Surface | Preferred HTTP Surface | Notes |
 | --- | --- | --- | --- |
 | Discover target and capability | `agents state`, `agents gateway status`, `agents mail resolve-live` | `GET /houmao/agents/{agent_ref}`, `GET /gateway`, `GET /mail/resolve-live` | Use this first when gateway or mailbox availability is uncertain. |

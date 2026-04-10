@@ -36,13 +36,9 @@ description = "Project-local credential management skill."
 asset_subpath = "houmao-agent-definition"
 description = "Low-level project-local role and preset definition management skill."
 
-[skills.houmao-loop-planner]
-asset_subpath = "houmao-loop-planner"
-description = "Operator-owned loop bundle planning and runtime handoff skill."
-
 [skills.houmao-agent-loop-pairwise]
 asset_subpath = "houmao-agent-loop-pairwise"
-description = "Pairwise loop planning and master-run control skill for user-controlled agents."
+description = "Manual invocation only pairwise loop authoring, prestart, and master-run control skill for user-controlled agents."
 
 [skills.houmao-agent-loop-relay]
 asset_subpath = "houmao-agent-loop-relay"
@@ -51,6 +47,10 @@ description = "Relay loop planning and master-run control skill for user-control
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
 description = "Managed agent instance lifecycle skill."
+
+[skills.houmao-agent-inspect]
+asset_subpath = "houmao-agent-inspect"
+description = "Managed agent read-only inspection skill."
 
 [skills.houmao-agent-messaging]
 asset_subpath = "houmao-agent-messaging"
@@ -94,7 +94,6 @@ skills = [
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",
-  "houmao-loop-planner",
   "houmao-agent-loop-pairwise",
   "houmao-agent-loop-relay",
 ]
@@ -103,6 +102,12 @@ skills = [
 description = "Managed agent instance lifecycle system skills."
 skills = [
   "houmao-agent-instance",
+]
+
+[sets.agent-inspect]
+description = "Managed agent read-only inspection system skills."
+skills = [
+  "houmao-agent-inspect",
 ]
 
 [sets.agent-messaging]
@@ -118,6 +123,6 @@ skills = [
 ]
 
 [auto_install]
-managed_launch_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-messaging", "agent-gateway"]
-managed_join_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-messaging", "agent-gateway"]
-cli_default_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-instance", "agent-messaging", "agent-gateway"]
+managed_launch_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+managed_join_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+cli_default_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway"]

@@ -8,7 +8,7 @@ Use this branch when the user wants to try post-launch operations against one al
 2. Confirm which live managed agent the user wants to work with.
 3. Route the selected live-operation branch:
    - normal prompt entry -> `houmao-agent-messaging`
-   - gateway or TUI state watching -> `houmao-agent-gateway`
+   - generic live state, screen, mailbox-posture, or artifact inspection -> `houmao-agent-inspect`
    - ordinary mailbox send or read entry -> `houmao-agent-email-comms`
    - gateway mail-notifier enable, disable, or status -> `houmao-agent-gateway`
    - reminders -> `houmao-agent-gateway`
@@ -16,7 +16,7 @@ Use this branch when the user wants to try post-launch operations against one al
 5. When current tour context already shows that a live gateway is attached and mailbox accounts are set up, explicitly suggest gateway `mail-notifier` as a useful next step because it lets the agent check unread email automatically in the background.
 6. After the selected live operation completes, summarize the result and offer the next likely branches:
    - send another prompt
-   - watch gateway or TUI state
+   - inspect live state or screen posture
    - send or read mailbox work
    - enable automatic email notification through gateway `mail-notifier`
    - create a reminder

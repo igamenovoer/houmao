@@ -6,7 +6,7 @@ license: MIT
 
 # Houmao Agent Instance
 
-Use this Houmao skill when you need to create, adopt, inspect, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. This is the canonical Houmao-owned skill for general live-agent lifecycle work after any specialist-scoped launch or stop entry.
+Use this Houmao skill when you need to create, adopt, list, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. This is the canonical Houmao-owned skill for general live-agent lifecycle work after any specialist-scoped launch or stop entry.
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-instance` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -32,6 +32,7 @@ This packaged skill does not cover:
 - `houmao-mgr project easy instance list`
 - `houmao-mgr project easy instance get`
 - `houmao-mgr project easy instance stop`
+- generic managed-agent inspection of current state, logs, runtime artifacts, mailbox posture, or tmux backing
 - `houmao-mgr agents prompt`
 - `houmao-mgr agents interrupt`
 - `houmao-mgr agents turn ...`
@@ -78,7 +79,7 @@ This packaged skill does not cover:
 
 - Use `actions/launch.md` only when the user wants to create one new managed-agent instance from a predefined role, preset, explicit launch profile, or specialist.
 - Use `actions/join.md` only when the user wants Houmao to adopt one already-running supported provider session.
-- Use `actions/list.md` only when the user wants to list current live managed agents.
+- Use `actions/list.md` only when the user wants the lifecycle-oriented list of current live managed agents. For generic read-only inspection of one agent, use `houmao-agent-inspect`.
 - Use `actions/stop.md` only when the user wants to stop one live managed agent.
 - Use `actions/relaunch.md` only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home.
 - Use `actions/cleanup.md` only when the user wants to remove stopped-session envelope artifacts or session-local logs.
@@ -89,6 +90,7 @@ This packaged skill does not cover:
 - Do not guess the intended action when the prompt could mean either specialist authoring or live instance lifecycle.
 - Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
 - Do not route `project easy specialist ...` tasks through this skill.
+- Do not present this skill as the canonical owner of generic managed-agent inspection; use `houmao-agent-inspect` for that read-only work.
 - Do not route manual mailbox-enabled launch flags, mailbox cleanup, or mailbox registration tasks through this skill.
 - Do not reject explicit launch-profile-backed launch just because the stored profile already carries gateway or mailbox defaults.
 - Do not route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.

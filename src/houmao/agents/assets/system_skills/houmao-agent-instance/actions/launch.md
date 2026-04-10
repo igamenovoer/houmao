@@ -77,6 +77,7 @@ Behavior note:
 - Stored launch-profile defaults may already include gateway posture, prompt overlay, durable env records, and declared mailbox configuration.
 - Direct CLI overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch only and do not rewrite the stored launch profile.
 - After launch, follow-up prompting or outgoing mailbox work should go through `houmao-agent-messaging`, which will discover any live gateway and prefer it when available.
+- After launch, read-only state, screen, mailbox-posture, log, or artifact inspection should go through `houmao-agent-inspect`.
 
 ### Specialist-Backed Managed Launch
 

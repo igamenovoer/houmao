@@ -143,6 +143,7 @@ At minimum the guide SHALL surface the following skills currently declared in th
 - `houmao-specialist-mgr`
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
+- `houmao-loop-planner`
 - `houmao-agent-instance`
 - `houmao-agent-messaging`
 - `houmao-agent-gateway`
@@ -159,6 +160,12 @@ The guide MAY group these skills into concern-oriented subsections (for example 
 - **WHEN** a reader compares the overview guide catalog table to `catalog.toml`
 - **THEN** every `[skills.<name>]` entry in the catalog has exactly one row in the guide
 - **AND THEN** the guide does not list a skill that is not in the catalog
+
+#### Scenario: Loop-planner appears in the overview guide
+- **WHEN** a reader opens the overview guide
+- **THEN** the catalog table contains a row for `houmao-loop-planner` in the "Loop authoring and master-run control" concern group
+- **AND THEN** the row describes it as the operator-owned loop-bundle planning and runtime-handoff skill that is manual-invocation-only
+- **AND THEN** the row distinguishes it from `houmao-agent-loop-pairwise` and `houmao-agent-loop-relay` which are the live-run control skills
 
 #### Scenario: Loop skills appear in the overview guide
 - **WHEN** a reader opens the overview guide

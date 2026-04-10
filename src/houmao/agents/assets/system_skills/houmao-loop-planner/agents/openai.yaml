@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Loop Planner"
-  short_description: "Author operator-owned loop bundles and runtime handoff templates."
-  default_prompt: "Use $houmao-loop-planner when a user-controlled agent needs to create or revise one operator-owned loop bundle in a user-designated directory, document participant and execution guidance in Markdown, or prepare runtime handoff to pairwise or relay loop skills without starting the run directly."

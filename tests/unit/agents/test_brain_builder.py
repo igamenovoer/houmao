@@ -258,9 +258,9 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (home / "skills/houmao-loop-planner/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-loop-relay/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
@@ -276,9 +276,9 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
-        "houmao-loop-planner",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-relay",
+        "houmao-agent-inspect",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -890,6 +890,7 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
         result.home_path / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
     assert (result.home_path / ".gemini/skills/houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (result.home_path / ".gemini/skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()

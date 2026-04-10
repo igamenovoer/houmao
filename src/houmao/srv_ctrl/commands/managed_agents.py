@@ -101,6 +101,7 @@ from houmao.agents.realm_controller.session_authority import resolve_manifest_se
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.mailbox.managed import ManagedMailboxOperationError
+from houmao.mailbox.protocol import OperatorOriginReplyPolicy
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -212,7 +213,9 @@ def _resolve_execution_model_override(
         raise click.ClickException(str(exc)) from exc
 
 
-def _execution_override_payload(model_config: ModelConfig | None) -> GatewayExecutionOverrideV1 | None:
+def _execution_override_payload(
+    model_config: ModelConfig | None,
+) -> GatewayExecutionOverrideV1 | None:
     """Build one request payload from a normalized execution override."""
 
     return GatewayExecutionOverrideV1.from_model_config(model_config)
@@ -1356,6 +1359,7 @@ def _local_manager_mail_post(
     *,
     subject: str,
     body_content: str,
+    reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through manager-owned local execution."""
@@ -1365,6 +1369,7 @@ def _local_manager_mail_post(
         message = adapter.post(
             subject=subject,
             body_content=body_content,
+            reply_policy=reply_policy,
             attachments=attachments,
         )
         status = adapter.status()
@@ -1464,6 +1469,7 @@ def _gateway_mail_post(
     *,
     subject: str,
     body_content: str,
+    reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through one live loopback gateway client."""
@@ -1473,6 +1479,7 @@ def _gateway_mail_post(
             GatewayMailPostRequestV1(
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=list(attachments),
             )
         )
@@ -1652,6 +1659,7 @@ def mail_post(
     *,
     subject: str,
     body_content: str,
+    reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
 ) -> object:
     """Post one operator-origin mailbox note into one managed agent inbox."""
@@ -1669,6 +1677,7 @@ def mail_post(
                 HoumaoManagedAgentMailPostRequest(
                     subject=subject,
                     body_content=body_content,
+                    reply_policy=reply_policy,
                     attachments=list(attachments),
                 ),
             ),
@@ -1683,6 +1692,7 @@ def mail_post(
                 target.controller,
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=attachments,
             ),
         )
@@ -1696,6 +1706,7 @@ def mail_post(
                 target.controller,
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=attachments,
             ),
         )
@@ -1709,6 +1720,7 @@ def mail_post(
                 gateway_client,
                 subject=subject,
                 body_content=body_content,
+                reply_policy=reply_policy,
                 attachments=attachments,
             ),
         )

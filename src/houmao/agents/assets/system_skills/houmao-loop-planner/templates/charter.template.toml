@@ -1,8 +1,0 @@
-# Minimal `runs/charter.template.toml` template
-
-run_id = "<fill-me>"
-profile_id = "<profile-id>"
-profile_version = 1
-loop_kind = "<pairwise-or-relay>"
-master = "<master-agent>"
-default_stop_mode = "interrupt-first"

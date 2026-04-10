@@ -196,7 +196,7 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 ### Runnable Demos
 
-The repository ships two maintained runnable demos under `scripts/demo/`:
+The repository ships four maintained runnable demos under `scripts/demo/`:
 
 - **[`minimal-agent-launch/`](scripts/demo/minimal-agent-launch/)** — Recipe-backed headless launch with Claude or Codex. Shows the full build → launch → prompt → stop cycle and records reproducible outputs.
 
@@ -207,7 +207,19 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 - **[`single-agent-mail-wakeup/`](scripts/demo/single-agent-mail-wakeup/)** — Easy specialist + gateway + mailbox-notifier wake-up. Creates a specialist, attaches a gateway, enables mail-notifier polling, and verifies the agent wakes up on incoming mail. See the [demo README](scripts/demo/single-agent-mail-wakeup/README.md) for stepwise commands.
 
   ```bash
-  scripts/demo/single-agent-mail-wakeup/run_demo.sh auto --tool claude
+  single-agent-mail-wakeup/run_demo.sh auto --tool claude
+  ```
+
+- **[`single-agent-gateway-wakeup-headless/`](scripts/demo/single-agent-gateway-wakeup-headless/)** — Project-local gateway wake-up demo for one headless specialist. Imports a Claude, Codex, or Gemini fixture auth bundle, launches a headless easy instance, attaches a live gateway in a separate watchable tmux window, enables mail-notifier polling, and verifies headless turn evidence alongside artifact creation. See the [demo README](scripts/demo/single-agent-gateway-wakeup-headless/README.md) for stepwise commands.
+
+  ```bash
+  scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh auto --tool claude
+  ```
+
+- **[`shared-tui-tracking-demo-pack/`](scripts/demo/shared-tui-tracking-demo-pack/)** — Standalone shared tracked-TUI demo for live tmux observation, optional recorder-backed watch runs, scenario-driven recorded capture, strict replay validation, and cadence sweeps. See the [demo README](scripts/demo/shared-tui-tracking-demo-pack/README.md) for the full guide.
+
+  ```bash
+  scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh
   ```
 
 ### Subsystems at a Glance
@@ -217,10 +229,11 @@ The repository ships two maintained runnable demos under `scripts/demo/`:
 | Gateway | Per-agent FastAPI sidecar for session control, request queue, and mail facade | [Gateway Reference](docs/reference/gateway/index.md) |
 | Mailbox | Unified async message transport — filesystem and Stalwart JMAP backends | [Mailbox Reference](docs/reference/mailbox/index.md) |
 | TUI Tracking | State machine, detectors, and replay engine for tracking agent TUI state | [TUI Tracking Reference](docs/reference/tui-tracking/state-model.md) |
+| Passive Server | Registry-driven stateless server for distributed agent coordination — no child-process supervision | [Passive Server Reference](docs/reference/cli/houmao-passive-server.md) |
 
 ### System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists, manage credentials, inspect definitions, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists, manage credentials, inspect definitions, inspect live managed agents, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
 
 | Skill | What it enables |
 |---|---|
@@ -229,17 +242,18 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-specialist-mgr` | Create, list, inspect, remove, launch, and stop easy specialist/profile-backed project-local workflows |
 | `houmao-credential-mgr` | Add, update, inspect, and remove project-local tool auth bundles |
 | `houmao-agent-definition` | List, inspect, initialize, update, and remove roles and recipes |
-| `houmao-agent-instance` | Launch, list, inspect, stop, and clean up managed agent instances |
+| `houmao-agent-instance` | Launch, join, list, stop, relaunch, and clean up managed agent instances |
+| `houmao-agent-inspect` | Inspect live managed-agent liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux backing through read-only supported surfaces |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
 | `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule ranked reminders, and manage gateway mail-notifier behavior |
 | `houmao-mailbox-mgr` | Create, inspect, repair, and clean filesystem mailbox roots; manage mailbox registrations; and manage late filesystem mailbox binding for existing local managed agents |
 | `houmao-agent-email-comms` | Ordinary shared-mailbox operations and the no-gateway fallback path; the canonical mailbox-operations skill paired with `houmao-mgr agents mail` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL |
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds |
-| `houmao-agent-loop-pairwise` | Author master-owned pairwise loop plans and operate accepted runs through `start`, `status`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
+| `houmao-agent-loop-pairwise` | Author master-owned pairwise loop plans and operate accepted runs through `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
 | `houmao-agent-loop-relay` | Author master-owned relay loop plans and operate accepted runs through `start`, `status`, and `stop`, with forwarding authority normalized per plan and the final result returned to the designated origin |
 
-`agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, and `houmao-agent-loop-relay`, managed homes gain the project-management front door plus both loop-authoring skills by default, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
+`agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, and `houmao-agent-loop-relay`, managed homes gain the project-management front door and both loop-authoring skills by default, `houmao-agent-inspect` is available there as the generic read-only inspection entrypoint, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude

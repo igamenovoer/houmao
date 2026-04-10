@@ -56,7 +56,8 @@ Addresses are full-form email-like strings such as `research@houmao.localhost`. 
 - `subject` must be non-blank.
 - `body_markdown` may be empty, but it must not contain NUL bytes.
 - `headers` is an extensible mapping, but header keys must be non-blank.
-- Operator-origin messages use explicit provenance headers such as `x-houmao-origin: operator` and `x-houmao-reply-policy: none`.
+- Operator-origin messages use explicit provenance headers such as `x-houmao-origin: operator` plus `x-houmao-reply-policy: none` or `x-houmao-reply-policy: operator_mailbox`.
+- When an operator-origin message uses `x-houmao-reply-policy: operator_mailbox`, its `reply_to` targets the reserved system mailbox `HOUMAO-operator@houmao.localhost`; with `none`, replies to that operator-origin message are rejected.
 
 ## Representative Canonical Message
 
