@@ -160,3 +160,92 @@ Operator-facing launch-profile inspection SHALL render the current auth display 
 - **THEN** the command reports auth override `breakglass`
 - **AND THEN** it does not require the caller to know the internal auth profile id or opaque bundle reference
 
+### Requirement: `project agents launch-profiles add --yes` replaces same-lane explicit profiles
+`houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> --yes` SHALL replace an existing same-name explicit launch profile in the active project overlay.
+
+Replacement SHALL use create semantics: omitted optional launch defaults SHALL be cleared rather than preserved from the old profile.
+
+When the same-name explicit launch profile already exists and replacement confirmation is not supplied, the command SHALL prompt on interactive terminals or fail in non-interactive contexts with guidance to rerun using `--yes`.
+
+When the same-name profile exists but is not an explicit launch profile, the command SHALL fail clearly even when `--yes` is supplied.
+
+The existing `launch-profiles set --name <profile>` command SHALL remain the patch surface for preserving unspecified advanced blocks.
+
+#### Scenario: Explicit launch-profile add requires confirmation before replacement
+- **WHEN** explicit launch profile `alice` already exists
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe reviewer-codex-default` in a non-interactive context without `--yes`
+- **THEN** the command fails clearly with guidance to rerun using `--yes`
+- **AND THEN** explicit launch profile `alice` remains unchanged
+
+#### Scenario: Explicit launch-profile add yes replaces and clears omitted fields
+- **WHEN** explicit launch profile `alice` targets recipe `reviewer-codex-default` and stores workdir `/repos/alice` plus prompt overlay text
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe reviewer-v2-codex-default --workdir /repos/alice-v2 --yes`
+- **THEN** explicit launch profile `alice` targets recipe `reviewer-v2-codex-default` and stores workdir `/repos/alice-v2`
+- **AND THEN** explicit launch profile `alice` no longer stores the prior prompt overlay text
+
+#### Scenario: Explicit launch-profile add yes rejects cross-lane conflict
+- **WHEN** easy profile `alice` already exists
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe reviewer-codex-default --yes`
+- **THEN** the command fails clearly because `alice` is not an explicit launch profile
+- **AND THEN** easy profile `alice` remains unchanged
+
+#### Scenario: Explicit launch-profile add replacement refreshes projection
+- **WHEN** explicit launch profile `alice` projects to `.houmao/agents/launch-profiles/alice.yaml`
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe reviewer-codex-default --workdir /repos/alice-next --yes`
+- **THEN** the stored explicit launch profile records workdir `/repos/alice-next`
+- **AND THEN** the projected `.houmao/agents/launch-profiles/alice.yaml` reflects workdir `/repos/alice-next`
+
+### Requirement: Project launch profiles store managed-header section policy
+`houmao-mgr project agents launch-profiles add` and `houmao-mgr project agents launch-profiles set` SHALL accept repeatable managed-header section policy options using `--managed-header-section SECTION=STATE`.
+
+Supported `SECTION` values SHALL include:
+
+- `identity`
+- `houmao-runtime-guidance`
+- `automation-notice`
+- `task-reminder`
+- `mail-ack`
+
+Supported `STATE` values SHALL include:
+
+- `enabled`
+- `disabled`
+
+The stored section policy SHALL apply only to the named section. Omitted sections SHALL inherit the section default.
+
+`houmao-mgr project agents launch-profiles set` SHALL also accept:
+
+- `--clear-managed-header-section SECTION` to remove one stored section policy entry,
+- `--clear-managed-header-sections` to remove all stored section policy entries.
+
+Whole-header policy SHALL remain controlled by existing `--managed-header`, `--no-managed-header`, and `--clear-managed-header` behavior.
+
+#### Scenario: Launch profile add stores disabled automation notice
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe reviewer --managed-header-section automation-notice=disabled`
+- **THEN** launch profile `alice` stores automation notice section policy `disabled`
+- **AND THEN** omitted identity and Houmao runtime guidance section policy remain inherited default-enabled values
+- **AND THEN** omitted task reminder and mail acknowledgement section policy remain inherited default-disabled
+
+#### Scenario: Launch profile set clears one section policy
+- **WHEN** launch profile `alice` stores automation notice section policy `disabled` and identity section policy `disabled`
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --clear-managed-header-section identity`
+- **THEN** launch profile `alice` no longer stores an identity section policy
+- **AND THEN** launch profile `alice` still stores automation notice section policy `disabled`
+
+#### Scenario: Launch profile set clears all section policies
+- **WHEN** launch profile `alice` stores one or more managed-header section policies
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --clear-managed-header-sections`
+- **THEN** launch profile `alice` no longer stores managed-header section policy entries
+- **AND THEN** future launches from `alice` use section-default policy when the whole managed header is enabled
+
+#### Scenario: Launch profile get reports stored section policy
+- **WHEN** launch profile `alice` stores automation notice section policy `disabled`
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles get --name alice`
+- **THEN** the structured output reports the stored automation notice section policy
+- **AND THEN** the output does not report omitted section-default policies as stored values
+
+#### Scenario: Launch profile add enables default-off mail acknowledgement
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name mailer --recipe reviewer --managed-header-section mail-ack=enabled`
+- **THEN** launch profile `mailer` stores mail acknowledgement section policy `enabled`
+- **AND THEN** future launches from `mailer` include the mail acknowledgement section when the whole managed header resolves to enabled
+

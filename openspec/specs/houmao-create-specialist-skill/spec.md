@@ -1,8 +1,6 @@
 ## Purpose
 Define the packaged specialist-management system skill contract for routed specialist actions, launcher selection, and explicit input recovery.
-
 ## Requirements
-
 ### Requirement: Houmao provides a packaged `houmao-create-specialist` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-specialist-mgr` under the maintained system-skill asset root.
 
@@ -201,3 +199,23 @@ The launch guidance SHALL warn that manual preregistration of the same address u
 - **AND WHEN** the intended mailbox address follows the ordinary managed-agent identity pattern for the same mailbox root
 - **THEN** the skill warns that preregistering that same address can make safe launch bootstrap fail
 - **AND THEN** it tells the reader to let launch own that address unless they are intentionally using a different manual-registration or late-binding lane
+
+### Requirement: `houmao-specialist-mgr` routes easy-profile editing commands
+The packaged `houmao-specialist-mgr` skill SHALL treat specialist-backed easy-profile editing as part of its easy-profile authoring responsibility.
+
+When a user asks to update one existing easy profile's stored launch defaults, the skill SHALL route to `houmao-mgr project easy profile set --name <profile> ...`.
+
+When a user asks to replace one existing easy profile definition, the skill SHALL route to `houmao-mgr project easy profile create --name <profile> --specialist <specialist> ... --yes` after identifying the replacement intent.
+
+The skill SHALL NOT route ordinary easy-profile stored-default edits through manual remove/recreate.
+
+#### Scenario: Skill routes easy-profile patch request to set
+- **WHEN** a user asks an agent using `houmao-specialist-mgr` to change the workdir on easy profile `alice`
+- **THEN** the skill guidance routes that request through `project easy profile set --name alice --workdir <path>`
+- **AND THEN** it does not instruct the agent to remove and recreate `alice`
+
+#### Scenario: Skill distinguishes replacement from patch
+- **WHEN** a user asks an agent using `houmao-specialist-mgr` to rebuild easy profile `alice` over a different specialist
+- **THEN** the skill guidance treats that as replacement
+- **AND THEN** it routes through `project easy profile create --name alice --specialist <specialist> --yes`
+

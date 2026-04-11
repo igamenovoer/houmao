@@ -15,6 +15,53 @@ from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_n
 from houmao.srv_ctrl.commands.agents.core import launch_managed_agent_locally
 
 
+def _expected_default_section_metadata(*, header_enabled: bool) -> dict[str, object]:
+    """Return expected default managed-header section metadata."""
+
+    return {
+        "identity": {
+            "tag": "identity",
+            "enabled": True,
+            "rendered": header_enabled,
+            "resolution_source": "default",
+            "stored_policy": None,
+            "default_enabled": True,
+        },
+        "houmao-runtime-guidance": {
+            "tag": "houmao_runtime_guidance",
+            "enabled": True,
+            "rendered": header_enabled,
+            "resolution_source": "default",
+            "stored_policy": None,
+            "default_enabled": True,
+        },
+        "automation-notice": {
+            "tag": "automation_notice",
+            "enabled": True,
+            "rendered": header_enabled,
+            "resolution_source": "default",
+            "stored_policy": None,
+            "default_enabled": True,
+        },
+        "task-reminder": {
+            "tag": "task_reminder",
+            "enabled": False,
+            "rendered": False,
+            "resolution_source": "default",
+            "stored_policy": None,
+            "default_enabled": False,
+        },
+        "mail-ack": {
+            "tag": "mail_ack",
+            "enabled": False,
+            "rendered": False,
+            "resolution_source": "default",
+            "stored_policy": None,
+            "default_enabled": False,
+        },
+    }
+
+
 def _install_basic_launch_patches(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -319,6 +366,11 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         "stored_policy": None,
         "agent_name": "repo-research-1",
         "agent_id": "6ee1c825367e868092eda76cb18a96e0",
+        "sections": _expected_default_section_metadata(header_enabled=True),
+    }
+    assert build_request.houmao_system_prompt_layout["managed_header"] == {
+        "enabled": True,
+        "sections": _expected_default_section_metadata(header_enabled=True),
     }
     assert build_request.launch_profile_provenance == {
         "name": "alice",
@@ -429,6 +481,11 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
         "stored_policy": None,
         "agent_name": "HOUMAO-codex-researcher",
         "agent_id": derive_agent_id_from_name("HOUMAO-codex-researcher"),
+        "sections": _expected_default_section_metadata(header_enabled=False),
+    }
+    assert build_request.houmao_system_prompt_layout["managed_header"] == {
+        "enabled": False,
+        "sections": _expected_default_section_metadata(header_enabled=False),
     }
 
 

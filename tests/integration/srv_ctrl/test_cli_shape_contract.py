@@ -1369,10 +1369,10 @@ def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally", _fake_launch
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally", _fake_launch
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -1422,10 +1422,10 @@ def test_houmao_mgr_project_easy_instance_launch_supports_gateway_background_ove
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally", _fake_launch
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally", _fake_launch
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 

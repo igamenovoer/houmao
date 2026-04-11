@@ -54,9 +54,9 @@ The sweep contract SHALL support:
 - **THEN** the workflow evaluates all configured variants against the fixture’s transition contract
 - **AND THEN** the sweep result can distinguish ordered repeated transitions such as repeated active and interrupted phases without requiring exact sample alignment
 
-### Requirement: Recorded-corpus commands SHALL fail clearly when the committed fixture root is missing
+### Requirement: Recorded-corpus commands SHALL preflight missing committed fixture roots clearly
 
-The restored recorded-validation workflow MAY support a configured committed fixture corpus under the configured `fixtures_root`.
+The restored recorded-validation workflow SHALL preflight a configured committed fixture corpus under the configured `fixtures_root` when a corpus-oriented command uses that corpus.
 
 When a corpus-oriented command is invoked and that configured fixture root is absent or empty, the command SHALL fail during preflight with a clear error that identifies the missing or empty path instead of assuming a present historical corpus.
 

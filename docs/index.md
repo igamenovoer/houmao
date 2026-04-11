@@ -43,7 +43,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
 - [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and server-backed.
 - [Role Injection](reference/run-phase/role-injection.md): Per-backend role injection strategies.
-- [Managed Launch Prompt Header](reference/run-phase/managed-prompt-header.md): Houmao-owned prompt header prepended to every managed launch by default — content, composition, opt-out flags, and stored launch-profile policy.
+- [Managed Launch Prompt Header](reference/run-phase/managed-prompt-header.md): Houmao-owned prompt header with five independently controllable sections prepended to every managed launch by default — content, per-section control, composition, opt-out flags, and stored launch-profile policy.
 
 ### Subsystems
 

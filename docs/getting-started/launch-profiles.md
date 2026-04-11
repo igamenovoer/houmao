@@ -69,7 +69,7 @@ A launch profile may store, with no inline secrets:
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
-- a managed prompt-header policy (`inherit`, `enabled`, or `disabled`),
+- a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
 - optional memory-dir intent (`auto`, one explicit absolute path, or disabled),
 - a prompt overlay (mode plus inline text or a referenced file).
 
@@ -135,6 +135,8 @@ The managed header is controlled by the same precedence model as other birth-tim
 
 `inherit` means "use the default enabled behavior." If you need a role to stay effectively promptless or you want one launch to skip the Houmao-owned prelude, use `--no-managed-header` for that launch or store `disabled` on the relevant launch profile.
 
+Individual header sections are controlled separately with repeatable `--managed-header-section SECTION=enabled|disabled` on `houmao-mgr agents launch`, `houmao-mgr project easy instance launch`, `houmao-mgr project agents launch-profiles add|set`, and `houmao-mgr project easy profile create|set`. Stored profile section policy is sparse: omitted sections use their defaults, `identity`, `houmao-runtime-guidance`, and `automation-notice` default enabled, and `task-reminder` plus `mail-ack` default disabled. `--clear-managed-header-section SECTION` removes one stored section policy entry on profile `set`, and `--clear-managed-header-sections` removes all stored section policy entries. Whole-header policy remains the outer gate, so `--no-managed-header` suppresses rendering even if one or more sections resolve enabled.
+
 ## Launch-Profile Provenance In Inspection Output
 
 When a managed agent was launched from a reusable launch profile, the build manifest and the runtime launch metadata preserve secret-free provenance sufficient for inspection and replay:
@@ -165,6 +167,34 @@ Use the explicit lane (`project agents recipes` plus `project agents launch-prof
 
 Both lanes can coexist in the same project overlay. The shared catalog model means a future change can tighten the relationship between them without forcing a migration today.
 
+## Editing Profiles
+
+Direct launch-time overrides and stored profile edits are separate. `project easy instance launch ... --workdir <path>` or `agents launch --launch-profile <profile> --workdir <path>` affects only that launch; it does not rewrite the reusable profile.
+
+Use the patch command for ordinary stored-default edits:
+
+```bash
+# Easy lane
+houmao-mgr project easy profile set --name <profile> --workdir /repos/next-target
+
+# Explicit lane
+houmao-mgr project agents launch-profiles set --name <profile> --workdir /repos/next-target
+```
+
+Patch commands preserve unspecified stored fields, so existing mailbox config, prompt overlay, managed-header whole-header policy, managed-header section policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
+
+Use same-name replacement only when you want recreate semantics:
+
+```bash
+# Easy lane replacement
+houmao-mgr project easy profile create --name <profile> --specialist <specialist> --yes
+
+# Explicit lane replacement
+houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> --yes
+```
+
+Replacement is lane-bounded and clears omitted optional fields. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
+
 ## CLI Surfaces
 
 Canonical authoring surfaces:
@@ -173,6 +203,7 @@ Canonical authoring surfaces:
 # Easy lane
 houmao-mgr project easy specialist create --name <name> --tool <tool> ...
 houmao-mgr project easy profile create --name <profile> --specialist <name> ...
+houmao-mgr project easy profile set --name <profile> ...
 houmao-mgr project easy instance launch --profile <profile>           # easy-profile-backed
 houmao-mgr project easy instance launch --specialist <name> --name <managed-name>
 

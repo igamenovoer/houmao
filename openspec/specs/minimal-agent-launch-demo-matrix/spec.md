@@ -1,4 +1,9 @@
-## ADDED Requirements
+# minimal-agent-launch-demo-matrix Specification
+
+## Purpose
+Define the supported provider and transport matrix for the minimal managed-agent launch demo.
+
+## Requirements
 
 ### Requirement: The minimal launch demo supports the full Claude/Codex × TUI/headless matrix
 

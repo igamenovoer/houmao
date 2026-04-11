@@ -74,8 +74,8 @@ The workflow SHALL keep debug artifacts out of tracked repository paths.
 - **THEN** the run directory contains machine-readable trace files and captured artifacts
 - **AND THEN** it also contains a summary that identifies whether the observed failure came from missing prompt-submission anchoring, reduction behavior, transition suppression, or another traced branch outcome
 
-### Requirement: Debug workflow MAY use direct tmux and terminal-recording evidence as supplemental diagnostics
-The tracking-debug workflow MAY collect supplemental transport evidence directly from tmux, including libtmux-backed pane inspection and workspace-available terminal-recording helpers, when that evidence is needed to explain what the live terminal visibly did during the run.
+### Requirement: Debug workflow SHALL label supplemental tmux and terminal-recording diagnostics clearly
+The tracking-debug workflow SHALL clearly label supplemental transport evidence when it collects that evidence directly from tmux, including libtmux-backed pane inspection and workspace-available terminal-recording helpers, to explain what the live terminal visibly did during the run.
 
 When such evidence is collected, the workflow SHALL keep it clearly labeled as supplemental diagnostics rather than the authoritative server-tracked state under investigation.
 

@@ -946,3 +946,55 @@ When the page describes current install selections that expand `user-control`, i
 - **WHEN** a reader checks the current packaged inventory or install-selection behavior in `docs/reference/cli/system-skills.md`
 - **THEN** the page lists `houmao-agent-loop-generic` when the packaged catalog includes it
 - **AND THEN** the page does not list `houmao-agent-loop-relay` as a current installable skill after the replacement
+
+### Requirement: CLI reference documents launch-profile editing controls
+The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable launch profiles.
+
+For `project easy profile`, the reference SHALL list `create`, `list`, `get`, `set`, and `remove`, and SHALL document `set` as the patch command that preserves unspecified stored fields.
+
+For `project easy profile create`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-lane easy profile, and SHALL state that replacement clears omitted optional fields.
+
+For `project agents launch-profiles add`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-lane explicit launch profile, and SHALL state that `launch-profiles set` remains the patch command.
+
+The reference SHALL state that replacement does not cross easy-profile and explicit-launch-profile lanes.
+
+#### Scenario: Reader finds easy-profile set in CLI reference
+- **WHEN** a reader looks up `houmao-mgr project easy profile`
+- **THEN** the CLI reference lists `set` alongside `create`, `list`, `get`, and `remove`
+- **AND THEN** the reference explains that `set` mutates stored future launch defaults rather than one running instance
+
+#### Scenario: Reader finds same-lane replacement guidance
+- **WHEN** a reader looks up same-name reusable profile creation
+- **THEN** the CLI reference explains when to use `--yes` for same-lane replacement
+- **AND THEN** it distinguishes replacement from patching through `set`
+
+### Requirement: CLI reference documents managed-header section flags
+The `houmao-mgr` CLI reference SHALL document managed-header section flags on every CLI surface that supports them.
+
+At minimum, the CLI reference SHALL document:
+
+- `--managed-header-section SECTION=STATE` on `houmao-mgr agents launch`,
+- `--managed-header-section SECTION=STATE` on `houmao-mgr project agents launch-profiles add`,
+- `--managed-header-section SECTION=STATE`, `--clear-managed-header-section SECTION`, and `--clear-managed-header-sections` on `houmao-mgr project agents launch-profiles set`,
+- `--managed-header-section SECTION=STATE` on `houmao-mgr project easy profile create`,
+- `--managed-header-section SECTION=STATE`, `--clear-managed-header-section SECTION`, and `--clear-managed-header-sections` on `houmao-mgr project easy profile set`,
+- `--managed-header-section SECTION=STATE` on `houmao-mgr project easy instance launch`.
+
+The CLI reference SHALL list supported section names and states, and SHALL state each section's default, including that `task-reminder` and `mail-ack` default to disabled unless explicitly enabled.
+
+#### Scenario: Reader finds one-shot launch section flags
+- **WHEN** a reader opens the CLI reference for `houmao-mgr agents launch`
+- **THEN** the reference documents `--managed-header-section SECTION=STATE`
+- **AND THEN** the reference describes it as a one-shot launch override that does not rewrite stored launch-profile state
+
+#### Scenario: Reader finds stored launch-profile section flags
+- **WHEN** a reader opens the CLI reference for project launch-profile or easy-profile create/set commands
+- **THEN** the reference documents `--managed-header-section SECTION=STATE`
+- **AND THEN** the reference documents the clear flags available on set commands
+
+#### Scenario: Reader sees supported section vocabulary
+- **WHEN** a reader looks at any managed-header section flag description
+- **THEN** the reference lists `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` as supported sections
+- **AND THEN** the reference lists `enabled` and `disabled` as supported states
+- **AND THEN** the reference states that `task-reminder` and `mail-ack` default to disabled
+

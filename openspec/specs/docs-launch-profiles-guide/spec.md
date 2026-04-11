@@ -149,3 +149,51 @@ The guide SHALL state that the managed header remains general-purpose and does n
 - **THEN** the guide explains the launch-time override and stored launch-profile policy surfaces
 - **AND THEN** it explains that unset policy falls back to the default enabled behavior
 
+### Requirement: Launch-profiles guide distinguishes overrides, patches, and replacements
+The launch-profiles guide SHALL distinguish:
+
+- direct launch-time overrides, which affect only one launch and do not rewrite stored launch profiles,
+- profile patch commands, which mutate stored reusable defaults while preserving unspecified fields,
+- profile replacement commands, which rewrite the same named profile in the same lane and clear omitted optional fields.
+
+The guide SHALL explain that the easy and explicit lanes share one catalog-backed launch-profile family but replacement remains lane-bounded.
+
+#### Scenario: Reader can choose patch versus replacement
+- **WHEN** a reader wants to change one stored reusable launch default
+- **THEN** the launch-profiles guide directs them to use the appropriate patch command for their lane
+- **AND THEN** the guide reserves same-name `create --yes` or `add --yes` for full same-lane replacement
+
+#### Scenario: Reader understands direct launch overrides do not persist
+- **WHEN** a reader compares launch-time overrides with stored profile edits
+- **THEN** the guide states that direct launch-time overrides affect only the submitted launch
+- **AND THEN** the guide states that profile `set` changes future launches from the stored profile
+
+### Requirement: Launch-profiles guide documents managed-header section policy
+The launch-profiles guide SHALL document that stored launch profiles can persist managed-header section policy independently from whole managed-header policy.
+
+At minimum, the guide SHALL explain:
+
+- `identity`, `houmao-runtime-guidance`, and `automation-notice` default to enabled when the whole managed header is enabled,
+- `task-reminder` and `mail-ack` default to disabled unless explicitly enabled,
+- whole-header `--no-managed-header` disables every section,
+- section-level policy can disable one section such as `automation-notice` while keeping the identity and Houmao runtime guidance sections,
+- section-level policy can enable a default-disabled section such as `task-reminder` or `mail-ack`,
+- omitted section policy means section default rather than always enabled or disabled,
+- direct launch section overrides affect only one launch and do not rewrite stored launch-profile state.
+
+#### Scenario: Reader understands stored section policy
+- **WHEN** a reader opens the launch-profiles guide
+- **THEN** the guide explains how stored managed-header section policy works
+- **AND THEN** the guide states that omitted section policy falls back to each section's default
+- **AND THEN** the guide states that `task-reminder` and `mail-ack` default disabled unless explicitly enabled
+
+#### Scenario: Reader understands whole-header policy precedence
+- **WHEN** a reader opens the launch-profiles guide
+- **THEN** the guide explains that whole-header disable suppresses all managed-header sections
+- **AND THEN** the guide distinguishes whole-header policy from section-level policy
+
+#### Scenario: Reader understands direct override scope
+- **WHEN** a reader opens the launch-profiles guide
+- **THEN** the guide explains that direct launch section overrides affect only the current launch
+- **AND THEN** the guide states that direct launch overrides do not rewrite stored profile policy
+

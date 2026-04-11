@@ -4,8 +4,6 @@ for Codex when using CAO as a transport layer.
 
 ## Requirements
 
-## ADDED Requirements
-
 ### Requirement: Codex CAO output supports runtime shadow parsing mode
 For CAO provider `codex`, when a session runs in `parsing_mode=shadow_only`, the system SHALL treat CAO as a transport layer and derive both:
 1) Codex surface state, and
@@ -162,8 +160,8 @@ For Codex in `parsing_mode=shadow_only`, runtime SHALL transition from `unknown`
 - **AND WHEN** elapsed unknown duration reaches `unknown_to_stalled_timeout_seconds`
 - **THEN** runtime shadow lifecycle status becomes `stalled`
 
-### Requirement: Codex stalled state supports configurable terminality and recovery
-For Codex stalled handling:
+### Requirement: Codex stalled state SHALL support configurable terminality and recovery
+For Codex stalled handling, runtime SHALL apply the configured stalled terminality policy:
 - if `stalled_is_terminal=true`, runtime SHALL fail the turn with explicit stalled diagnostics,
 - if `stalled_is_terminal=false`, runtime SHALL keep polling and MAY recover to a known status automatically.
 

@@ -1,6 +1,6 @@
 ---
 name: houmao-specialist-mgr
-description: Use Houmao's supported project-easy workflow to create, list, inspect, or remove specialists and easy profiles, and to launch or stop easy instances from either source with the correct `houmao-mgr` launcher for the current environment.
+description: Use Houmao's supported project-easy workflow to create, update, list, inspect, or remove specialists and easy profiles, and to launch or stop easy instances from either source with the correct `houmao-mgr` launcher for the current environment.
 license: MIT
 ---
 
@@ -16,6 +16,7 @@ This packaged skill covers exactly these routed easy-workflow actions:
 
 - `create specialist`
 - `create profile`
+- `update profile`
 - `list specialists`
 - `list profiles`
 - `get specialist`
@@ -33,7 +34,7 @@ This packaged skill does not cover:
 
 ## Workflow
 
-1. Identify which easy-workflow action the user wants: `create`, `list`, `get`, `remove`, `launch`, or `stop`, and whether it targets a `specialist`, a `profile`, or one easy instance.
+1. Identify which easy-workflow action the user wants: `create`, `update`, `list`, `get`, `remove`, `launch`, or `stop`, and whether it targets a `specialist`, a `profile`, or one easy instance.
 2. If the requested action or target resource kind is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 3. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
@@ -62,7 +63,7 @@ This packaged skill does not cover:
 
 ## Routing Guidance
 
-- Use `actions/create.md` only when the user wants to create or replace one reusable specialist or one reusable easy profile.
+- Use `actions/create.md` only when the user wants to create one reusable specialist, or create, update, or replace one reusable easy profile.
 - Use `actions/list.md` only when the user wants to list persisted specialists or persisted easy profiles.
 - Use `actions/get.md` only when the user wants to inspect one persisted specialist definition or one persisted easy profile.
 - Use `actions/remove.md` only when the user wants to remove one persisted specialist definition or one persisted easy profile.

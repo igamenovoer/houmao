@@ -217,6 +217,10 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         },
         posture_mapping={"headless": True, "gateway_port": 9011},
         managed_header_policy="inherit",
+        managed_header_section_policy={
+            "automation-notice": "disabled",
+            "task-reminder": "enabled",
+        },
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
     )
@@ -253,6 +257,10 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             },
             "posture": {"headless": True, "gateway_port": 9011},
             "managed_header": "inherit",
+            "managed_header_sections": {
+                "automation-notice": "disabled",
+                "task-reminder": "enabled",
+            },
             "prompt_overlay": {
                 "mode": "append",
                 "text": "Prefer Alice repository conventions.",
@@ -276,6 +284,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 model_name,
                 reasoning_level,
                 managed_header_policy,
+                managed_header_section_policy,
                 prompt_overlay_mode
             FROM v_launch_profiles
             """
@@ -292,6 +301,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "gpt-5.4-mini",
             4,
             "inherit",
+            '{"automation-notice": "disabled", "task-reminder": "enabled"}',
             "append",
         )
     finally:

@@ -22,11 +22,15 @@ from houmao.agents.managed_launch_force import (
 )
 from houmao.agents.managed_prompt_header import (
     ManagedHeaderPolicy,
-    compose_managed_launch_prompt,
+    ManagedHeaderSectionName,
+    ManagedHeaderSectionPolicy,
+    compose_managed_launch_prompt_payload,
     managed_prompt_header_metadata,
     normalize_managed_header_policy,
+    parse_managed_header_section_policy_assignments,
     resolve_managed_launch_identity,
     resolve_managed_prompt_header_decision,
+    resolve_managed_prompt_header_section_decisions,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 from houmao.agents.mailbox_runtime_support import (
@@ -469,6 +473,20 @@ def _resolve_operator_prompt_mode_or_click(
     return cast(OperatorPromptMode, value)
 
 
+def _managed_header_section_overrides_from_options(
+    values: tuple[str, ...],
+) -> dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy]:
+    """Parse one-shot managed-header section overrides from CLI options."""
+
+    try:
+        return parse_managed_header_section_policy_assignments(
+            values,
+            source="`--managed-header-section`",
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -505,6 +523,12 @@ def launch_managed_agent_locally(
     prompt_overlay_text: str | None = None,
     managed_header_override: bool | None = None,
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None,
+    managed_header_section_overrides: dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy]
+    | None = None,
+    launch_profile_managed_header_section_policy: dict[
+        ManagedHeaderSectionName, ManagedHeaderSectionPolicy
+    ]
+    | None = None,
     launch_profile_provenance: dict[str, Any] | None = None,
     force_mode: str | None = None,
 ) -> LocalManagedAgentLaunchResult:
@@ -574,6 +598,10 @@ def launch_managed_agent_locally(
             launch_override=managed_header_override,
             stored_policy=launch_profile_managed_header_policy,
         )
+        managed_header_section_decisions = resolve_managed_prompt_header_section_decisions(
+            launch_overrides=managed_header_section_overrides,
+            stored_policy=launch_profile_managed_header_section_policy,
+        )
         managed_launch_identity = resolve_managed_launch_identity(
             tool=target.preset.tool,
             role_name=target.role_name,
@@ -596,13 +624,14 @@ def launch_managed_agent_locally(
         if takeover_context is not None:
             _perform_managed_force_takeover(takeover_context)
             takeover_completed = True
-        effective_role_prompt = compose_managed_launch_prompt(
+        prompt_payload = compose_managed_launch_prompt_payload(
             base_prompt=target.role_prompt,
             overlay_mode=prompt_overlay_mode,
             overlay_text=prompt_overlay_text,
             managed_header_enabled=managed_header_decision.enabled,
             agent_name=managed_launch_identity.agent_name,
             agent_id=managed_launch_identity.agent_id,
+            managed_header_section_decisions=managed_header_section_decisions,
         )
         build_result = build_brain_home(
             BuildRequest(
@@ -627,11 +656,13 @@ def launch_managed_agent_locally(
                 existing_home_mode=(
                     takeover_context.force_mode if takeover_context is not None else None
                 ),
-                role_prompt_override=effective_role_prompt,
+                role_prompt_override=prompt_payload.prompt,
                 managed_prompt_header=managed_prompt_header_metadata(
                     decision=managed_header_decision,
                     identity=managed_launch_identity,
+                    section_decisions=managed_header_section_decisions,
                 ),
+                houmao_system_prompt_layout=prompt_payload.layout,
                 launch_profile_provenance=launch_profile_provenance,
             )
         )
@@ -825,6 +856,13 @@ def agents_group() -> None:
     help="Force-enable or disable the Houmao-managed prompt header for this launch.",
 )
 @click.option(
+    "--managed-header-section",
+    "managed_header_section",
+    multiple=True,
+    metavar="SECTION=STATE",
+    help="One-shot managed-header section override (`enabled` or `disabled`).",
+)
+@click.option(
     "--workdir",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
     default=None,
@@ -875,6 +913,7 @@ def launch_agents_command(
     session_name: str | None,
     headless: bool,
     managed_header: bool | None,
+    managed_header_section: tuple[str, ...],
     workdir: Path | None,
     memory_dir: Path | None,
     no_memory_dir: bool,
@@ -913,6 +952,9 @@ def launch_agents_command(
     launch_profile_memory_dir: str | None = None
     launch_profile_memory_disabled = False
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
+    launch_profile_managed_header_section_policy: (
+        dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None
+    ) = None
     launch_profile_provenance = None
     gateway_auto_attach = False
     gateway_host = None
@@ -920,6 +962,9 @@ def launch_agents_command(
     direct_model_config = normalize_model_config(
         name=_normalize_model_name_or_click(model),
         reasoning_level=reasoning_level,
+    )
+    managed_header_section_overrides = _managed_header_section_overrides_from_options(
+        managed_header_section
     )
 
     if launch_profile is not None:
@@ -977,6 +1022,9 @@ def launch_agents_command(
         launch_profile_managed_header_policy = normalize_managed_header_policy(
             resolved_profile.entry.managed_header_policy,
             source=f"launch profile `{resolved_profile.entry.name}`",
+        )
+        launch_profile_managed_header_section_policy = dict(
+            getattr(resolved_profile.entry, "managed_header_section_policy", {})
         )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
@@ -1052,6 +1100,8 @@ def launch_agents_command(
         prompt_overlay_text=prompt_overlay_text,
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
+        managed_header_section_overrides=managed_header_section_overrides,
+        launch_profile_managed_header_section_policy=(launch_profile_managed_header_section_policy),
         launch_profile_provenance=launch_profile_provenance,
         force_mode=force_mode,
     )

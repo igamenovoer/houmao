@@ -40,6 +40,7 @@ Common optional inputs:
 - `--session-name`
 - `--headless`
 - `--workdir`
+- `--managed-header-section SECTION=enabled|disabled`
 
 Behavior note:
 
@@ -68,6 +69,7 @@ Common optional inputs:
 - `--session-name`
 - `--headless`
 - `--workdir`
+- `--managed-header-section SECTION=enabled|disabled`
 - `--provider` only when it matches the provider resolved from the stored launch profile
 
 Behavior note:
@@ -75,6 +77,7 @@ Behavior note:
 - `--launch-profile` and `--agents` are mutually exclusive.
 - The stored launch profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
 - Stored launch-profile defaults may already include gateway posture, prompt overlay, durable env records, and declared mailbox configuration.
+- `--managed-header-section` is a one-shot section override and does not rewrite stored launch-profile section policy.
 - Direct CLI overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch only and do not rewrite the stored launch profile.
 - After launch, follow-up prompting or outgoing mailbox work should go through `houmao-agent-messaging`, which will discover any live gateway and prefer it when available.
 - After launch, read-only state, screen, mailbox-posture, log, or artifact inspection should go through `houmao-agent-inspect`.
@@ -101,11 +104,13 @@ Common optional inputs:
 - `--headless`
 - `--workdir`
 - `--env-set NAME=value|NAME`
+- `--managed-header-section SECTION=enabled|disabled`
 
 Behavior note:
 
 - `--workdir` changes only the launched agent runtime cwd.
 - The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
+- `--managed-header-section` is a one-shot section override for the launched instance.
 
 If the selected specialist is known to use Gemini, the launch must be headless.
 

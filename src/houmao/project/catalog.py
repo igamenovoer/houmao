@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import hashlib
 from importlib import resources
@@ -21,12 +21,18 @@ from houmao.agents.memory_dir import (
     stored_memory_binding_kind,
 )
 from houmao.agents.model_selection import parse_reasoning_level
-from houmao.agents.managed_prompt_header import ManagedHeaderPolicy, normalize_managed_header_policy
+from houmao.agents.managed_prompt_header import (
+    ManagedHeaderPolicy,
+    ManagedHeaderSectionName,
+    ManagedHeaderSectionPolicy,
+    normalize_managed_header_policy,
+    normalize_managed_header_section_policy_mapping,
+)
 
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 7
+CATALOG_SCHEMA_VERSION = 8
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -142,6 +148,9 @@ class LaunchProfileCatalogEntry:
     managed_header_policy: ManagedHeaderPolicy | None
     prompt_overlay_mode: str | None
     prompt_overlay_ref: ManagedContentRef | None
+    managed_header_section_policy: dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] = (
+        field(default_factory=dict)
+    )
     metadata_path: Path | None = None
 
     @property
@@ -826,6 +835,7 @@ class ProjectCatalog:
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
                     launch_profiles.managed_header_policy,
+                    launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
@@ -866,6 +876,7 @@ class ProjectCatalog:
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
                     launch_profiles.managed_header_policy,
+                    launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
@@ -902,6 +913,7 @@ class ProjectCatalog:
         mailbox_mapping: dict[str, Any] | None,
         posture_mapping: dict[str, Any] | None,
         managed_header_policy: ManagedHeaderPolicy | None = None,
+        managed_header_section_policy: dict[Any, Any] | None = None,
         prompt_overlay_mode: str | None,
         prompt_overlay_text: str | None,
         model_name: str | None = None,
@@ -941,6 +953,10 @@ class ProjectCatalog:
         resolved_managed_header_policy = normalize_managed_header_policy(
             managed_header_policy,
             source="launch_profiles.managed_header_policy",
+        )
+        resolved_managed_header_section_policy = normalize_managed_header_section_policy_mapping(
+            managed_header_section_policy,
+            source="launch_profiles.managed_header_section_policy",
         )
 
         prompt_overlay_ref: ManagedContentRef | None = None
@@ -987,11 +1003,12 @@ class ProjectCatalog:
                     mailbox_payload,
                     posture_payload,
                     managed_header_policy,
+                    managed_header_section_policy,
                     prompt_overlay_mode,
                     prompt_overlay_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -1009,6 +1026,7 @@ class ProjectCatalog:
                     mailbox_payload = excluded.mailbox_payload,
                     posture_payload = excluded.posture_payload,
                     managed_header_policy = excluded.managed_header_policy,
+                    managed_header_section_policy = excluded.managed_header_section_policy,
                     prompt_overlay_mode = excluded.prompt_overlay_mode,
                     prompt_overlay_content_ref_id = excluded.prompt_overlay_content_ref_id,
                     updated_at = excluded.updated_at
@@ -1035,6 +1053,7 @@ class ProjectCatalog:
                     json.dumps(mailbox_mapping or {}, sort_keys=True),
                     json.dumps(posture_mapping or {}, sort_keys=True),
                     resolved_managed_header_policy,
+                    json.dumps(resolved_managed_header_section_policy, sort_keys=True),
                     prompt_overlay_mode,
                     prompt_overlay_ref_id,
                     timestamp,
@@ -1269,10 +1288,21 @@ class ProjectCatalog:
             ("auth_profiles", "bundle_ref"),
             ("launch_profiles", "auth_profile_id"),
         )
-        if current_version == 0 and all(
+        if current_version in {0, 7} and all(
             _table_has_column(connection, table_name=table_name, column_name=column_name)
             for table_name, column_name in required_columns
         ):
+            if not _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="managed_header_section_policy",
+            ):
+                connection.execute(
+                    """
+                    ALTER TABLE launch_profiles
+                    ADD COLUMN managed_header_section_policy TEXT NOT NULL DEFAULT '{}'
+                    """
+                )
             return
         raise ValueError(
             "Unsupported project catalog schema. Reinitialize the project overlay to adopt the "
@@ -1778,6 +1808,12 @@ class ProjectCatalog:
         env_payload = _load_json_mapping(str(row["env_payload"]))
         mailbox_payload = _load_json_mapping(str(row["mailbox_payload"]))
         posture_payload = _load_json_mapping(str(row["posture_payload"]))
+        managed_header_section_policy = normalize_managed_header_section_policy_mapping(
+            _load_json_mapping(str(row["managed_header_section_policy"]))
+            if row["managed_header_section_policy"] is not None
+            else {},
+            source=f"launch profile `{row['name']}` managed_header_section_policy",
+        )
         return LaunchProfileCatalogEntry(
             name=str(row["name"]),
             profile_lane=str(row["profile_lane"]),
@@ -1826,6 +1862,7 @@ class ProjectCatalog:
                 str(row["prompt_overlay_mode"]) if row["prompt_overlay_mode"] is not None else None
             ),
             prompt_overlay_ref=prompt_overlay_ref,
+            managed_header_section_policy=managed_header_section_policy,
             metadata_path=self.m_catalog_path,
         )
 
@@ -1951,6 +1988,7 @@ def _table_schema_sql() -> str:
         mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
         posture_payload TEXT NOT NULL DEFAULT '{{}}',
         managed_header_policy TEXT,
+        managed_header_section_policy TEXT NOT NULL DEFAULT '{{}}',
         prompt_overlay_mode TEXT,
         prompt_overlay_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
@@ -2039,6 +2077,7 @@ def _view_sql() -> str:
         launch_profiles.mailbox_payload AS mailbox_payload,
         launch_profiles.posture_payload AS posture_payload,
         launch_profiles.managed_header_policy AS managed_header_policy,
+        launch_profiles.managed_header_section_policy AS managed_header_section_policy,
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
         prompt_refs.relative_path AS prompt_overlay_relative_path
     FROM launch_profiles
@@ -2197,6 +2236,10 @@ def _render_launch_profile_yaml(
         defaults["posture"] = entry.posture_payload
     if entry.managed_header_policy is not None:
         defaults["managed_header"] = entry.managed_header_policy
+    if entry.managed_header_section_policy:
+        defaults["managed_header_sections"] = dict(
+            sorted(entry.managed_header_section_policy.items())
+        )
     if entry.prompt_overlay_mode is not None and entry.prompt_overlay_ref is not None:
         overlay_path = entry.prompt_overlay_ref.resolve_under_content_root(content_root)
         defaults["prompt_overlay"] = {

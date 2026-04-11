@@ -157,6 +157,10 @@ def launch_profile_defaults_payload(
         payload["posture"] = entry.posture_payload
     if entry.managed_header_policy is not None:
         payload["managed_header"] = entry.managed_header_policy
+    if entry.managed_header_section_policy:
+        payload["managed_header_sections"] = dict(
+            sorted(entry.managed_header_section_policy.items())
+        )
     if entry.prompt_overlay_mode is not None:
         overlay_payload: dict[str, Any] = {
             "mode": entry.prompt_overlay_mode,

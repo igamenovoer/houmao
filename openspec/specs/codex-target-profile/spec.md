@@ -1,4 +1,9 @@
-## ADDED Requirements
+# codex-target-profile Specification
+
+## Purpose
+Define the Codex capture, analysis, and target-discovery profiles used by the target-profile tooling.
+
+## Requirements
 
 ### Requirement: Codex Capture Profile
 The system SHALL provide a CaptureProfile for the codex agent system.

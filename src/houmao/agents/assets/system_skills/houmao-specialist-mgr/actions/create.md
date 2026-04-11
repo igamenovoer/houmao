@@ -1,22 +1,26 @@
-# Create Specialist Or Easy Profile
+# Create Or Edit Specialist/Easy Profile
 
-Use this action only when the user wants to create or replace one reusable easy specialist or one reusable specialist-backed easy profile through Houmao's supported higher-level authoring commands.
+Use this action only when the user wants to create one reusable easy specialist, or create, patch, or replace one reusable specialist-backed easy profile through Houmao's supported higher-level authoring commands.
 
 ## Workflow
 
 1. Determine whether the target resource is `specialist` or `profile`.
-2. If that target resource kind is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
-3. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-4. If the target resource is `profile`, follow `Profile Create Workflow` below and stop after reporting the result.
-5. Otherwise follow `Specialist Create Workflow` below.
+2. For profile work, determine whether the user wants a new profile, a patch edit to an existing profile, or same-name replacement.
+3. If the target resource kind or profile operation is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
+4. Use the `houmao-mgr` launcher already chosen by the top-level skill.
+5. If the target resource is `profile`, follow `Profile Authoring Workflow` below and stop after reporting the result.
+6. Otherwise follow `Specialist Create Workflow` below.
 
-## Profile Create Workflow
+## Profile Authoring Workflow
 
 1. Collect the user's intended easy-profile inputs from the current prompt first.
 2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
-3. If the profile name or source specialist is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
-4. Run `project easy profile create`.
-5. Report the created profile name, source specialist, and returned defaults metadata.
+3. Treat wording such as `edit`, `update`, `patch`, `change defaults`, or `set defaults` as a request for `project easy profile set`.
+4. Treat wording such as `replace`, `recreate`, or `overwrite` as a request for `project easy profile create --yes`; replacement is same-lane only and clears omitted optional defaults.
+5. For patch edits, require the profile name and at least one update or clear flag. If no update is stated, ask before proceeding.
+6. For profile creation or replacement, require the profile name and source specialist. If either is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
+7. Run `project easy profile set` for patch edits, or `project easy profile create` with `--yes` only for intended same-name replacement.
+8. Report the profile name, source specialist when returned, and returned defaults metadata.
 
 ## Specialist Create Workflow
 
@@ -87,18 +91,25 @@ If the user did not request one of the supported discovery modes:
 - only reuse an already-existing credential bundle when you confirmed it exists for the selected tool
 - otherwise ask the user for missing auth instead of guessing
 
-## Profile Create Command Shape
+## Profile Command Shapes
 
-Use the chosen `houmao-mgr` launcher with:
+Use the chosen `houmao-mgr` launcher with one of:
 
 ```text
 <chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> ...
+<chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> --yes ...
+<chosen houmao-mgr launcher> project easy profile set --name <profile> ...
 ```
 
-Required inputs:
+Required inputs for create and replacement:
 
 - `--name`
 - `--specialist`
+
+Required inputs for patch edits:
+
+- `--name`
+- at least one update or clear option
 
 Common optional inputs:
 
@@ -106,6 +117,10 @@ Common optional inputs:
 - `--agent-id`
 - `--workdir`
 - `--auth`
+- `--memory-dir`
+- `--no-memory-dir`
+- `--model`
+- `--reasoning-level`
 - `--prompt-mode unattended|as_is`
 - repeatable `--env-set NAME=value`
 - `--mail-transport filesystem|stalwart`
@@ -117,19 +132,44 @@ Common optional inputs:
 - `--mail-management-url`
 - `--headless`
 - `--no-gateway`
+- `--managed-header` / `--no-managed-header`
+- repeatable `--managed-header-section SECTION=enabled|disabled`
 - `--gateway-port`
 - `--prompt-overlay-mode append|replace`
 - `--prompt-overlay-text`
 - `--prompt-overlay-file`
 
-Profile create rules:
+Common clear inputs for `profile set`:
 
+- `--clear-agent-name`
+- `--clear-agent-id`
+- `--clear-workdir`
+- `--clear-auth`
+- `--clear-memory-dir`
+- `--clear-model`
+- `--clear-reasoning-level`
+- `--clear-prompt-mode`
+- `--clear-env`
+- `--clear-mailbox`
+- `--clear-headless`
+- `--clear-managed-header`
+- `--clear-managed-header-section SECTION`
+- `--clear-managed-header-sections`
+- `--clear-prompt-overlay`
+
+Profile authoring rules:
+
+- use `project easy profile set` for ordinary edits; do not remove and recreate a profile just to patch defaults
+- use `project easy profile create --yes` only when the user intends same-name replacement; replacement clears omitted optional fields and cannot replace an explicit `project agents launch-profiles` entry with the same name
+- use `project agents launch-profiles set` only for explicit recipe-backed launch profiles, not easy profiles
 - do not mix `--prompt-overlay-text` and `--prompt-overlay-file`
 - prompt-overlay text requires `--prompt-overlay-mode append|replace`
 - `--mail-transport` is required when any declarative mailbox fields are present
 - `filesystem` mailbox defaults accept `--mail-root` and reject the Stalwart URL flags
 - `stalwart` mailbox defaults accept the Stalwart URL flags and reject `--mail-root`
 - `--no-gateway` and `--gateway-port` cannot be combined
+- `--managed-header-section` stores sparse per-section policy for the supported sections `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`
+- `--clear-managed-header-section` removes one stored section policy entry, and `--clear-managed-header-sections` removes all stored section policy entries
 - `--auth` is only the stored auth display-name override for later launches; it does not create credentials, and the stored relationship continues to resolve after auth rename
 
 ## Specialist Required Inputs
@@ -174,9 +214,12 @@ Claude vendor-login file usage:
 ## Guardrails
 
 - Do not guess whether the user wants to create a reusable specialist or a reusable easy profile.
-- Do not guess the profile name or source specialist for easy-profile creation.
+- Do not guess whether easy-profile work is a patch edit or same-name replacement.
+- Do not guess the profile name, source specialist, or update fields for easy-profile authoring.
 - Do not enter credential discovery or credential import workflow for easy-profile creation.
 - Do not treat profile creation as launching or mutating a live easy instance.
+- Do not remove and recreate an easy profile for ordinary default edits; use `project easy profile set`.
+- Do not use `project agents launch-profiles set` for easy-profile edits.
 - Do not mix `--prompt-overlay-text` and `--prompt-overlay-file` for easy-profile creation.
 - Do not guess the specialist name, tool lane, or auth values.
 - Do not continue specialist creation from partially inferred required inputs when the prompt and recent chat context do not state them explicitly.

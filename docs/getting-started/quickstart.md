@@ -197,7 +197,7 @@ pixi run houmao-mgr agents launch \
   --launch-profile researcher-default
 ```
 
-`--launch-profile` and `--agents` are mutually exclusive on `agents launch`. The launch profile contributes its own birth-time defaults — managed-agent identity, working directory, auth override, prompt-mode, durable env records, mailbox config, headless and gateway posture, managed-header policy, and any prompt overlay — and direct CLI overrides such as `--agent-name`, `--auth`, `--workdir`, `--managed-header`, `--no-managed-header`, `--append-system-prompt-text`, or `--append-system-prompt-file` win over those defaults without rewriting the stored profile. Prompt composition order is source role prompt, prompt-overlay resolution, launch appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. For the shared conceptual model, see [Launch Profiles](launch-profiles.md).
+`--launch-profile` and `--agents` are mutually exclusive on `agents launch`. The launch profile contributes its own birth-time defaults — managed-agent identity, working directory, auth override, prompt-mode, durable env records, mailbox config, headless and gateway posture, managed-header whole-header and section policy, and any prompt overlay — and direct CLI overrides such as `--agent-name`, `--auth`, `--workdir`, `--managed-header`, `--no-managed-header`, `--managed-header-section SECTION=enabled|disabled`, `--append-system-prompt-text`, or `--append-system-prompt-file` win over those defaults without rewriting the stored profile. Prompt composition order is source role prompt, prompt-overlay resolution, launch appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. For the shared conceptual model, see [Launch Profiles](launch-profiles.md).
 
 If you want the higher-level launch path, use:
 
@@ -212,7 +212,7 @@ pixi run houmao-mgr project easy instance launch \
 
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
 
-For easy launch, `--workdir` only changes the launched agent cwd. The selected project overlay and specialist still supply the compatibility recipe source plus overlay-local runtime, jobs, and mailbox defaults. The same managed-header rules apply here: easy profiles may store policy, `project easy instance launch` accepts one-shot `--managed-header` or `--no-managed-header`, and omitted policy falls back to the default enabled behavior.
+For easy launch, `--workdir` only changes the launched agent cwd. The selected project overlay and specialist still supply the compatibility recipe source plus overlay-local runtime, jobs, and mailbox defaults. The same managed-header rules apply here: easy profiles may store whole-header and section policy, `project easy instance launch` accepts one-shot `--managed-header`, `--no-managed-header`, or `--managed-header-section SECTION=enabled|disabled`, and omitted policy falls back to the default enabled behavior.
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
 

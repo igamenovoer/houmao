@@ -2234,6 +2234,7 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             },
             posture_payload={"headless": True, "gateway_port": 9011},
             managed_header_policy="inherit",
+            managed_header_section_policy={"automation-notice": "disabled"},
             prompt_overlay_mode="append",
         ),
         source_exists=True,
@@ -2287,6 +2288,8 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             "breakglass",
             "--workdir",
             str(runtime_workdir),
+            "--managed-header-section",
+            "task-reminder=enabled",
         ],
     )
 
@@ -2311,6 +2314,10 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
     assert captured["persistent_env_records"] == {"PROJECT_CONTEXT": "alice"}
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
+    assert captured["managed_header_section_overrides"] == {"task-reminder": "enabled"}
+    assert captured["launch_profile_managed_header_section_policy"] == {
+        "automation-notice": "disabled"
+    }
     assert captured["declared_mailbox"].transport == "filesystem"
     assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
     assert captured["launch_profile_provenance"] == {
@@ -2539,6 +2546,36 @@ def test_agents_launch_rejects_invalid_force_mode() -> None:
 
     assert result.exit_code != 0
     assert "Invalid value for '--force'" in result.output
+
+
+def test_agents_launch_rejects_invalid_managed_header_section_inputs() -> None:
+    unknown_section_result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--managed-header-section",
+            "typo=enabled",
+        ],
+    )
+    assert unknown_section_result.exit_code != 0
+    assert "unsupported managed-header section" in unknown_section_result.output
+
+    unknown_state_result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--managed-header-section",
+            "identity=maybe",
+        ],
+    )
+    assert unknown_state_result.exit_code != 0
+    assert "unsupported managed-header section policy" in unknown_state_result.output
 
 
 def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
