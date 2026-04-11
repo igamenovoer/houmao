@@ -133,6 +133,7 @@ Common optional inputs:
 - `--headless`
 - `--no-gateway`
 - `--managed-header` / `--no-managed-header`
+- repeatable `--managed-header-section SECTION=enabled|disabled`
 - `--gateway-port`
 - `--prompt-overlay-mode append|replace`
 - `--prompt-overlay-text`
@@ -152,6 +153,8 @@ Common clear inputs for `profile set`:
 - `--clear-mailbox`
 - `--clear-headless`
 - `--clear-managed-header`
+- `--clear-managed-header-section SECTION`
+- `--clear-managed-header-sections`
 - `--clear-prompt-overlay`
 
 Profile authoring rules:
@@ -165,6 +168,8 @@ Profile authoring rules:
 - `filesystem` mailbox defaults accept `--mail-root` and reject the Stalwart URL flags
 - `stalwart` mailbox defaults accept the Stalwart URL flags and reject `--mail-root`
 - `--no-gateway` and `--gateway-port` cannot be combined
+- `--managed-header-section` stores sparse per-section policy for the supported sections `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`
+- `--clear-managed-header-section` removes one stored section policy entry, and `--clear-managed-header-sections` removes all stored section policy entries
 - `--auth` is only the stored auth display-name override for later launches; it does not create credentials, and the stored relationship continues to resolve after auth rename
 
 ## Specialist Required Inputs

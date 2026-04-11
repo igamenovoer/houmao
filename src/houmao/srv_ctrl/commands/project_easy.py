@@ -80,6 +80,13 @@ def easy_profile_group() -> None:
     help="Persist managed prompt header policy for launches from this easy profile.",
 )
 @click.option(
+    "--managed-header-section",
+    "managed_header_section",
+    multiple=True,
+    metavar="SECTION=STATE",
+    help="Persist one managed-header section policy (`enabled` or `disabled`).",
+)
+@click.option(
     "--gateway-port",
     type=click.IntRange(1, 65535),
     default=None,
@@ -122,6 +129,7 @@ def create_easy_profile_command(
     headless: bool,
     no_gateway: bool,
     managed_header: bool | None,
+    managed_header_section: tuple[str, ...],
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -167,6 +175,9 @@ def create_easy_profile_command(
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=False,
+        managed_header_section=managed_header_section,
+        clear_managed_header_section=(),
+        clear_managed_header_sections=False,
         gateway_port=gateway_port,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
@@ -276,6 +287,25 @@ def create_easy_profile_command(
     help="Clear the stored managed prompt header policy back to inherit.",
 )
 @click.option(
+    "--managed-header-section",
+    "managed_header_section",
+    multiple=True,
+    metavar="SECTION=STATE",
+    help="Persist or replace one managed-header section policy (`enabled` or `disabled`).",
+)
+@click.option(
+    "--clear-managed-header-section",
+    "clear_managed_header_section",
+    multiple=True,
+    metavar="SECTION",
+    help="Clear one stored managed-header section policy entry.",
+)
+@click.option(
+    "--clear-managed-header-sections",
+    is_flag=True,
+    help="Clear all stored managed-header section policy entries.",
+)
+@click.option(
     "--gateway-port",
     type=click.IntRange(1, 65535),
     default=None,
@@ -329,6 +359,9 @@ def set_easy_profile_command(
     no_gateway: bool,
     managed_header: bool | None,
     clear_managed_header: bool,
+    managed_header_section: tuple[str, ...],
+    clear_managed_header_section: tuple[str, ...],
+    clear_managed_header_sections: bool,
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -373,6 +406,9 @@ def set_easy_profile_command(
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=clear_managed_header,
+        managed_header_section=managed_header_section,
+        clear_managed_header_section=clear_managed_header_section,
+        clear_managed_header_sections=clear_managed_header_sections,
         gateway_port=gateway_port,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
@@ -853,6 +889,13 @@ def easy_instance_group() -> None:
     default=None,
     help="Force-enable or disable the Houmao-managed prompt header for this launch.",
 )
+@click.option(
+    "--managed-header-section",
+    "managed_header_section",
+    multiple=True,
+    metavar="SECTION=STATE",
+    help="One-shot managed-header section override (`enabled` or `disabled`).",
+)
 @managed_launch_force_option
 def launch_easy_instance_command(
     specialist: str | None,
@@ -874,6 +917,7 @@ def launch_easy_instance_command(
     mail_root: Path | None,
     mail_account_dir: Path | None,
     managed_header: bool | None,
+    managed_header_section: tuple[str, ...],
     force_mode: str | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
@@ -894,6 +938,9 @@ def launch_easy_instance_command(
     launch_profile_memory_dir: str | None = None
     launch_profile_memory_disabled = False
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
+    launch_profile_managed_header_section_policy: (
+        dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None
+    ) = None
     launch_profile_provenance = None
     resolved_memory_dir, no_memory_dir, _ = _resolve_memory_dir_option_or_click(
         memory_dir=memory_dir,
@@ -902,6 +949,9 @@ def launch_easy_instance_command(
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
+    )
+    managed_header_section_overrides = _managed_header_section_policy_from_options(
+        managed_header_section
     )
     default_gateway_auto_attach = True
     default_gateway_host: str | None = "127.0.0.1"
@@ -936,6 +986,9 @@ def launch_easy_instance_command(
             reasoning_level=resolved_profile.entry.reasoning_level,
         )
         launch_profile_managed_header_policy = resolved_profile.entry.managed_header_policy
+        launch_profile_managed_header_section_policy = dict(
+            getattr(resolved_profile.entry, "managed_header_section_policy", {})
+        )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
@@ -1070,6 +1123,8 @@ def launch_easy_instance_command(
         prompt_overlay_text=prompt_overlay_text,
         managed_header_override=managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
+        managed_header_section_overrides=managed_header_section_overrides,
+        launch_profile_managed_header_section_policy=(launch_profile_managed_header_section_policy),
         launch_profile_provenance=launch_profile_provenance,
         force_mode=force_mode,
     )

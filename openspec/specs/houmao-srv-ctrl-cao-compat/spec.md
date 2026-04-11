@@ -3,9 +3,10 @@ Define the historical CAO-compatibility capability state for `houmao-mgr`.
 
 ## Requirements
 
-This capability has no active requirements after retirement of the `cao` namespace and top-level `launch` compatibility surface.
+### Requirement: Houmao-owned CLI compatibility verification SHALL cover retired CAO behavior
+This capability SHALL preserve the historical compatibility verification posture after retirement of the `cao` namespace and top-level `launch` compatibility surface.
 
-Houmao-owned CLI behavior SHALL be tested directly and more strictly. That verification SHALL cover at minimum:
+Houmao-owned CLI behavior SHALL be tested directly. That verification SHALL cover at minimum:
 
 - native headless top-level `launch --headless`
 - session-backed top-level `launch` registration and runtime artifact materialization

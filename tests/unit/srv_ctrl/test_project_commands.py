@@ -3848,10 +3848,70 @@ def test_project_launch_profile_set_can_clear_managed_header_policy(
             "--recipe",
             "researcher-codex-default",
             "--no-managed-header",
+            "--managed-header-section",
+            "automation-notice=disabled",
+            "--managed-header-section",
+            "task-reminder=enabled",
         ],
     )
     assert add_result.exit_code == 0, add_result.output
-    assert json.loads(add_result.output)["defaults"]["managed_header"] == "disabled"
+    add_payload = json.loads(add_result.output)
+    assert add_payload["defaults"]["managed_header"] == "disabled"
+    assert add_payload["defaults"]["managed_header_sections"] == {
+        "automation-notice": "disabled",
+        "task-reminder": "enabled",
+    }
+
+    clear_one_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--clear-managed-header-section",
+            "automation-notice",
+        ],
+    )
+    assert clear_one_result.exit_code == 0, clear_one_result.output
+    assert json.loads(clear_one_result.output)["defaults"]["managed_header_sections"] == {
+        "task-reminder": "enabled"
+    }
+
+    conflict_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--managed-header-section",
+            "task-reminder=disabled",
+            "--clear-managed-header-section",
+            "task-reminder",
+        ],
+    )
+    assert conflict_result.exit_code != 0
+    assert "`--managed-header-section` cannot be combined" in conflict_result.output
+
+    clear_sections_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--clear-managed-header-sections",
+        ],
+    )
+    assert clear_sections_result.exit_code == 0, clear_sections_result.output
+    assert "managed_header_sections" not in json.loads(clear_sections_result.output)["defaults"]
 
     set_result = runner.invoke(
         cli,
@@ -3867,6 +3927,100 @@ def test_project_launch_profile_set_can_clear_managed_header_policy(
     )
     assert set_result.exit_code == 0, set_result.output
     assert json.loads(set_result.output)["defaults"]["managed_header"] == "inherit"
+
+
+def test_project_easy_profile_set_can_store_and_clear_managed_header_sections(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--system-prompt",
+                "You are a precise repo researcher.",
+                "--tool",
+                "codex",
+                "--credential",
+                "work",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--managed-header-section",
+            "automation-notice=disabled",
+            "--managed-header-section",
+            "mail-ack=enabled",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    assert json.loads(create_result.output)["defaults"]["managed_header_sections"] == {
+        "automation-notice": "disabled",
+        "mail-ack": "enabled",
+    }
+
+    clear_one_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--clear-managed-header-section",
+            "automation-notice",
+        ],
+    )
+    assert clear_one_result.exit_code == 0, clear_one_result.output
+    assert json.loads(clear_one_result.output)["defaults"]["managed_header_sections"] == {
+        "mail-ack": "enabled"
+    }
+
+    clear_all_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--clear-managed-header-sections",
+        ],
+    )
+    assert clear_all_result.exit_code == 0, clear_all_result.output
+    assert "managed_header_sections" not in json.loads(clear_all_result.output)["defaults"]
 
 
 def test_project_easy_instance_launch_forwards_managed_header_override(
@@ -3918,6 +4072,8 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
                 "--specialist",
                 "researcher",
                 "--managed-header",
+                "--managed-header-section",
+                "mail-ack=enabled",
             ],
         ).exit_code
         == 0
@@ -3959,6 +4115,7 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
     assert result.exit_code == 0, result.output
     assert captured["managed_header_override"] is False
     assert captured["launch_profile_managed_header_policy"] == "enabled"
+    assert captured["launch_profile_managed_header_section_policy"] == {"mail-ack": "enabled"}
 
 
 def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
@@ -5174,6 +5331,7 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
             workdir=None,
             memory_dir=None,
             memory_disabled=False,
+            managed_header_section_policy={"mail-ack": "enabled"},
         ),
     )
     captured: dict[str, object] = {}
@@ -5219,11 +5377,15 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
             "alice",
             "--force",
             "clean",
+            "--managed-header-section",
+            "automation-notice=disabled",
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert captured["force_mode"] == "clean"
+    assert captured["managed_header_section_overrides"] == {"automation-notice": "disabled"}
+    assert captured["launch_profile_managed_header_section_policy"] == {"mail-ack": "enabled"}
 
 
 def test_project_easy_instance_stop_checks_overlay_and_delegates(

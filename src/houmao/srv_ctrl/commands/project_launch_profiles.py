@@ -114,6 +114,13 @@ def get_project_launch_profile_command(name: str) -> None:
     help="Persist managed prompt header policy for launches from this profile.",
 )
 @click.option(
+    "--managed-header-section",
+    "managed_header_section",
+    multiple=True,
+    metavar="SECTION=STATE",
+    help="Persist one managed-header section policy (`enabled` or `disabled`).",
+)
+@click.option(
     "--gateway-port",
     type=click.IntRange(1, 65535),
     default=None,
@@ -156,6 +163,7 @@ def add_project_launch_profile_command(
     headless: bool,
     no_gateway: bool,
     managed_header: bool | None,
+    managed_header_section: tuple[str, ...],
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -201,6 +209,9 @@ def add_project_launch_profile_command(
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=False,
+        managed_header_section=managed_header_section,
+        clear_managed_header_section=(),
+        clear_managed_header_sections=False,
         gateway_port=gateway_port,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
@@ -310,6 +321,25 @@ def add_project_launch_profile_command(
     help="Clear the stored managed prompt header policy back to inherit.",
 )
 @click.option(
+    "--managed-header-section",
+    "managed_header_section",
+    multiple=True,
+    metavar="SECTION=STATE",
+    help="Persist or replace one managed-header section policy (`enabled` or `disabled`).",
+)
+@click.option(
+    "--clear-managed-header-section",
+    "clear_managed_header_section",
+    multiple=True,
+    metavar="SECTION",
+    help="Clear one stored managed-header section policy entry.",
+)
+@click.option(
+    "--clear-managed-header-sections",
+    is_flag=True,
+    help="Clear all stored managed-header section policy entries.",
+)
+@click.option(
     "--gateway-port",
     type=click.IntRange(1, 65535),
     default=None,
@@ -363,6 +393,9 @@ def set_project_launch_profile_command(
     no_gateway: bool,
     managed_header: bool | None,
     clear_managed_header: bool,
+    managed_header_section: tuple[str, ...],
+    clear_managed_header_section: tuple[str, ...],
+    clear_managed_header_sections: bool,
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -407,6 +440,9 @@ def set_project_launch_profile_command(
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=clear_managed_header,
+        managed_header_section=managed_header_section,
+        clear_managed_header_section=clear_managed_header_section,
+        clear_managed_header_sections=clear_managed_header_sections,
         gateway_port=gateway_port,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,

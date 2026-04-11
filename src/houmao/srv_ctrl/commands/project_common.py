@@ -18,7 +18,13 @@ from houmao.agents.launch_env import (
     validate_persistent_env_records,
 )
 from houmao.agents.launch_policy.models import OperatorPromptMode
-from houmao.agents.managed_prompt_header import ManagedHeaderPolicy
+from houmao.agents.managed_prompt_header import (
+    ManagedHeaderPolicy,
+    ManagedHeaderSectionName,
+    ManagedHeaderSectionPolicy,
+    parse_managed_header_section_names,
+    parse_managed_header_section_policy_assignments,
+)
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
     serialize_declarative_mailbox_config,
@@ -823,6 +829,69 @@ def _managed_header_policy_from_override(value: bool | None) -> ManagedHeaderPol
     return "enabled" if value else "disabled"
 
 
+def _managed_header_section_policy_from_options(
+    values: tuple[str, ...],
+) -> dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy]:
+    """Return managed-header section policy parsed from repeatable CLI options."""
+
+    try:
+        return parse_managed_header_section_policy_assignments(
+            values,
+            source="`--managed-header-section`",
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _managed_header_section_names_from_options(
+    values: tuple[str, ...],
+) -> tuple[ManagedHeaderSectionName, ...]:
+    """Return managed-header section names parsed from repeatable CLI options."""
+
+    try:
+        return parse_managed_header_section_names(
+            values,
+            source="`--clear-managed-header-section`",
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_managed_header_section_policy_for_storage(
+    *,
+    current: dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None,
+    section_policy: dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy],
+    clear_sections: tuple[ManagedHeaderSectionName, ...],
+    clear_all_sections: bool,
+) -> dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy]:
+    """Resolve stored managed-header section-policy mutation for profile storage."""
+
+    if clear_all_sections and clear_sections:
+        raise click.ClickException(
+            "`--clear-managed-header-sections` cannot be combined with "
+            "`--clear-managed-header-section`."
+        )
+    if clear_all_sections and section_policy:
+        raise click.ClickException(
+            "`--clear-managed-header-sections` cannot be combined with `--managed-header-section`."
+        )
+    conflicting_sections = sorted(set(section_policy).intersection(clear_sections))
+    if conflicting_sections:
+        section_list = ", ".join(f"`{section}`" for section in conflicting_sections)
+        raise click.ClickException(
+            "`--managed-header-section` cannot be combined with "
+            f"`--clear-managed-header-section` for {section_list}."
+        )
+
+    resolved = dict(current or {})
+    if clear_all_sections:
+        resolved.clear()
+    for section_name in clear_sections:
+        resolved.pop(section_name, None)
+    resolved.update(section_policy)
+    return resolved
+
+
 def _resolve_memory_dir_option_or_click(
     *,
     memory_dir: Path | None,
@@ -987,6 +1056,9 @@ def _store_launch_profile_from_cli(
     no_gateway: bool,
     managed_header: bool | None,
     clear_managed_header: bool,
+    managed_header_section: tuple[str, ...],
+    clear_managed_header_section: tuple[str, ...],
+    clear_managed_header_sections: bool,
     gateway_port: int | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
@@ -1083,6 +1155,10 @@ def _store_launch_profile_from_cli(
     )
     resolved_model_input = _resolve_model_name_or_click(model) if model is not None else None
     resolved_managed_header_policy: ManagedHeaderPolicy | None
+    requested_section_policy = _managed_header_section_policy_from_options(managed_header_section)
+    requested_clear_sections = _managed_header_section_names_from_options(
+        clear_managed_header_section
+    )
 
     if current is None:
         resolved_agent_name = _optional_non_empty_value(agent_name)
@@ -1109,6 +1185,12 @@ def _store_launch_profile_from_cli(
         )
         resolved_managed_header_policy = (
             _managed_header_policy_from_override(managed_header) or "inherit"
+        )
+        resolved_managed_header_section_policy = _resolve_managed_header_section_policy_for_storage(
+            current=None,
+            section_policy=requested_section_policy,
+            clear_sections=requested_clear_sections,
+            clear_all_sections=clear_managed_header_sections,
         )
         resolved_prompt_overlay_mode, resolved_prompt_overlay_text = prompt_overlay
     else:
@@ -1211,6 +1293,12 @@ def _store_launch_profile_from_cli(
             resolved_managed_header_policy = _managed_header_policy_from_override(managed_header)
         else:
             resolved_managed_header_policy = current.entry.managed_header_policy
+        resolved_managed_header_section_policy = _resolve_managed_header_section_policy_for_storage(
+            current=getattr(current.entry, "managed_header_section_policy", {}),
+            section_policy=requested_section_policy,
+            clear_sections=requested_clear_sections,
+            clear_all_sections=clear_managed_header_sections,
+        )
         if clear_prompt_overlay:
             resolved_prompt_overlay_mode = None
             resolved_prompt_overlay_text = None
@@ -1249,6 +1337,9 @@ def _store_launch_profile_from_cli(
             no_gateway,
             managed_header is not None,
             clear_managed_header,
+            bool(managed_header_section),
+            bool(clear_managed_header_section),
+            clear_managed_header_sections,
             gateway_port is not None,
             prompt_overlay_mode is not None,
             prompt_overlay_text is not None,
@@ -1282,6 +1373,7 @@ def _store_launch_profile_from_cli(
         mailbox_mapping=resolved_mailbox,
         posture_mapping=resolved_posture,
         managed_header_policy=resolved_managed_header_policy,
+        managed_header_section_policy=resolved_managed_header_section_policy,
         prompt_overlay_mode=resolved_prompt_overlay_mode,
         prompt_overlay_text=resolved_prompt_overlay_text,
     )
@@ -1751,6 +1843,10 @@ __all__ = [
     "validate_persistent_env_records",
     "OperatorPromptMode",
     "ManagedHeaderPolicy",
+    "ManagedHeaderSectionName",
+    "ManagedHeaderSectionPolicy",
+    "parse_managed_header_section_names",
+    "parse_managed_header_section_policy_assignments",
     "parse_declarative_mailbox_config",
     "serialize_declarative_mailbox_config",
     "ModelConfig",
@@ -1850,6 +1946,9 @@ __all__ = [
     "_parse_launch_profile_env_records_or_click",
     "_resolve_prompt_overlay_text_or_click",
     "_managed_header_policy_from_override",
+    "_managed_header_section_policy_from_options",
+    "_managed_header_section_names_from_options",
+    "_resolve_managed_header_section_policy_for_storage",
     "_resolve_memory_dir_option_or_click",
     "_build_profile_mailbox_mapping_or_click",
     "_stored_mailbox_or_click",

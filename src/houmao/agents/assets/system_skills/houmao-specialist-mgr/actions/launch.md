@@ -43,6 +43,7 @@ Common optional inputs:
 - `--mail-transport filesystem|email`
 - `--mail-root`
 - `--mail-account-dir`
+- repeatable `--managed-header-section SECTION=enabled|disabled`
 
 Behavior note:
 
@@ -50,6 +51,7 @@ Behavior note:
 - `--workdir` changes only the launched agent runtime cwd.
 - The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
+- `--managed-header-section` is a one-shot managed-header section override and never rewrites the selected easy profile.
 - `--no-gateway` and `--gateway-port` cannot be combined.
 - `--mail-account-dir` is only supported with `--mail-transport filesystem`.
 - `--mail-transport filesystem` requires `--mail-root`.

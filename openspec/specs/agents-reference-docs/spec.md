@@ -15,4 +15,10 @@ This spec intentionally retains no functional requirements; it exists only to re
 
 ## Requirements
 
-_None. This capability has been retired. See the Purpose section above for the successor specs that now own the equivalent documentation guarantees._
+### Requirement: Retired agents reference docs SHALL defer to successor specs
+This capability SHALL remain retired and SHALL direct documentation guarantees to the successor specs listed in the Purpose section.
+
+#### Scenario: Reader finds successor coverage
+- **WHEN** a maintainer inspects the retired `agents-reference-docs` capability
+- **THEN** the spec identifies that active requirements live in successor documentation capabilities
+- **AND THEN** the retired capability does not define duplicate runtime-managed agent reference requirements

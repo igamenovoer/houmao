@@ -29,6 +29,7 @@ Use one of:
 - This is the explicit recipe-backed birth-time lane, not auth-bundle CRUD and not easy-profile authoring.
 - Use `launch-profiles set` for ordinary patch edits to existing explicit launch profiles.
 - `launch-profiles set` accepts the same default override options as `add`, plus clear flags such as `--clear-auth`, `--clear-env`, `--clear-mailbox`, and `--clear-prompt-overlay`.
+- Managed prompt-header section policy is stored with repeatable `--managed-header-section SECTION=enabled|disabled`; patch edits can remove one entry with `--clear-managed-header-section SECTION` or all entries with `--clear-managed-header-sections`.
 - Use `launch-profiles add --yes` only when the user intends same-name replacement; replacement is same-lane only and clears omitted optional fields.
 - `--auth` and `--clear-auth` here change the stored launch-profile auth override, not the underlying auth bundle contents. The CLI accepts auth display names, but the stored relationship resolves through auth-profile identity so later auth rename stays valid.
 - The shared conceptual model for easy profiles versus explicit launch profiles lives in `docs/getting-started/launch-profiles.md`.
