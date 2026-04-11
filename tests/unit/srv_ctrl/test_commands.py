@@ -136,6 +136,7 @@ def test_top_level_command_inventory_exposes_new_native_surface() -> None:
         "agents",
         "brains",
         "credentials",
+        "internals",
         "mailbox",
         "project",
         "server",
@@ -150,6 +151,7 @@ def test_bare_invocation_prints_help() -> None:
     assert "Usage: houmao-mgr" in result.output
     assert "server" in result.output
     assert "agents" in result.output
+    assert "internals" in result.output
     assert "mailbox" in result.output
     assert "system-skills" in result.output
     assert "More detailed docs:" in result.output

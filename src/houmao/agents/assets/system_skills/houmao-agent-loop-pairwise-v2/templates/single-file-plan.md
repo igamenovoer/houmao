@@ -10,8 +10,8 @@ participants:
   - <worker-a>
   - <worker-b>
 delegation_policy: <delegate_none | delegate_to_named | delegate_freely_within_named_set | delegate_any>
-prestart_mode: <fire_and_proceed | require_ack>
-preparation_targets: <delegating_non_leaf | all_participants | named_set>
+prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>
+plan_revision: <revision or digest>
 default_stop_mode: interrupt-first
 ---
 
@@ -32,20 +32,41 @@ default_stop_mode: interrupt-first
 
 # Prestart Procedure
 - notifier preflight: <how notifier is verified or enabled>
-- preparation targets: <delegating_non_leaf by default; all_participants or named leaf targets only when explicitly requested>
-- participant preparation wave: <how standalone prep mail is sent to targeted preparation recipients>
-- acknowledgement posture: <fire_and_proceed | require_ack>
-- operator reply policy: <none | operator_mailbox, applied to targeted preparation recipients>
-- master trigger: <how the start charter stays separate from preparation mail>
+- selected strategy: `precomputed_routing_packets` by default
+- routing packet validation: <how root packet and child packet coverage are checked during initialize>
+- root routing packet: <packet id or section reference included in the start charter>
+- child packet forwarding: append exact prepared child packet text to the ordinary pairwise edge request; do not edit, merge, or summarize unless this plan explicitly permits it
+- mismatch handling: stop downstream dispatch and report to the immediate driver, or to the operator when the driver is the master
+- explicit operator preparation wave: <not used | targets, acknowledgement posture, and operator reply policy when selected>
+- master trigger: <how the start charter stays separate from initialize>
 
-# Participant Preparation
-## `<agent>`
-- role: <what this participant owns>
-- resources: <mailbox, scripts, artifacts, or tools this participant may use>
+# Routing Packets
+## `<root-packet-id>`
+- intended recipient: <master>
+- immediate driver: <operator control plane>
+- plan revision: <revision or digest>
+- local role/objective: <what the master owns>
 - allowed delegation: <none | named set | free within named set | any>
-- delegation patterns: <work-type specific expectations when needed>
-- obligations: <mailbox, reminder, receipt, or result obligations>
+- result return: <completion summary to operator, not a pairwise child result>
+- obligations: <mailbox, reminder, receipt, result, or timeout-watch obligations>
 - forbidden actions: <what this participant must not do>
+- child dispatch table:
+  - `<child-agent>`: append packet `<edge-packet-id>` verbatim
+- child packets: <inline packet text or exact section reference>
+
+## `<edge-packet-id>`
+- intended recipient: <child-agent>
+- immediate driver: <parent-agent>
+- plan revision: <revision or digest>
+- local role/objective: <what this child owns>
+- allowed delegation: <none | named set | free within named set | any>
+- result return: <send final result back to immediate driver>
+- obligations: <mailbox, reminder, receipt, result, or timeout-watch obligations>
+- forbidden actions: <what this participant must not do>
+- child dispatch table: <none | child packet ids>
+
+# Operator Preparation Wave
+<Only include when selected. Record preparation targets, mail posture `fire_and_proceed | require_ack`, operator reply policy, and leaf-target overrides.>
 
 # Lifecycle Vocabulary
 - operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
@@ -73,7 +94,7 @@ default_stop_mode: interrupt-first
 ```mermaid
 flowchart TD
     UA[User Agent<br/>control only]
-    Prep[Targeted Preparation Wave<br/>delegating/non-leaf mail<br/>before trigger]
+    Prep[Initialize<br/>routing packet validation<br/>default]
     M[Master<br/>root run owner]
     W[Worker]
     Loop[Master Loop<br/>review run]

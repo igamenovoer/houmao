@@ -13,8 +13,9 @@ Minimum sections:
 - Participants
 - Delegation Policy
 - Prestart Procedure
-- Preparation Targets
-- Participant Preparation
+- Prestart Strategy
+- Routing Packets
+- Operator Preparation Wave, when explicitly selected
 - Lifecycle Vocabulary
 - Completion Condition
 - Stop Policy
@@ -35,6 +36,7 @@ Suggested bundle contents:
 
 - `plan.md`
 - `prestart.md`
+- `routing-packets.md` or `routing-packets/`
 - `graph.md`
 - `delegation.md`
 - `reporting.md`
@@ -70,33 +72,43 @@ Canonical observed states:
 - `stopped`
 - `dead`
 
-## Participant Preparation Briefs
+## Routing Packets
 
-Each participant brief should record:
+Every plan using the default `precomputed_routing_packets` strategy should record:
 
-- participant identity and role
-- resources, artifacts, or tools available to that participant
-- allowed delegation targets or allowed delegation set
-- delegation-pattern expectations for work categories, when that distinction matters
-- mailbox, reminder, receipt, or result obligations
-- forbidden actions
+- root routing packet location for the designated master
+- routing packet inventory for every parent-to-child pairwise edge
+- plan id plus plan revision, digest, or equivalent freshness marker used by every packet
+- intended recipient and immediate driver for every packet
+- local role, local objective, resources, delegation authority, and forbidden actions for every packet recipient
+- result-return contract back to the immediate driver
+- mailbox, reminder, receipt, result, or timeout-watch obligations
+- child dispatch table for each non-leaf packet
+- exact child packet text or exact references to child packet text for every child a non-leaf recipient may contact
+- forwarding guardrails: append child packets verbatim to ordinary pairwise edge requests, do not edit/merge/summarize packets unless the plan explicitly permits it, and fail closed on missing, mismatched, or stale packets
 
-Participant preparation briefs must stay standalone. Do not require a participant to know which upstream participant may later contact it during the preparation stage.
+Routing packets should be prepared at authoring time so intermediate runtime agents do not need to infer descendants or recompute graph slices from the full plan.
 
-Preparation material and preparation mail recipients are separate. Plans may retain preparation material for all participants, but the default preparation mail recipient set is the participants that have descendants in the authored topology. Leaf participants are included only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set.
+When a plan keeps a NetworkX node-link graph and packet JSON document for machine checks, use `houmao-mgr internals graph high packet-expectations --input <graph.json>` during packet authoring and `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` before treating default initialization as `ready`. These commands validate structural coverage only; they do not replace semantic review of delegation policy, forbidden actions, result routing, or lifecycle vocabulary.
+
+## Operator Preparation Wave
+
+When the plan explicitly selects `operator_preparation_wave`, preparation material and preparation mail recipients are separate. Plans may retain preparation material for all participants, but the explicit preparation mail recipient set targets the participants that have descendants in the authored topology by default. Leaf participants are included only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set.
 
 ## `prestart.md`
 
 For bundle plans, `prestart.md` should record:
 
+- selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
 - notifier preflight expectations
-- authored topology or descendant relationships used to identify delegating/non-leaf participants
-- preparation target policy: `delegating_non_leaf` by default, `all_participants` only when explicitly requested, or a named explicit target set
-- preparation-mail posture: `fire_and_proceed` or `require_ack`
-- operator reply policy for preparation mail
+- routing packet validation rules, root packet location, packet inventory, and child dispatch-table expectations for default `precomputed_routing_packets`
+- authored topology or descendant relationships used to verify packet coverage
+- preparation target policy for explicit `operator_preparation_wave`: `delegating_non_leaf` by default, `all_participants` only when explicitly requested, or a named explicit target set
+- preparation-mail posture for explicit `operator_preparation_wave`: `fire_and_proceed` or `require_ack`
+- operator reply policy for explicit preparation mail
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
-- readiness barrier rules for targeted preparation recipients, when acknowledgements are required
-- how the master trigger is kept separate from the preparation wave
+- readiness rules for the selected strategy: packet validation for `precomputed_routing_packets`, or targeted preparation plus acknowledgements when explicit `operator_preparation_wave` requires them
+- how the master trigger is kept separate from `initialize`
 
 ## Script Inventory Fields
 
@@ -113,9 +125,11 @@ For each script, record:
 ## Guardrails
 
 - Do not leave the bundle form without `plan.md`.
-- Do not leave the bundle form without `prestart.md` when preparation mail is part of the run contract.
-- Do not leave descendant relationships ambiguous when `initialize` needs to determine the default preparation target set.
-- Do not treat participant preparation material as proof that every participant should receive preparation mail.
+- Do not leave the bundle form without `prestart.md` when prestart strategy is part of the run contract.
+- Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
+- Do not treat routing packet material as permission to send operator-origin preparation mail.
+- Do not treat operator preparation material as proof that every participant should receive preparation mail.
+- Do not require runtime intermediate agents to recompute subtree slices that should have been prepared during authoring.
 - Do not mix lifecycle action names and observed state names into one ambiguous status field.
 - Do not hide plan-critical policy only inside an unreferenced support file.
 - Do not omit the Mermaid control graph from the canonical plan surface.

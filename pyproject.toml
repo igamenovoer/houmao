@@ -29,6 +29,7 @@ dependencies = [
   "rich>=14.3.3,<15",
   "starlette>=0.46,<2",
   "uvicorn>=0.41.0,<0.42",
+  "networkx>=3.6.1,<4",
 ]
 
 [project.scripts]

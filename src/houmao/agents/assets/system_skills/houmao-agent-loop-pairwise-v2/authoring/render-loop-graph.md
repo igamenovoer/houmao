@@ -21,6 +21,7 @@ At minimum, the top-level graph must show:
 - Draw the supervision loop as a review cycle owned by the master, not as a worker-to-worker cycle.
 - If a worker becomes a child driver, draw that child control edge beneath the worker and show the child result returning to the immediate parent.
 - When labeling operator controls, prefer the canonical names `initialize`, `start`, `peek master`, `pause/resume`, and `stop`.
+- Label the default `initialize` path as routing-packet validation. Label an operator preparation wave only when the authored plan explicitly selects that strategy.
 - Keep labels short and wrap with `<br/>` when needed.
 - Split a very large topology into one top-level diagram plus supporting subtree diagrams instead of making one unreadable diagram.
 
@@ -37,21 +38,21 @@ flowchart TD
     Done[Completion Condition<br/>user-defined]
     Stop[Stop Condition<br/>default: interrupt-first]
 
-    Prep[Initialize<br/>prep wave]
+    Prep[Initialize<br/>routing packet validation]
 
     UA -->|initialize| Prep
-    Prep -->|start| M
+    Prep -->|start<br/>root packet| M
     UA -.->|peek master| M
     UA -.->|pause/resume| M
     UA ==> |stop| M
 
-    M -->|edge e1| A
+    M -->|edge e1<br/>append packet A| A
     A -->|result e1| M
 
-    A -->|edge e2| B
+    A -->|edge e2<br/>append packet B| B
     B -->|result e2| A
 
-    A -->|edge e3| C
+    A -->|edge e3<br/>append packet C| C
     C -->|result e3| A
 
     M --> ML

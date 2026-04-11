@@ -11,6 +11,7 @@ from .admin import admin_group
 from .agents import agents_group
 from .brains import brains_group
 from .credentials import credentials_group
+from .internals import internals_group
 from .mailbox import mailbox_group
 from .output import OutputContext, output_options, resolve_print_style
 from .project import project_group
@@ -19,6 +20,7 @@ from .system_skills import system_skills_group
 
 _HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
 _ROOT_HELP_EPILOG = f"More detailed docs: {_HOUMAO_DOCS_URL}"
+
 
 @click.group(name="houmao-mgr", invoke_without_command=True, epilog=_ROOT_HELP_EPILOG)
 @click.version_option(version=get_version())
@@ -37,6 +39,7 @@ cli.add_command(admin_group)
 cli.add_command(agents_group)
 cli.add_command(brains_group)
 cli.add_command(credentials_group)
+cli.add_command(internals_group)
 cli.add_command(mailbox_group)
 cli.add_command(project_group)
 cli.add_command(server_group)

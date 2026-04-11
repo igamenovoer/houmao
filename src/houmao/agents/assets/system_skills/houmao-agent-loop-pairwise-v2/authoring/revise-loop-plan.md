@@ -1,6 +1,6 @@
 # Revise A Pairwise Loop Plan
 
-Use this page when a plan already exists, but the user wants to tighten delegation boundaries, change the designated master, revise preparation posture, adjust participant preparation material, revise completion or stop policy, add or remove scripts, or re-render the final graph.
+Use this page when a plan already exists, but the user wants to tighten delegation boundaries, change the designated master, revise prestart strategy, adjust routing packets or explicit preparation-wave material, revise completion or stop policy, add or remove scripts, or re-render the final graph.
 
 ## Workflow
 
@@ -14,9 +14,10 @@ Use this page when a plan already exists, but the user wants to tighten delegati
    - delegation authority
    - authored topology or descendant relationships
    - prestart procedure
-   - preparation target policy
+   - prestart strategy
+   - routing packet inventory, root packet location, packet freshness marker, or child dispatch tables
+   - preparation target policy, when explicit `operator_preparation_wave` is selected
    - lifecycle vocabulary or reporting-state terminology
-   - standalone participant preparation briefs
    - completion condition
    - stop posture
    - reporting contract
@@ -27,14 +28,16 @@ Use this page when a plan already exists, but the user wants to tighten delegati
    - the original plan file for single-file form
    - `plan.md` for bundle form
 5. Re-validate the delegation policy. Silence is not authorization.
-6. Re-validate participant preparation material:
-   - each participant brief remains standalone
-   - each brief describes local resources and obligations only
-   - no brief depends on hidden upstream assumptions
-7. Re-validate the preparation target policy:
-   - preparation material may remain available for all participants
-   - preparation mail targets delegating/non-leaf participants by default
-   - leaf participants are included only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set
+6. Re-validate routing packets:
+   - one root packet exists for the designated master
+   - one child packet exists for each parent-to-child pairwise edge
+   - each packet records packet id, intended recipient, immediate driver, plan id plus revision or digest, local role and objective, allowed delegation targets, result-return contract, obligations, and forbidden actions
+   - each non-leaf packet has a child dispatch table and exact child packet text or exact references for each allowed child
+   - no runtime recipient must infer descendants or recompute graph slices from the full plan
+7. Re-validate the selected prestart strategy:
+   - `precomputed_routing_packets` remains the default unless the user explicitly asks for preparation mail, participant warmup, or acknowledgement-gated readiness
+   - `operator_preparation_wave` preserves preparation mail targeting to delegating/non-leaf participants by default
+   - leaf participants are included in the explicit preparation wave only when the user asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set
 8. Re-validate the graph semantics:
    - the user agent stays outside the execution loop
    - the master owns the supervision loop
@@ -46,8 +49,10 @@ Use this page when a plan already exists, but the user wants to tighten delegati
 
 - Do not quietly widen delegation authority while revising another part of the plan.
 - Do not drift away from the canonical action names or observed state names while revising related wording.
-- Do not turn default fire-and-proceed preparation into acknowledgement-gated preparation unless the revision says so explicitly.
-- Do not silently widen preparation mail to leaf participants while revising another part of the plan.
+- Do not change `precomputed_routing_packets` into `operator_preparation_wave` unless the revision says so explicitly.
+- Do not silently widen explicit preparation-wave mail to leaf participants while revising another part of the plan.
+- Do not leave stale routing packets or stale plan revisions in place after changing topology, participants, or delegation authority.
+- Do not let intermediate runtime agents repair missing, mismatched, or stale packets by graph reasoning from memory.
 - Do not leave a stale graph in place after changing the run topology.
 - Do not move completion evaluation away from the designated master unless the plan explicitly changes the master.
 - Do not default a revised stop posture to graceful termination; keep `interrupt-first` unless the user explicitly changed it.

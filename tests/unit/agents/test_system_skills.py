@@ -592,11 +592,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "`ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`."
         in pairwise_loop_v2_skill
     )
+    assert "houmao-mgr internals graph high" in pairwise_loop_v2_skill
     assert "houmao-agent-inspect" in pairwise_loop_v2_skill
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill
     )
+    assert "houmao-mgr internals graph high" in relay_loop_skill
     assert "Do not allow free delegation or free forwarding unless the plan says so explicitly." in relay_loop_skill
     assert list_action_path.is_file()
     assert get_action_path.is_file()
@@ -1052,12 +1054,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "requests here when the user did not explicitly ask for "
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
     )
+    assert "houmao-mgr internals graph high" in pairwise_loop_skill
     assert "authoring/formulate-loop-plan.md" in relay_loop_skill
     assert "authoring/render-loop-graph.md" in relay_loop_skill
     assert "operating/start.md" in relay_loop_skill
     assert "operating/stop.md" in relay_loop_skill
     assert "references/run-charter.md" in relay_loop_skill
     assert "templates/single-file-plan.md" in relay_loop_skill
+    assert "houmao-mgr internals graph high" in relay_loop_skill
     assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
     assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
     assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
@@ -1178,9 +1182,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "No free delegation is allowed unless the plan says so explicitly."
         in pairwise_loop_formulate
     )
+    assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_formulate
     assert "```mermaid" in pairwise_loop_graph
     assert "The final plan must include one Mermaid fenced code block." in pairwise_loop_graph
     assert "HOUMAO-operator@houmao.localhost" in pairwise_loop_prepare
+    assert "houmao-mgr internals graph high validate-packets" in pairwise_loop_prepare
     assert "reply_policy=operator_mailbox" in pairwise_loop_prepare
     assert "canonical `initialize` action" in pairwise_loop_prepare
     assert "by default, include only participants that have descendants" in pairwise_loop_prepare
@@ -1190,7 +1196,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "missing acknowledgements from leaf participants do not block `ready`"
         in pairwise_loop_prepare
     )
-    assert "Do not guess the preparation target set when the topology is unclear" in (
+    assert "Do not guess packet coverage or explicit preparation targets when the topology is unclear" in (
         pairwise_loop_prepare
     )
     assert "`awaiting_ack`" in pairwise_loop_prepare
@@ -1218,7 +1224,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter
-    assert "preparation targets: <delegating_non_leaf | all_participants | named_set>" in (
+    assert "prestart strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
+        pairwise_loop_charter
+    )
+    assert "root routing packet: <inline packet text or exact packet reference>" in (
         pairwise_loop_charter
     )
     assert "delegate_freely_within_named_set" in pairwise_loop_policy
@@ -1226,10 +1235,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "## Hard-Kill Summary Fields" in pairwise_loop_reporting
     assert "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
     assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
-    assert "Preparation material and preparation mail recipients are separate." in (
+    assert "Every plan using the default `precomputed_routing_packets` strategy should record" in (
         pairwise_loop_plan_structure
     )
-    assert "preparation target policy: `delegating_non_leaf` by default" in (
+    assert "preparation target policy for explicit `operator_preparation_wave`" in (
         pairwise_loop_plan_structure
     )
     assert "`hard-kill`" in pairwise_loop_plan_structure
@@ -1237,17 +1246,17 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         encoding="utf-8"
     )
     assert "# Prestart Procedure" in pairwise_loop_single_template
-    assert "preparation_targets: <delegating_non_leaf | all_participants | named_set>" in (
+    assert "prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_single_template
     )
-    assert "preparation targets: <delegating_non_leaf by default" in (
+    assert "routing packet validation: <how root packet and child packet coverage are checked" in (
         pairwise_loop_single_template
     )
-    assert "Targeted Preparation Wave" in pairwise_loop_single_template
-    assert "# Participant Preparation" in pairwise_loop_single_template
+    assert "Initialize<br/>routing packet validation<br/>default" in pairwise_loop_single_template
+    assert "# Routing Packets" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template
-    assert "preparation target policy: `delegating_non_leaf` by default" in (
+    assert "selected `prestart_strategy`: default `precomputed_routing_packets`" in (
         pairwise_loop_bundle_template
     )
     assert "# Lifecycle Vocabulary" in pairwise_loop_single_template
@@ -1259,8 +1268,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (
         "No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly." in relay_loop_formulate
     )
+    assert "houmao-mgr internals graph high analyze" in relay_loop_formulate
     assert "```mermaid" in relay_loop_graph
     assert "The final plan must include one Mermaid fenced code block." in relay_loop_graph
+    assert "houmao-mgr internals graph high render-mermaid" in relay_loop_graph
     assert "After the root owner accepts the run, the root owner owns liveness" in relay_loop_start
     assert "Status is observational and does not keep the run alive." in relay_loop_status
     assert "`interrupt-first` is the default stop posture for this skill." in relay_loop_stop
