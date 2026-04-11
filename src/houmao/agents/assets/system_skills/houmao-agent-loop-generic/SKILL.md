@@ -94,7 +94,8 @@ This packaged skill does not cover:
 - Route due downstream read-only peeking and status inspection to `houmao-agent-inspect`.
 - Route atomic pairwise component execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
 - Route atomic relay component execution semantics to `houmao-adv-usage-pattern`, specifically the elemental relay-loop pattern.
-- Route authoring-time structural graph checks and deterministic Mermaid scaffolding to `houmao-mgr internals graph high analyze|slice|render-mermaid` when a NetworkX node-link graph representation is available; keep semantic graph policy, result routing, and final graph review in this skill.
+- Route routine authoring-time structural graph checks and deterministic Mermaid scaffolding to `houmao-mgr internals graph high analyze|slice|render-mermaid` as the first-class helper surface when a NetworkX node-link graph representation is available; keep semantic graph policy, result routing, and final graph review in this skill.
+- Do not route normal generic loop planning to `houmao-mgr internals graph low`; keep routine loop-skill graph work on the Houmao-aware `graph high` surface.
 - Route specialized pure-pairwise planning to `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2` only when the user explicitly invokes or has already selected those pairwise-only skills.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.
 

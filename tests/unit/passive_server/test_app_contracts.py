@@ -931,7 +931,10 @@ class TestGatewayReminderEndpoints:
     def test_list_returns_200_with_mocked_client(self, tmp_path: object) -> None:
         agent = _agent_with_gateway()
         client = _make_agent_client(tmp_path, [agent])
-        with client, patch.object(GatewayClient, "list_reminders", return_value=_stub_reminder_list()):
+        with (
+            client,
+            patch.object(GatewayClient, "list_reminders", return_value=_stub_reminder_list()),
+        ):
             resp = client.get("/houmao/agents/abc123/gateway/reminders")
         assert resp.status_code == 200
 

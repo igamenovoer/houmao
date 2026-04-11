@@ -526,10 +526,7 @@ def _build_kickoff_prompt(
                 "worktree only when transport-local guidance is needed."
             ),
             ("Do not search for those files with `rg`, `find`, or slash-skill lookup first."),
-            (
-                "Treat them as runtime-owned Houmao skill documents, not as registered slash "
-                "skills."
-            ),
+            ("Treat them as runtime-owned Houmao skill documents, not as registered slash skills."),
             (
                 "When a live loopback gateway mailbox facade is attached, keep routine mailbox "
                 "work on the shared gateway mailbox operations instead of reconstructing "

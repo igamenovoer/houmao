@@ -21,7 +21,7 @@ At minimum, the top-level graph must show:
 ## Graph Semantics
 
 - Draw the user agent as control-only unless the plan explicitly makes a managed user-controlled agent an execution participant.
-- When a NetworkX node-link graph is available, `houmao-mgr internals graph high render-mermaid --input <graph.json>` can provide deterministic Mermaid scaffolding, but review and revise it against the semantic requirements below before treating it as final.
+- When a NetworkX node-link graph is available, use `houmao-mgr internals graph high render-mermaid --input <graph.json>` as deterministic Mermaid scaffolding, then review and revise it against the semantic requirements below before treating it as final.
 - Label each component with `component_id` and `component_type`.
 - Draw pairwise component execution as driver-to-worker request and worker-to-driver result.
 - Draw relay component execution as ordered forward handoffs plus final egress-to-origin result.
@@ -69,3 +69,4 @@ flowchart TD
 - Do not imply that the user agent is an execution participant by drawing receipt or result ownership on the user agent.
 - Do not draw the loop as an arbitrary cyclic worker graph when the real loop is typed component execution plus root-owner supervision.
 - Do not omit component type, stop condition, completion condition, or result-return paths from the final plan graph.
+- Do not treat graph-tool Mermaid output as final until typed components, result-routing paths, stop semantics, and completion semantics have been reviewed in this skill.

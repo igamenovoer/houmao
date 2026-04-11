@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the getting-started narrative-guide requirements for the packaged Houmao-owned system skills: a single page that bridges the README catalog row view and the CLI reference page by walking readers through each shipped skill, the CLI families it routes to, and the managed-home auto-install versus external-home CLI-default install distinction.
-
 ## Requirements
-
 ### Requirement: Getting-started guide narrates the packaged system skills
 
 The docs site SHALL include a getting-started guide at `docs/getting-started/system-skills-overview.md` that walks through the packaged Houmao-owned system skills. The guide SHALL bridge the README skill catalog table and the CLI reference page `docs/reference/cli/system-skills.md` by explaining when each skill fires and how the operator and the agent see them.
@@ -133,7 +131,6 @@ The guide SHALL continue to describe `houmao-credential-mgr` as the credential-m
 - **AND THEN** the guide does not present `project agents tools <tool> auth ...` as the canonical credential-management route
 
 ### Requirement: Overview guide table enumerates every catalog entry
-
 `docs/getting-started/system-skills-overview.md` SHALL document every system skill listed under `[skills.*]` in `src/houmao/agents/assets/system_skills/catalog.toml` inside its "Packaged Skills" table (or an equivalently titled catalog table). Each row SHALL give the skill identifier, a brief "what it enables" summary, and the canonical `houmao-mgr` command routing the skill points at.
 
 At minimum the guide SHALL surface the following skills currently declared in the catalog:
@@ -152,7 +149,7 @@ At minimum the guide SHALL surface the following skills currently declared in th
 - `houmao-adv-usage-pattern`
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
-- `houmao-agent-loop-relay`
+- `houmao-agent-loop-generic`
 
 The guide MAY group these skills into concern-oriented subsections (for example "guided touring", "project, specialist, and credential authoring", "agent definition and instance management", "communication, gateway, and mailbox", "loop authoring and master-run control"), provided every catalog entry appears in exactly one subsection.
 
@@ -169,8 +166,13 @@ The guide MAY group these skills into concern-oriented subsections (for example 
 
 #### Scenario: Loop skills appear in the overview guide
 - **WHEN** a reader opens the overview guide
-- **THEN** the catalog table contains rows for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-relay`
+- **THEN** the catalog table contains rows for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`
 - **AND THEN** the "canonical CLI routing" column for each loop skill points the reader at the supported operating and authoring command paths actually shipped by the packaged skill assets
+
+#### Scenario: Generic loop planner replaces relay-only row
+- **WHEN** a reader opens the overview guide after the generic replacement
+- **THEN** the catalog table contains `houmao-agent-loop-generic`
+- **AND THEN** it does not contain `houmao-agent-loop-relay` as a current shipped skill
 
 ### Requirement: Overview guide auto-install description includes both pairwise variants when `user-control` includes both
 The "Auto-Install vs Explicit Install" section of `docs/getting-started/system-skills-overview.md` SHALL explain that managed launch, managed join, and CLI-default installation all include both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` whenever the current `user-control` set resolves both skills.
@@ -181,7 +183,6 @@ The "Auto-Install vs Explicit Install" section of `docs/getting-started/system-s
 - **AND THEN** it does not imply that only one pairwise variant is auto-installed when the catalog includes both
 
 ### Requirement: Overview guide narrative count matches the catalog
-
 The overview guide narrative SHALL NOT state a frozen skill count (for example "twelve system skills" or "eleven auto-installed skills") that does not match the current `catalog.toml` entry count and the resolved `[auto_install]` set contents.
 
 Where the guide references how many skills exist, how many are auto-installed by `agents launch` or `agents join`, or how many are installed by `system-skills install` when no `--set` or `--skill` is supplied, those numbers SHALL be computed from the current catalog rather than copied as literal text.
@@ -194,7 +195,8 @@ Where the guide references how many skills exist, how many are auto-installed by
 #### Scenario: Overview auto-install diagram tracks the catalog
 - **WHEN** a reader inspects the "Auto-Install vs Explicit Install" section of the overview guide
 - **THEN** the ASCII diagram, prose, and per-set expansion table reflect the current resolved contents of `managed_launch_sets`, `managed_join_sets`, and `cli_default_sets` in `catalog.toml`
-- **AND THEN** the diagram does not leave `houmao-agent-loop-pairwise` or `houmao-agent-loop-relay` out of the managed-launch auto-install column unless the catalog removes them from the `user-control` set
+- **AND THEN** the diagram includes `houmao-agent-loop-generic` through `user-control` when the catalog includes it
+- **AND THEN** the diagram does not leave `houmao-agent-loop-pairwise` or `houmao-agent-loop-generic` out of the managed-launch auto-install column unless the catalog removes them from the `user-control` set
 
 ### Requirement: Overview guide routes credential management through the dedicated CLI
 
@@ -204,3 +206,4 @@ The overview guide's `houmao-credential-mgr` row SHALL reference `houmao-mgr cre
 - **WHEN** a reader opens the overview guide row for `houmao-credential-mgr`
 - **THEN** the canonical CLI column names `credentials ...` and `project credentials ...` as the supported credential-management surfaces
 - **AND THEN** it does not present `project agents tools <tool> auth ...` as a maintained credential CRUD path
+

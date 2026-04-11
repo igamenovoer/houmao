@@ -43,9 +43,7 @@ def resolve_reasoning_mapping(
     if requested_level == 0:
         if off_preset is None:
             rendered_model = model_name or "default"
-            raise ValueError(
-                f"{tool} model `{rendered_model}` does not support reasoning level 0."
-            )
+            raise ValueError(f"{tool} model `{rendered_model}` does not support reasoning level 0.")
         return _build_reasoning_mapping(
             tool=tool,
             tool_version=tool_version,
@@ -197,7 +195,8 @@ def temporary_project_model_config(
     )
     with provider_state_mutation_lock(home_path):
         snapshots = {
-            path: path.read_text(encoding="utf-8") if path.exists() else None for path in mutated_paths
+            path: path.read_text(encoding="utf-8") if path.exists() else None
+            for path in mutated_paths
         }
         try:
             if model_config.name is not None:
@@ -275,7 +274,11 @@ def _resolve_reasoning_ladder(
 
     if tool == "claude":
         positive_presets: list[tuple[dict[str, Any], ...]] = [
-            (_native_setting("effortLevel", "low", surface="json", path=_CLAUDE_SETTINGS_FILENAME),),
+            (
+                _native_setting(
+                    "effortLevel", "low", surface="json", path=_CLAUDE_SETTINGS_FILENAME
+                ),
+            ),
             (
                 _native_setting(
                     "effortLevel",
@@ -380,16 +383,28 @@ def _resolve_gemini_reasoning_ladder(
             "off_preset": None,
             "positive_presets": (
                 (
-                    _native_setting("thinkingLevel", "LOW", surface="json", path=str(_GEMINI_SETTINGS_PATH)),
-                    _native_setting("thinkingBudget", 1024, surface="json", path=str(_GEMINI_SETTINGS_PATH)),
+                    _native_setting(
+                        "thinkingLevel", "LOW", surface="json", path=str(_GEMINI_SETTINGS_PATH)
+                    ),
+                    _native_setting(
+                        "thinkingBudget", 1024, surface="json", path=str(_GEMINI_SETTINGS_PATH)
+                    ),
                 ),
                 (
-                    _native_setting("thinkingLevel", "MEDIUM", surface="json", path=str(_GEMINI_SETTINGS_PATH)),
-                    _native_setting("thinkingBudget", 4096, surface="json", path=str(_GEMINI_SETTINGS_PATH)),
+                    _native_setting(
+                        "thinkingLevel", "MEDIUM", surface="json", path=str(_GEMINI_SETTINGS_PATH)
+                    ),
+                    _native_setting(
+                        "thinkingBudget", 4096, surface="json", path=str(_GEMINI_SETTINGS_PATH)
+                    ),
                 ),
                 (
-                    _native_setting("thinkingLevel", "HIGH", surface="json", path=str(_GEMINI_SETTINGS_PATH)),
-                    _native_setting("thinkingBudget", 16384, surface="json", path=str(_GEMINI_SETTINGS_PATH)),
+                    _native_setting(
+                        "thinkingLevel", "HIGH", surface="json", path=str(_GEMINI_SETTINGS_PATH)
+                    ),
+                    _native_setting(
+                        "thinkingBudget", 16384, surface="json", path=str(_GEMINI_SETTINGS_PATH)
+                    ),
                 ),
             ),
         }

@@ -304,13 +304,17 @@ def inspect_demo(
 
     paths = load_suite_paths(demo_output_dir)
     state = _require_active_state(load_demo_state(paths.state_path), command_name="inspect")
-    result = capture_inspect_phase(state=state.to_payload(), paths=paths, history_limit=history_limit)
+    result = capture_inspect_phase(
+        state=state.to_payload(), paths=paths, history_limit=history_limit
+    )
     state.inspect_result = result
     state.steps["inspect"] = bool(result.get("ok"))
     state.updated_at_utc = _utc_now()
     save_demo_state(paths.state_path, state)
     if not bool(result.get("ok")):
-        raise SuiteError("Shared interactive parity comparison failed; inspect phase evidence preserved.")
+        raise SuiteError(
+            "Shared interactive parity comparison failed; inspect phase evidence preserved."
+        )
     return result
 
 
@@ -371,14 +375,18 @@ def stop_demo(
 
     paths = load_suite_paths(demo_output_dir)
     state = _require_active_state(load_demo_state(paths.state_path), command_name="stop")
-    result = capture_stop_phase(state=state.to_payload(), paths=paths, timeout_seconds=timeout_seconds)
+    result = capture_stop_phase(
+        state=state.to_payload(), paths=paths, timeout_seconds=timeout_seconds
+    )
     state.stop_result = result
     state.steps["stop"] = bool(result.get("ok"))
     state.active = False
     state.updated_at_utc = _utc_now()
     save_demo_state(paths.state_path, state)
     if not bool(result.get("ok")):
-        raise SuiteError("Stop phase failed; propagation or authority shutdown did not complete cleanly.")
+        raise SuiteError(
+            "Stop phase failed; propagation or authority shutdown did not complete cleanly."
+        )
     return result
 
 

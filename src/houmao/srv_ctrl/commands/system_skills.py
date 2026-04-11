@@ -177,9 +177,7 @@ def _validate_supported_system_skills_tool(tool: str) -> None:
     if tool in _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL:
         return
     supported = ", ".join(f"`{name}`" for name in sorted(_SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL))
-    raise click.ClickException(
-        f"Unsupported tool `{tool}`. Expected one of: {supported}."
-    )
+    raise click.ClickException(f"Unsupported tool `{tool}`. Expected one of: {supported}.")
 
 
 def _render_system_skills_list_plain(payload: object) -> None:

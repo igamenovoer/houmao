@@ -37,7 +37,9 @@ def render_server_status_plain(payload: object) -> None:
 
     health = data.get("health")
     if isinstance(health, dict):
-        click.echo(f"  service:          {health.get('houmao_service', health.get('service', '-'))}")
+        click.echo(
+            f"  service:          {health.get('houmao_service', health.get('service', '-'))}"
+        )
 
     sessions = data.get("active_sessions")
     if isinstance(sessions, list) and sessions:

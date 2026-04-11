@@ -626,9 +626,7 @@ def parse_launch_output(stdout: str) -> dict[str, Any]:
             key, value = stripped.split("=", 1)
             payload[key] = value
     if "manifest_path" not in payload:
-        raise DemoRuntimeError(
-            "unable to parse local launch output for `manifest_path`"
-        )
+        raise DemoRuntimeError("unable to parse local launch output for `manifest_path`")
     return payload
 
 
@@ -930,7 +928,9 @@ def capture_gateway_console(
         agent_name=agent_name,
         timeout_seconds=timeout_seconds,
     )
-    session_name = str(status_payload.get("tmux_session_name") or fallback_session_name or "").strip()
+    session_name = str(
+        status_payload.get("tmux_session_name") or fallback_session_name or ""
+    ).strip()
     if not session_name:
         raise DemoRuntimeError("gateway status did not include a tmux session name")
     window_index = status_payload.get("gateway_tmux_window_index")
@@ -963,9 +963,7 @@ def stop_instance(
     """Stop one managed-agent instance through `project easy`."""
 
     return run_json_command(
-        manager_cli_command(
-            ["project", "easy", "instance", "stop", "--name", instance_name]
-        ),
+        manager_cli_command(["project", "easy", "instance", "stop", "--name", instance_name]),
         cwd=paths.project_dir,
         stdout_path=paths.logs_dir / "instance-stop.stdout",
         stderr_path=paths.logs_dir / "instance-stop.stderr",
@@ -1021,7 +1019,9 @@ def provision_project_workdir(
         shutil.rmtree(resolved_project_dir)
 
     shutil.copytree(resolved_fixture, resolved_project_dir)
-    _write_managed_project_metadata(project_workdir=resolved_project_dir, fixture_dir=resolved_fixture)
+    _write_managed_project_metadata(
+        project_workdir=resolved_project_dir, fixture_dir=resolved_fixture
+    )
     _initialize_demo_git_repo(project_workdir=resolved_project_dir)
     return resolved_project_dir
 

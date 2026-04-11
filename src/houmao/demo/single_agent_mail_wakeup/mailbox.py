@@ -193,7 +193,9 @@ def collect_output_file_payload(
         "modified_after_delivery": False,
     }
     if payload["content"] is not None:
-        payload["matches_expected_content"] = payload["content"] == state.output_file_expected_content
+        payload["matches_expected_content"] = (
+            payload["content"] == state.output_file_expected_content
+        )
     if payload["exists"] and delivery is not None:
         delivery_dt = datetime.fromisoformat(delivery.created_at_utc.replace("Z", "+00:00"))
         modified_dt = datetime.fromtimestamp(state.output_file_path.stat().st_mtime, UTC)

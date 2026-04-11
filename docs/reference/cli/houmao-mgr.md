@@ -244,7 +244,7 @@ For a project-scoped view that always targets the active overlay without an expl
 | `codex` | Manage Codex credentials through either the active project overlay or a selected plain agent-definition directory. |
 | `gemini` | Manage Gemini credentials through either the active project overlay or a selected plain agent-definition directory. |
 
-Each tool subcommand exposes the same CRUD verbs:
+Each tool subcommand exposes the same credential-management verbs:
 
 | Verb | Description |
 |---|---|
@@ -252,6 +252,7 @@ Each tool subcommand exposes the same CRUD verbs:
 | `get` | Inspect one credential safely as structured data. `--name` is required. |
 | `add` | Create one credential. `--name` is required plus the tool-specific credential input flags. |
 | `set` | Update one existing credential. `--name` is required; only supplied input flags are updated, other stored fields are preserved. |
+| `login` | Run the vendor CLI login flow in an isolated temporary provider home, then import the resulting auth file into Houmao storage. `--name` is required. |
 | `remove` | Remove one credential by `--name`. |
 | `rename` | Rename one credential from `--name` to `--to`. For project-overlay credentials the underlying auth-profile identity is preserved; stored launch-profile auth relationships remain valid after rename. |
 
@@ -265,6 +266,44 @@ Every `credentials <tool> ...` verb accepts one selector:
 | `--agent-def-dir DIRECTORY` | Manage credentials in the selected plain agent-definition directory instead of a project overlay. This is the escape hatch for tool homes that do not use a Houmao project overlay. |
 
 `--project` and `--agent-def-dir` are mutually exclusive. When `--agent-def-dir` is supplied, the command operates on the filesystem-backed `tools/<tool>/auth/<name>/` layout inside that agent-definition directory. When `--project` is supplied (or defaulted), the command operates on the catalog-backed project overlay with display-name semantics and opaque bundle refs under `.houmao/content/auth/<tool>/<bundle-ref>/`.
+
+#### Credential login helper
+
+Use `login` when you need to obtain fresh provider auth files for a different Claude, Codex, or Gemini account and import them into Houmao:
+
+```text
+houmao-mgr credentials [--project|--agent-def-dir <path>] <tool> login --name <credential-name>
+houmao-mgr project credentials <tool> login --name <credential-name>
+```
+
+By default, `login` creates a new credential and fails if that credential name already exists. Pass `--update` only when you intentionally want to replace the existing stored auth files through the same patch-preserving update path as `set`.
+
+Common options:
+
+| Option | Description |
+|---|---|
+| `--name TEXT` | Credential display name or direct-dir credential directory name. Required. |
+| `--update` | Update an existing credential instead of creating a new one. |
+| `--keep-temp-home` | Preserve the temporary provider home after a successful import and report its path. |
+| `--inherit-auth-env` | Do not scrub common provider auth-related environment variables for the login process. The default is to scrub them so the provider CLI does not silently reuse the current API-key or token lane. |
+
+Provider mapping:
+
+| Tool | Isolated home | Default login command | Imported artifact |
+|---|---|---|---|
+| Claude | `CLAUDE_CONFIG_DIR=<temp-home>` | `claude auth login` | `<temp-home>/.credentials.json` plus `<temp-home>/.claude.json` when present |
+| Codex | `CODEX_HOME=<temp-home>` | `codex login --device-auth` | `<temp-home>/auth.json` |
+| Gemini | `GEMINI_CLI_HOME=<temp-home>` | interactive `gemini` OAuth flow | `<temp-home>/.gemini/oauth_creds.json` |
+
+Provider-specific options:
+
+| Tool | Options |
+|---|---|
+| Claude | `--claudeai`, `--console`, `--email TEXT`, and `--sso` are passed to `claude auth login`. |
+| Codex | `--browser` uses ordinary `codex login` browser mode instead of the default device-auth mode. |
+| Gemini | `--no-browser` sets `NO_BROWSER=true` for the Gemini OAuth flow. Gemini may require an interactive session; finish the browser or manual-code login and exit Gemini so Houmao can import `oauth_creds.json`. |
+
+The helper invokes the installed provider CLI with inherited terminal I/O, so browser, device-code, console, and paste-back prompts remain owned by the provider tool. Houmao validates the expected auth artifact after the provider command exits, imports it through the existing credential storage contract, and deletes the temporary provider home after a successful import by default. If provider login fails, the expected artifact is missing, or Houmao import fails, the command preserves the temporary provider home and reports its path for diagnosis or manual recovery.
 
 #### Per-tool credential input flags
 
@@ -310,6 +349,7 @@ Notes:
 
 - `credentials` is the supported credential-management surface. The retired `project agents tools <tool> auth ...` CRUD subtree is no longer maintained; use `credentials ...` or `project credentials ...` instead.
 - `add` and `set` are patch-preserving: setting one input flag does not implicitly delete other stored fields on the same credential. Refreshing `--config-dir` replaces the imported Claude vendor login files as one maintained set.
+- `login` is the supported way to let Houmao own the temp-home lifecycle around provider login and import. Do not manually copy fresh vendor login files into `.houmao/content/auth/`, `.houmao/agents/tools/<tool>/auth/`, or `tools/<tool>/auth/<name>/` for this ordinary workflow.
 - Auth-owned model env on Claude is separate from launch-owned model selection. Use `credentials claude add|set --model <value>` only when you need to pin `ANTHROPIC_MODEL` in the credential bundle; use the launch-owned `--model` on `agents launch` / `project easy specialist create` / `project easy profile create` / `project agents launch-profiles add` when you are selecting a Houmao launch-time model through the provider mapping.
 - For the agent-driven workflow that wraps this surface, see the packaged [`houmao-credential-mgr`](../../getting-started/system-skills-overview.md) system skill. For the easy-lane credential notes exposed through `project easy specialist create` and `project credentials`, see the `project credentials claude add|set` notes under the [`project`](#project-repo-local-houmao-project-overlays) command group below.
 
@@ -532,6 +572,18 @@ Low-level boundary notes:
 `project mailbox register` mirrors the generic mailbox overwrite-confirmation contract, including interactive overwrite prompts and `--yes` for non-interactive replacement.
 
 `project mailbox messages list|get` follows the same structural-only contract as `houmao-mgr mailbox messages list|get`; use `houmao-mgr agents mail ...` when the workflow needs actor-scoped unread/read follow-up state.
+
+### `internals` — Internal utility commands
+
+```
+houmao-mgr internals [OPTIONS] COMMAND [ARGS]...
+```
+
+Internal Houmao utility commands for agents and maintainers.
+
+The primary subgroup is `internals graph`, which provides NetworkX-backed helpers for loop plan authoring, structural analysis, and low-level graph manipulation. All graph commands use NetworkX node-link JSON as their interchange format.
+
+For the full subcommand reference, see [internals](internals.md).
 
 ### `server` — Server lifecycle management
 

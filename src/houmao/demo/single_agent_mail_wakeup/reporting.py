@@ -274,7 +274,9 @@ def build_report_snapshot(
     delivered_message_visible = False
     delivered_message_read = False
     if canonical_delivery is not None:
-        expected_message_ref = canonical_delivery.message_ref or f"filesystem:{canonical_delivery.message_id}"
+        expected_message_ref = (
+            canonical_delivery.message_ref or f"filesystem:{canonical_delivery.message_id}"
+        )
         for message in full_messages:
             if not isinstance(message, dict):
                 continue
@@ -358,7 +360,10 @@ def build_report_snapshot(
         failures.append("project mailbox message payload is missing canonical_path")
     if not bool(structural_message.get("projection_path")):
         failures.append("project mailbox message payload is missing projection_path")
-    if canonical_delivery is not None and structural_message.get("message_id") != canonical_delivery.message_id:
+    if (
+        canonical_delivery is not None
+        and structural_message.get("message_id") != canonical_delivery.message_id
+    ):
         failures.append("project mailbox message payload did not match the delivered message id")
 
     return {

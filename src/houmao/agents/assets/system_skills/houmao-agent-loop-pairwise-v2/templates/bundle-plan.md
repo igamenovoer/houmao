@@ -39,6 +39,9 @@ loop-plan/
 # Topology
 <descendant relationships that identify delegating/non-leaf participants and leaves>
 
+Graph artifact: <none | NetworkX node-link graph path>
+Packet JSON artifact: <none | packet JSON path for validate-packets>
+
 # Delegation Policy
 See `delegation.md`.
 
@@ -79,7 +82,10 @@ Record:
 
 - notifier preflight procedure
 - selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+- graph artifact and packet JSON artifact locations when available
+- graph-tool preflight: `analyze`, optional `slice`, and `packet-expectations` during packet authoring when a graph artifact exists
 - routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
+- validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
 - optional preparation target policy for explicit `operator_preparation_wave`: `delegating_non_leaf` by default, `all_participants` only when explicitly requested, or an explicit named target set
 - optional participant preparation-mail procedure for explicit targeted preparation recipients
 - optional acknowledgement posture for explicit preparation mail: `fire_and_proceed` or `require_ack`
@@ -127,4 +133,5 @@ List each script with:
 - Do not make `graph.md` the only place where the topology is visible.
 - Do not leave routing packets only in a shared upstream-aware matrix that runtime agents must reinterpret.
 - Do not ask intermediate runtime agents to recompute child packet content from the full plan.
+- Do not ask intermediate runtime agents to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets.
 - Do not leave script behavior undocumented when scripts are part of the plan.

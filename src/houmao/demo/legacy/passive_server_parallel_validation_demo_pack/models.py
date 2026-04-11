@@ -165,9 +165,7 @@ class PersistedDemoState:
                 else dict(payload.get("headless_result", {}))
             ),
             stop_result=(
-                None
-                if payload.get("stop_result") is None
-                else dict(payload.get("stop_result", {}))
+                None if payload.get("stop_result") is None else dict(payload.get("stop_result", {}))
             ),
             last_verify_result=(
                 None
@@ -176,4 +174,3 @@ class PersistedDemoState:
             ),
             failure=payload.get("failure"),
         )
-

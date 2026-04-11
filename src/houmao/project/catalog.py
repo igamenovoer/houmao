@@ -1095,7 +1095,11 @@ class ProjectCatalog:
         for auth_profile in auth_profiles:
             auth_source = auth_profile.content_ref.resolve_under_content_root(self.m_content_root)
             auth_target = (
-                self.m_projection_root / "tools" / auth_profile.tool / "auth" / auth_profile.bundle_ref
+                self.m_projection_root
+                / "tools"
+                / auth_profile.tool
+                / "auth"
+                / auth_profile.bundle_ref
             ).resolve()
             _replace_tree(source=auth_source, destination=auth_target)
             desired_auth_dirs.setdefault(auth_profile.tool, set()).add(auth_profile.bundle_ref)

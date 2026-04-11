@@ -144,7 +144,7 @@ def test_import_project_auth_from_fixture_shapes_codex_command(
         "OPENAI_API_KEY=sk-openai\nOPENAI_BASE_URL=https://api.example.test/v1\nOPENAI_ORG_ID=org-demo\n",
         encoding="utf-8",
     )
-    (fixture_root / "files/auth.json").write_text("{\"logged_in\": true}\n", encoding="utf-8")
+    (fixture_root / "files/auth.json").write_text('{"logged_in": true}\n', encoding="utf-8")
     paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
     _bootstrap_demo_overlay(paths)
@@ -196,7 +196,7 @@ def test_import_project_auth_from_fixture_reuses_existing_bundle_with_set(
         "OPENAI_API_KEY=sk-openai\nOPENAI_BASE_URL=https://api.example.test/v1\n",
         encoding="utf-8",
     )
-    (fixture_root / "files/auth.json").write_text("{\"logged_in\": true}\n", encoding="utf-8")
+    (fixture_root / "files/auth.json").write_text('{"logged_in": true}\n', encoding="utf-8")
     paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
     paths.project_dir.mkdir(parents=True)
     _seed_existing_project_auth(
@@ -363,7 +363,9 @@ def test_expose_project_mailbox_skills_skips_project_mirror(tmp_path: Path) -> N
     assert not (project_root / "skills").exists()
 
 
-def test_report_contract_accepts_structural_project_mailbox_without_read_state(tmp_path: Path) -> None:
+def test_report_contract_accepts_structural_project_mailbox_without_read_state(
+    tmp_path: Path,
+) -> None:
     output_root = (tmp_path / "outputs").resolve()
     project_root = output_root / "project"
     overlay_root = output_root / "overlay"
@@ -372,7 +374,9 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(t
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     output_file_path.write_text("single-agent-mail-wakeup demo\n", encoding="utf-8")
     (project_root / ".houmao-demo-project.json").write_text("{}\n", encoding="utf-8")
-    install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=session_root / "brain/home")
+    install_runtime_mailbox_system_skills_for_tool(
+        tool="claude", home_path=session_root / "brain/home"
+    )
 
     delivery = DeliveryState(
         delivery_index=1,
@@ -521,7 +525,9 @@ def test_sanitize_report_normalizes_delivery_subject_run_token() -> None:
 
 def test_followup_command_omits_output_override_for_default_root(tmp_path: Path) -> None:
     repo_root = tmp_path.resolve()
-    paths = build_demo_layout(demo_output_dir=repo_root / "scripts/demo/single-agent-mail-wakeup/outputs")
+    paths = build_demo_layout(
+        demo_output_dir=repo_root / "scripts/demo/single-agent-mail-wakeup/outputs"
+    )
 
     attach_command = driver._followup_command(  # type: ignore[attr-defined]
         paths=paths, command="attach", repo_root=repo_root

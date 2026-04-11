@@ -250,4 +250,3 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
-

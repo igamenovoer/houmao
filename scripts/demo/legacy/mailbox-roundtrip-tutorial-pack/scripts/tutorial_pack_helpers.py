@@ -25,7 +25,10 @@ from houmao.cao.server_launcher import (
     load_cao_server_launcher_config,
     resolve_cao_server_runtime_artifacts,
 )
-from houmao.demo.legacy.launch_support import normalize_demo_launch_backend, resolve_demo_preset_launch
+from houmao.demo.legacy.launch_support import (
+    normalize_demo_launch_backend,
+    resolve_demo_preset_launch,
+)
 from houmao.demo.legacy.cao_interactive_demo.models import (
     DEFAULT_LIVE_CAO_TIMEOUT_SECONDS,
     DEFAULT_TERMINAL_LOG_RELATIVE_DIR,

@@ -158,7 +158,9 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
-    def create_reminders(self, payload: GatewayReminderCreateBatchV1) -> GatewayReminderCreateResultV1:
+    def create_reminders(
+        self, payload: GatewayReminderCreateBatchV1
+    ) -> GatewayReminderCreateResultV1:
         """Call `POST /v1/reminders`."""
 
         return self._request_model(

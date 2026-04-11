@@ -29,6 +29,9 @@ Use this page when a plan already exists, but the user wants to tighten delegati
    - `plan.md` for bundle form
 5. Re-validate the delegation policy. Silence is not authorization.
 6. Re-validate routing packets:
+   - when a node-link graph artifact exists, use `houmao-mgr internals graph high analyze --input <graph.json>` to re-check root reachability, non-leaf participants, leaves, and child relationships before revising packet material
+   - use `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants` for plan-time descendant or subtree inspection when a participant's revised downstream packet material is easier to review separately
+   - use `houmao-mgr internals graph high packet-expectations --input <graph.json>` to re-derive root packet, child packet, and non-leaf dispatch-table expectations when graph structure changed
    - one root packet exists for the designated master
    - one child packet exists for each parent-to-child pairwise edge
    - each packet records packet id, intended recipient, immediate driver, plan id plus revision or digest, local role and objective, allowed delegation targets, result-return contract, obligations, and forbidden actions
@@ -52,7 +55,7 @@ Use this page when a plan already exists, but the user wants to tighten delegati
 - Do not change `precomputed_routing_packets` into `operator_preparation_wave` unless the revision says so explicitly.
 - Do not silently widen explicit preparation-wave mail to leaf participants while revising another part of the plan.
 - Do not leave stale routing packets or stale plan revisions in place after changing topology, participants, or delegation authority.
-- Do not let intermediate runtime agents repair missing, mismatched, or stale packets by graph reasoning from memory.
+- Do not let intermediate runtime agents repair missing, mismatched, or stale packets by graph reasoning from memory or by running graph analysis after `start`.
 - Do not leave a stale graph in place after changing the run topology.
 - Do not move completion evaluation away from the designated master unless the plan explicitly changes the master.
 - Do not default a revised stop posture to graceful termination; keep `interrupt-first` unless the user explicitly changed it.

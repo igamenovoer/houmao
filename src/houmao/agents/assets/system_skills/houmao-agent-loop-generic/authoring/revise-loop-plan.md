@@ -28,13 +28,16 @@ Use this page when a plan already exists, but the user wants to tighten graph bo
    - `relay` components return final results from egress to relay origin
    - component dependencies are explicit
 6. Re-validate graph policy. Silence is not authorization for free delegation, free forwarding, or hidden dependencies.
-7. Re-render the Mermaid graph if topology, component type, component dependency, completion, stop posture, or result-routing behavior changed.
-8. Refresh the normalized run-charter summary if any user-visible control field changed.
+7. When the topology is represented as NetworkX node-link JSON, use `houmao-mgr internals graph high analyze --input <graph.json>` as the structural preflight for reachability, leaves, non-leaf participants, cycle posture, branch points, and dependency posture.
+8. Use `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants` for focused structural review when a component or participant slice is easier to review separately; treat the slice as structural evidence only.
+9. Re-render the Mermaid graph if topology, component type, component dependency, completion, stop posture, or result-routing behavior changed.
+10. Refresh the normalized run-charter summary if any user-visible control field changed.
 
 ## Revision Guardrails
 
 - Do not quietly widen delegation or forwarding authority while revising another part of the plan.
 - Do not convert a pairwise local-close component into a relay component, or the reverse, without making that semantic change explicit.
 - Do not leave a stale graph in place after changing the run topology.
+- Do not use `graph low` primitives for normal typed loop planning; keep routine structural checks on `houmao-mgr internals graph high`.
 - Do not move final completion evaluation away from the designated root owner unless the plan explicitly changes the root owner.
 - Do not default a revised stop posture to graceful termination; keep `interrupt-first` unless the user explicitly changed it.

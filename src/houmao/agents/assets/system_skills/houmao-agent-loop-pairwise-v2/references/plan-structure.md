@@ -77,6 +77,8 @@ Canonical observed states:
 Every plan using the default `precomputed_routing_packets` strategy should record:
 
 - root routing packet location for the designated master
+- NetworkX node-link graph artifact location when machine-readable topology is available
+- packet JSON document location when machine-readable packet validation is available
 - routing packet inventory for every parent-to-child pairwise edge
 - plan id plus plan revision, digest, or equivalent freshness marker used by every packet
 - intended recipient and immediate driver for every packet
@@ -89,7 +91,7 @@ Every plan using the default `precomputed_routing_packets` strategy should recor
 
 Routing packets should be prepared at authoring time so intermediate runtime agents do not need to infer descendants or recompute graph slices from the full plan.
 
-When a plan keeps a NetworkX node-link graph and packet JSON document for machine checks, use `houmao-mgr internals graph high packet-expectations --input <graph.json>` during packet authoring and `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` before treating default initialization as `ready`. These commands validate structural coverage only; they do not replace semantic review of delegation policy, forbidden actions, result routing, or lifecycle vocabulary.
+When a plan keeps a NetworkX node-link graph and packet JSON document for machine checks, use `houmao-mgr internals graph high analyze --input <graph.json>`, optional `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants`, and `houmao-mgr internals graph high packet-expectations --input <graph.json>` during packet authoring. Use `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` before treating default initialization as `ready`. These commands validate structural coverage only; they do not replace semantic review of delegation policy, forbidden actions, result routing, or lifecycle vocabulary.
 
 ## Operator Preparation Wave
 
@@ -100,6 +102,7 @@ When the plan explicitly selects `operator_preparation_wave`, preparation materi
 For bundle plans, `prestart.md` should record:
 
 - selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+- graph artifact and packet JSON artifact locations when available
 - notifier preflight expectations
 - routing packet validation rules, root packet location, packet inventory, and child dispatch-table expectations for default `precomputed_routing_packets`
 - authored topology or descendant relationships used to verify packet coverage

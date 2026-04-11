@@ -26,6 +26,8 @@ default_stop_mode: interrupt-first
 
 # Topology
 - descendants: <which participants have downstream descendants and which are leaves>
+- graph artifact: <none | NetworkX node-link graph path>
+- packet JSON artifact: <none | packet JSON path for validate-packets>
 
 # Delegation Policy
 <normalized delegation rules>
@@ -33,7 +35,8 @@ default_stop_mode: interrupt-first
 # Prestart Procedure
 - notifier preflight: <how notifier is verified or enabled>
 - selected strategy: `precomputed_routing_packets` by default
-- routing packet validation: <how root packet and child packet coverage are checked during initialize>
+- graph-tool preflight: <analyze, optional slice, and packet-expectations results when a graph artifact exists>
+- routing packet validation: <validate-packets result when graph and packet JSON artifacts exist, or manual visible-coverage check when they do not>
 - root routing packet: <packet id or section reference included in the start charter>
 - child packet forwarding: append exact prepared child packet text to the ordinary pairwise edge request; do not edit, merge, or summarize unless this plan explicitly permits it
 - mismatch handling: stop downstream dispatch and report to the immediate driver, or to the operator when the driver is the master

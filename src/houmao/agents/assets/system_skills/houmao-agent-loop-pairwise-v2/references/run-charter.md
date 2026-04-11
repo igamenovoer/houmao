@@ -10,6 +10,7 @@ Use this reference when the user agent is ready to send one `start` request to t
 - allowed participants
 - delegation policy summary
 - prestart strategy summary
+- routing packet validation summary, including graph artifact and packet JSON artifact used when available
 - root routing packet or exact root packet reference
 - explicit preparation-wave summary, only when selected
 - completion condition summary
@@ -42,7 +43,9 @@ Delegation policy:
 
 Prestart posture:
 - prestart strategy: <precomputed_routing_packets | operator_preparation_wave>
-- routing packet validation: <completed | not applicable>
+- routing packet validation: <completed by validate-packets | completed by manual visible-coverage check | not applicable>
+- graph artifact: <none | NetworkX node-link graph path>
+- packet JSON artifact: <none | packet JSON path>
 - root routing packet: <inline packet text or exact packet reference>
 - child packet forwarding rule: append prepared child packets verbatim to ordinary pairwise edge requests; do not edit, merge, or summarize unless the plan explicitly permits it
 - mismatch rule: stop downstream dispatch and report when a child packet is missing, has the wrong recipient, or has a stale plan revision or digest
@@ -72,3 +75,4 @@ Start procedure:
 - Send the plan reference, policy summary, and root routing packet or exact root packet reference, not a second unstructured copy of the whole plan.
 - Do not omit the statement that the user agent is outside the execution loop.
 - Do not ask the master to infer child packet content from the full plan when the packet inventory should already be authored.
+- Do not ask the master or intermediate drivers to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets prepared before `ready`.

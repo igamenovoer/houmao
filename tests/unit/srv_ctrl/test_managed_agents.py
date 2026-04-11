@@ -214,9 +214,7 @@ def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
-        lambda **kwargs: (_ for _ in ()).throw(
-            resume_error_type(resume_error_detail)
-        ),
+        lambda **kwargs: (_ for _ in ()).throw(resume_error_type(resume_error_detail)),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
@@ -228,7 +226,9 @@ def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
 
     message = str(exc_info.value)
     assert "Managed agent `gpu` is registered in the shared registry" in message
-    assert "its local tmux-backed runtime authority is no longer live or otherwise unusable" in message
+    assert (
+        "its local tmux-backed runtime authority is no longer live or otherwise unusable" in message
+    )
     assert resume_error_detail in message
 
 

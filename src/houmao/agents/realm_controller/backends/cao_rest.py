@@ -1799,7 +1799,10 @@ class CaoRestSession:
                     "Unable to resolve relaunch tmux window "
                     f"`{terminal.name}` in session `{self._session_name}`."
                 )
-            if primary_window_index is not None and resolved_window.window_index != primary_window_index:
+            if (
+                primary_window_index is not None
+                and resolved_window.window_index != primary_window_index
+            ):
                 _move_tmux_window(
                     source_window_id=resolved_window.window_id,
                     target=f"{self._session_name}:{primary_window_index}",

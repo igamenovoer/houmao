@@ -13,6 +13,7 @@ Minimum sections:
 - Participants
 - Loop Components
 - Component Dependencies
+- Graph Artifact Reference, when a NetworkX node-link graph is available
 - Graph Policy
 - Result Routing Contract
 - Completion Condition
@@ -55,6 +56,16 @@ For each component, record:
 - dependencies
 - elemental protocol to use
 
+## Graph Artifact Fields
+
+When a NetworkX node-link graph is available, record:
+
+- graph artifact path
+- `houmao-mgr internals graph high analyze` result or reference
+- `houmao-mgr internals graph high slice` result or reference for any reviewed component or participant slice
+- Mermaid scaffolding source when `houmao-mgr internals graph high render-mermaid` was used
+- semantic review notes confirming graph policy, result routing, component type labels, stop semantics, and completion semantics
+
 ## Script Inventory Fields
 
 For each script, record:
@@ -72,3 +83,4 @@ For each script, record:
 - Do not leave the bundle form without `plan.md`.
 - Do not hide plan-critical component policy only inside an unreferenced support file.
 - Do not omit the Mermaid generic loop graph from the canonical plan surface.
+- Do not treat graph-tool output as permission to omit semantic review of graph policy, result routing, component types, stop semantics, or completion semantics.

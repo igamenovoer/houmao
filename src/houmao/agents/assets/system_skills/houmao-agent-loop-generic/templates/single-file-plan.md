@@ -36,6 +36,12 @@ default_stop_mode: interrupt-first
 # Component Dependencies
 <explicit dependencies, ordering, or concurrency rules>
 
+# Graph Artifact
+- graph artifact: <none | NetworkX node-link graph path>
+- structural preflight: <none | graph high analyze result/reference and any slice result/reference>
+- Mermaid scaffolding source: <none | graph high render-mermaid result/reference>
+- semantic review: <graph policy, result routing, component type labels, stop semantics, and completion semantics reviewed>
+
 # Graph Policy
 <normalized delegation, forwarding, and dependency rules>
 

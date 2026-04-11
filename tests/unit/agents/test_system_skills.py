@@ -564,10 +564,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "Do not make the user agent the upstream driver of the execution loop."
         in pairwise_loop_skill
     )
-    assert (
-        "operating an accepted run through `start`, `status`, and `stop`"
-        in pairwise_loop_skill
-    )
+    assert "operating an accepted run through `start`, `status`, and `stop`" in pairwise_loop_skill
     assert "Do not treat `status` polling as a keepalive signal" in pairwise_loop_skill
     assert "houmao-agent-inspect" not in pairwise_loop_skill
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_v2_skill
@@ -589,8 +586,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert (
         "The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, "
-        "`ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`."
-        in pairwise_loop_v2_skill
+        "`ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`." in pairwise_loop_v2_skill
     )
     assert "houmao-mgr internals graph high" in pairwise_loop_v2_skill
     assert "houmao-agent-inspect" in pairwise_loop_v2_skill
@@ -599,7 +595,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in relay_loop_skill
     )
     assert "houmao-mgr internals graph high" in relay_loop_skill
-    assert "Do not allow free delegation or free forwarding unless the plan says so explicitly." in relay_loop_skill
+    assert (
+        "Do not allow free delegation or free forwarding unless the plan says so explicitly."
+        in relay_loop_skill
+    )
     assert list_action_path.is_file()
     assert get_action_path.is_file()
     assert remove_action_path.is_file()
@@ -853,6 +852,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     stable_pairwise_loop_status = stable_pairwise_loop_status_path.read_text(encoding="utf-8")
     stable_pairwise_loop_stop = stable_pairwise_loop_stop_path.read_text(encoding="utf-8")
     pairwise_loop_formulate = pairwise_loop_formulate_path.read_text(encoding="utf-8")
+    pairwise_loop_revise = pairwise_loop_revise_path.read_text(encoding="utf-8")
     pairwise_loop_graph = pairwise_loop_graph_path.read_text(encoding="utf-8")
     pairwise_loop_prepare = pairwise_loop_prepare_path.read_text(encoding="utf-8")
     pairwise_loop_start = pairwise_loop_start_path.read_text(encoding="utf-8")
@@ -869,12 +869,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_single_template = pairwise_loop_single_template_path.read_text(encoding="utf-8")
     pairwise_loop_bundle_template = pairwise_loop_bundle_template_path.read_text(encoding="utf-8")
     relay_loop_formulate = relay_loop_formulate_path.read_text(encoding="utf-8")
+    relay_loop_revise = relay_loop_revise_path.read_text(encoding="utf-8")
     relay_loop_graph = relay_loop_graph_path.read_text(encoding="utf-8")
     relay_loop_start = relay_loop_start_path.read_text(encoding="utf-8")
     relay_loop_status = relay_loop_status_path.read_text(encoding="utf-8")
     relay_loop_stop = relay_loop_stop_path.read_text(encoding="utf-8")
     relay_loop_policy = relay_loop_policy_path.read_text(encoding="utf-8")
     relay_loop_result_contract = relay_loop_result_contract_path.read_text(encoding="utf-8")
+    relay_loop_plan_structure = relay_loop_plan_structure_path.read_text(encoding="utf-8")
     relay_loop_single_template = relay_loop_single_template_path.read_text(encoding="utf-8")
     relay_loop_bundle_template = relay_loop_bundle_template_path.read_text(encoding="utf-8")
 
@@ -1170,7 +1172,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ask the user for that parameter" in relay_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
     assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
-    assert "After the master accepts the run, the master owns liveness" in stable_pairwise_loop_start
+    assert (
+        "After the master accepts the run, the master owns liveness" in stable_pairwise_loop_start
+    )
     assert "The user agent may poll `status`, but status polling does not keep the run alive." in (
         stable_pairwise_loop_start
     )
@@ -1182,11 +1186,28 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "No free delegation is allowed unless the plan says so explicitly."
         in pairwise_loop_formulate
     )
+    assert "first-class structural preflight before authoring packets" in pairwise_loop_formulate
+    assert "houmao-mgr internals graph high analyze --input <graph.json>" in (
+        pairwise_loop_formulate
+    )
+    assert (
+        "houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants"
+        in pairwise_loop_formulate
+    )
     assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_formulate
+    assert "after `analyze` and any needed `slice` calls" in pairwise_loop_formulate
+    assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_revise
+    assert "by running graph analysis after `start`" in pairwise_loop_revise
     assert "```mermaid" in pairwise_loop_graph
     assert "The final plan must include one Mermaid fenced code block." in pairwise_loop_graph
     assert "HOUMAO-operator@houmao.localhost" in pairwise_loop_prepare
     assert "houmao-mgr internals graph high validate-packets" in pairwise_loop_prepare
+    assert (
+        "explicit deterministic structural check before entering `ready`" in pairwise_loop_prepare
+    )
+    assert "manually verify visible topology, descendant relationships, packet inventory" in (
+        pairwise_loop_prepare
+    )
     assert "reply_policy=operator_mailbox" in pairwise_loop_prepare
     assert "canonical `initialize` action" in pairwise_loop_prepare
     assert "by default, include only participants that have descendants" in pairwise_loop_prepare
@@ -1196,8 +1217,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "missing acknowledgements from leaf participants do not block `ready`"
         in pairwise_loop_prepare
     )
-    assert "Do not guess packet coverage or explicit preparation targets when the topology is unclear" in (
-        pairwise_loop_prepare
+    assert (
+        "Do not guess packet coverage or explicit preparation targets when the topology is unclear"
+        in (pairwise_loop_prepare)
     )
     assert "`awaiting_ack`" in pairwise_loop_prepare
     assert "`ready`" in pairwise_loop_prepare
@@ -1208,10 +1230,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "required replies from targeted preparation recipients" in pairwise_loop_start
     assert "Do not treat leaf participants as readiness blockers" in pairwise_loop_start
     assert "Later `peek` remains read-only and does not keep the run alive." in pairwise_loop_start
+    assert "Do not ask the master or intermediate drivers to run graph analysis" in (
+        pairwise_loop_start
+    )
     assert "Use this page when the user wants canonical read-only inspection" in pairwise_loop_peek
     assert "`peek master`, `peek all`, or `peek <agent-name>`" in pairwise_loop_peek
     assert "`peek` is observational." in pairwise_loop_peek
-    assert "Use this page when the user wants to actively ask one selected pairwise-loop participant" in pairwise_loop_ping
+    assert (
+        "Use this page when the user wants to actively ask one selected pairwise-loop participant"
+        in pairwise_loop_ping
+    )
     assert "`ping <agent-name>` is active messaging." in pairwise_loop_ping
     assert "suspend the run's wakeup mechanisms" in pairwise_loop_pause
     assert "Disabling mail notifier alone is not sufficient" in pairwise_loop_pause
@@ -1233,23 +1261,32 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "delegate_freely_within_named_set" in pairwise_loop_policy
     assert "## Canonical Observed States" in pairwise_loop_reporting
     assert "## Hard-Kill Summary Fields" in pairwise_loop_reporting
-    assert "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
+    assert (
+        "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
+    )
     assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
     assert "Every plan using the default `precomputed_routing_packets` strategy should record" in (
         pairwise_loop_plan_structure
     )
+    assert "NetworkX node-link graph artifact location" in pairwise_loop_plan_structure
+    assert "packet JSON document location" in pairwise_loop_plan_structure
+    assert "optional `houmao-mgr internals graph high slice" in pairwise_loop_plan_structure
     assert "preparation target policy for explicit `operator_preparation_wave`" in (
         pairwise_loop_plan_structure
     )
     assert "`hard-kill`" in pairwise_loop_plan_structure
-    assert "Treat `hard-kill` as a separate operator action" in pairwise_loop_stop_modes_path.read_text(
-        encoding="utf-8"
+    assert (
+        "Treat `hard-kill` as a separate operator action"
+        in pairwise_loop_stop_modes_path.read_text(encoding="utf-8")
     )
     assert "# Prestart Procedure" in pairwise_loop_single_template
     assert "prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_single_template
     )
-    assert "routing packet validation: <how root packet and child packet coverage are checked" in (
+    assert "graph-tool preflight: <analyze, optional slice, and packet-expectations results" in (
+        pairwise_loop_single_template
+    )
+    assert "routing packet validation: <validate-packets result when graph and packet JSON" in (
         pairwise_loop_single_template
     )
     assert "Initialize<br/>routing packet validation<br/>default" in pairwise_loop_single_template
@@ -1259,6 +1296,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "selected `prestart_strategy`: default `precomputed_routing_packets`" in (
         pairwise_loop_bundle_template
     )
+    assert "graph artifact and packet JSON artifact locations when available" in (
+        pairwise_loop_bundle_template
+    )
+    assert "validation fallback when graph or packet JSON artifacts are unavailable" in (
+        pairwise_loop_bundle_template
+    )
     assert "# Lifecycle Vocabulary" in pairwise_loop_single_template
     assert "# Mermaid Control Graph" in pairwise_loop_single_template
     assert "prestart.md" in pairwise_loop_bundle_template
@@ -1266,12 +1309,22 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "agents/<participant>.md" in pairwise_loop_bundle_template
     assert "scripts/README.md" in pairwise_loop_bundle_template
     assert (
-        "No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly." in relay_loop_formulate
+        "No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly."
+        in relay_loop_formulate
     )
+    assert "first-class structural preflight" in relay_loop_formulate
     assert "houmao-mgr internals graph high analyze" in relay_loop_formulate
+    assert "houmao-mgr internals graph high slice" in relay_loop_formulate
+    assert (
+        "do not use `graph low` primitives for normal typed loop planning" in relay_loop_formulate
+    )
+    assert "houmao-mgr internals graph high analyze" in relay_loop_revise
+    assert "houmao-mgr internals graph high slice" in relay_loop_revise
+    assert "Do not use `graph low` primitives for normal typed loop planning" in relay_loop_revise
     assert "```mermaid" in relay_loop_graph
     assert "The final plan must include one Mermaid fenced code block." in relay_loop_graph
     assert "houmao-mgr internals graph high render-mermaid" in relay_loop_graph
+    assert "Do not treat graph-tool Mermaid output as final" in relay_loop_graph
     assert "After the root owner accepts the run, the root owner owns liveness" in relay_loop_start
     assert "Status is observational and does not keep the run alive." in relay_loop_status
     assert "`interrupt-first` is the default stop posture for this skill." in relay_loop_stop
@@ -1280,7 +1333,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "The designated loop egress returns the component final result to the relay origin."
         in relay_loop_result_contract
     )
+    assert "## Graph Artifact Fields" in relay_loop_plan_structure
+    assert "semantic review notes confirming graph policy" in relay_loop_plan_structure
     assert "# Mermaid Generic Loop Graph" in relay_loop_single_template
+    assert "# Graph Artifact" in relay_loop_single_template
+    assert "semantic review: <graph policy, result routing" in relay_loop_single_template
+    assert "## `graph.md`" in relay_loop_bundle_template
+    assert "semantic review notes for graph policy" in relay_loop_bundle_template
     assert "scripts/README.md" in relay_loop_bundle_template
     assert "A specialist is a reusable agent template" in touring_question_style
     assert "You can skip this now and come back later." in touring_question_style

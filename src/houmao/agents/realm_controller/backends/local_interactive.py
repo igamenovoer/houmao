@@ -481,7 +481,9 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         if current_output == baseline_output:
             return None
         try:
-            current_snapshot = parser_stack.parse_snapshot(current_output, baseline_pos=baseline_pos)
+            current_snapshot = parser_stack.parse_snapshot(
+                current_output, baseline_pos=baseline_pos
+            )
         except Exception:
             return None
 

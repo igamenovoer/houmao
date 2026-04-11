@@ -180,7 +180,6 @@ The README SHALL state that `houmao-touring` is manual-invocation-only rather th
 - **AND THEN** it explains that the touring flow can branch across setup, launch, live operations, and lifecycle follow-up
 
 ### Requirement: README system-skills table enumerates every catalog entry
-
 The README "System Skills: Agent Self-Management" subsection SHALL document every system skill listed under `[skills.*]` in `src/houmao/agents/assets/system_skills/catalog.toml`.
 
 At minimum the table SHALL include one row for each of the following skills currently shipped by the catalog:
@@ -199,7 +198,7 @@ At minimum the table SHALL include one row for each of the following skills curr
 - `houmao-adv-usage-pattern`
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
-- `houmao-agent-loop-relay`
+- `houmao-agent-loop-generic`
 
 The "What it enables" column SHALL describe each skill in operator-facing language and SHALL avoid claiming a skill exists when it is not present in the catalog.
 
@@ -215,17 +214,28 @@ The "What it enables" column SHALL describe each skill in operator-facing langua
 
 #### Scenario: Loop skills are surfaced in the README catalog
 - **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains distinct rows for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-relay`
+- **THEN** the table contains distinct rows for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`
 - **AND THEN** each row briefly explains the loop-authoring and master-run control purpose of the skill
 
-### Requirement: README user-control set enumeration includes pairwise-v2
+#### Scenario: Generic loop planner replaces relay-only row
+- **WHEN** a reader opens the README "System Skills" subsection after the generic replacement
+- **THEN** the table contains `houmao-agent-loop-generic`
+- **AND THEN** it does not contain `houmao-agent-loop-relay` as a current shipped skill
 
-The README paragraph that describes which skills the `user-control` set includes SHALL list `houmao-agent-loop-pairwise-v2` alongside the existing members (`houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-relay`).
+### Requirement: README user-control set enumeration includes pairwise-v2
+The README paragraph that describes which skills the `user-control` set includes SHALL list `houmao-agent-loop-pairwise-v2` alongside the existing members (`houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-generic`).
+
+The README paragraph that describes which skills the `user-control` set includes SHALL NOT list `houmao-agent-loop-relay` after the generic replacement.
 
 #### Scenario: Reader sees pairwise-v2 in the user-control set expansion
 - **WHEN** a reader reads the README paragraph describing which skills compose the `user-control` set
 - **THEN** the paragraph lists `houmao-agent-loop-pairwise-v2` as a member of the `user-control` set
+- **AND THEN** the paragraph lists `houmao-agent-loop-generic` as the generic loop planner member of the `user-control` set
 - **AND THEN** the total count of `user-control` members matches the `[sets.user-control].skills` array in `catalog.toml`
+
+#### Scenario: Reader does not see relay loop planner in current user-control expansion
+- **WHEN** a reader reads the README paragraph describing which skills compose the `user-control` set after the generic replacement
+- **THEN** the paragraph does not list `houmao-agent-loop-relay` as a current member of the set
 
 ### Requirement: README auto-install wording includes both pairwise variants when `user-control` includes both
 When the README describes the managed-home or CLI-default system-skill expansions, that wording SHALL include both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` whenever the current packaged `user-control` set includes both.
@@ -260,7 +270,6 @@ The README "Subsystems at a Glance" table SHALL include a row for the passive-se
 - **THEN** they find a row for the passive-server with a brief description and a link to its reference page
 
 ### Requirement: README system-skills narrative count tracks the catalog
-
 The README SHALL NOT claim a fixed "twelve" or "eleven" system-skill count when the catalog contains a different number of skills. Any narrative sentence that states how many packaged system skills ship SHALL state the number that matches the current catalog, and any sentence describing auto-install defaults SHALL reference the resolved `[auto_install] managed_launch_sets`, `managed_join_sets`, and `cli_default_sets` contents rather than a frozen count.
 
 #### Scenario: README narrative skill count matches the catalog
@@ -271,7 +280,8 @@ The README SHALL NOT claim a fixed "twelve" or "eleven" system-skill count when 
 #### Scenario: README auto-install wording tracks the resolved sets
 - **WHEN** a reader reads the README paragraph describing which skills `agents launch` and `agents join` auto-install
 - **THEN** the described set expansions match the `managed_launch_sets` and `managed_join_sets` entries in `catalog.toml`
-- **AND THEN** the paragraph does not assert that `houmao-agent-loop-pairwise` or `houmao-agent-loop-relay` are left out of managed-home auto-install unless the catalog has been updated to reflect that policy
+- **AND THEN** the paragraph includes `houmao-agent-loop-generic` through `user-control` when the catalog includes it
+- **AND THEN** the paragraph does not assert that `houmao-agent-loop-pairwise` or `houmao-agent-loop-generic` are left out of managed-home auto-install unless the catalog has been updated to reflect that policy
 
 ### Requirement: README CLI Entry Points documents the credentials family
 
@@ -281,3 +291,31 @@ The README "CLI Entry Points" subsection SHALL either list `houmao-mgr credentia
 - **WHEN** an operator reads the README "CLI Entry Points" table
 - **THEN** the page either shows `houmao-mgr credentials` in the table or surfaces it in a neighboring paragraph with a cross-link to the CLI reference section
 - **AND THEN** the reader is not forced to read the narrower `project easy` examples to discover that a first-class credential-management surface exists
+
+### Requirement: README surfaces internals graph as a discoverable command group
+
+The `README.md` CLI Entry Points section SHALL include a discoverable reference to `houmao-mgr internals graph` — either as a note on the `houmao-mgr` row or as a separate paragraph. The reference SHALL state that `internals graph` provides loop-plan graph analysis and packet validation tooling.
+
+#### Scenario: Reader discovers internals graph from the README
+
+- **WHEN** a reader scans the README CLI Entry Points section
+- **THEN** they find a reference to `houmao-mgr internals graph` with a brief description of its purpose
+- **AND THEN** they are not required to read source code or run `houmao-mgr --help` to discover this surface
+
+### Requirement: README §4 introduces all three loop skill options
+
+The README `§4 Agent Loop` section SHALL mention all three packaged loop skills before or alongside the detailed pairwise walkthrough. That mention SHALL use a compact table or a brief list with one-line descriptions, and SHALL link to `docs/getting-started/loop-authoring.md` for the skill-selection guide.
+
+The existing pairwise worked example SHALL be retained as the canonical entry-level walkthrough.
+
+#### Scenario: Reader in the README loop section discovers the loop authoring guide
+
+- **WHEN** a reader reads the README §4 Agent Loop section
+- **THEN** they see all three loop skill options identified
+- **AND THEN** they find a link to `docs/getting-started/loop-authoring.md` for guidance on which skill to use
+
+#### Scenario: Existing README pairwise example is preserved
+
+- **WHEN** a reader follows the README §4 Agent Loop section step by step
+- **THEN** the pairwise loop walkthrough (specialists, plan template, Mermaid control graph, operate the run) is still present as the detailed worked example
+

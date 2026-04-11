@@ -1610,9 +1610,7 @@ def _codex_action_result_data(item: Mapping[str, Any]) -> dict[str, Any]:
     if item_type == "mcp_tool_call":
         result_data["result_summary"] = _single_line_summary(
             _summarize_result_payload(item.get("result")),
-            fallback=(
-                _optional_text((item.get("error") or {}).get("message")) or status
-            )
+            fallback=(_optional_text((item.get("error") or {}).get("message")) or status)
             if isinstance(item.get("error"), dict)
             else status,
         )

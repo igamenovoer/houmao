@@ -260,7 +260,9 @@ def _load_tool_adapter(path: Path) -> ToolAdapter:
         raise BuildError(str(exc)) from exc
 
 
-def _resolve_auth_bundle_dir(*, agent_def_dir: Path, tool: str, auth_name: str | None) -> Path | None:
+def _resolve_auth_bundle_dir(
+    *, agent_def_dir: Path, tool: str, auth_name: str | None
+) -> Path | None:
     """Resolve one auth directory from display-name input for project and non-project trees."""
 
     if auth_name is None:

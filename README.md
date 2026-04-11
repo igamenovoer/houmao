@@ -137,9 +137,17 @@ For reusable birth-time defaults (fixed agent name, working directory, mailbox, 
 
 ### 4. Agent Loop: Multi-Agent Coordination
 
-A **pairwise loop** lets multiple agents collaborate on a structured task. One agent is the **master** — it owns liveness, drives pairwise edges to workers, evaluates completion, and handles stop. The **user agent stays outside the execution loop**: you plan, start, check status, and stop — the master does the rest.
+A **loop** lets multiple agents collaborate on a structured task. One agent is the **master** (or root owner) — it owns liveness, drives execution, evaluates completion, and handles stop. The **user agent stays outside the execution loop**: you plan, start, check status, and stop — the master does the rest.
 
-The `houmao-agent-loop-pairwise` system skill helps you author a loop plan and operate it through `start`, `status`, and `stop`.
+Houmao ships three loop skills. Choose the one that fits your topology and lifecycle needs:
+
+| Skill | Lifecycle | Best for |
+|---|---|---|
+| `houmao-agent-loop-pairwise` | `start` / `status` / `stop` | Simple pairwise master → workers; minimal ceremony |
+| `houmao-agent-loop-pairwise-v2` | `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `stop` / `hard-kill` | Pairwise graphs with enriched runtime control and routing-packet prestart |
+| `houmao-agent-loop-generic` | `start` / `status` / `stop` | Mixed pairwise + relay component graphs |
+
+See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for skill selection guidance, the pairwise-v2 routing-packet model, and the `internals graph` tooling that supports authoring.
 
 > This example uses creative-writing specialists to show Houmao isn't limited to coding agents. The same pattern works for code review, optimization, or any multi-agent pipeline.
 
@@ -443,6 +451,8 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
 | `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
 
 `houmao-mgr` exposes a dedicated top-level `credentials` command group for Claude, Codex, and Gemini credential CRUD, alongside the project-scoped `project credentials` wrapper. See the [`credentials`](docs/reference/cli/houmao-mgr.md#credentials-dedicated-credential-management) section of the CLI reference for the full surface.
+
+`houmao-mgr internals graph` provides loop-plan graph analysis and packet validation tooling — use `graph high analyze`, `packet-expectations`, `validate-packets`, `slice`, and `render-mermaid` when authoring pairwise-v2 or generic loop plans. See the [internals graph reference](docs/reference/cli/internals.md).
 
 ```bash
 houmao-mgr --help

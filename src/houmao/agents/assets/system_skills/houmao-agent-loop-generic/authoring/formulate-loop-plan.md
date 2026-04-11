@@ -25,7 +25,8 @@ Use this page when the user has described what they want, but the designated mas
    - `pairwise` for immediate driver-worker local-close work where the component result returns to the driver
    - `relay` for ordered relay-rooted lanes where ownership moves forward and the egress returns the component result to the relay origin
 6. Record each component with `component_id`, `component_type`, participating agents, root/driver/origin, downstream target or lane order, result-return contract, policy, and dependencies.
-   - When the topology is represented as NetworkX node-link JSON, use `houmao-mgr internals graph high analyze --input <graph.json>` to check reachability, leaves, non-leaf participants, cycle posture, branch points, and dependency posture.
+   - When the topology is represented as NetworkX node-link JSON, treat `houmao-mgr internals graph high` as the first-class structural preflight.
+   - Use `houmao-mgr internals graph high analyze --input <graph.json>` to check reachability, leaves, non-leaf participants, cycle posture, branch points, and dependency posture.
    - Use `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants` for authoring-time subtree inspection when a component or participant slice is easier to review separately.
 7. Normalize graph policy explicitly using `references/graph-policy.md`. No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly.
 8. Draft the plan with `references/plan-structure.md` plus the matching template:
@@ -43,6 +44,7 @@ Use this page when the user has described what they want, but the designated mas
   - `loop_id` and `handoff_id` values are relay component-local identifiers.
 - Preserve delegation and forwarding restrictions when the user names a limited downstream set.
 - Treat `houmao-mgr internals graph high` output as structural evidence only; it does not authorize broader delegation, free forwarding, hidden dependencies, or result-routing changes.
+- Keep routine structural graph work on `houmao-mgr internals graph high`; do not use `graph low` primitives for normal typed loop planning.
 - Keep pairwise component results anchored to the immediate driver.
 - Keep relay component results anchored to the relay origin through the designated egress.
 - Reject or rewrite any execution sketch that depends on an arbitrary cyclic worker graph.

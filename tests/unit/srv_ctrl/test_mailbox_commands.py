@@ -140,7 +140,10 @@ def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(
         (item["address"], item["status"]) for item in project_accounts
     ]
     assert project_payload["selected_overlay_root"] == str((repo_root / ".houmao").resolve())
-    assert project_payload["selected_overlay_detail"] == "Selected overlay root from nearest-ancestor project discovery."
+    assert (
+        project_payload["selected_overlay_detail"]
+        == "Selected overlay root from nearest-ancestor project discovery."
+    )
     assert (
         project_payload["mailbox_root_detail"]
         == "Selected `mailbox/` under the selected project overlay."

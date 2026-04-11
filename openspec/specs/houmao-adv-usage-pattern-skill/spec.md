@@ -253,7 +253,7 @@ The relay-loop pattern SHALL include compact text-block templates that show the 
 - supervisor reminder text,
 - optional self-mail checkpoint text when that variant is described.
 
-That relay-loop pattern SHALL direct readers to `houmao-agent-loop-relay` when they need multi-lane routing, graph rendering, route policy authoring, master-owned run planning, or relay run-control actions.
+That relay-loop pattern SHALL direct readers to `houmao-agent-loop-generic` when they need multi-lane routing, fan-out, route policy authoring, a rendered relay graph, master-owned run planning, relay run-control actions, or mixed pairwise/relay graph decomposition.
 
 #### Scenario: Pattern defines the relay roles and direct-skill composition
 - **WHEN** an agent or operator opens the relay-loop pattern in `houmao-adv-usage-pattern`
@@ -371,7 +371,7 @@ That chooser guidance SHALL state that the pairwise edge-loop pattern is the bet
 
 - exactly one driver sends one worker request for one edge-loop round,
 - the final result for that round should always return to the same driver that sent the request,
-- the reader needs the atomic local-close protocol that a dedicated pairwise loop-planning skill may compose into larger topologies.
+- the reader needs the atomic local-close protocol that a dedicated pairwise or generic loop-planning skill may compose into larger topologies.
 
 That chooser guidance SHALL state that the forward relay-loop pattern is the better fit when:
 
@@ -379,7 +379,11 @@ That chooser guidance SHALL state that the forward relay-loop pattern is the bet
 - ownership should keep moving forward along that lane,
 - a designated downstream loop egress should return the final result directly to the master/loop origin rather than only to its immediate upstream sender.
 
-That chooser guidance SHALL state that composed topologies, rendered graphs, multi-edge pairwise runs, multi-lane relay routes, route/delegation policies, and start/status/stop run-control actions belong in dedicated loop-planning skills rather than in the elemental advanced-usage pattern pages.
+That chooser guidance SHALL state that composed topologies, rendered graphs, mixed pairwise/relay graph decomposition, multi-edge pairwise runs, multi-lane relay routes, route/delegation policies, and start/status/stop run-control actions belong in dedicated loop-planning skills rather than in the elemental advanced-usage pattern pages.
+
+That chooser guidance SHALL direct generic composed graph planning to `houmao-agent-loop-generic`.
+
+That chooser guidance SHALL preserve the specialized pairwise loop-planning skills as explicit pairwise-only choices when a user asks for one of those pairwise skills by name or when a workflow has already selected a pairwise-only planning lane.
 
 #### Scenario: Reader can choose the pairwise pattern for one local-close delegation round
 - **WHEN** an agent or operator compares the advanced-usage loop patterns
@@ -392,6 +396,7 @@ That chooser guidance SHALL state that composed topologies, rendered graphs, mul
 - **AND THEN** it does not describe the pairwise edge-loop pattern as the default answer for that distant-return routing case
 
 #### Scenario: Reader can route composed loop plans to dedicated skills
-- **WHEN** an agent or operator needs a rendered loop graph, multiple pairwise edges, multiple relay lanes, or run-control actions
-- **THEN** the guidance directs that work to dedicated loop-planning skills
+- **WHEN** an agent or operator needs a rendered loop graph, multiple pairwise edges, multiple relay lanes, mixed pairwise/relay graph decomposition, or run-control actions
+- **THEN** the guidance directs generic composed graph planning to `houmao-agent-loop-generic`
 - **AND THEN** it keeps `houmao-adv-usage-pattern` focused on elemental protocol guidance
+

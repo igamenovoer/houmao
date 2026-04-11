@@ -24,13 +24,15 @@ Use this page when the user has described what they want, but the designated mas
    - scripts, if any
 4. If any materially important field is still missing, ask for exactly that missing field instead of improvising it.
 5. Break the work into pairwise local-close control edges. The loop is the supervision or review cycle, not an arbitrary worker-to-worker cycle.
-   - When the topology is represented as NetworkX node-link JSON, use `houmao-mgr internals graph high analyze --input <graph.json>` to check root reachability, non-leaf participants, leaves, and child relationships before authoring packets.
+   - When the topology is represented as NetworkX node-link JSON, treat `houmao-mgr internals graph high` as the first-class structural preflight before authoring packets.
+   - Use `houmao-mgr internals graph high analyze --input <graph.json>` to check root reachability, non-leaf participants, leaves, and child relationships.
+   - Use `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants` for plan-time descendant or subtree inspection when a participant's downstream packet material is easier to review separately.
 6. Normalize delegation policy explicitly using `references/delegation-policy.md`. No free delegation is allowed unless the plan says so explicitly.
 7. Draft the plan with `references/plan-structure.md` plus the matching template:
    - `templates/single-file-plan.md`
    - `templates/bundle-plan.md`
 8. Author routing packets at plan time:
-   - when a node-link graph is available, use `houmao-mgr internals graph high packet-expectations --input <graph.json>` to derive the root packet, child packet, and non-leaf dispatch-table expectations
+   - when a node-link graph is available, use `houmao-mgr internals graph high packet-expectations --input <graph.json>` after `analyze` and any needed `slice` calls to derive the root packet, child packet, and non-leaf dispatch-table expectations
    - produce one root packet for the designated master
    - produce one child packet for each parent-to-child pairwise edge in the authored topology
    - include packet id, run id placeholder, plan id and revision or digest, intended recipient, immediate driver, local role and objective, allowed delegation targets, result-return contract, obligations, forbidden actions, and timeout-watch posture when used
@@ -53,6 +55,7 @@ Use this page when the user has described what they want, but the designated mas
 - Preserve delegation restrictions when the user names a limited downstream set.
 - Treat `houmao-mgr internals graph high` output as structural evidence only; it does not authorize broader delegation, omit forbidden actions, or replace semantic review of packet content.
 - Keep `initialize` separate from the master trigger: default initialization validates routing-packet coverage, while explicit `operator_preparation_wave` sends prestart preparation mail.
+- Keep graph-tool usage before `ready`; runtime recipients use dispatch tables and exact child packets instead of running graph analysis or recomputing descendants.
 - Do not use `fire_and_proceed` or `require_ack` as the default prestart strategy; those only apply inside explicit `operator_preparation_wave`.
 - Reject or rewrite any execution sketch that depends on child results bypassing the immediate driver.
 

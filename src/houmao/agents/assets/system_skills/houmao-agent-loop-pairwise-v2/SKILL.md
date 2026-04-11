@@ -132,7 +132,8 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Route mailbox receipt, result, or follow-up semantics referenced by the plan plus `hard-kill` unread draining to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr` or the owned mailbox surfaces that expose `HOUMAO-operator@houmao.localhost`.
 - Route `peek` requests, overdue downstream peeking, and other read-only state inspection to `houmao-agent-inspect`.
-- Route authoring-time topology checks, routing-packet expectation derivation, and routing-packet validation to `houmao-mgr internals graph high ...` when a NetworkX node-link graph and packet JSON document are available; treat those commands as deterministic structural helpers, not as replacements for this skill's semantic plan review.
+- Route authoring-time and initialization structural preflight to `houmao-mgr internals graph high ...` as the first-class helper surface when a NetworkX node-link graph and packet JSON document are available: use `analyze` for topology checks, `slice` for plan-time descendant or subtree inspection, `packet-expectations` for root and child packet expectations, and `validate-packets` before default initialization enters `ready`.
+- Treat `houmao-mgr internals graph high` output as structural evidence only; keep delegation policy, result routing, forbidden actions, lifecycle vocabulary, and final readiness decisions in this skill.
 - Keep composed topology, recursive child-control edges, rendered graphs, run charters, lifecycle preparation, and run-control actions in this skill.
 - Route only atomic immediate driver-worker edge execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.
@@ -147,7 +148,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not default to graceful stop. Default to `interrupt-first` unless the user explicitly requests graceful termination.
 - Do not redefine canonical `stop` as an implicit participant-wide broadcast; keep any advisory `broadcast-stop` action separate.
 - Do not treat `hard-kill` as a synonym for canonical `stop`; `hard-kill` is the explicit participant-wide emergency override.
-- Do not require intermediate runtime agents to recompute graph topology or descendant plan slices; author precomputed routing packets instead.
+- Do not require intermediate runtime agents to run graph analysis, recompute graph topology, or recompute descendant plan slices; author precomputed routing packets and dispatch tables instead.
 - Do not edit, merge, or summarize prepared child routing packets during runtime handoff unless the authored plan explicitly permits that transformation.
 - Do not repair missing, mismatched, or stale child routing packets by graph reasoning from memory; fail closed and report the mismatch to the immediate driver or operator.
 - Do not send operator-origin preparation mail by default. Use `operator_preparation_wave` only when the user or plan explicitly selects that strategy.

@@ -18,7 +18,8 @@ Use `operator_preparation_wave` only when the authored plan or user explicitly a
    - preparation target policy and acknowledgement posture when using explicit `operator_preparation_wave`
 3. Verify the authored topology. If descendant relationships are not clear enough to validate routing packet coverage or explicit preparation-wave targets, return to the authoring or revision lane before continuing.
 4. For default `precomputed_routing_packets`, validate the packet set:
-   - when a node-link graph and packet JSON document are available, use `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` as a deterministic structural check before entering `ready`
+   - when a node-link graph and packet JSON document are available, use `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` as the explicit deterministic structural check before entering `ready`
+   - when graph or packet JSON artifacts are unavailable, manually verify visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers before entering `ready`
    - one root packet exists for the designated master
    - one child packet exists for every parent-to-child pairwise edge
    - every packet has packet id, intended recipient, immediate driver, and plan revision or digest
@@ -55,7 +56,7 @@ The root packet is for the designated master and must be available to the normal
 
 Drivers later append child packets verbatim to ordinary pairwise edge requests. If a packet is missing, mismatched, or stale, dispatch stops and the mismatch is reported instead of repaired from memory.
 
-When a node-link graph and packet JSON document are available, `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` can validate this structural packet coverage. A validation failure is an initialization blocker; do not treat it as permission for runtime participants to repair packets from memory.
+When a node-link graph and packet JSON document are available, `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` is the explicit deterministic structural check for this packet coverage before `ready`. When those artifacts are unavailable, manually verify visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers before `ready`. A validation failure is an initialization blocker; do not treat it as permission for runtime participants to repair packets from memory.
 
 ## Operator Preparation Wave
 
@@ -92,6 +93,7 @@ Each preparation mail should make these items easy to find for the targeted reci
 - Do not send operator-origin standalone preparation mail by default.
 - Do not send one shared upstream-aware matrix as the only routing artifact.
 - Do not ask runtime participants to infer hidden downstream routing shapes; packets must be precomputed.
+- Do not ask runtime participants to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets prepared before `ready`.
 - Do not guess packet coverage or explicit preparation targets when the topology is unclear; return to authoring or revision first.
 - Do not trigger the master before the selected prestart strategy is complete.
 - Do not require acknowledgement by default.

@@ -1121,9 +1121,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
 
     control = client.send_managed_agent_gateway_control_input("HOUMAO gpu/1", request_model)
     notifier_status = client.get_managed_agent_gateway_mail_notifier("HOUMAO gpu/1")
-    notifier_enabled = client.put_managed_agent_gateway_mail_notifier(
-        "HOUMAO gpu/1", notifier_put
-    )
+    notifier_enabled = client.put_managed_agent_gateway_mail_notifier("HOUMAO gpu/1", notifier_put)
     notifier_disabled = client.delete_managed_agent_gateway_mail_notifier("HOUMAO gpu/1")
 
     assert control.detail == "queued"
@@ -1233,7 +1231,9 @@ def test_pair_clients_gateway_reminder_routes(client_type, base_url, monkeypatch
     reminders = client.list_managed_agent_gateway_reminders("HOUMAO gpu/1")
     created = client.create_managed_agent_gateway_reminders("HOUMAO gpu/1", create_request)
     detail = client.get_managed_agent_gateway_reminder("HOUMAO gpu/1", "greminder-1")
-    updated = client.put_managed_agent_gateway_reminder("HOUMAO gpu/1", "greminder-1", update_request)
+    updated = client.put_managed_agent_gateway_reminder(
+        "HOUMAO gpu/1", "greminder-1", update_request
+    )
     deleted = client.delete_managed_agent_gateway_reminder("HOUMAO gpu/1", "greminder-1")
 
     assert reminders.effective_reminder_id == "greminder-1"

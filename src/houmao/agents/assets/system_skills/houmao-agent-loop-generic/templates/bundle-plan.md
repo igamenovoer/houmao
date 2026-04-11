@@ -41,6 +41,9 @@ See `components.md`.
 # Component Dependencies
 See `components.md`.
 
+# Graph Artifact
+See `graph.md`.
+
 # Graph Policy
 See `graph-policy.md`.
 
@@ -82,6 +85,10 @@ List each component with:
 - policy
 - dependencies
 
+## `graph.md`
+
+Record the graph artifact path when a NetworkX node-link graph is available, any `houmao-mgr internals graph high analyze` or `slice` result references used during authoring, any `render-mermaid` scaffolding reference, and semantic review notes for graph policy, result routing, component type labels, stop semantics, and completion semantics.
+
 ## `scripts/README.md` Inventory
 
 List each script with:
@@ -98,4 +105,5 @@ List each script with:
 - Do not omit the top-level Mermaid graph from `plan.md`.
 - Do not make `graph.md` the only place where the topology is visible.
 - Do not leave component policy or result routing only in unreferenced support files.
+- Do not treat graph-tool output as permission to omit semantic review of graph policy, result routing, component types, stop semantics, or completion semantics.
 - Do not leave script behavior undocumented when scripts are part of the plan.

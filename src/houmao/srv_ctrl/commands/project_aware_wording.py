@@ -95,9 +95,7 @@ def describe_overlay_root_selection_source(
             return "Selected overlay root from cwd-local project discovery."
         return "Selected overlay root from nearest-ancestor project discovery."
     if overlay_discovery_mode == "cwd_only":
-        return (
-            "Selected overlay root from the cwd-local project-aware `<cwd>/.houmao` candidate."
-        )
+        return "Selected overlay root from the cwd-local project-aware `<cwd>/.houmao` candidate."
     return "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate."
 
 

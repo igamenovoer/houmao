@@ -37,8 +37,9 @@ Use this page when the user already has one authored plan and wants to perform t
 12. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
 13. Direct the master and any intermediate driver to append the exact prepared child routing packet to each ordinary pairwise edge request, without editing, merging, or summarizing it unless the authored plan explicitly permits that transformation.
 14. Require fail-closed handling for packet mismatches: if a child packet is missing, has the wrong intended recipient, or carries a stale plan revision or digest, the driver stops that downstream dispatch and reports the mismatch to its immediate driver, or to the operator when the driver is the master.
-15. If the accepted run needs live reminders or mailbox follow-up, let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental pairwise pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the accepted plan.
-16. When the plan enables timeout-watch policy for selected participants or edges, keep it reminder-driven and non-blocking:
+15. Do not ask the master or intermediate drivers to run graph analysis, infer descendants, or recompute child packet content after `start`; graph-tool checks belong before `ready`.
+16. If the accepted run needs live reminders or mailbox follow-up, let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental pairwise pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the accepted plan.
+17. When the plan enables timeout-watch policy for selected participants or edges, keep it reminder-driven and non-blocking:
    - persist overdue-check state in local bookkeeping
    - end the current live turn after downstream dispatch and follow-up setup
    - reopen the state later through a reminder-driven review round
@@ -58,7 +59,7 @@ Use this page when the user already has one authored plan and wants to perform t
 
 - Do not send the raw user goal alone when the plan has already been normalized.
 - Do not trigger the master before the run is `ready`.
-- Do not make the master or intermediate drivers recompute child routing packets from the full plan at runtime.
+- Do not make the master or intermediate drivers run graph analysis or recompute child routing packets from the full plan at runtime.
 - Do not edit, merge, or summarize prepared child routing packets by default.
 - Do not treat leaf participants as readiness blockers unless explicit `operator_preparation_wave` included them in the preparation target set.
 - Do not start when the topology is too unclear to validate routing-packet coverage or explicit preparation-wave targets used by `initialize`.
