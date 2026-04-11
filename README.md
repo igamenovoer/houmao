@@ -17,7 +17,7 @@ A team of three agents writing a sci-fi novel chapter by chapter: a **story-writ
      To get the URL: edit this README on github.com, drag-drop the .mp4 into the editor,
      GitHub will generate a https://github.com/user-attachments/assets/... URL.
      Replace the entire video tag below with that URL on its own line. -->
-https://github.com/igamenovoer/houmao/releases/download/v0.5.1/writer-team-loop.mp4
+https://github.com/user-attachments/assets/6cff608a-8b5b-4dcd-96fb-f2f0208a18b6
 
 ## Why This Design
 
@@ -383,9 +383,9 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds |
 | `houmao-agent-loop-pairwise` | Author master-owned pairwise loop plans and operate accepted runs through `start`, `status`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
 | `houmao-agent-loop-pairwise-v2` | Enriched pairwise workflow: author plans, run `initialize`, and operate accepted runs through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill` |
-| `houmao-agent-loop-relay` | Author master-owned relay loop plans and operate accepted runs through `start`, `status`, and `stop`, with forwarding authority normalized per plan and the final result returned to the designated origin |
+| `houmao-agent-loop-generic` | Decompose generic multi-agent loop graphs into typed pairwise and relay components, render the final graph, and operate accepted root-owned runs through `start`, `status`, and `stop` |
 
-`agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-relay`, managed homes gain the project-management front door plus the stable pairwise, enriched pairwise-v2, and relay loop-authoring skills by default, `houmao-agent-inspect` is available there as the generic read-only inspection entrypoint, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
+`agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`, managed homes gain the project-management front door plus the stable pairwise, enriched pairwise-v2, and generic loop graph-planning skills by default, `houmao-agent-inspect` is available there as the generic read-only inspection entrypoint, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude

@@ -33,7 +33,7 @@ Use this page when the user already has one authored plan and wants to perform t
    - `rejected`
 10. After acceptance, treat the run as `running`.
 11. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
-12. If the accepted run needs live reminders or mailbox follow-up, let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the pairwise pattern in `houmao-adv-usage-pattern`.
+12. If the accepted run needs live reminders or mailbox follow-up, let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental pairwise pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the accepted plan.
 13. When the plan enables timeout-watch policy for selected participants or edges, keep it reminder-driven and non-blocking:
    - persist overdue-check state in local bookkeeping
    - end the current live turn after downstream dispatch and follow-up setup

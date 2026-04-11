@@ -15,6 +15,10 @@ The packaged `houmao-agent-loop-pairwise-v2` skill SHALL be manual-invocation-on
 
 That packaged skill SHALL remain distinct from both the restored stable `houmao-agent-loop-pairwise` skill and the lower-level messaging, mailbox, gateway, and advanced-usage skills that it composes.
 
+That packaged skill SHALL own composed pairwise loop planning concerns, including multi-edge topology, recursive child-control edges, rendered control graphs, master-owned run planning, lifecycle preparation, run charters, and enriched run-control actions.
+
+When that packaged skill references `houmao-adv-usage-pattern`, it SHALL treat the advanced-usage pairwise page as the elemental immediate driver-worker edge protocol to use per edge rather than as the owner of composed pairwise topology.
+
 #### Scenario: User explicitly asks to invoke the v2 pairwise skill
 - **WHEN** a user explicitly asks for `houmao-agent-loop-pairwise-v2`
 - **THEN** `houmao-agent-loop-pairwise-v2` is the correct packaged Houmao-owned skill

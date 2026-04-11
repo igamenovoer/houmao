@@ -68,7 +68,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-relay",
+        "houmao-agent-loop-generic",
         "houmao-agent-instance",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
@@ -145,7 +145,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-relay",
+        "houmao-agent-loop-generic",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
@@ -172,7 +172,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-relay",
+        "houmao-agent-loop-generic",
         "houmao-agent-instance",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
@@ -245,9 +245,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v2_authoring = home_path / "skills/houmao-agent-loop-pairwise-v2/authoring"
     pairwise_loop_v2_prestart = home_path / "skills/houmao-agent-loop-pairwise-v2/prestart"
     pairwise_loop_v2_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
-    relay_loop_skill_path = home_path / "skills/houmao-agent-loop-relay/SKILL.md"
-    relay_loop_authoring = home_path / "skills/houmao-agent-loop-relay/authoring"
-    relay_loop_operating = home_path / "skills/houmao-agent-loop-relay/operating"
+    relay_loop_skill_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
+    relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
+    relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
 
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
@@ -258,7 +258,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-relay",
+        "houmao-agent-loop-generic",
     )
     assert tuple(record.name for record in installed_records) == result.resolved_skill_names
     assert tuple(record.projection_mode for record in installed_records) == (
@@ -594,10 +594,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "houmao-agent-inspect" in pairwise_loop_v2_skill
     assert (
-        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one relay loop run"
+        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill
     )
-    assert "Do not allow free forwarding unless the plan says so explicitly." in relay_loop_skill
+    assert "Do not allow free delegation or free forwarding unless the plan says so explicitly." in relay_loop_skill
     assert list_action_path.is_file()
     assert get_action_path.is_file()
     assert remove_action_path.is_file()
@@ -678,11 +678,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
     pairwise_loop_references = home_path / "skills/houmao-agent-loop-pairwise-v2/references"
     pairwise_loop_templates = home_path / "skills/houmao-agent-loop-pairwise-v2/templates"
-    relay_loop_path = home_path / "skills/houmao-agent-loop-relay/SKILL.md"
-    relay_loop_authoring = home_path / "skills/houmao-agent-loop-relay/authoring"
-    relay_loop_operating = home_path / "skills/houmao-agent-loop-relay/operating"
-    relay_loop_references = home_path / "skills/houmao-agent-loop-relay/references"
-    relay_loop_templates = home_path / "skills/houmao-agent-loop-relay/templates"
+    relay_loop_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
+    relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
+    relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
+    relay_loop_references = home_path / "skills/houmao-agent-loop-generic/references"
+    relay_loop_templates = home_path / "skills/houmao-agent-loop-generic/templates"
 
     assert result.selected_set_names == (
         "mailbox-full",
@@ -707,7 +707,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-relay",
+        "houmao-agent-loop-generic",
         "houmao-agent-instance",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
@@ -815,8 +815,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     relay_loop_status_path = relay_loop_operating / "status.md"
     relay_loop_stop_path = relay_loop_operating / "stop.md"
     relay_loop_charter_path = relay_loop_references / "run-charter.md"
-    relay_loop_policy_path = relay_loop_references / "route-policy.md"
-    relay_loop_result_contract_path = relay_loop_references / "result-contract.md"
+    relay_loop_policy_path = relay_loop_references / "graph-policy.md"
+    relay_loop_result_contract_path = relay_loop_references / "result-routing.md"
     relay_loop_stop_modes_path = relay_loop_references / "stop-modes.md"
     relay_loop_reporting_path = relay_loop_references / "reporting-contract.md"
     relay_loop_plan_structure_path = relay_loop_references / "plan-structure.md"
@@ -1151,10 +1151,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "does not survive gateway shutdown or restart" in self_notification_reminders
     assert "must survive gateway shutdown or restart" in self_notification_mail
     assert "later rounds may reprioritize against external incoming mail" in self_notification_mail
-    assert "each delegation edge should close locally" in advanced_usage_skill
-    assert "ownership should keep moving forward across agents" in advanced_usage_skill
+    assert "exactly one driver sends one worker request" in advanced_usage_skill
+    assert "ownership should keep moving forward along that lane" in advanced_usage_skill
+    assert "`houmao-agent-loop-generic` for composed topology" in advanced_usage_skill
     assert "edge_loop_id" in pairwise_edge_loop_pattern
-    assert "parent_edge_loop_id" in pairwise_edge_loop_pattern
+    assert "Use a dedicated pairwise loop-planning skill for recursive child edge-loops" in (
+        pairwise_edge_loop_pattern
+    )
     assert "ask the user for that value" in pairwise_edge_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in pairwise_edge_loop_pattern
     assert "Subject: [edge-result] edge_loop=<edge_loop_id>" in pairwise_edge_loop_pattern
@@ -1254,19 +1257,19 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "agents/<participant>.md" in pairwise_loop_bundle_template
     assert "scripts/README.md" in pairwise_loop_bundle_template
     assert (
-        "No free forwarding is allowed unless the plan says so explicitly." in relay_loop_formulate
+        "No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly." in relay_loop_formulate
     )
     assert "```mermaid" in relay_loop_graph
     assert "The final plan must include one Mermaid fenced code block." in relay_loop_graph
-    assert "After the master accepts the run, the master owns liveness" in relay_loop_start
+    assert "After the root owner accepts the run, the root owner owns liveness" in relay_loop_start
     assert "Status is observational and does not keep the run alive." in relay_loop_status
     assert "`interrupt-first` is the default stop posture for this skill." in relay_loop_stop
     assert "forward_freely_within_named_set" in relay_loop_policy
     assert (
-        "The designated loop egress returns the final result to the loop origin."
+        "The designated loop egress returns the component final result to the relay origin."
         in relay_loop_result_contract
     )
-    assert "# Mermaid Relay Graph" in relay_loop_single_template
+    assert "# Mermaid Generic Loop Graph" in relay_loop_single_template
     assert "scripts/README.md" in relay_loop_bundle_template
     assert "A specialist is a reusable agent template" in touring_question_style
     assert "You can skip this now and come back later." in touring_question_style

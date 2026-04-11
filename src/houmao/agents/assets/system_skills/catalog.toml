@@ -44,9 +44,9 @@ description = "Manual invocation only restored stable pairwise loop authoring an
 asset_subpath = "houmao-agent-loop-pairwise-v2"
 description = "Manual invocation only versioned enriched pairwise loop authoring, prestart, and expanded master-run control skill."
 
-[skills.houmao-agent-loop-relay]
-asset_subpath = "houmao-agent-loop-relay"
-description = "Relay loop planning and master-run control skill for user-controlled agents."
+[skills.houmao-agent-loop-generic]
+asset_subpath = "houmao-agent-loop-generic"
+description = "Generic pairwise/relay loop graph planning and root-run control skill for user-controlled agents."
 
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
@@ -100,7 +100,7 @@ skills = [
   "houmao-agent-definition",
   "houmao-agent-loop-pairwise",
   "houmao-agent-loop-pairwise-v2",
-  "houmao-agent-loop-relay",
+  "houmao-agent-loop-generic",
 ]
 
 [sets.agent-instance]

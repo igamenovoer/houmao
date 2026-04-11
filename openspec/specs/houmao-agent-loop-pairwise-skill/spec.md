@@ -16,6 +16,10 @@ That packaged skill SHALL organize its guidance through local authoring and oper
 
 That packaged skill SHALL remain distinct from the direct-operation skills, the existing `houmao-adv-usage-pattern` pattern pages that it composes, and the versioned `houmao-agent-loop-pairwise-v2` skill.
 
+That packaged skill SHALL own composed pairwise loop planning concerns, including multi-edge topology, recursive child-control edges, rendered control graphs, master-owned run planning, run charters, and `start`/`status`/`stop` run-control actions.
+
+When that packaged skill references `houmao-adv-usage-pattern`, it SHALL treat the advanced-usage pairwise page as the elemental immediate driver-worker edge protocol to use per edge rather than as the owner of composed pairwise topology.
+
 That packaged skill SHALL NOT present itself as the default entrypoint for generic pairwise loop planning or pairwise run-control requests when the user did not explicitly invoke the skill by name.
 
 #### Scenario: User explicitly asks to invoke the restored stable pairwise skill
@@ -128,7 +132,9 @@ The lifecycle guidance SHALL define `stop` as a master-directed termination acti
 
 The lifecycle guidance SHALL NOT redefine `stop` as an implicit participant-wide broadcast.
 
-The lifecycle guidance SHALL continue to state that downstream execution uses the existing pairwise edge-loop pattern rather than a new routing protocol.
+The lifecycle guidance SHALL continue to state that downstream execution uses the elemental pairwise edge-loop pattern for each immediate driver-worker edge rather than a new routing protocol.
+
+The lifecycle guidance SHALL keep composed run topology in the accepted pairwise loop plan rather than pushing multi-edge graph planning down into `houmao-adv-usage-pattern`.
 
 #### Scenario: Status remains the stable read-only inspection verb
 - **WHEN** the operator asks for `status` on one accepted pairwise loop run

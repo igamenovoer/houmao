@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Loop Generic"
+  short_description: "Formulate and operate generic typed pairwise/relay loop graph runs."
+  default_prompt: "Use $houmao-agent-loop-generic when a user-controlled agent needs to turn a goal into a typed multi-agent loop graph plan, decompose that graph into pairwise local-close components and relay-root components, or send start, status, or stop control requests to a designated Houmao master/root owner without making the user agent part of the execution loop."
