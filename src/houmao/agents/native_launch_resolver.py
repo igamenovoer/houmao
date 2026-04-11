@@ -69,9 +69,7 @@ def resolve_preset_owner_agent_def_dir(*, preset_path: Path) -> Path:
 
     resolved_preset_path = preset_path.resolve()
     if resolved_preset_path.parent.name != "presets":
-        raise ValueError(
-            f"{preset_path}: preset paths must live under a `presets/` directory."
-        )
+        raise ValueError(f"{preset_path}: preset paths must live under a `presets/` directory.")
     return resolved_preset_path.parent.parent.resolve()
 
 

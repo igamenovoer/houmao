@@ -136,6 +136,7 @@ def test_top_level_command_inventory_exposes_new_native_surface() -> None:
         "agents",
         "brains",
         "credentials",
+        "internals",
         "mailbox",
         "project",
         "server",
@@ -150,6 +151,7 @@ def test_bare_invocation_prints_help() -> None:
     assert "Usage: houmao-mgr" in result.output
     assert "server" in result.output
     assert "agents" in result.output
+    assert "internals" in result.output
     assert "mailbox" in result.output
     assert "system-skills" in result.output
     assert "More detailed docs:" in result.output
@@ -344,7 +346,10 @@ def test_main_renders_stale_local_managed_agent_stop_failure_without_traceback(
 
     assert exit_code == 1
     assert "Managed agent `gpu` is registered in the shared registry" in captured.err
-    assert "its local tmux-backed runtime authority is no longer live or otherwise unusable" in captured.err
+    assert (
+        "its local tmux-backed runtime authority is no longer live or otherwise unusable"
+        in captured.err
+    )
     assert (
         "Tmux-backed resume requires existing tmux session `gpu-session` but it is unavailable"
         in captured.err
@@ -1291,7 +1296,9 @@ def test_agents_gateway_reminders_create_with_explicit_selector_builds_payload(
         )[1],
     )
 
-    def _create_reminders(resolved_target: object, *, payload: object) -> GatewayReminderCreateResultV1:
+    def _create_reminders(
+        resolved_target: object, *, payload: object
+    ) -> GatewayReminderCreateResultV1:
         captured["create_target"] = resolved_target
         captured["payload"] = payload
         return GatewayReminderCreateResultV1(
@@ -1447,7 +1454,9 @@ def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
         )[1],
     )
 
-    def _put_reminder(resolved_target: object, *, reminder_id: str, payload: object) -> GatewayReminderV1:
+    def _put_reminder(
+        resolved_target: object, *, reminder_id: str, payload: object
+    ) -> GatewayReminderV1:
         captured["put_target"] = resolved_target
         captured["put_reminder_id"] = reminder_id
         captured["put_payload"] = payload

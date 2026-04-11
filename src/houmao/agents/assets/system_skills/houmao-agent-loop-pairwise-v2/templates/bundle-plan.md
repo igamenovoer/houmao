@@ -8,6 +8,7 @@ Use this form when the run needs supporting Markdown files or scripts but still 
 loop-plan/
   plan.md
   prestart.md
+  routing-packets.md
   graph.md
   delegation.md
   reporting.md
@@ -35,11 +36,20 @@ loop-plan/
 # Participants
 <named set>
 
+# Topology
+<descendant relationships that identify delegating/non-leaf participants and leaves>
+
+Graph artifact: <none | NetworkX node-link graph path>
+Packet JSON artifact: <none | packet JSON path for validate-packets>
+
 # Delegation Policy
 See `delegation.md`.
 
 # Prestart Procedure
 See `prestart.md`.
+
+# Routing Packets
+See `routing-packets.md`.
 
 # Lifecycle Vocabulary
 - operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
@@ -56,6 +66,7 @@ See `reporting.md`.
 
 # Supporting Files
 - `prestart.md`
+- `routing-packets.md`
 - `graph.md`
 - `delegation.md`
 - `reporting.md`
@@ -70,24 +81,40 @@ See `reporting.md`.
 Record:
 
 - notifier preflight procedure
-- participant preparation-mail procedure
-- acknowledgement posture: `fire_and_proceed` or `require_ack`
-- operator reply policy: `none` or `operator_mailbox`
+- selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+- graph artifact and packet JSON artifact locations when available
+- graph-tool preflight: `analyze`, optional `slice`, and `packet-expectations` during packet authoring when a graph artifact exists
+- routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
+- validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
+- optional preparation target policy for explicit `operator_preparation_wave`: `delegating_non_leaf` by default, `all_participants` only when explicitly requested, or an explicit named target set
+- optional participant preparation-mail procedure for explicit targeted preparation recipients
+- optional acknowledgement posture for explicit preparation mail: `fire_and_proceed` or `require_ack`
+- optional operator reply policy for explicit preparation mail: `none` or `operator_mailbox`, applied to targeted preparation recipients
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
-- readiness barrier behavior when acknowledgement is required
-- how the master trigger remains separate from the preparation wave
+- readiness behavior for the selected strategy
+- how the master trigger remains separate from `initialize`
+
+## `routing-packets.md`
+
+Record one root packet for the designated master and one child packet for each parent-to-child edge. Each packet should record:
+
+- packet id
+- run id or placeholder
+- plan id and revision or digest
+- intended recipient
+- immediate driver
+- local role and objective
+- allowed delegation targets
+- result-return contract back to the immediate driver
+- mailbox, reminder, receipt, result, or timeout-watch obligations
+- forbidden actions
+- child dispatch table for non-leaf recipients
+- exact child packet text or exact references to packet text
+- forwarding guardrails for verbatim append and fail-closed mismatch handling
 
 ## `agents/<participant>.md`
 
-Each participant brief should be standalone and should record:
-
-- the participant role
-- resources and tools available locally
-- allowed delegation targets
-- work-type-specific delegation patterns, when needed
-- mailbox, reminder, receipt, or result obligations
-- forbidden actions
-- optional timeout-watch policy for that participant
+Use agent notes only for supporting material that does not replace the routing packet contract.
 
 ## `scripts/README.md` Inventory
 
@@ -104,5 +131,7 @@ List each script with:
 
 - Do not omit the top-level Mermaid graph from `plan.md`.
 - Do not make `graph.md` the only place where the topology is visible.
-- Do not leave participant preparation only in a shared upstream-aware matrix.
+- Do not leave routing packets only in a shared upstream-aware matrix that runtime agents must reinterpret.
+- Do not ask intermediate runtime agents to recompute child packet content from the full plan.
+- Do not ask intermediate runtime agents to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets.
 - Do not leave script behavior undocumented when scripts are part of the plan.

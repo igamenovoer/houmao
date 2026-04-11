@@ -26,7 +26,10 @@ from houmao.cao.server_launcher import (
     load_cao_server_launcher_config,
     resolve_cao_server_runtime_artifacts,
 )
-from houmao.demo.legacy.launch_support import normalize_demo_launch_backend, resolve_demo_preset_launch
+from houmao.demo.legacy.launch_support import (
+    normalize_demo_launch_backend,
+    resolve_demo_preset_launch,
+)
 
 _TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$")
 _ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:/|[A-Za-z]:[\\/])")

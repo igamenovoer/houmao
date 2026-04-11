@@ -199,7 +199,7 @@ def test_config_validation_defaults_runtime_root_project_aware_when_omitted(
     bootstrap_project_overlay(repo_root)
     config_path = repo_root / "launcher.toml"
     config_path.write_text(
-        '\n'.join(
+        "\n".join(
             (
                 'base_url = "http://127.0.0.1:9889"',
                 'proxy_policy = "clear"',

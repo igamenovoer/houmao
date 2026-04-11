@@ -31,7 +31,10 @@ from houmao.cao.server_launcher import (
     load_cao_server_launcher_config,
     resolve_cao_server_runtime_artifacts,
 )
-from houmao.demo.legacy.launch_support import normalize_demo_launch_backend, resolve_demo_preset_launch
+from houmao.demo.legacy.launch_support import (
+    normalize_demo_launch_backend,
+    resolve_demo_preset_launch,
+)
 from houmao.mailbox.stalwart import build_stalwart_credential_ref, runtime_stalwart_credential_path
 
 _DEFAULT_DEMO_OUTPUT_DIR = Path("tmp/demo/gateway-stalwart-cypht-interactive-demo-pack")

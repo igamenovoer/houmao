@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -15,7 +16,7 @@ from houmao.srv_ctrl.commands.main import cli
 def _fixture_agents_dir() -> Path:
     """Return the tracked plain agent-definition-directory fixture."""
 
-    return (Path(__file__).resolve().parents[2] / "fixtures" / "agents").resolve()
+    return (Path(__file__).resolve().parents[2] / "fixtures" / "plain-agent-def").resolve()
 
 
 def _copy_agent_def_fixture(tmp_path: Path) -> Path:
@@ -38,6 +39,35 @@ def _direct_env_file(agent_def_dir: Path, *, tool: str, name: str) -> Path:
     return (_direct_auth_root(agent_def_dir, tool=tool, name=name) / "env" / "vars.env").resolve()
 
 
+def _write_fake_provider_bin(bin_dir: Path, *, name: str, body: str) -> Path:
+    """Write one fake provider executable for credential login tests."""
+
+    path = (bin_dir / name).resolve()
+    path.write_text("#!/bin/sh\nset -eu\n" + body, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _provider_env(*, bin_dir: Path, record_dir: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Build one CLI runner env that prefers fake provider commands."""
+
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        "RECORD_DIR": str(record_dir),
+    }
+    if extra is not None:
+        env.update(extra)
+    return env
+
+
+def _extract_preserved_temp_home(output: str, *, tool: str) -> Path:
+    """Extract the preserved temp-home path from one Click error output."""
+
+    marker = f"Temporary {tool} login home preserved: "
+    assert marker in output
+    return Path(output.split(marker, 1)[1].strip()).resolve()
+
+
 def test_top_level_credentials_help_mentions_supported_tools() -> None:
     result = CliRunner().invoke(cli, ["credentials", "--help"])
 
@@ -46,6 +76,365 @@ def test_top_level_credentials_help_mentions_supported_tools() -> None:
     assert "codex" in result.output
     assert "gemini" in result.output
     assert "credential-management" in result.output or "credential" in result.output.lower()
+
+    tool_result = CliRunner().invoke(cli, ["credentials", "codex", "--help"])
+    assert tool_result.exit_code == 0
+    assert "login" in tool_result.output
+
+
+def test_credentials_codex_login_imports_auth_json_and_deletes_temp_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    agent_def_dir = _copy_agent_def_fixture(tmp_path)
+    bin_dir = (tmp_path / "bin").resolve()
+    record_dir = (tmp_path / "records").resolve()
+    bin_dir.mkdir()
+    record_dir.mkdir()
+    _write_fake_provider_bin(
+        bin_dir,
+        name="codex",
+        body="""
+printf '%s\\n' "$@" > "$RECORD_DIR/codex.args"
+printf '%s\\n' "$CODEX_HOME" > "$RECORD_DIR/codex.home"
+if [ "${OPENAI_API_KEY+x}" = x ]; then printf present > "$RECORD_DIR/openai_api_key"; fi
+if [ "${OPENAI_BASE_URL+x}" = x ]; then printf present > "$RECORD_DIR/openai_base_url"; fi
+printf '{"logged_in": true}\\n' > "$CODEX_HOME/auth.json"
+""",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "sandbox",
+        ],
+        env=_provider_env(
+            bin_dir=bin_dir,
+            record_dir=record_dir,
+            extra={
+                "OPENAI_API_KEY": "sk-existing",
+                "OPENAI_BASE_URL": "https://old.example.test",
+            },
+        ),
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["operation"] == "add"
+    assert payload["target_kind"] == "agent_def_dir"
+    assert payload["login"]["provider_command"] == ["codex", "login", "--device-auth"]
+    temp_home = Path(payload["login"]["temp_home"])
+    assert payload["login"]["temp_home_deleted"] is True
+    assert not temp_home.exists()
+    assert (record_dir / "codex.args").read_text(encoding="utf-8").splitlines() == [
+        "login",
+        "--device-auth",
+    ]
+    assert not (record_dir / "openai_api_key").exists()
+    assert not (record_dir / "openai_base_url").exists()
+    assert json.loads(
+        (
+            _direct_auth_root(agent_def_dir, tool="codex", name="sandbox")
+            / "files"
+            / "auth.json"
+        ).read_text(encoding="utf-8")
+    ) == {"logged_in": True}
+
+
+def test_credentials_codex_login_can_keep_temp_home_and_inherit_auth_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    agent_def_dir = _copy_agent_def_fixture(tmp_path)
+    bin_dir = (tmp_path / "bin").resolve()
+    record_dir = (tmp_path / "records").resolve()
+    bin_dir.mkdir()
+    record_dir.mkdir()
+    _write_fake_provider_bin(
+        bin_dir,
+        name="codex",
+        body="""
+printf '%s\\n' "$@" > "$RECORD_DIR/codex.args"
+if [ "${OPENAI_API_KEY+x}" = x ]; then printf present > "$RECORD_DIR/openai_api_key"; fi
+printf '{"logged_in": true}\\n' > "$CODEX_HOME/auth.json"
+""",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "browser-login",
+            "--browser",
+            "--keep-temp-home",
+            "--inherit-auth-env",
+        ],
+        env=_provider_env(
+            bin_dir=bin_dir,
+            record_dir=record_dir,
+            extra={"OPENAI_API_KEY": "sk-existing"},
+        ),
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["login"]["provider_command"] == ["codex", "login"]
+    assert payload["login"]["temp_home_deleted"] is False
+    assert Path(payload["login"]["temp_home"]).is_dir()
+    assert (record_dir / "codex.args").read_text(encoding="utf-8").splitlines() == ["login"]
+    assert (record_dir / "openai_api_key").read_text(encoding="utf-8") == "present"
+
+
+def test_project_credentials_claude_login_imports_vendor_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir()
+    bin_dir = (tmp_path / "bin").resolve()
+    record_dir = (tmp_path / "records").resolve()
+    bin_dir.mkdir()
+    record_dir.mkdir()
+    _write_fake_provider_bin(
+        bin_dir,
+        name="claude",
+        body="""
+printf '%s\\n' "$@" > "$RECORD_DIR/claude.args"
+if [ "${ANTHROPIC_AUTH_TOKEN+x}" = x ]; then printf present > "$RECORD_DIR/anthropic_auth_token"; fi
+printf '{"claudeAiOauth": {"accessToken": "vendor-alpha"}}\\n' > "$CLAUDE_CONFIG_DIR/.credentials.json"
+printf '{"hasCompletedOnboarding": true}\\n' > "$CLAUDE_CONFIG_DIR/.claude.json"
+""",
+    )
+    monkeypatch.chdir(repo_root)
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "credentials",
+            "claude",
+            "login",
+            "--name",
+            "vendor-login",
+            "--claudeai",
+            "--console",
+            "--email",
+            "user@example.test",
+            "--sso",
+        ],
+        env=_provider_env(
+            bin_dir=bin_dir,
+            record_dir=record_dir,
+            extra={"ANTHROPIC_AUTH_TOKEN": "old-token"},
+        ),
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["target_kind"] == "project"
+    assert payload["login"]["temp_home_deleted"] is True
+    assert not Path(payload["login"]["temp_home"]).exists()
+    assert (record_dir / "claude.args").read_text(encoding="utf-8").splitlines() == [
+        "auth",
+        "login",
+        "--claudeai",
+        "--console",
+        "--email",
+        "user@example.test",
+        "--sso",
+    ]
+    assert not (record_dir / "anthropic_auth_token").exists()
+    files_root = Path(payload["path"]) / "files"
+    assert json.loads((files_root / ".credentials.json").read_text(encoding="utf-8")) == {
+        "claudeAiOauth": {"accessToken": "vendor-alpha"}
+    }
+    assert json.loads((files_root / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True
+    }
+
+
+def test_credentials_gemini_login_requires_update_for_existing_direct_credential(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    agent_def_dir = _copy_agent_def_fixture(tmp_path)
+    bin_dir = (tmp_path / "bin").resolve()
+    record_dir = (tmp_path / "records").resolve()
+    bin_dir.mkdir()
+    record_dir.mkdir()
+    _write_fake_provider_bin(
+        bin_dir,
+        name="gemini",
+        body="""
+printf '%s\\n' "$GEMINI_CLI_HOME" > "$RECORD_DIR/gemini.home"
+if [ -f "$GEMINI_CLI_HOME/.gemini/settings.json" ]; then printf present > "$RECORD_DIR/gemini_settings"; fi
+if [ "${GEMINI_API_KEY+x}" = x ]; then printf present > "$RECORD_DIR/gemini_api_key"; fi
+if [ "${NO_BROWSER:-}" = true ]; then printf true > "$RECORD_DIR/no_browser"; fi
+printf '{"refresh_token": "gemini-token"}\\n' > "$GEMINI_CLI_HOME/.gemini/oauth_creds.json"
+""",
+    )
+    monkeypatch.chdir(tmp_path)
+    env = _provider_env(
+        bin_dir=bin_dir,
+        record_dir=record_dir,
+        extra={"GEMINI_API_KEY": "old-key"},
+    )
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "gemini",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "personal",
+        ],
+        env=env,
+    )
+    assert add_result.exit_code == 0, add_result.output
+    assert not (record_dir / "gemini_api_key").exists()
+    assert (record_dir / "gemini_settings").read_text(encoding="utf-8") == "present"
+
+    duplicate_result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "gemini",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "personal",
+        ],
+        env=env,
+    )
+    assert duplicate_result.exit_code != 0
+    assert "--update" in duplicate_result.output
+
+    update_result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "gemini",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "personal",
+            "--update",
+            "--keep-temp-home",
+            "--no-browser",
+        ],
+        env=env,
+    )
+    assert update_result.exit_code == 0, update_result.output
+    update_payload = json.loads(update_result.output)
+    assert update_payload["operation"] == "set"
+    assert Path(update_payload["login"]["temp_home"]).is_dir()
+    assert (record_dir / "no_browser").read_text(encoding="utf-8") == "true"
+
+
+def test_credentials_login_failures_preserve_temp_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    agent_def_dir = _copy_agent_def_fixture(tmp_path)
+    bin_dir = (tmp_path / "bin").resolve()
+    record_dir = (tmp_path / "records").resolve()
+    bin_dir.mkdir()
+    record_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    _write_fake_provider_bin(
+        bin_dir,
+        name="codex",
+        body="""
+exit 9
+""",
+    )
+    failed_provider = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "provider-fail",
+        ],
+        env=_provider_env(bin_dir=bin_dir, record_dir=record_dir),
+    )
+    assert failed_provider.exit_code != 0
+    assert _extract_preserved_temp_home(failed_provider.output, tool="codex").is_dir()
+
+    _write_fake_provider_bin(
+        bin_dir,
+        name="codex",
+        body="""
+printf ok > "$RECORD_DIR/missing_artifact_ran"
+""",
+    )
+    missing_artifact = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "missing-artifact",
+        ],
+        env=_provider_env(bin_dir=bin_dir, record_dir=record_dir),
+    )
+    assert missing_artifact.exit_code != 0
+    assert _extract_preserved_temp_home(missing_artifact.output, tool="codex").is_dir()
+
+    (agent_def_dir / "tools" / "codex" / "adapter.yaml").unlink()
+    _write_fake_provider_bin(
+        bin_dir,
+        name="codex",
+        body="""
+printf '{"logged_in": true}\\n' > "$CODEX_HOME/auth.json"
+""",
+    )
+    import_failure = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "login",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "import-fail",
+        ],
+        env=_provider_env(bin_dir=bin_dir, record_dir=record_dir),
+    )
+    assert import_failure.exit_code != 0
+    assert _extract_preserved_temp_home(import_failure.output, tool="codex").is_dir()
 
 
 def test_credentials_fail_clearly_without_resolvable_target(

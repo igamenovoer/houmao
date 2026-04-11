@@ -62,7 +62,21 @@ Houmao currently ships the set of system skills declared in `src/houmao/agents/a
 |---|---|---|
 | `houmao-agent-loop-pairwise` | Restore the stable pairwise surface: author a master-owned pairwise loop plan from user intent, render the final Mermaid control graph, and operate the accepted run through `start`, `status`, and `stop`. Keeps the user agent outside the execution loop while leaving prestart and expanded operator verbs to the versioned enriched skill. | Routes through `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, and `houmao-adv-usage-pattern` for execution; the skill itself is authoring plus `start|status|stop` control |
 | `houmao-agent-loop-pairwise-v2` | Preserve the enriched versioned pairwise workflow: author a master-owned pairwise loop plan from user intent, run canonical `initialize`, render the final Mermaid control graph, and operate the accepted run through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`. Keeps the user agent outside the execution loop, separates observed states from operator actions, and routes optional overdue downstream peeking through `houmao-agent-inspect`. | Routes through `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr`, `houmao-agent-inspect`, and `houmao-adv-usage-pattern` for execution; the skill itself is authoring plus `plan|initialize|start|peek|ping|pause|resume|stop|hard-kill` control |
-| `houmao-agent-loop-relay` | Author a master-owned relay loop plan from user intent, render the final Mermaid relay graph, and operate the accepted run through `start`, `status`, and `stop`. Normalizes forwarding authority explicitly, evaluates completion centrally at the origin, and returns the final result to the designated origin rather than cycling through worker-to-worker hand-offs. | Routes through `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, and `houmao-adv-usage-pattern` for execution; the skill itself is authoring plus `start|status|stop` control |
+| `houmao-agent-loop-generic` | Decompose user intent into a generic loop graph with typed `pairwise` and `relay` components, render the final Mermaid graph, and operate the accepted root-owned run through `start`, `status`, and `stop`. Keeps pairwise local-close returns and relay egress returns explicit per component. | Routes through `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, `houmao-agent-inspect`, and `houmao-adv-usage-pattern` for execution; the skill itself is authoring plus `start|status|stop` control |
+
+### Graph Tooling for Loop Authoring
+
+When authoring or validating plans with `houmao-agent-loop-pairwise-v2` or `houmao-agent-loop-generic`, the `houmao-mgr internals graph high` commands provide deterministic structural helpers that can be called from inside an agent session:
+
+| Command | What it provides |
+|---|---|
+| `graph high analyze` | Root reachability, leaves, delegating participants, cycle/DAG posture, shape warnings |
+| `graph high packet-expectations` | Expected pairwise-v2 routing-packet structure derived from graph topology |
+| `graph high validate-packets` | Validation errors for a routing-packet document against graph-derived expectations |
+| `graph high slice` | Ancestor, descendant, reachable, or component subgraph extraction |
+| `graph high render-mermaid` | Deterministic Mermaid scaffolding from graph structure |
+
+All commands accept NetworkX node-link JSON via `--input` and emit structured results or node-link JSON. For the full option reference, see [internals graph](../reference/cli/internals.md).
 
 ## Auto-Install vs Explicit Install
 
@@ -98,7 +112,7 @@ The same catalog can land in a tool home through either path, but the **default 
    │  agent-definition         │        │                           │
    │  agent-loop-pairwise      │        │                           │
    │  agent-loop-pairwise-v2   │        │                           │
-   │  agent-loop-relay         │        │                           │
+   │  agent-loop-generic       │        │                           │
    │  agent-inspect            │        │                           │
    │  agent-messaging          │        │                           │
    │  agent-gateway            │        │                           │
@@ -124,7 +138,7 @@ The named sets resolve as:
 | `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr` |
 | `advanced-usage` | `houmao-adv-usage-pattern` |
 | `touring` | `houmao-touring` |
-| `user-control` | `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-relay` |
+| `user-control` | `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-generic` |
 | `agent-instance` | `houmao-agent-instance` |
 | `agent-inspect` | `houmao-agent-inspect` |
 | `agent-messaging` | `houmao-agent-messaging` |

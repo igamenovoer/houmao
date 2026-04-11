@@ -29,7 +29,9 @@ def _decode_json_stream(output: str) -> list[dict[str, object]]:
     return payloads
 
 
-def _run_command(*, args: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _run_command(
+    *, args: list[str], cwd: Path, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
     """Run one subprocess command and raise on failure."""
 
     process = subprocess.run(

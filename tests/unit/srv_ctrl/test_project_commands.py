@@ -115,6 +115,7 @@ def test_project_credentials_help_mentions_supported_tools_and_verbs() -> None:
     assert "get" in tool_result.output
     assert "add" in tool_result.output
     assert "set" in tool_result.output
+    assert "login" in tool_result.output
     assert "rename" in tool_result.output
     assert "remove" in tool_result.output
 
@@ -504,7 +505,9 @@ def test_project_credentials_add_bootstraps_missing_overlay(
 
     assert result.exit_code == 0, result.output
     assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
-    assert (_project_auth_root(repo_root, tool="codex", name="personal") / "env" / "vars.env").is_file()
+    assert (
+        _project_auth_root(repo_root, tool="codex", name="personal") / "env" / "vars.env"
+    ).is_file()
 
 
 def test_project_agents_tool_get_fails_without_bootstrapping_missing_overlay(
@@ -1116,9 +1119,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
         repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     ).is_file()
     assert (
-        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
-        / "files"
-        / "auth.json"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds") / "files" / "auth.json"
     ).is_file()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 
@@ -1147,9 +1148,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
     assert (
-        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
-        / "files"
-        / "auth.json"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds") / "files" / "auth.json"
     ).is_file()
     list_after_remove = runner.invoke(cli, ["project", "easy", "specialist", "list"])
     assert list_after_remove.exit_code == 0
@@ -1358,9 +1357,7 @@ def test_project_credentials_gemini_add_supports_oauth_only_bundle(
 
     assert result.exit_code == 0, result.output
     oauth_bundle_file = (
-        _project_auth_root(repo_root, tool="gemini", name="personal")
-        / "files"
-        / "oauth_creds.json"
+        _project_auth_root(repo_root, tool="gemini", name="personal") / "files" / "oauth_creds.json"
     )
     assert oauth_bundle_file.is_file()
     assert oauth_bundle_file.read_text(encoding="utf-8") == '{"refresh_token": "token"}\n'
@@ -2054,9 +2051,7 @@ def test_project_easy_specialist_create_prompts_before_replacing_existing_specia
         "prompt_mode": "unattended"
     }
     assert (
-        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
-        / "files"
-        / "auth.json"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds") / "files" / "auth.json"
     ).is_file()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 
@@ -2190,9 +2185,7 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
         "prompt_mode": "unattended"
     }
     assert (
-        _project_auth_root(repo_root, tool="codex", name="researcher-creds")
-        / "files"
-        / "auth.json"
+        _project_auth_root(repo_root, tool="codex", name="researcher-creds") / "files" / "auth.json"
     ).is_file()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 

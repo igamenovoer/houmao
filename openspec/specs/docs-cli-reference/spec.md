@@ -5,7 +5,7 @@ Define the documentation requirements for Houmao CLI reference content.
 ## Requirements
 ### Requirement: houmao-mgr reference documents all command groups
 
-The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `credentials`, `mailbox`, `project`, and `server`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
+The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `credentials`, `internals`, `mailbox`, `project`, and `server`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
 
 The CLI reference SHALL make the major nested managed-agent and project command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
 
@@ -19,7 +19,8 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 - `project credentials`,
 - `project easy`,
 - `project mailbox`,
-- `admin cleanup`.
+- `admin cleanup`,
+- `internals graph` (via a dedicated linked page `docs/reference/cli/internals.md`).
 
 When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `check`, `send`, `reply`, and `mark-read`, and it SHALL explain:
 
@@ -36,8 +37,13 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 
 #### Scenario: Reader finds current agent lifecycle and project command groups
 - **WHEN** a reader looks up `houmao-mgr`
-- **THEN** they find documented subcommands for `agents`, `brains`, `credentials`, `mailbox`, `project`, `server`, and `admin`
+- **THEN** they find documented subcommands for `agents`, `brains`, `credentials`, `internals`, `mailbox`, `project`, `server`, and `admin`
 - **AND THEN** the CLI reference does not present removed or outdated project group names such as `agent-tools` as the supported public project surface
+
+#### Scenario: Reader can discover the internals graph command family
+- **WHEN** a reader looks up `houmao-mgr` command groups in the CLI reference
+- **THEN** they find an `internals` section that points to `docs/reference/cli/internals.md`
+- **AND THEN** they do not need to discover the internals group by running `houmao-mgr --help` or reading source code
 
 #### Scenario: Reader can discover nested managed-agent and project command families
 - **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project credentials`, `project easy`, `project mailbox`, or `admin cleanup`
@@ -103,6 +109,38 @@ The `houmao-mgr` reference SHALL position `credentials` as the first-class crede
 - **WHEN** a reader checks the CLI reference for project-local tool management
 - **THEN** the reference explains that `project agents tools <tool>` remains for tool inspection and setup bundles
 - **AND THEN** the reference directs credential CRUD to `credentials ...` or `project credentials ...`
+
+### Requirement: CLI reference documents the credential login helper
+The CLI reference SHALL document the credential `login` helper for the dedicated credential-management families.
+
+At minimum, that coverage SHALL include:
+
+- the top-level form `houmao-mgr credentials [--project|--agent-def-dir <path>] <tool> login --name <credential-name>`,
+- the project-scoped wrapper form `houmao-mgr project credentials <tool> login --name <credential-name>`,
+- the supported tool lanes `claude`, `codex`, and `gemini`,
+- the default create-only behavior and the explicit update option for replacing an existing credential,
+- provider home isolation through `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `GEMINI_CLI_HOME`,
+- provider artifact imports from Codex `auth.json`, Claude `.credentials.json` plus supported companion state, and Gemini `.gemini/oauth_creds.json`,
+- successful cleanup of the temporary provider home by default,
+- preservation of the temporary provider home on failure or when an explicit keep-temp option is used,
+- provider-specific login expectations, including Codex device-auth default, Claude `auth login`, and Gemini's interactive OAuth flow.
+
+The CLI reference SHALL explain that the helper invokes installed provider CLIs and that the operator may need to complete browser, device-code, console, or paste-back authentication steps before Houmao imports the resulting file.
+
+#### Scenario: Reader can find the top-level credential login form
+- **WHEN** a reader looks up `houmao-mgr credentials`
+- **THEN** the CLI reference lists `login` as a supported credential action for `claude`, `codex`, and `gemini`
+- **AND THEN** it explains how to select a project target or a direct agent-definition-dir target
+
+#### Scenario: Reader understands successful cleanup and failure preservation
+- **WHEN** a reader looks up the credential login workflow
+- **THEN** the CLI reference states that the temporary provider home is deleted after a successful import by default
+- **AND THEN** it states that the temporary provider home is preserved and reported when provider login, artifact validation, or Houmao import fails
+
+#### Scenario: Reader sees provider-specific login behavior
+- **WHEN** a reader compares Codex, Claude, and Gemini credential login behavior
+- **THEN** the CLI reference identifies the provider home env var and expected auth artifact for each tool
+- **AND THEN** it explains that Gemini may require an interactive OAuth session rather than a fully headless login command
 
 ### Requirement: houmao-server reference documents serve and query commands
 
@@ -869,3 +907,42 @@ For each of those three surfaces the reference SHALL document:
 - **THEN** the reference explains that Gemini reasoning levels are Houmao-maintained presets that may map to multiple native Gemini settings together
 - **AND THEN** the reference explains that operators needing finer Gemini-native control should omit Houmao reasoning-level and manage native config or env directly
 
+### Requirement: System-skills reference documents both pairwise skill variants and their boundary
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` as packaged Houmao-owned system skills.
+
+That page SHALL describe `houmao-agent-loop-pairwise` as the restored stable pairwise skill for manual pairwise planning plus `start|status|stop` run control.
+
+That page SHALL describe `houmao-agent-loop-pairwise-v2` as the manual-invocation-only versioned enriched pairwise skill for authoring, prestart, and expanded run control.
+
+That page SHALL explain that the stable and v2 pairwise skills are distinct packaged choices rather than aliases for the same skill.
+
+When the page describes current install selections that expand `user-control`, it SHALL enumerate both pairwise skill variants when both are present in the packaged catalog.
+
+#### Scenario: Reader sees both pairwise variants in the system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page identifies both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` as packaged Houmao-owned skills
+- **AND THEN** it explains the stable-versus-v2 boundary instead of presenting the two names as interchangeable aliases
+
+#### Scenario: Reader sees both pairwise variants in current install selections
+- **WHEN** a reader checks the current packaged inventory or install-selection behavior in `docs/reference/cli/system-skills.md`
+- **THEN** the page lists both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` when the packaged catalog includes both
+- **AND THEN** the page explains that both arrive through `user-control` when that set contains both
+
+### Requirement: System-skills reference documents the generic loop planner replacement
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-loop-generic` as a packaged Houmao-owned system skill.
+
+That page SHALL describe `houmao-agent-loop-generic` as the generic composed-loop planner and `start|status|stop` run-control skill for user-controlled agents that need to decompose a communication graph into pairwise local-close components and relay-root components.
+
+That page SHALL explain that `houmao-agent-loop-generic` replaces the prior relay-only `houmao-agent-loop-relay` packaged skill.
+
+When the page describes current install selections that expand `user-control`, it SHALL enumerate `houmao-agent-loop-generic` when it is present in the packaged catalog and SHALL NOT enumerate `houmao-agent-loop-relay` as current after the catalog replacement.
+
+#### Scenario: Reader sees the generic loop planner in the system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page identifies `houmao-agent-loop-generic` as a packaged Houmao-owned skill
+- **AND THEN** it describes generic pairwise/relay graph decomposition rather than relay-only planning
+
+#### Scenario: Reader sees generic loop skill in current install selections
+- **WHEN** a reader checks the current packaged inventory or install-selection behavior in `docs/reference/cli/system-skills.md`
+- **THEN** the page lists `houmao-agent-loop-generic` when the packaged catalog includes it
+- **AND THEN** the page does not list `houmao-agent-loop-relay` as a current installable skill after the replacement

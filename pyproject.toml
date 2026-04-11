@@ -1,6 +1,6 @@
 [project]
 name = "Houmao"
-version = "0.5.1"
+version = "0.6.0rc1"
 description = "Houmao runtime package for realm controller and CAO launcher workflows"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,6 +29,7 @@ dependencies = [
   "rich>=14.3.3,<15",
   "starlette>=0.46,<2",
   "uvicorn>=0.41.0,<0.42",
+  "networkx>=3.6.1,<4",
 ]
 
 [project.scripts]

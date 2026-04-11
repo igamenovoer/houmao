@@ -34,7 +34,7 @@ _CATALOG_SKILLS = [
     "houmao-agent-definition",
     "houmao-agent-loop-pairwise",
     "houmao-agent-loop-pairwise-v2",
-    "houmao-agent-loop-relay",
+    "houmao-agent-loop-generic",
     "houmao-agent-instance",
     "houmao-agent-inspect",
     "houmao-agent-messaging",
@@ -52,7 +52,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-definition",
     "houmao-agent-loop-pairwise",
     "houmao-agent-loop-pairwise-v2",
-    "houmao-agent-loop-relay",
+    "houmao-agent-loop-generic",
     "houmao-agent-instance",
     "houmao-agent-inspect",
     "houmao-agent-messaging",
@@ -200,7 +200,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-relay",
+        "houmao-agent-loop-generic",
     ]
     agent_inspect_record = next(
         record for record in payload["sets"] if record["name"] == "agent-inspect"
@@ -251,7 +251,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-relay/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-loop-generic/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
@@ -390,7 +390,7 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
     assert (workspace / ".gemini/skills/houmao-agent-definition/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-relay/SKILL.md").is_file()
+    assert (workspace / ".gemini/skills/houmao-agent-loop-generic/SKILL.md").is_file()
     assert not (workspace / ".agents/skills").exists()
 
 

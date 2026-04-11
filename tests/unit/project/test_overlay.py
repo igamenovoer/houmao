@@ -215,7 +215,9 @@ def test_resolve_project_overlay_does_not_cross_nearest_git_boundary(tmp_path: P
     assert resolution.overlay_root == (nested_dir / ".houmao").resolve()
 
 
-def test_resolve_project_overlay_does_not_cross_nearest_git_directory_boundary(tmp_path: Path) -> None:
+def test_resolve_project_overlay_does_not_cross_nearest_git_directory_boundary(
+    tmp_path: Path,
+) -> None:
     parent_root = (tmp_path / "parent").resolve()
     nested_repo_root = (parent_root / "nested-repo").resolve()
     nested_dir = (nested_repo_root / "app").resolve()

@@ -15,4 +15,3 @@ def get_version() -> str:
 
 
 __all__ = ["get_version"]
-

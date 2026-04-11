@@ -8,4 +8,3 @@ from houmao.demo.legacy.passive_server_parallel_validation_demo_pack.cli import 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -84,18 +84,21 @@ The pattern family SHALL NOT claim guaranteed unfinished-work recovery beyond th
 - **AND THEN** it still states that self-mail is the correct choice when gateway-surviving durability is required
 
 ### Requirement: `houmao-adv-usage-pattern` documents a supported pairwise driver-worker edge-loop composition
-The packaged `houmao-adv-usage-pattern` skill SHALL include a supported pairwise edge-loop pattern for workflows where one managed agent acts as a driver, sends work to exactly one worker for one loop round, and receives that same loop round's final result back from that same worker through mailbox email.
+The packaged `houmao-adv-usage-pattern` skill SHALL include a supported elemental pairwise edge-loop pattern for workflows where one managed agent acts as a driver, sends work to exactly one worker for one loop round, and receives that same loop round's final result back from that same worker through mailbox email.
 
 That pairwise edge-loop pattern SHALL describe the workflow through explicit roles:
 
 - driver,
 - worker.
 
+That pairwise edge-loop pattern SHALL describe the pairwise topology as one two-node protocol round rather than a recursive tree, arbitrary graph, or master-owned multi-edge run plan.
+
 That pairwise edge-loop pattern SHALL describe itself as a composition over the maintained direct-operation skills:
 
 - `houmao-agent-messaging` for queued gateway prompt handoff between already-running managed agents,
 - `houmao-agent-email-comms` for receipt email, final result email, and final-result acknowledgement email,
-- `houmao-agent-gateway` for live reminder follow-up behavior used by the pattern.
+- `houmao-agent-gateway` for live reminder follow-up behavior used by the pattern,
+- `houmao-agent-inspect` for read-only downstream worker peeking before due resends.
 
 That pairwise edge-loop pattern SHALL state that it assumes all participating agents already have live attached gateways for that pattern run and SHALL NOT describe itself as the durable fallback pattern for gateway restart, gateway loss, or managed-agent replacement.
 
@@ -108,25 +111,32 @@ That pairwise edge-loop pattern SHALL include compact text-block templates that 
 - supervisor reminder text,
 - optional self-mail checkpoint text when that variant is described.
 
+That pairwise edge-loop pattern SHALL direct readers to a dedicated pairwise loop-planning skill when they need multiple pairwise edges, recursive child loops, a rendered control graph, master-owned run planning, or run-control actions.
+
 #### Scenario: Pattern defines the pairwise roles and direct-skill composition
 - **WHEN** an agent or operator opens the pairwise edge-loop pattern in `houmao-adv-usage-pattern`
 - **THEN** the page identifies driver and worker explicitly
-- **AND THEN** it routes prompt handoff work to `houmao-agent-messaging`, mailbox receipt and result work to `houmao-agent-email-comms`, and reminder work to `houmao-agent-gateway`
+- **AND THEN** it routes prompt handoff work to `houmao-agent-messaging`, mailbox receipt and result work to `houmao-agent-email-comms`, reminder work to `houmao-agent-gateway`, and read-only downstream peeking to `houmao-agent-inspect`
 
 #### Scenario: Final result closes back to the same driver that sent the request
 - **WHEN** a reader follows the documented pairwise edge-loop message flow
 - **THEN** the pattern shows the worker returning the final information to the same driver that sent the request for that edge-loop round
 - **AND THEN** it does not describe the default pattern as having a distant loop egress return directly to some higher ancestor
 
+#### Scenario: Pairwise page stays elemental
+- **WHEN** a reader opens the pairwise edge-loop pattern page
+- **THEN** the page describes one driver and one worker for one pairwise round
+- **AND THEN** it does not teach recursive child edge-loops, parent edge identifiers, or arbitrary pairwise graph planning as part of the elemental pattern
+
 #### Scenario: Pattern shows request and follow-up templates explicitly
 - **WHEN** a reader needs to compose pairwise edge-loop request, mail, or reminder content from the pattern page
 - **THEN** the page includes text-block templates for those artifacts
 - **AND THEN** those templates name the workflow identifiers and follow-up fields that the reader is expected to record
 
-### Requirement: Pairwise edge-loop guidance requires local-close recursion, explicit loop state, and idempotent retry
-The pairwise edge-loop pattern in `houmao-adv-usage-pattern` SHALL direct any driver that sends work to a worker to persist local edge-loop state before sending that request.
+### Requirement: Pairwise edge-loop guidance requires elemental local-close state, status-aware driver follow-up, and idempotent resend
+The pairwise edge-loop pattern in `houmao-adv-usage-pattern` SHALL direct any driver that sends work to one worker to persist local edge-loop state before sending that request.
 
-That local edge-loop state SHALL include explicit workflow identifiers and retry bookkeeping sufficient for idempotent resend and completion tracking, including at minimum:
+That local edge-loop state SHALL include explicit workflow identifiers and retry bookkeeping sufficient for idempotent resend and completion tracking for the elemental two-node round, including at minimum:
 
 - `edge_loop_id`,
 - peer identity,
@@ -134,7 +144,7 @@ That local edge-loop state SHALL include explicit workflow identifiers and retry
 - due time or next review time,
 - retry or attempt count.
 
-When the worker is itself handling one parent edge-loop while driving child edge-loops downstream, the pairwise edge-loop pattern SHALL describe optional `parent_edge_loop_id` linkage so the child loop can be associated with the parent loop without making the child loop's result bypass the immediate driver.
+The pairwise edge-loop pattern SHALL NOT require or present `parent_edge_loop_id` as part of the elemental pairwise pattern.
 
 The pairwise edge-loop pattern SHALL direct agents to store that mutable edge-loop ledger under `HOUMAO_JOB_DIR` by default as per-session scratch bookkeeping.
 
@@ -151,27 +161,31 @@ The pairwise edge-loop pattern SHALL direct the driver to:
 3. arm follow-up for itself,
 4. stop the current round instead of waiting actively inside one live provider turn for downstream email.
 
-The pairwise edge-loop pattern SHALL describe the default follow-up model for one agent with many edge-loops in flight as:
+The pairwise edge-loop pattern SHALL describe follow-up for the elemental pairwise round as local ledger review plus a supervisor reminder, with optional self-mail checkpoint or backlog marker when the driver wants a durable local backlog anchor in addition to the live reminder.
 
-- one local loop ledger as the authoritative mutable state,
-- one supervisor reminder as the live loop clock,
-- optional self-mail checkpoint or backlog marker when the sender wants a durable local backlog anchor in addition to the live reminder.
+The pairwise edge-loop pattern SHALL direct driver follow-up to check mailbox state first for a matching receipt, final result, or final-result acknowledgement.
 
-The pairwise edge-loop pattern SHALL direct retry behavior to check mailbox state first and resend second using the same explicit `edge_loop_id` rather than inventing a fresh identity for each retry.
+When the expected mailbox signal is still missing and the pairwise round is due for review, the pairwise edge-loop pattern SHALL direct the driver to peek the downstream worker for the same `edge_loop_id` through `houmao-agent-inspect` before resending the request.
+
+When the `houmao-agent-inspect` peek is unavailable, stale, or inconclusive and the resend decision remains ambiguous, the pairwise edge-loop pattern SHALL allow a fresh prompt, ping, or direct `houmao-agent-messaging` message only as a last-resort status probe before resend.
+
+When that `houmao-agent-inspect` peek or last-resort status probe shows that the worker still owns or is still actively working on the same `edge_loop_id`, the pairwise edge-loop pattern SHALL direct the driver to update local review state and schedule the next review instead of resending the request.
+
+Only when the expected mailbox signal is missing, the pairwise round is due, and the worker cannot be observed or confirmed as still owning or actively working on the same `edge_loop_id`, the pairwise edge-loop pattern SHALL allow resend using the same explicit `edge_loop_id` rather than inventing a fresh identity for each retry.
 
 The pairwise edge-loop pattern SHALL direct workers to deduplicate repeated edge-loop requests by those explicit identifiers and to resend the corresponding receipt or final result instead of duplicating work.
 
-If a worker needs downstream help from another agent, the pairwise edge-loop pattern SHALL direct that worker to open one or more child edge-loops that each close back to that same worker before the worker reports its own final result upstream.
+The pairwise edge-loop pattern SHALL NOT teach downstream child-loop dispatch, recursive local-close trees, or multi-edge graph planning as part of the elemental pairwise protocol.
 
 #### Scenario: Driver follow-up ends the current round instead of waiting in-turn
 - **WHEN** a driver in the pairwise edge-loop pattern hands work to a worker
 - **THEN** the pattern directs that driver to persist local loop state, arm follow-up, and end the current round
 - **AND THEN** it does not describe active waiting inside one long LLM chat round as the normal behavior
 
-#### Scenario: Worker closes child edge-loops locally before replying upstream
-- **WHEN** a worker in one pairwise edge-loop needs help from another downstream agent
-- **THEN** the pattern directs that worker to open one or more child edge-loops that close back to that same worker
-- **AND THEN** the worker reports its own final result upstream only after those child edge-loops are locally integrated
+#### Scenario: Pairwise state excludes parent edge linkage by default
+- **WHEN** a reader looks for the required identity fields in the elemental pairwise edge-loop pattern
+- **THEN** the pattern requires `edge_loop_id` for the two-node round
+- **AND THEN** it does not require `parent_edge_loop_id` as part of that elemental state model
 
 #### Scenario: Mutable edge-loop ledger uses the job dir rather than managed memory
 - **WHEN** a reader looks for where the pairwise edge-loop pattern stores retry counters, due times, and seen-request bookkeeping
@@ -183,31 +197,50 @@ If a worker needs downstream help from another agent, the pairwise edge-loop pat
 - **THEN** the pattern explains that those values come from workflow context and explicit user requirements rather than fixed Houmao defaults
 - **AND THEN** it allows the agent to ask the user when a materially important timing value is not inferable from context
 
-#### Scenario: Many concurrent edge-loops use one supervisor reminder instead of one reminder per loop
-- **WHEN** one driver has multiple pairwise edge-loops in flight at the same time
-- **THEN** the pattern directs that driver to keep the loop rows in one local ledger and use one supervisor reminder as the default live wake path
-- **AND THEN** it does not describe one live reminder per active edge-loop as the default scalable pattern
+#### Scenario: Driver uses read-only peek before resending a due pairwise request
+- **WHEN** a driver's pairwise follow-up does not find the expected receipt or result in mailbox state
+- **AND WHEN** the local ledger says the `edge_loop_id` is due for review
+- **THEN** the pattern directs the driver to use `houmao-agent-inspect` to peek the downstream worker for that `edge_loop_id` before resending
+- **AND THEN** it does not treat a fresh prompt, ping, or direct message as the default status check
+
+#### Scenario: Driver uses active status probe only as last resort
+- **WHEN** the driver's `houmao-agent-inspect` peek is unavailable, stale, or inconclusive
+- **AND WHEN** the resend decision remains ambiguous
+- **THEN** the pattern allows a fresh prompt, ping, or direct message only as a last-resort status probe before resend
+
+#### Scenario: Driver defers resend when worker is still working
+- **WHEN** the driver's `houmao-agent-inspect` peek or last-resort status probe shows that the downstream worker still owns or is still actively working on the same `edge_loop_id`
+- **THEN** the pattern directs the driver to update local review state and schedule another review
+- **AND THEN** it does not resend the pairwise request
 
 #### Scenario: Repeated edge-loop request is deduplicated by workflow identifier
 - **WHEN** a worker encounters the same `edge_loop_id` again after an ambiguous resend
 - **THEN** the pattern directs that worker to treat the request as already owned
-- **AND THEN** it resends the matching receipt or final result without duplicating downstream work
+- **AND THEN** it resends the matching receipt or final result without duplicating work
+
+#### Scenario: Pairwise graph composition redirects to dedicated planning
+- **WHEN** a reader needs recursive child edge-loops, multiple pairwise edges, or a rendered pairwise control graph
+- **THEN** the advanced-usage pairwise pattern directs the reader to a dedicated pairwise loop-planning skill
+- **AND THEN** it does not describe those composed topologies as part of the elemental pairwise protocol
 
 ### Requirement: `houmao-adv-usage-pattern` documents a supported multi-agent relay-loop composition
-The packaged `houmao-adv-usage-pattern` skill SHALL include a supported relay-loop pattern for workflows where one managed agent hands work to a loop ingress agent, one or more relay agents may continue forwarding that work, and a designated loop egress agent returns the final information to the loop origin through mailbox email.
+The packaged `houmao-adv-usage-pattern` skill SHALL include a supported elemental relay-loop pattern for workflows where one managed agent is the master/loop origin, work follows one ordered relay lane through one or more downstream managed agents, and a designated loop egress agent returns the final information to the master/loop origin through mailbox email.
 
 That relay-loop pattern SHALL describe the workflow through explicit roles:
 
-- loop origin,
+- master or loop origin,
 - loop ingress,
-- relay agent,
+- relay agent when the lane has intermediate agents,
 - loop egress.
+
+That relay-loop pattern SHALL describe one ordered N-node relay lane rather than fan-out, multiple relay lanes, or a graph composed of multiple loops.
 
 That relay-loop pattern SHALL describe itself as a composition over the maintained direct-operation skills:
 
 - `houmao-agent-messaging` for queued gateway prompt handoff between already-running managed agents,
 - `houmao-agent-email-comms` for receipt email, final result email, and final-result acknowledgement email,
-- `houmao-agent-gateway` for live reminder follow-up behavior used by the pattern.
+- `houmao-agent-gateway` for live reminder follow-up behavior used by the pattern,
+- `houmao-agent-inspect` for read-only downstream peeking before due relay handoff resends.
 
 The relay-loop pattern SHALL state that it assumes all participating agents already have live attached gateways for that pattern run and SHALL NOT describe itself as the durable fallback pattern for gateway restart, gateway loss, or managed-agent replacement.
 
@@ -220,23 +253,30 @@ The relay-loop pattern SHALL include compact text-block templates that show the 
 - supervisor reminder text,
 - optional self-mail checkpoint text when that variant is described.
 
+That relay-loop pattern SHALL direct readers to `houmao-agent-loop-generic` when they need multi-lane routing, fan-out, route policy authoring, a rendered relay graph, master-owned run planning, relay run-control actions, or mixed pairwise/relay graph decomposition.
+
 #### Scenario: Pattern defines the relay roles and direct-skill composition
 - **WHEN** an agent or operator opens the relay-loop pattern in `houmao-adv-usage-pattern`
-- **THEN** the page identifies loop origin, loop ingress, relay agent, and loop egress explicitly
-- **AND THEN** it routes prompt handoff work to `houmao-agent-messaging`, mailbox receipt and result work to `houmao-agent-email-comms`, and reminder work to `houmao-agent-gateway`
+- **THEN** the page identifies the master/loop origin, loop ingress, optional relay agent, and loop egress explicitly
+- **AND THEN** it routes prompt handoff work to `houmao-agent-messaging`, mailbox receipt and result work to `houmao-agent-email-comms`, reminder work to `houmao-agent-gateway`, and read-only downstream peeking to `houmao-agent-inspect`
 
 #### Scenario: Loop egress returns final information to the origin through email
 - **WHEN** a reader follows the documented relay-loop message flow
-- **THEN** the pattern shows the designated loop egress returning the final information to the loop origin through mailbox email
+- **THEN** the pattern shows the designated loop egress returning the final information to the master/loop origin through mailbox email
 - **AND THEN** it does not describe the final answer as returning only to the immediate upstream relay by default
+
+#### Scenario: Relay page stays focused on one ordered lane
+- **WHEN** a reader opens the relay-loop pattern page
+- **THEN** the page describes one ordered N-node relay lane with one master/loop origin and one final egress
+- **AND THEN** it does not teach fan-out, multiple relay lanes, or a graph composed of multiple relay loops as the elemental pattern
 
 #### Scenario: Pattern shows request and follow-up templates explicitly
 - **WHEN** a reader needs to compose relay-loop request, mail, or reminder content from the pattern page
 - **THEN** the page includes text-block templates for those artifacts
 - **AND THEN** those templates name the workflow identifiers and follow-up fields that the reader is expected to record
 
-### Requirement: Relay-loop guidance requires explicit loop state, sender follow-up, and idempotent retry
-The relay-loop pattern in `houmao-adv-usage-pattern` SHALL direct any agent that sends a downstream handoff to persist local loop state before sending that handoff.
+### Requirement: Relay-loop guidance requires explicit loop state, status-aware sender follow-up, and idempotent resend
+The relay-loop pattern in `houmao-adv-usage-pattern` SHALL direct any agent that sends the next handoff in one ordered relay lane to persist local loop state before sending that handoff.
 
 That local loop state SHALL include explicit workflow identifiers and retry bookkeeping sufficient for idempotent resend and completion tracking, including at minimum:
 
@@ -262,25 +302,47 @@ The relay-loop pattern SHALL direct the sender to:
 3. arm follow-up for itself,
 4. stop the current round instead of waiting actively inside one live provider turn for downstream email.
 
-The relay-loop pattern SHALL describe the default follow-up model for a sender with many outbound loops as:
+The relay-loop pattern SHALL describe follow-up for one ordered relay lane as local ledger review plus a supervisor reminder, with optional self-mail checkpoint or backlog marker when the responsible agent wants a durable local backlog anchor in addition to the live reminder.
 
-- one local loop ledger as the authoritative mutable state,
-- one supervisor reminder as the live loop clock,
-- optional self-mail checkpoint or backlog marker when the sender wants a durable local backlog anchor in addition to the live reminder.
+The relay-loop pattern SHALL direct sender follow-up to check mailbox state first for a matching receipt, final result, or final-result acknowledgement.
 
-The relay-loop pattern SHALL direct retry behavior to check mailbox state first and resend second using the same explicit workflow identifiers rather than inventing a fresh downstream handoff identity for each retry.
+When the expected mailbox signal is still missing and the relay handoff is due for review, the relay-loop pattern SHALL direct the upstream sender to use `houmao-agent-inspect` read-only surfaces to peek the downstream agent for the same `loop_id` and `handoff_id` before resending the handoff.
+
+When the `houmao-agent-inspect` peek is unavailable, stale, or inconclusive and the resend decision remains ambiguous, the relay-loop pattern SHALL allow a fresh prompt, ping, or direct `houmao-agent-messaging` message only as a last-resort status probe before resend.
+
+When that `houmao-agent-inspect` peek or last-resort status probe shows that the downstream agent still owns or is still actively working on the same `loop_id` and `handoff_id`, the relay-loop pattern SHALL direct the upstream sender to update local review state and schedule the next review instead of resending the handoff.
+
+Only when the expected mailbox signal is missing, the relay handoff is due, and the downstream agent cannot be observed or confirmed as still owning or actively working on the same `loop_id` and `handoff_id`, the relay-loop pattern SHALL allow resend using the same explicit workflow identifiers rather than inventing a fresh downstream handoff identity for each retry.
 
 The relay-loop pattern SHALL direct receivers to deduplicate repeated handoffs by those explicit identifiers and to resend the corresponding receipt or final result instead of forwarding duplicate downstream work.
+
+The relay-loop pattern SHALL NOT present many outbound loops, fan-out, or a graph of relay loops as the elemental relay-loop state model.
 
 #### Scenario: Sender follow-up ends the current round instead of waiting in-turn
 - **WHEN** a sender in the relay-loop pattern hands work to a downstream agent
 - **THEN** the pattern directs that sender to persist local loop state, arm follow-up, and end the current round
 - **AND THEN** it does not describe active waiting inside one long LLM chat round as the normal behavior
 
-#### Scenario: Many outbound loops use one supervisor reminder instead of one reminder per loop
-- **WHEN** one sender has multiple outbound relay loops in flight at the same time
-- **THEN** the pattern directs that sender to keep the loop rows in one local ledger and use one supervisor reminder as the default live wake path
-- **AND THEN** it does not describe one live reminder per active loop as the default scalable pattern
+#### Scenario: Single relay lane uses local follow-up state
+- **WHEN** an agent is responsible for an active handoff or final-result acknowledgement in one ordered relay lane
+- **THEN** the pattern directs that agent to use local ledger review plus a supervisor reminder as the default live wake path
+- **AND THEN** it does not describe many outbound relay loops or one reminder per active loop as the elemental state model
+
+#### Scenario: Upstream sender uses read-only peek before resending a due relay handoff
+- **WHEN** an upstream sender's relay follow-up does not find the expected receipt or result in mailbox state
+- **AND WHEN** the local ledger says the `loop_id` and `handoff_id` are due for review
+- **THEN** the pattern directs the upstream sender to use `houmao-agent-inspect` read-only surfaces to peek the downstream agent for that handoff before resending
+- **AND THEN** it does not treat a fresh prompt, ping, or direct message as the default status check
+
+#### Scenario: Upstream sender uses active status probe only as last resort
+- **WHEN** the upstream sender's `houmao-agent-inspect` peek is unavailable, stale, or inconclusive
+- **AND WHEN** the resend decision remains ambiguous
+- **THEN** the pattern allows a fresh prompt, ping, or direct message only as a last-resort status probe before resend
+
+#### Scenario: Upstream sender defers resend when downstream relay agent is still working
+- **WHEN** the upstream sender's `houmao-agent-inspect` peek or last-resort status probe shows that the downstream agent still owns or is still actively working on the same `loop_id` and `handoff_id`
+- **THEN** the pattern directs the upstream sender to update local review state and schedule another review
+- **AND THEN** it does not resend the relay handoff
 
 #### Scenario: Mutable relay-loop ledger uses the job dir rather than managed memory
 - **WHEN** a reader looks for where the relay-loop pattern stores retry counters, due times, and seen-handoff bookkeeping
@@ -295,28 +357,46 @@ The relay-loop pattern SHALL direct receivers to deduplicate repeated handoffs b
 #### Scenario: Repeated handoff is deduplicated by workflow identifiers
 - **WHEN** a receiver encounters the same `loop_id` and `handoff_id` again after an ambiguous resend
 - **THEN** the pattern directs that receiver to treat the handoff as already owned
-- **AND THEN** it resends the matching receipt or final result without duplicating downstream fan-out work
+- **AND THEN** it resends the matching receipt or final result without duplicating downstream work
+
+#### Scenario: Relay graph composition redirects to dedicated planning
+- **WHEN** a reader needs multiple relay lanes, fan-out, route policy authoring, or a rendered relay graph
+- **THEN** the advanced-usage relay pattern directs the reader to `houmao-agent-loop-relay`
+- **AND THEN** it does not describe those composed topologies as part of the elemental relay protocol
 
 ### Requirement: Advanced-usage chooser guidance distinguishes pairwise edge-loops from forward relay loops
-The packaged `houmao-adv-usage-pattern` skill SHALL explain that the pairwise driver-worker edge-loop pattern and the forward relay-loop pattern are sibling advanced-usage patterns with different routing behavior.
+The packaged `houmao-adv-usage-pattern` skill SHALL explain that the pairwise driver-worker edge-loop pattern and the forward relay-loop pattern are sibling elemental advanced-usage patterns with different routing behavior.
 
 That chooser guidance SHALL state that the pairwise edge-loop pattern is the better fit when:
 
-- every delegation edge should close locally,
-- the intermediate agent must integrate child results before replying upstream,
-- the final result for one loop round should always return to the same agent that sent that round's request.
+- exactly one driver sends one worker request for one edge-loop round,
+- the final result for that round should always return to the same driver that sent the request,
+- the reader needs the atomic local-close protocol that a dedicated pairwise or generic loop-planning skill may compose into larger topologies.
 
 That chooser guidance SHALL state that the forward relay-loop pattern is the better fit when:
 
-- ownership should keep moving forward across agents,
-- a designated downstream loop egress should return the final result directly to a more distant origin rather than only to its immediate driver.
+- one master/loop origin starts one ordered N-node relay lane,
+- ownership should keep moving forward along that lane,
+- a designated downstream loop egress should return the final result directly to the master/loop origin rather than only to its immediate upstream sender.
 
-#### Scenario: Reader can choose the pairwise pattern for local-close delegation
-- **WHEN** an agent or operator compares the advanced-usage loop patterns
-- **THEN** the guidance explains that the pairwise edge-loop pattern is for local-close driver-worker delegation
-- **AND THEN** it describes that pattern as the better fit when intermediate agents must integrate child results before replying upstream
+That chooser guidance SHALL state that composed topologies, rendered graphs, mixed pairwise/relay graph decomposition, multi-edge pairwise runs, multi-lane relay routes, route/delegation policies, and start/status/stop run-control actions belong in dedicated loop-planning skills rather than in the elemental advanced-usage pattern pages.
 
-#### Scenario: Reader can choose the forward relay pattern for distant-return routing
+That chooser guidance SHALL direct generic composed graph planning to `houmao-agent-loop-generic`.
+
+That chooser guidance SHALL preserve the specialized pairwise loop-planning skills as explicit pairwise-only choices when a user asks for one of those pairwise skills by name or when a workflow has already selected a pairwise-only planning lane.
+
+#### Scenario: Reader can choose the pairwise pattern for one local-close delegation round
 - **WHEN** an agent or operator compares the advanced-usage loop patterns
-- **THEN** the guidance explains that the forward relay-loop pattern is for ownership that keeps moving forward until a later egress returns the final result
+- **THEN** the guidance explains that the pairwise edge-loop pattern is for one local-close driver-worker delegation round
+- **AND THEN** it does not describe recursive pairwise graphs as the elemental pairwise pattern
+
+#### Scenario: Reader can choose the forward relay pattern for one distant-return relay lane
+- **WHEN** an agent or operator compares the advanced-usage loop patterns
+- **THEN** the guidance explains that the forward relay-loop pattern is for ownership that moves along one ordered lane until a later egress returns the final result to the master/loop origin
 - **AND THEN** it does not describe the pairwise edge-loop pattern as the default answer for that distant-return routing case
+
+#### Scenario: Reader can route composed loop plans to dedicated skills
+- **WHEN** an agent or operator needs a rendered loop graph, multiple pairwise edges, multiple relay lanes, mixed pairwise/relay graph decomposition, or run-control actions
+- **THEN** the guidance directs generic composed graph planning to `houmao-agent-loop-generic`
+- **AND THEN** it keeps `houmao-adv-usage-pattern` focused on elemental protocol guidance
+

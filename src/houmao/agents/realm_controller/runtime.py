@@ -599,16 +599,13 @@ class RuntimeSessionController:
             role_name=self.role_name,
             agent_identity=self.agent_identity,
         )
-        effective_address = (
-            _normalize_optional_mailbox_text(
-                address,
-                field_name="address",
-            )
-            or default_mailbox_address(
-                tool=self.launch_plan.tool,
-                role_name=self.role_name,
-                agent_identity=self.agent_identity,
-            )
+        effective_address = _normalize_optional_mailbox_text(
+            address,
+            field_name="address",
+        ) or default_mailbox_address(
+            tool=self.launch_plan.tool,
+            role_name=self.role_name,
+            agent_identity=self.agent_identity,
         )
         working_directory = self.launch_plan.working_directory.resolve()
         if mailbox_root is None and not os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR):

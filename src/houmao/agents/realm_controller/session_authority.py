@@ -87,7 +87,9 @@ def resolve_manifest_session_authority(
     )
 
 
-def _manifest_tmux_session_name(payload: SessionManifestPayloadV3 | SessionManifestPayloadV4) -> str | None:
+def _manifest_tmux_session_name(
+    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+) -> str | None:
     """Return the normalized tmux session name for one parsed manifest payload."""
 
     if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:

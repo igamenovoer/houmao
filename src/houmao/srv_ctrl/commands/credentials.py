@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
-from typing import Any, Callable, Literal
+from typing import Callable, Literal
 
 import click
 import yaml
@@ -27,6 +29,7 @@ from .output import emit
 
 CredentialTargetKind = Literal["project", "agent_def_dir"]
 CredentialWriteOperation = Literal["add", "set"]
+CredentialLoginOperation = Literal["add", "set"]
 
 _SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
 _TOOL_DISPLAY_NAMES: dict[str, str] = {
@@ -44,6 +47,52 @@ _CLAUDE_VENDOR_LOGIN_FILE_SOURCES: frozenset[str] = frozenset(
         _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME,
     }
 )
+_PROVIDER_HOME_ENV_VARS: dict[str, str] = {
+    "claude": "CLAUDE_CONFIG_DIR",
+    "codex": "CODEX_HOME",
+    "gemini": "GEMINI_CLI_HOME",
+}
+_PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
+    "claude": frozenset(
+        {
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+            "CLAUDE_CODE_OAUTH_SCOPES",
+        }
+    ),
+    "codex": frozenset(
+        {
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_ORG_ID",
+        }
+    ),
+    "gemini": frozenset(
+        {
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "GOOGLE_CLOUD_LOCATION",
+            "GOOGLE_CLOUD_PROJECT",
+            "GOOGLE_GENAI_USE_GCA",
+            "GOOGLE_GENAI_USE_VERTEXAI",
+            "GOOGLE_GEMINI_BASE_URL",
+        }
+    ),
+}
+
+
+@dataclass(frozen=True)
+class CredentialProviderLogin:
+    """Provider-specific login command and artifact mapping."""
+
+    command: list[str]
+    temp_home_env_var: str
+    artifact_sources: dict[str, Path]
+    extra_env: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -322,12 +371,15 @@ def _build_tool_group(*, tool: str, project_only: bool) -> click.Group:
     if tool == "claude":
         tool_group.add_command(_build_claude_add_command(project_only=project_only))
         tool_group.add_command(_build_claude_set_command(project_only=project_only))
+        tool_group.add_command(_build_claude_login_command(project_only=project_only))
     elif tool == "codex":
         tool_group.add_command(_build_codex_add_command(project_only=project_only))
         tool_group.add_command(_build_codex_set_command(project_only=project_only))
+        tool_group.add_command(_build_codex_login_command(project_only=project_only))
     elif tool == "gemini":
         tool_group.add_command(_build_gemini_add_command(project_only=project_only))
         tool_group.add_command(_build_gemini_set_command(project_only=project_only))
+        tool_group.add_command(_build_gemini_login_command(project_only=project_only))
     else:
         raise click.ClickException(f"Unsupported credential tool `{tool}`.")
     return tool_group
@@ -976,6 +1028,466 @@ def _build_gemini_set_command(*, project_only: bool) -> click.Command:
         else "Update one project-scoped Gemini credential."
     )
     return set_command
+
+
+def _build_codex_login_command(*, project_only: bool) -> click.Command:
+    """Build the Codex `login` command."""
+
+    @click.command(name="login")
+    @_target_options(project_only)
+    @click.option("--name", required=True, help="Credential name.")
+    @click.option(
+        "--update",
+        is_flag=True,
+        help="Update an existing credential instead of creating a new one.",
+    )
+    @click.option(
+        "--keep-temp-home",
+        is_flag=True,
+        help="Keep the temporary Codex home after a successful import.",
+    )
+    @click.option(
+        "--inherit-auth-env",
+        is_flag=True,
+        help="Do not scrub ambient Codex auth-related environment variables for the login process.",
+    )
+    @click.option(
+        "--browser",
+        "use_browser_login",
+        is_flag=True,
+        help="Use ordinary Codex browser login instead of the default device-auth login.",
+    )
+    def login_command(
+        name: str,
+        update: bool,
+        keep_temp_home: bool,
+        inherit_auth_env: bool,
+        use_browser_login: bool,
+        use_project: bool = False,
+        agent_def_dir: Path | None = None,
+    ) -> None:
+        """Run Codex login in an isolated temp home and import `auth.json`."""
+
+        target = _resolve_command_target(
+            project_only=project_only,
+            use_project=use_project,
+            agent_def_dir=agent_def_dir,
+            allow_project_bootstrap=True,
+        )
+        emit(
+            _login_and_import_credential(
+                target=target,
+                tool="codex",
+                name=name,
+                operation="set" if update else "add",
+                keep_temp_home=keep_temp_home,
+                inherit_auth_env=inherit_auth_env,
+                provider_login_factory=lambda temp_home: _codex_provider_login(
+                    temp_home=temp_home,
+                    use_browser_login=use_browser_login,
+                ),
+            )
+        )
+
+    login_command.__doc__ = (
+        "Log in to Codex in an isolated temp home and import `auth.json`."
+        if not project_only
+        else "Log in to Codex in an isolated temp home and import project-scoped `auth.json`."
+    )
+    return login_command
+
+
+def _build_claude_login_command(*, project_only: bool) -> click.Command:
+    """Build the Claude `login` command."""
+
+    @click.command(name="login")
+    @_target_options(project_only)
+    @click.option("--name", required=True, help="Credential name.")
+    @click.option(
+        "--update",
+        is_flag=True,
+        help="Update an existing credential instead of creating a new one.",
+    )
+    @click.option(
+        "--keep-temp-home",
+        is_flag=True,
+        help="Keep the temporary Claude config home after a successful import.",
+    )
+    @click.option(
+        "--inherit-auth-env",
+        is_flag=True,
+        help="Do not scrub ambient Claude auth-related environment variables for the login process.",
+    )
+    @click.option("--claudeai", is_flag=True, help="Pass `--claudeai` to `claude auth login`.")
+    @click.option(
+        "--console",
+        "use_console",
+        is_flag=True,
+        help="Pass `--console` to `claude auth login`.",
+    )
+    @click.option("--email", default=None, help="Pass `--email <value>` to `claude auth login`.")
+    @click.option("--sso", is_flag=True, help="Pass `--sso` to `claude auth login`.")
+    def login_command(
+        name: str,
+        update: bool,
+        keep_temp_home: bool,
+        inherit_auth_env: bool,
+        claudeai: bool,
+        use_console: bool,
+        email: str | None,
+        sso: bool,
+        use_project: bool = False,
+        agent_def_dir: Path | None = None,
+    ) -> None:
+        """Run Claude login in an isolated config home and import vendor state."""
+
+        target = _resolve_command_target(
+            project_only=project_only,
+            use_project=use_project,
+            agent_def_dir=agent_def_dir,
+            allow_project_bootstrap=True,
+        )
+        emit(
+            _login_and_import_credential(
+                target=target,
+                tool="claude",
+                name=name,
+                operation="set" if update else "add",
+                keep_temp_home=keep_temp_home,
+                inherit_auth_env=inherit_auth_env,
+                provider_login_factory=lambda temp_home: _claude_provider_login(
+                    temp_home=temp_home,
+                    claudeai=claudeai,
+                    use_console=use_console,
+                    email=email,
+                    sso=sso,
+                ),
+            )
+        )
+
+    login_command.__doc__ = (
+        "Log in to Claude in an isolated config home and import vendor state."
+        if not project_only
+        else "Log in to Claude in an isolated config home and import project-scoped vendor state."
+    )
+    return login_command
+
+
+def _build_gemini_login_command(*, project_only: bool) -> click.Command:
+    """Build the Gemini `login` command."""
+
+    @click.command(name="login")
+    @_target_options(project_only)
+    @click.option("--name", required=True, help="Credential name.")
+    @click.option(
+        "--update",
+        is_flag=True,
+        help="Update an existing credential instead of creating a new one.",
+    )
+    @click.option(
+        "--keep-temp-home",
+        is_flag=True,
+        help="Keep the temporary Gemini CLI home after a successful import.",
+    )
+    @click.option(
+        "--inherit-auth-env",
+        is_flag=True,
+        help="Do not scrub ambient Gemini auth-related environment variables for the login process.",
+    )
+    @click.option(
+        "--no-browser",
+        is_flag=True,
+        help="Set `NO_BROWSER=true` for the Gemini OAuth flow.",
+    )
+    def login_command(
+        name: str,
+        update: bool,
+        keep_temp_home: bool,
+        inherit_auth_env: bool,
+        no_browser: bool,
+        use_project: bool = False,
+        agent_def_dir: Path | None = None,
+    ) -> None:
+        """Run Gemini OAuth in an isolated CLI home and import `oauth_creds.json`."""
+
+        target = _resolve_command_target(
+            project_only=project_only,
+            use_project=use_project,
+            agent_def_dir=agent_def_dir,
+            allow_project_bootstrap=True,
+        )
+        emit(
+            _login_and_import_credential(
+                target=target,
+                tool="gemini",
+                name=name,
+                operation="set" if update else "add",
+                keep_temp_home=keep_temp_home,
+                inherit_auth_env=inherit_auth_env,
+                provider_login_factory=lambda temp_home: _gemini_provider_login(
+                    temp_home=temp_home,
+                    no_browser=no_browser,
+                ),
+            )
+        )
+
+    login_command.__doc__ = (
+        "Log in to Gemini in an isolated CLI home and import `oauth_creds.json`."
+        if not project_only
+        else "Log in to Gemini in an isolated CLI home and import project-scoped `oauth_creds.json`."
+    )
+    return login_command
+
+
+def _login_and_import_credential(
+    *,
+    target: CredentialTarget,
+    tool: str,
+    name: str,
+    operation: CredentialLoginOperation,
+    keep_temp_home: bool,
+    inherit_auth_env: bool,
+    provider_login_factory: Callable[[Path], CredentialProviderLogin],
+) -> dict[str, object]:
+    """Run one provider login flow in an isolated home and import its artifact."""
+
+    resolved_name = _require_non_empty_name(name, field_name="--name")
+    _ensure_login_import_allowed(
+        target=target,
+        tool=tool,
+        name=resolved_name,
+        operation=operation,
+    )
+    temp_home = Path(tempfile.mkdtemp(prefix=f"houmao-{tool}-login-")).resolve()
+    temp_home.chmod(0o700)
+    login = provider_login_factory(temp_home)
+    success = False
+    try:
+        _run_provider_login(
+            tool=tool,
+            temp_home=temp_home,
+            login=login,
+            inherit_auth_env=inherit_auth_env,
+        )
+        if tool == "claude":
+            _add_optional_claude_login_state(
+                temp_home=temp_home,
+                artifact_sources=login.artifact_sources,
+            )
+        _validate_provider_artifacts(
+            tool=tool,
+            temp_home=temp_home,
+            artifact_sources=login.artifact_sources,
+        )
+        payload = _write_credential_bundle(
+            target=target,
+            tool=tool,
+            name=resolved_name,
+            env_values={},
+            file_sources=login.artifact_sources,
+            require_any_input=True,
+            operation=operation,
+            clear_env_names=set(),
+            clear_file_sources=set(_CLAUDE_VENDOR_LOGIN_FILE_SOURCES) if tool == "claude" else set(),
+        )
+        success = True
+    except click.ClickException as exc:
+        raise click.ClickException(
+            f"{exc.message} Temporary {tool} login home preserved: {temp_home}"
+        ) from exc
+    finally:
+        if success and not keep_temp_home:
+            shutil.rmtree(temp_home)
+
+    payload["login"] = {
+        "provider": tool,
+        "provider_command": login.command,
+        "temp_home": str(temp_home),
+        "temp_home_deleted": not keep_temp_home,
+        "inherited_auth_env": inherit_auth_env,
+    }
+    return payload
+
+
+def _ensure_login_import_allowed(
+    *,
+    target: CredentialTarget,
+    tool: str,
+    name: str,
+    operation: CredentialLoginOperation,
+) -> None:
+    """Fail before provider login when the requested add/set import is impossible."""
+
+    if operation == "set":
+        _resolve_existing_credential_source_root(
+            target=target,
+            tool=tool,
+            name=name,
+            operation="set",
+        )
+        return
+
+    if operation != "add":
+        raise click.ClickException(f"Unsupported credential login operation: {operation}")
+
+    if target.kind == "project":
+        assert target.overlay is not None
+        if _load_project_auth_profile_optional(overlay=target.overlay, tool=tool, name=name) is not None:
+            raise click.ClickException(
+                f"Credential bundle already exists for `{tool}`: `{name}`. Use `--update` to replace it."
+            )
+        return
+
+    assert target.agent_def_dir is not None
+    bundle_root = _direct_auth_bundle_root(agent_def_dir=target.agent_def_dir, tool=tool, name=name)
+    if bundle_root.exists():
+        raise click.ClickException(
+            f"Credential bundle already exists: {bundle_root}. Use `--update` to replace it."
+        )
+
+
+def _run_provider_login(
+    *,
+    tool: str,
+    temp_home: Path,
+    login: CredentialProviderLogin,
+    inherit_auth_env: bool,
+) -> None:
+    """Run one provider login command with inherited stdio."""
+
+    env = _provider_login_env(
+        tool=tool,
+        temp_home=temp_home,
+        login=login,
+        inherit_auth_env=inherit_auth_env,
+    )
+    try:
+        completed = subprocess.run(login.command, env=env, check=False)
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            f"Provider login command not found for `{tool}`: `{login.command[0]}`."
+        ) from exc
+    if completed.returncode != 0:
+        rendered_command = " ".join(login.command)
+        raise click.ClickException(
+            f"Provider login command failed for `{tool}` with exit code {completed.returncode}: {rendered_command}."
+        )
+
+
+def _provider_login_env(
+    *,
+    tool: str,
+    temp_home: Path,
+    login: CredentialProviderLogin,
+    inherit_auth_env: bool,
+) -> dict[str, str]:
+    """Build the provider login environment."""
+
+    env = dict(os.environ)
+    if not inherit_auth_env:
+        for env_name in _PROVIDER_AUTH_ENV_VARS[tool]:
+            env.pop(env_name, None)
+    env[login.temp_home_env_var] = str(temp_home)
+    env.update(login.extra_env)
+    return env
+
+
+def _validate_provider_artifacts(
+    *,
+    tool: str,
+    temp_home: Path,
+    artifact_sources: dict[str, Path],
+) -> None:
+    """Validate provider login artifacts before importing them."""
+
+    missing_artifacts = [
+        source_name for source_name, source_path in artifact_sources.items() if not source_path.is_file()
+    ]
+    if missing_artifacts:
+        raise click.ClickException(
+            "Provider login did not create the expected auth artifact(s) for "
+            f"`{tool}` under `{temp_home}`: {', '.join(missing_artifacts)}."
+        )
+
+
+def _add_optional_claude_login_state(
+    *,
+    temp_home: Path,
+    artifact_sources: dict[str, Path],
+) -> None:
+    """Add optional Claude companion login state after the provider command runs."""
+
+    global_state_path = (temp_home / _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME).resolve()
+    if global_state_path.is_file():
+        artifact_sources[_CLAUDE_VENDOR_GLOBAL_STATE_FILENAME] = global_state_path
+
+
+def _codex_provider_login(*, temp_home: Path, use_browser_login: bool) -> CredentialProviderLogin:
+    """Return the Codex provider login command and artifact mapping."""
+
+    command = ["codex", "login"] if use_browser_login else ["codex", "login", "--device-auth"]
+    return CredentialProviderLogin(
+        command=command,
+        temp_home_env_var=_PROVIDER_HOME_ENV_VARS["codex"],
+        artifact_sources={"auth.json": (temp_home / "auth.json").resolve()},
+        extra_env={},
+    )
+
+
+def _claude_provider_login(
+    *,
+    temp_home: Path,
+    claudeai: bool,
+    use_console: bool,
+    email: str | None,
+    sso: bool,
+) -> CredentialProviderLogin:
+    """Return the Claude provider login command and artifact mapping."""
+
+    command = ["claude", "auth", "login"]
+    if claudeai:
+        command.append("--claudeai")
+    if use_console:
+        command.append("--console")
+    if email is not None and email.strip():
+        command.extend(["--email", email.strip()])
+    if sso:
+        command.append("--sso")
+    return CredentialProviderLogin(
+        command=command,
+        temp_home_env_var=_PROVIDER_HOME_ENV_VARS["claude"],
+        artifact_sources={
+            _CLAUDE_VENDOR_CREDENTIALS_FILENAME: (
+                temp_home / _CLAUDE_VENDOR_CREDENTIALS_FILENAME
+            ).resolve(),
+        },
+        extra_env={},
+    )
+
+
+def _gemini_provider_login(*, temp_home: Path, no_browser: bool) -> CredentialProviderLogin:
+    """Return the Gemini provider login command and artifact mapping."""
+
+    _write_gemini_oauth_settings(temp_home=temp_home)
+    return CredentialProviderLogin(
+        command=["gemini"],
+        temp_home_env_var=_PROVIDER_HOME_ENV_VARS["gemini"],
+        artifact_sources={"oauth_creds.json": (temp_home / ".gemini" / "oauth_creds.json").resolve()},
+        extra_env={"NO_BROWSER": "true"} if no_browser else {},
+    )
+
+
+def _write_gemini_oauth_settings(*, temp_home: Path) -> None:
+    """Write temp-home Gemini settings that prefer Google OAuth when supported."""
+
+    gemini_dir = (temp_home / ".gemini").resolve()
+    gemini_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = (gemini_dir / "settings.json").resolve()
+    settings_path.write_text(
+        json.dumps({"security": {"auth": {"selectedType": "oauth-personal"}}}, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _list_credentials_payload(*, target: CredentialTarget, tool: str) -> dict[str, object]:

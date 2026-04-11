@@ -318,9 +318,7 @@ def _command_start(args: argparse.Namespace) -> int:
                     if state.tmux_session_name is None
                     else _followup_command(paths=paths, command="attach", repo_root=repo_root)
                 ),
-                "send_command": _followup_command(
-                    paths=paths, command="send", repo_root=repo_root
-                ),
+                "send_command": _followup_command(paths=paths, command="send", repo_root=repo_root),
                 "watch_gateway_command": _followup_command(
                     paths=paths, command="watch-gateway", repo_root=repo_root
                 ),
@@ -357,7 +355,9 @@ def _start_demo(
     prepare_output_root(paths=paths, allow_reprovision=allow_reprovision)
     prepare_persistent_overlay_roots(paths=paths)
     project_fixture = resolve_repo_relative_path(parameters.project_fixture, repo_root=repo_root)
-    system_prompt_file = resolve_repo_relative_path(parameters.system_prompt_file, repo_root=repo_root)
+    system_prompt_file = resolve_repo_relative_path(
+        parameters.system_prompt_file, repo_root=repo_root
+    )
     tool_parameters = parameters.tool_parameters(tool=tool)
     env = build_demo_environment(paths=paths)
     project_workdir = provision_project_workdir(
@@ -698,9 +698,7 @@ def _command_notifier(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return 0
 
-    interval_seconds = (
-        args.seconds if args.notifier_command == "set-interval" else args.seconds
-    )
+    interval_seconds = args.seconds if args.notifier_command == "set-interval" else args.seconds
     if interval_seconds is None:
         interval_seconds = state.notifier_interval_seconds
     if interval_seconds <= 0:
@@ -1021,7 +1019,9 @@ def _run_auto(
             gateway_status=current_gateway_status,
             actor_mail_snapshot=actor_mail_snapshot,
         ):
-            _wait_for_session_ready(paths=paths, state=state, timeout_seconds=state.ready_timeout_seconds)
+            _wait_for_session_ready(
+                paths=paths, state=state, timeout_seconds=state.ready_timeout_seconds
+            )
         delivery = deliver_configured_automatic_message(
             repo_root=repo_root,
             paths=paths,

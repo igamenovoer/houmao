@@ -1,6 +1,6 @@
 # Multi-Agent Relay Loop Via Gateway Handoff And Mailbox Exit
 
-Use this pattern when one Houmao-managed agent needs to drive a loop that enters at one live-gateway agent, may transit across additional live-gateway agents, and exits back to the origin through mailbox email.
+Use this pattern when one Houmao-managed master or loop origin needs to drive one ordered N-node relay lane that enters at one live-gateway agent, may transit across additional live-gateway agents, and exits back to the origin through mailbox email.
 
 This pattern is for supported composition over existing Houmao skills. It assumes all participating agents already have live attached gateways for this run. It is not the durable fallback pattern for gateway restart, gateway loss, or managed-agent replacement.
 
@@ -8,11 +8,13 @@ This pattern is for supported composition over existing Houmao skills. It assume
 
 Choose this pattern when:
 
-- one managed agent acts as the loop origin and wants another managed agent to take ownership of downstream fan-out work,
-- the downstream work may hop across multiple live managed agents before completion,
+- one managed agent acts as the master or loop origin for one ordered relay lane,
+- the downstream work should hop forward through one ordered sequence of live managed agents before completion,
 - the designated loop egress must return the final result to the loop origin through mailbox email,
 - the sender needs robust resend and deduplication behavior under ambiguous network outcomes,
 - the sender can keep a small mutable loop ledger under `HOUMAO_JOB_DIR`.
+
+Use `houmao-agent-loop-generic` instead when the user needs multi-lane routing, fan-out, mixed pairwise/relay graph planning, graph policy authoring, a rendered graph, root-owned run planning, or `start`/`status`/`stop` run-control actions.
 
 Do not choose this pattern for one direct prompt, one direct email, or one local self-reminder. Use the lower-level skills directly for those simpler tasks.
 
@@ -30,6 +32,7 @@ Use these maintained Houmao skills together:
 - `houmao-agent-messaging` for queued gateway prompt handoff between already-running managed agents
 - `houmao-agent-email-comms` for receipt email, final result email, and final-result acknowledgement email
 - `houmao-agent-gateway` for live supervisor reminders
+- `houmao-agent-inspect` for read-only downstream peeking before due relay handoff resends
 
 ## End-To-End Flow
 
@@ -99,15 +102,18 @@ The sender's retry rule is always:
 
 1. check mailbox first,
 2. update the ledger from any matching receipt, final result, or final-result acknowledgement,
-3. resend second only if the expected signal is still missing and the loop is due,
-4. resend with the same `loop_id` and the same `handoff_id`.
+3. if the expected signal is still missing and the handoff is due, use `houmao-agent-inspect` read-only surfaces to peek the downstream agent for the same `loop_id` and `handoff_id`,
+4. if read-only inspection shows the downstream agent still owns or is actively working on that handoff, update `next_review_at` and do not resend,
+5. if read-only inspection is unavailable, stale, or inconclusive and the resend decision remains ambiguous, use a narrow active prompt, ping, or direct `houmao-agent-messaging` status probe only as a last resort before resend,
+6. resend only when the expected signal is still missing, the handoff is due, and the downstream agent cannot be observed or confirmed as still owning or actively working on the same `loop_id` and `handoff_id`,
+7. resend with the same `loop_id` and the same `handoff_id`.
 
 ## Receiver Workflow
 
 Whenever one agent receives a downstream handoff:
 
 1. Check whether the same `loop_id` and `handoff_id` were already seen.
-2. If already seen, resend the matching receipt or final result and stop. Do not fan out duplicate downstream work.
+2. If already seen, resend the matching receipt or final result and stop. Do not forward duplicate downstream work.
 3. If new, persist ownership in the local ledger.
 4. Send a receipt email to the immediate upstream sender.
 5. If this agent is a relay, create the next downstream handoff and arm follow-up for that next hop.
@@ -121,7 +127,7 @@ Choose those values from:
 
 - explicit user deadlines or service expectations,
 - current task urgency,
-- how many outbound loops the sender is supervising,
+- how many active handoff rows the sender is tracking,
 - the chosen supervisor reminder cadence,
 - the fact that reminders and notifier wakeups only dispatch when the gateway is ready.
 
@@ -134,17 +140,17 @@ Keep these concepts separate in the ledger:
 - `result_due_at`: when the overall workflow result is considered late
 - `give_up_at` or `max_attempts`: when the loop should escalate or fail
 
-## Default Supervision Model For Many Outbound Loops
+## Default Supervision Model
 
-For one sender with many outbound loops, the default scalable model is:
+For one sender with active handoff rows in one ordered relay lane, the default model is:
 
 - one local loop ledger as the authoritative mutable state,
 - one repeating supervisor reminder as the live loop clock,
 - optional self-mail checkpoint or backlog marker when the sender wants an additional durable backlog anchor.
 
-Do not create one live reminder per active loop as the default pattern. The current reminder system only dispatches one effective reminder at a time, so many per-loop reminders block one another.
+Do not create one live reminder per active handoff row as the default pattern. The current reminder system only dispatches one effective reminder at a time, so many per-row reminders block one another.
 
-The supervisor reminder should reopen the loop ledger, check mailbox first, advance any completed rows, resend only due rows, and then stop.
+The supervisor reminder should reopen the loop ledger, check mailbox first, advance any completed rows, peek due downstream agents through `houmao-agent-inspect`, use active status probes only as the last resort for ambiguous rows, resend only rows whose downstream agents cannot be observed or confirmed as still working, and then stop.
 
 ## Optional Self-Mail Checkpoint
 
@@ -256,8 +262,8 @@ You may mark the loop egress row complete and stop follow-up for result `<result
 ### Supervisor reminder text
 
 ```text
-Title: [relay-supervisor] review active relay loops
-Prompt: Reopen `$HOUMAO_JOB_DIR/relay-loops/ledger.json`, check mailbox first for relay receipts, results, and result acknowledgements, advance completed rows, resend only due rows with the same loop_id and handoff_id, update next_review_at and attempt_count, then stop.
+Title: [relay-supervisor] review active relay handoffs
+Prompt: Reopen `$HOUMAO_JOB_DIR/relay-loops/ledger.json`, check mailbox first for relay receipts, results, and result acknowledgements, advance completed rows, use `houmao-agent-inspect` to peek downstream agents for due rows, use a narrow active status probe only as the last resort when read-only inspection is inconclusive, resend only due rows whose downstream agents cannot be observed or confirmed as still working, reuse the same loop_id and handoff_id for any resend, update next_review_at and attempt_count, then stop.
 Ranking: <smaller value = higher priority>
 Mode: repeat
 Start after: <context-derived delay>
@@ -270,13 +276,13 @@ Interval: <context-derived supervisor_interval_seconds>
 Subject: [relay-backlog] reopen relay-loop ledger
 
 Reason:
-This unread self-mail is only a durable checkpoint pointer for active relay loops.
+This unread self-mail is only a durable checkpoint pointer for active handoffs in the relay lane.
 
 Reopen:
 $HOUMAO_JOB_DIR/relay-loops/ledger.json
 
 Required review:
-Check mailbox first for matching relay receipts, results, and result acknowledgements before resending any handoff.
+Check mailbox first for matching relay receipts, results, and result acknowledgements, peek due downstream agents through `houmao-agent-inspect`, and use active status probes only as the last resort before resending any handoff.
 
 Prune condition:
 Delete or mark this checkpoint complete once the relay-loop ledger is empty.
@@ -288,6 +294,7 @@ Delete or mark this checkpoint complete once the relay-loop ledger is empty.
 - Do not wait inside one live provider turn for downstream email.
 - Do not invent a fresh `handoff_id` for ordinary resend of the same hop.
 - Do not use mailbox thread ancestry alone as the workflow identity.
-- Do not use one live reminder per active loop as the default many-loop strategy.
+- Do not teach fan-out, multiple relay lanes, or a graph of relay loops as part of this elemental pattern.
+- Do not use one live reminder per active handoff row as the default supervision strategy.
 - Do not store mutable relay-loop bookkeeping in `HOUMAO_MEMORY_DIR`.
 - Do not guess materially important timing thresholds when the user needs to set them.

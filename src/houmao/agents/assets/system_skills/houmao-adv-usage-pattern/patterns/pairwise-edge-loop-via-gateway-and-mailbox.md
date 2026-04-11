@@ -8,13 +8,14 @@ This pattern is for supported composition over existing Houmao skills. It assume
 
 Choose this pattern when:
 
-- each delegation edge should close locally between one driver and one worker,
+- one driver sends one request to exactly one worker for one elemental edge-loop round,
 - the agent that sends the request should also be the agent that receives the final result for that same loop round,
-- an intermediate agent may need to integrate child results before replying upstream,
 - the sender needs robust resend and deduplication behavior under ambiguous network outcomes,
 - the sender can keep a small mutable loop ledger under `HOUMAO_JOB_DIR`.
 
 Use the forward relay-loop pattern instead when ownership should keep moving forward across agents and a later downstream loop egress should return the final result directly to a more distant origin.
+
+Use a dedicated pairwise loop-planning skill instead when the user needs recursive child loops, multiple pairwise edges, a rendered control graph, master-owned run planning, or run-control actions.
 
 Do not choose this pattern for one direct prompt, one direct email, or one local self-reminder. Use the lower-level skills directly for those simpler tasks.
 
@@ -25,16 +26,12 @@ Use these role names consistently for one edge-loop round:
 - `driver`: the agent that sends the request and waits for the final result back from the same worker
 - `worker`: the agent that receives the request, performs the work, and returns the final result back to the same driver
 
-One agent may be:
-
-- a worker in one parent edge-loop,
-- a driver in one or more child edge-loops.
-
 Use these maintained Houmao skills together:
 
 - `houmao-agent-messaging` for queued gateway prompt handoff between already-running managed agents
 - `houmao-agent-email-comms` for receipt email, final result email, and final-result acknowledgement email
 - `houmao-agent-gateway` for live supervisor reminders
+- `houmao-agent-inspect` for read-only downstream worker peeking before due resends
 
 ## Local-Close Flow
 
@@ -53,29 +50,7 @@ Every resend of the same edge-loop round reuses the same `edge_loop_id`.
 
 Unlike the forward relay-loop pattern, the worker for one edge-loop round is also the default source of the final result for that same round. The result does not bypass the immediate driver.
 
-## Recursive Child Edge-Loops
-
-If the worker needs help from another downstream agent, the worker becomes the driver of one or more child edge-loops.
-
-That recursion still keeps the same local-close invariant:
-
-```mermaid
-sequenceDiagram
-    participant U as Upstream Driver
-    participant V as Worker / Child Driver
-    participant W as Child Worker
-
-    U->>V: edge_loop_id = uv
-    V-->>U: receipt for uv
-    V->>W: edge_loop_id = vw<br/>parent_edge_loop_id = uv
-    W-->>V: receipt for vw
-    W-->>V: final result for vw
-    V-->>W: final-result ack for vw
-    V-->>U: final result for uv
-    U-->>V: final-result ack for uv
-```
-
-The child edge-loop closes back to `V` before `V` reports its own final result upstream to `U`.
+This page intentionally covers only the elemental two-node round. Use a dedicated pairwise loop-planning skill for recursive child edge-loops, multiple pairwise edges, or a rendered control graph.
 
 ## Mutable Local Ledger
 
@@ -90,7 +65,6 @@ $HOUMAO_JOB_DIR/edge-loops/ledger.json
 Minimum fields to record for each active outbound or owned edge-loop:
 
 - `edge_loop_id`
-- `parent_edge_loop_id` when applicable
 - `role`
 - `peer_agent`
 - `phase`
@@ -122,8 +96,11 @@ The driver's retry rule is always:
 
 1. check mailbox first,
 2. update the ledger from any matching receipt, final result, or final-result acknowledgement,
-3. resend second only if the expected signal is still missing and the loop is due,
-4. resend with the same `edge_loop_id`.
+3. if the expected signal is still missing and the loop is due, use `houmao-agent-inspect` to peek the downstream worker for the same `edge_loop_id`,
+4. if read-only inspection shows the worker still owns or is actively working on that `edge_loop_id`, update `next_review_at` and do not resend,
+5. if read-only inspection is unavailable, stale, or inconclusive and the resend decision remains ambiguous, use a narrow active prompt, ping, or direct `houmao-agent-messaging` status probe only as a last resort before resend,
+6. resend only when the expected signal is still missing, the loop is due, and the worker cannot be observed or confirmed as still owning or actively working on the same `edge_loop_id`,
+7. resend with the same `edge_loop_id`.
 
 ## Worker Workflow
 
@@ -133,10 +110,11 @@ Whenever one agent receives one edge-loop request:
 2. If already seen, resend the matching receipt or final result and stop. Do not duplicate work.
 3. If new, persist ownership in the local ledger.
 4. Send a receipt email to the driver.
-5. Complete the work, or open child edge-loops if downstream help is needed.
-6. Wait for those child edge-loops to close locally when they exist.
-7. Send the final result email back to the same driver.
-8. Keep follow-up until the driver's final-result acknowledgement arrives.
+5. Complete the work locally for this elemental round.
+6. Send the final result email back to the same driver.
+7. Keep follow-up until the driver's final-result acknowledgement arrives.
+
+If the worker needs a recursive pairwise tree, multiple downstream workers, or a rendered control graph, use a dedicated pairwise loop-planning skill instead of expanding this elemental protocol inline.
 
 ## Thresholds And User Input
 
@@ -146,7 +124,7 @@ Choose those values from:
 
 - explicit user deadlines or service expectations,
 - current task urgency,
-- how many edge-loops the driver is supervising,
+- how many active elemental edge-loop rows the driver is tracking,
 - the chosen supervisor reminder cadence,
 - the fact that reminders and notifier wakeups only dispatch when the gateway is ready.
 
@@ -160,17 +138,17 @@ Keep these concepts separate in the ledger:
 - `result_ack_due_at`: when the worker should chase the final-result acknowledgement
 - `give_up_at` or `max_attempts`: when the loop should escalate or fail
 
-## Default Supervision Model For Many Edge-Loops
+## Default Supervision Model
 
-For one agent with many edge-loops in flight, the default scalable model is:
+For one agent with active elemental edge-loop rows in flight, the default model is:
 
 - one local loop ledger as the authoritative mutable state,
 - one repeating supervisor reminder as the live loop clock,
 - optional self-mail checkpoint or backlog marker when the sender wants an additional durable backlog anchor.
 
-Do not create one live reminder per active edge-loop as the default pattern. The current reminder system only dispatches one effective reminder at a time, so many per-loop reminders block one another.
+Do not create one live reminder per active edge-loop row as the default pattern. The current reminder system only dispatches one effective reminder at a time, so many per-row reminders block one another.
 
-The supervisor reminder should reopen the loop ledger, check mailbox first, advance any completed rows, resend only due rows, and then stop.
+The supervisor reminder should reopen the loop ledger, check mailbox first, advance any completed rows, peek due workers through `houmao-agent-inspect`, use active status probes only as the last resort for ambiguous rows, resend only rows whose workers cannot be observed or confirmed as still working, and then stop.
 
 ## Optional Self-Mail Checkpoint
 
@@ -192,12 +170,6 @@ Take ownership of this edge-loop request and return the final result to the same
 Driver:
 <agent identity and mailbox address>
 
-Parent edge loop:
-<parent_edge_loop_id or "none">
-
-If downstream help is needed:
-Open child edge-loops that close back to you before you report upstream.
-
 Required receipt:
 Send a receipt email back to `<driver>` after you persist ownership.
 
@@ -205,7 +177,7 @@ Required final result:
 Send the final result email back to `<driver>` for edge-loop `<edge_loop_id>`.
 
 Local ledger requirements:
-Record edge_loop_id, parent_edge_loop_id if any, peer identity, current phase, next_review_at, receipt_due_at, result_due_at, result_ack_due_at if applicable, attempt_count, and any matching mail refs.
+Record edge_loop_id, peer identity, current phase, next_review_at, receipt_due_at, result_due_at, result_ack_due_at if applicable, attempt_count, and any matching mail refs.
 
 Timing:
 next_review_at = <time or condition>
@@ -228,11 +200,8 @@ Worker identity:
 Driver identity:
 <agent identity and mailbox address>
 
-Parent edge loop:
-<parent_edge_loop_id or "none">
-
 Current phase:
-<working locally | waiting on child loops | preparing final result>
+<working locally | preparing final result>
 
 Next review or due state:
 next_review_at = <time or condition>
@@ -249,9 +218,6 @@ Worker identity:
 
 Driver identity:
 <agent identity and mailbox address>
-
-Parent edge loop:
-<parent_edge_loop_id or "none">
 
 Result summary:
 <final information for the driver>
@@ -282,7 +248,7 @@ You may mark the worker row complete and stop follow-up for this edge-loop.
 
 ```text
 Title: [edge-supervisor] review active edge loops
-Prompt: Reopen `$HOUMAO_JOB_DIR/edge-loops/ledger.json`, check mailbox first for edge-loop receipts, results, and result acknowledgements, advance completed rows, resend only due rows with the same edge_loop_id, update next_review_at and attempt_count, then stop.
+Prompt: Reopen `$HOUMAO_JOB_DIR/edge-loops/ledger.json`, check mailbox first for edge-loop receipts, results, and result acknowledgements, advance completed rows, use `houmao-agent-inspect` to peek workers for due rows, use a narrow active status probe only as the last resort when read-only inspection is inconclusive, resend only due rows whose workers cannot be observed or confirmed as still working, reuse the same edge_loop_id for any resend, update next_review_at and attempt_count, then stop.
 Ranking: <smaller value = higher priority>
 Mode: repeat
 Start after: <context-derived delay>
@@ -301,7 +267,7 @@ Reopen:
 $HOUMAO_JOB_DIR/edge-loops/ledger.json
 
 Required review:
-Check mailbox first for matching edge-loop receipts, results, and result acknowledgements before resending any request.
+Check mailbox first for matching edge-loop receipts, results, and result acknowledgements, peek due workers through `houmao-agent-inspect`, and use active status probes only as the last resort before resending any request.
 
 Prune condition:
 Delete or mark this checkpoint complete once the edge-loop ledger is empty.
@@ -312,7 +278,7 @@ Delete or mark this checkpoint complete once the edge-loop ledger is empty.
 - Do not describe this pattern as a transactional distributed workflow engine.
 - Do not wait inside one live provider turn for downstream email.
 - Do not invent a fresh `edge_loop_id` for ordinary resend of the same round.
-- Do not let child edge-loop results bypass the immediate driver.
-- Do not use one live reminder per active edge-loop as the default many-loop strategy.
+- Do not teach recursive child edge-loops, parent edge-loop identifiers, or multi-edge graph planning as part of this elemental pattern.
+- Do not use one live reminder per active edge-loop row as the default supervision strategy.
 - Do not store mutable edge-loop bookkeeping in `HOUMAO_MEMORY_DIR`.
 - Do not guess materially important timing thresholds when the user needs to set them.

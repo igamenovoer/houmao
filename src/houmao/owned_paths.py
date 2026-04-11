@@ -115,7 +115,8 @@ def resolve_local_jobs_root(
         explicit_root=explicit_root,
         env=env,
         env_var_name=HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
-        default_root=resolved_default_root or (working_directory.resolve() / _HOU_MAO_DIRNAME / "jobs"),
+        default_root=resolved_default_root
+        or (working_directory.resolve() / _HOU_MAO_DIRNAME / "jobs"),
         base=base,
     )
 

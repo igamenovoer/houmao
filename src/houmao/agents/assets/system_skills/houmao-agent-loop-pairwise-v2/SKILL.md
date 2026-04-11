@@ -1,16 +1,18 @@
 ---
 name: houmao-agent-loop-pairwise-v2
-description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v2` to author one enriched pairwise loop plan, run `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`.
+description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v2` to author one enriched pairwise loop plan, run routing-packet or preparation-wave `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`.
 license: MIT
 ---
 
 # Houmao Agent Loop Pairwise V2
 
-Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise-v2`. This is a manual-invocation-only versioned enriched pairwise authoring, prestart-preparation, and run-control skill, not the restored stable `houmao-agent-loop-pairwise` contract and not the default entrypoint for generic pairwise loop planning or pairwise run-control requests.
+Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise-v2`. This is a manual-invocation-only versioned enriched pairwise authoring, prestart-strategy, and run-control skill, not the restored stable `houmao-agent-loop-pairwise` contract and not the default entrypoint for generic pairwise loop planning or pairwise run-control requests.
 
 When explicitly invoked, this skill helps a user-controlled agent formulate or operate one enriched pairwise loop run across named Houmao agents while keeping the user agent outside the execution loop.
 
-`houmao-agent-loop-pairwise-v2` is intentionally above the direct-operation skills and above the pairwise pattern page in `houmao-adv-usage-pattern`. This skill does not invent a new runtime loop engine. It preserves the enriched pairwise workflow, turns user intent into one explicit plan, renders the final control graph, and routes start or follow-up control to the maintained Houmao-owned skills that already own messaging, reminders, mailbox follow-up, and pairwise execution guidance.
+`houmao-agent-loop-pairwise-v2` is intentionally above the direct-operation skills and above the pairwise pattern page in `houmao-adv-usage-pattern`. This skill does not invent a new runtime loop engine. It preserves the enriched pairwise workflow, turns user intent into one explicit plan, owns the composed pairwise run topology, renders the final control graph, and routes start or follow-up control to the maintained Houmao-owned skills that already own messaging, reminders, mailbox follow-up, and elemental pairwise edge execution guidance.
+
+The pairwise page in `houmao-adv-usage-pattern` is the atomic immediate driver-worker edge protocol. This skill owns composed pairwise loop planning: multi-edge runs, recursive child-control edges, rendered control graphs, master-owned run planning, lifecycle preparation, and run-control actions.
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-loop-pairwise-v2` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -19,7 +21,7 @@ The trigger word `houmao` is intentional. Use the `houmao-agent-loop-pairwise-v2
 This packaged skill covers three lanes and one canonical operator-facing lifecycle vocabulary:
 
 - `plan`: author or revise a pairwise loop plan from user intent
-- `initialize`: complete the prestart wave before the master trigger
+- `initialize`: complete the selected prestart strategy before the master trigger; default `precomputed_routing_packets` validates root and child routing packets, while explicit `operator_preparation_wave` sends the targeted standalone preparation mail wave
 - `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`: operate an accepted run
 
 This packaged skill does not cover:
@@ -34,7 +36,7 @@ This packaged skill does not cover:
 The canonical operator-facing lifecycle actions are `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`.
 
 - `plan`: author or revise the pairwise loop contract before the run begins.
-- `initialize`: verify participant preparation material, verify or enable notifier posture, send standalone preparation mail, and optionally wait for acknowledgement replies before the master trigger.
+- `initialize`: complete the selected prestart strategy. By default, validate `precomputed_routing_packets` coverage and root packet availability without sending operator-origin participant preparation mail. When the plan explicitly selects `operator_preparation_wave`, send standalone preparation mail to targeted recipients and optionally wait for targeted acknowledgement replies before the master trigger.
 - `start`: send the normalized start charter only to the designated master after initialization is complete.
 - `peek master|all|<agent-name>`: perform read-only inspection of current run posture without sending a fresh control prompt.
 - `ping <agent-name>`: actively message one selected participant to ask what is going on.
@@ -50,9 +52,9 @@ If participant-wide advisory stop mail is ever needed, document it separately as
 The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`.
 
 - `authoring`: the plan is still being authored or revised.
-- `initializing`: the standalone preparation wave is being prepared or delivered.
-- `awaiting_ack`: acknowledgement-gated initialization has sent preparation mail and is waiting for required replies.
-- `ready`: initialization is complete and the run is ready for `start`.
+- `initializing`: the selected prestart strategy is in progress, either routing-packet validation or explicit operator preparation-wave delivery.
+- `awaiting_ack`: explicit `operator_preparation_wave` initialization has sent acknowledgement-gated preparation mail to targeted recipients and is waiting for their required replies.
+- `ready`: the selected prestart strategy is complete and the run is ready for `start`.
 - `running`: the master accepted the run and owns live supervision.
 - `paused`: the run is intentionally stalled because its wakeup mechanisms are suspended.
 - `stopping`: a stop request is being reconciled by the master.
@@ -64,13 +66,13 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 1. Confirm that the user explicitly asked for `houmao-agent-loop-pairwise-v2` and wants one pairwise loop plan or one run-control action rather than one ordinary direct-operation request.
 2. Keep the two planes separate from the start:
    - control plane: user agent to designated master
-   - execution plane: master and downstream workers using the existing pairwise edge-loop pattern
+   - execution plane: master and downstream workers using the existing pairwise edge-loop pattern for each immediate driver-worker edge
 3. Treat the user agent as outside the execution loop. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
 4. If the user needs a new plan or a revised plan, load exactly one authoring page:
    - `authoring/formulate-loop-plan.md`
    - `authoring/revise-loop-plan.md`
    - `authoring/render-loop-graph.md`
-5. If the user needs the preparation wave, load:
+5. If the user needs initialization, routing-packet validation, or the explicit preparation wave, load:
    - `prestart/prepare-run.md`
 6. If the user already has a plan and wants to operate it, load exactly one operating page:
    - `operating/start.md`
@@ -108,7 +110,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 
 ## Prestart Page
 
-- Read [prestart/prepare-run.md](prestart/prepare-run.md) when the user wants to verify notifier posture, send standalone preparation mail to all participants, or require readiness acknowledgement replies before the master trigger.
+- Read [prestart/prepare-run.md](prestart/prepare-run.md) when the user wants to run `initialize`: validate default precomputed routing-packet coverage and root packet readiness, or explicitly run `operator_preparation_wave` with notifier posture, targeted preparation mail, optional leaf inclusion, and targeted readiness acknowledgement replies before the master trigger.
 
 ## References
 
@@ -126,11 +128,14 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 ## Routing Guidance
 
 - Route `start`, `ping`, `pause`, `resume`, `stop`, and participant interrupts within `hard-kill` requests to `houmao-agent-messaging`.
-- Route `initialize` notifier preflight and wakeup-control work plus `hard-kill` reminder or mail-notifier shutdown to `houmao-agent-gateway`.
+- Route `initialize` notifier preflight for explicit `operator_preparation_wave` plus `hard-kill` reminder or mail-notifier shutdown to `houmao-agent-gateway`.
 - Route mailbox receipt, result, or follow-up semantics referenced by the plan plus `hard-kill` unread draining to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr` or the owned mailbox surfaces that expose `HOUMAO-operator@houmao.localhost`.
 - Route `peek` requests, overdue downstream peeking, and other read-only state inspection to `houmao-agent-inspect`.
-- Route downstream pairwise execution semantics to `houmao-adv-usage-pattern`, specifically the pairwise edge-loop pattern.
+- Route authoring-time and initialization structural preflight to `houmao-mgr internals graph high ...` as the first-class helper surface when a NetworkX node-link graph and packet JSON document are available: use `analyze` for topology checks, `slice` for plan-time descendant or subtree inspection, `packet-expectations` for root and child packet expectations, and `validate-packets` before default initialization enters `ready`.
+- Treat `houmao-mgr internals graph high` output as structural evidence only; keep delegation policy, result routing, forbidden actions, lifecycle vocabulary, and final readiness decisions in this skill.
+- Keep composed topology, recursive child-control edges, rendered graphs, run charters, lifecycle preparation, and run-control actions in this skill.
+- Route only atomic immediate driver-worker edge execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.
 
 ## Guardrails
@@ -143,10 +148,15 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not default to graceful stop. Default to `interrupt-first` unless the user explicitly requests graceful termination.
 - Do not redefine canonical `stop` as an implicit participant-wide broadcast; keep any advisory `broadcast-stop` action separate.
 - Do not treat `hard-kill` as a synonym for canonical `stop`; `hard-kill` is the explicit participant-wide emergency override.
-- Do not assume that one participant preparation brief may depend on hidden upstream-specific context from another brief.
+- Do not require intermediate runtime agents to run graph analysis, recompute graph topology, or recompute descendant plan slices; author precomputed routing packets and dispatch tables instead.
+- Do not edit, merge, or summarize prepared child routing packets during runtime handoff unless the authored plan explicitly permits that transformation.
+- Do not repair missing, mismatched, or stale child routing packets by graph reasoning from memory; fail closed and report the mismatch to the immediate driver or operator.
+- Do not send operator-origin preparation mail by default. Use `operator_preparation_wave` only when the user or plan explicitly selects that strategy.
+- Under explicit `operator_preparation_wave`, do not send preparation mail to leaf participants by default; include leaf participants only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set.
 - Do not block the current live turn after one downstream dispatch merely because timeout-watch policy exists; use reminder-driven follow-up instead.
 - Do not describe `dead` as an operator action.
 - Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is pairwise local-close control plus a supervision loop.
-- Do not replace the existing pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern`.
+- Do not push multi-edge topology, recursive child-control planning, rendered graph semantics, lifecycle preparation, or run-control actions down into `houmao-adv-usage-pattern`; those remain in this skill.
+- Do not replace the existing elemental pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern` for each immediate driver-worker edge.
 - Do not leave mail-notifier polling or live reminders active after a `hard-kill`.
 - Do not limit `hard-kill` mailbox cleanup to loop-related mail; it intentionally marks every unread message read for the named participants.

@@ -3319,7 +3319,9 @@ def _write_project_auth_bundle(
     with tempfile.TemporaryDirectory(prefix=f"houmao-auth-{tool}-") as temp_dir:
         temp_auth_root = Path(temp_dir).resolve() / "auth"
         if existing_profile is not None:
-            shutil.copytree(_auth_source_root(overlay=overlay, profile=existing_profile), temp_auth_root)
+            shutil.copytree(
+                _auth_source_root(overlay=overlay, profile=existing_profile), temp_auth_root
+            )
         else:
             temp_auth_root.mkdir(parents=True, exist_ok=True)
         env_file_path = (temp_auth_root / adapter.auth_env_source).resolve()
@@ -3389,7 +3391,8 @@ def _write_project_auth_bundle(
         ],
         "cleared_env_vars": sorted(clear_env_names),
         "written_files": [
-            str((projection_files_root / source_name).resolve()) for source_name in sorted(file_sources)
+            str((projection_files_root / source_name).resolve())
+            for source_name in sorted(file_sources)
         ],
         "cleared_files": sorted(clear_file_sources),
     }

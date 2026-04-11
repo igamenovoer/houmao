@@ -354,3 +354,63 @@ The packaged catalog SHALL keep `houmao-agent-inspect` in the dedicated `agent-i
 - **THEN** each fixed selection includes the dedicated `agent-inspect` named set
 - **AND THEN** the inspect skill becomes part of the resolved default packaged skill inventory without being folded into another named set
 
+### Requirement: Packaged system-skill catalog includes both pairwise skill variants in `user-control`
+The packaged current-system-skill catalog SHALL include both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` as current installable Houmao-owned skills.
+
+Each packaged skill SHALL use its skill name as both its catalog key and its packaged `asset_subpath`.
+
+The packaged catalog's `user-control` named set SHALL include:
+
+- `houmao-agent-loop-pairwise`
+- `houmao-agent-loop-pairwise-v2`
+
+alongside the other user-control skills.
+
+Because managed launch, managed join, and CLI-default installation already resolve `user-control`, those fixed auto-install selections SHALL pick up both pairwise skill variants through the expanded set membership.
+
+#### Scenario: Maintainer sees both pairwise skills in the packaged catalog
+- **WHEN** a maintainer inspects the packaged current-system-skill catalog
+- **THEN** the current installable skill inventory includes both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2`
+- **AND THEN** each skill uses its own flat packaged asset subpath under the maintained runtime asset root
+
+#### Scenario: User-control expands to both pairwise variants
+- **WHEN** a maintainer inspects the packaged `user-control` named set
+- **THEN** that set resolves both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2`
+- **AND THEN** the set does not require a second pairwise-only named set to expose the versioned skill
+
+#### Scenario: Auto-install picks up both pairwise variants through user-control
+- **WHEN** a maintainer inspects the packaged `managed_launch_sets`, `managed_join_sets`, or `cli_default_sets`
+- **THEN** those fixed auto-install selections still reference `user-control`
+- **AND THEN** the resolved install lists now include both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` without further conditional expansion
+
+### Requirement: Packaged system-skill catalog replaces relay loop planner with generic loop planner
+The packaged current-system-skill catalog SHALL include `houmao-agent-loop-generic` as a current installable Houmao-owned skill.
+
+That packaged skill SHALL use `houmao-agent-loop-generic` as both its catalog key and its packaged `asset_subpath`.
+
+The packaged current-system-skill catalog SHALL NOT include `houmao-agent-loop-relay` as a current installable skill after the generic replacement is introduced.
+
+The packaged catalog's `user-control` named set SHALL include:
+
+- `houmao-agent-loop-pairwise`,
+- `houmao-agent-loop-pairwise-v2`,
+- `houmao-agent-loop-generic`.
+
+The packaged catalog's `user-control` named set SHALL NOT include `houmao-agent-loop-relay` after this replacement.
+
+Because managed launch, managed join, and CLI-default installation already resolve `user-control`, those fixed auto-install selections SHALL pick up `houmao-agent-loop-generic` through the updated set membership.
+
+#### Scenario: Maintainer sees generic loop skill in the packaged catalog
+- **WHEN** a maintainer inspects the packaged current-system-skill catalog
+- **THEN** the current installable skill inventory includes `houmao-agent-loop-generic`
+- **AND THEN** the current installable skill inventory does not include `houmao-agent-loop-relay`
+
+#### Scenario: User-control expands to the generic loop skill
+- **WHEN** a maintainer inspects the packaged `user-control` named set
+- **THEN** that set resolves `houmao-agent-loop-generic` alongside the pairwise loop skill variants
+- **AND THEN** that set does not resolve `houmao-agent-loop-relay`
+
+#### Scenario: Auto-install picks up the generic loop skill through user-control
+- **WHEN** a maintainer inspects the packaged `managed_launch_sets`, `managed_join_sets`, or `cli_default_sets`
+- **THEN** those fixed auto-install selections still reference `user-control`
+- **AND THEN** the resolved install lists include `houmao-agent-loop-generic` through `user-control`

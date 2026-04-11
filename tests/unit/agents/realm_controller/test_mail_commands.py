@@ -312,7 +312,9 @@ def test_run_mail_prompt_maps_busy_backend_error_to_submission_status(tmp_path: 
     assert mailbox is not None
 
     def _raise_busy(_request: MailPromptRequest) -> list[SessionEvent]:
-        raise BackendExecutionError("Mailbox command could not start because the target session is busy.")
+        raise BackendExecutionError(
+            "Mailbox command could not start because the target session is busy."
+        )
 
     result = run_mail_prompt(
         send_prompt=None,

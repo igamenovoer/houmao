@@ -7,7 +7,9 @@ import argparse
 import json
 from pathlib import Path
 
-from houmao.demo.legacy.passive_server_parallel_validation_demo_pack.reporting import sanitize_report
+from houmao.demo.legacy.passive_server_parallel_validation_demo_pack.reporting import (
+    sanitize_report,
+)
 
 
 def main() -> int:
@@ -31,4 +33,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

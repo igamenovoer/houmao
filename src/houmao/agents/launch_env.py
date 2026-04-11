@@ -71,7 +71,9 @@ def resolve_runtime_env_set_specs(
     for raw_value in values:
         if "=" in raw_value:
             name, value = raw_value.split("=", 1)
-            normalized_name = _normalized_env_name(name, option_name=option_name, raw_value=raw_value)
+            normalized_name = _normalized_env_name(
+                name, option_name=option_name, raw_value=raw_value
+            )
             if normalized_name in resolved:
                 raise ValueError(f"Duplicate `{option_name}` env name `{normalized_name}`.")
             resolved[normalized_name] = value
@@ -126,7 +128,9 @@ def validate_persistent_env_records(
         if normalized_name in normalized:
             raise ValueError(f"{source}: duplicate env name `{normalized_name}`.")
         if _is_houmao_reserved_env_name(normalized_name):
-            raise ValueError(f"{source}: `{normalized_name}` is reserved for Houmao-owned runtime env.")
+            raise ValueError(
+                f"{source}: `{normalized_name}` is reserved for Houmao-owned runtime env."
+            )
         if normalized_name in auth_names:
             raise ValueError(
                 f"{source}: `{normalized_name}` belongs to credential env for the selected tool."

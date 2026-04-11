@@ -170,7 +170,9 @@ def build_report(
         "phases": {
             "inspect": {
                 "status": _phase_status(inspect_result),
-                "list_visibility_ok": None if inspect_result is None else inspect_result.get("list_ok"),
+                "list_visibility_ok": None
+                if inspect_result is None
+                else inspect_result.get("list_ok"),
                 "resolve_visibility_ok": None
                 if inspect_result is None
                 else inspect_result.get("resolve_ok"),
@@ -266,4 +268,3 @@ def verify_sanitized_report(actual: dict[str, Any], expected: dict[str, Any]) ->
             f"expected:\n{json.dumps(expected, indent=2, sort_keys=True)}\n"
             f"actual:\n{json.dumps(actual, indent=2, sort_keys=True)}"
         )
-

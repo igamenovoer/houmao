@@ -115,7 +115,9 @@ def test_bootstrap_skips_template_when_vendor_runtime_state_already_exists(tmp_p
     home = _prepare_home(tmp_path, template=None)
     runtime_state_path = home / ".claude.json"
     credentials_path = home / ".credentials.json"
-    runtime_state_path.write_text('{"hasCompletedOnboarding": true, "numStartups": 9}\n', encoding="utf-8")
+    runtime_state_path.write_text(
+        '{"hasCompletedOnboarding": true, "numStartups": 9}\n', encoding="utf-8"
+    )
     credentials_path.write_text(
         '{"claudeAiOauth": {"accessToken": "vendor-access-token"}}\n',
         encoding="utf-8",

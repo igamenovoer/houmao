@@ -1,6 +1,6 @@
 ---
 name: houmao-credential-mgr
-description: Use Houmao's supported credential workflow to list, inspect, add, update, rename, or remove credentials for the active project overlay or an explicit plain agent-definition directory.
+description: Use Houmao's supported credential workflow to list, inspect, add, update, log in, rename, or remove credentials for the active project overlay or an explicit plain agent-definition directory.
 license: MIT
 ---
 
@@ -27,6 +27,7 @@ This packaged skill covers exactly these credential actions:
 - `get`
 - `add`
 - `set`
+- `login`
 - `rename`
 - `remove`
 
@@ -48,7 +49,7 @@ This packaged skill does not cover:
 
 ## Workflow
 
-1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `rename`, or `remove`.
+1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
 2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:
    - easy-profile auth override work belongs to `houmao-specialist-mgr`
    - explicit launch-profile auth override work belongs to the supported `houmao-mgr project agents launch-profiles add|set --auth ...` or `--clear-auth` surface, not to credential CRUD
@@ -68,6 +69,7 @@ This packaged skill does not cover:
    - `actions/get.md`
    - `actions/add.md`
    - `actions/set.md`
+   - `actions/login.md`
    - `actions/rename.md`
    - `actions/remove.md`
 8. Follow the selected action page and report the result from the command that ran.
@@ -87,6 +89,7 @@ This packaged skill does not cover:
 - Use `actions/get.md` only when the user wants to inspect one credential safely through redacted CLI output.
 - Use `actions/add.md` only when the user wants to create one new credential.
 - Use `actions/set.md` only when the user wants to update one existing credential.
+- Use `actions/login.md` only when the user wants to run a provider login flow for a fresh Claude, Codex, or Gemini account and import the resulting auth files into Houmao storage.
 - Use `actions/rename.md` only when the user wants to rename one existing credential.
 - Use `actions/remove.md` only when the user wants to remove one existing credential.
 - When the user wants to change the stored `--auth` override on an easy profile or explicit launch profile, do not use this skill's action pages; that is profile authoring rather than credential mutation.
@@ -97,6 +100,7 @@ This packaged skill does not cover:
 - Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
 - Do not scan env vars, tool homes, home directories, or unrelated filesystem locations to infer missing credential inputs unless the user explicitly asks for that narrower inspection.
 - Do not print raw secret values or raw auth-file contents when `get` already provides safe redacted inspection.
+- Do not hand-roll provider-login temp directories, manual provider command invocation, auth-file copying, or temp cleanup when `houmao-mgr credentials <tool> login` owns that ordinary workflow.
 - Do not treat changing an easy profile or explicit launch profile `--auth` override as credential CRUD.
 - Do not imply that project-backed rename changes underlying bundle identity; it is metadata-only rename.
 - Do not imply that direct-dir rename is a no-op for maintained references; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.

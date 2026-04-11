@@ -10,7 +10,9 @@ Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-
 
 When explicitly invoked, this skill helps a user-controlled agent formulate or operate one pairwise loop run across named Houmao agents while keeping the user agent outside the execution loop.
 
-`houmao-agent-loop-pairwise` is intentionally above the direct-operation skills and above the pairwise pattern page in `houmao-adv-usage-pattern`. This skill does not invent a new runtime loop engine. It turns user intent into one explicit plan, renders the final control graph, and routes start or follow-up control to the maintained Houmao-owned skills that already own messaging, reminders, mailbox follow-up, and pairwise execution guidance.
+`houmao-agent-loop-pairwise` is intentionally above the direct-operation skills and above the pairwise pattern page in `houmao-adv-usage-pattern`. This skill does not invent a new runtime loop engine. It turns user intent into one explicit plan, owns the composed pairwise run topology, renders the final control graph, and routes start or follow-up control to the maintained Houmao-owned skills that already own messaging, reminders, mailbox follow-up, and elemental pairwise edge execution guidance.
+
+The pairwise page in `houmao-adv-usage-pattern` is the atomic immediate driver-worker edge protocol. This skill owns composed pairwise loop planning: multi-edge runs, recursive child-control edges, rendered control graphs, master-owned run planning, and run-control actions.
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-loop-pairwise` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -33,7 +35,7 @@ This packaged skill does not cover:
 1. Confirm that the user explicitly asked for `houmao-agent-loop-pairwise` and wants one pairwise loop plan or one run-control action rather than one ordinary direct-operation request.
 2. Keep the two planes separate from the start:
    - control plane: user agent to designated master
-   - execution plane: master and downstream workers using the existing pairwise edge-loop pattern
+   - execution plane: master and downstream workers using the existing pairwise edge-loop pattern for each immediate driver-worker edge
 3. Treat the user agent as outside the execution loop. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
 4. If the user needs a new plan or a revised plan, load exactly one authoring page:
    - `authoring/formulate-loop-plan.md`
@@ -83,7 +85,8 @@ This packaged skill does not cover:
 - Route plan delivery, status requests, and stop requests to `houmao-agent-messaging`.
 - Route master reminder and live review-loop timing work to `houmao-agent-gateway`.
 - Route mailbox receipt, result, or follow-up semantics referenced by the plan to `houmao-agent-email-comms`.
-- Route downstream pairwise execution semantics to `houmao-adv-usage-pattern`, specifically the pairwise edge-loop pattern.
+- Keep composed topology, recursive child-control edges, rendered graphs, run charters, and start/status/stop control in this skill.
+- Route only atomic immediate driver-worker edge execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.
 
 ## Guardrails
@@ -94,4 +97,5 @@ This packaged skill does not cover:
 - Do not treat `status` polling as a keepalive signal; the master owns liveness after accepting the run.
 - Do not default to graceful stop. Default to `interrupt-first` unless the user explicitly requests graceful termination.
 - Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is pairwise local-close control plus a supervision loop.
-- Do not replace the existing pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern`.
+- Do not push multi-edge topology, recursive child-control planning, rendered graph semantics, or run-control actions down into `houmao-adv-usage-pattern`; those remain in this skill.
+- Do not replace the existing elemental pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern` for each immediate driver-worker edge.

@@ -427,8 +427,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
         / "houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
     ).is_file()
     assert (
-        mailbox_root
-        / "houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
+        mailbox_root / "houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
     ).is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/check.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/reply.md").is_file()

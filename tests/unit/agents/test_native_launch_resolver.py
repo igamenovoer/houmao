@@ -76,7 +76,9 @@ def test_resolve_effective_agent_def_dir_uses_overlay_env_before_discovery(
 def test_resolve_preset_owner_agent_def_dir_returns_owner_tree(tmp_path: Path) -> None:
     preset_path = (tmp_path / "source" / ".houmao" / "agents" / "presets" / "demo.yaml").resolve()
     preset_path.parent.mkdir(parents=True, exist_ok=True)
-    preset_path.write_text("role: demo\ntool: claude\nsetup: default\nskills: []\n", encoding="utf-8")
+    preset_path.write_text(
+        "role: demo\ntool: claude\nsetup: default\nskills: []\n", encoding="utf-8"
+    )
 
     resolved = resolve_preset_owner_agent_def_dir(preset_path=preset_path)
 

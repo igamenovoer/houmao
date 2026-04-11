@@ -29,7 +29,8 @@ Control-plane contract:
 - I may send `status <run_id>` or `stop <run_id>` later.
 
 Execution model:
-- Use the Houmao pairwise edge-loop pattern for internal delegation.
+- Use the accepted plan for composed topology, recursive child-control edges, completion, stop, and reporting.
+- Use the Houmao elemental pairwise edge-loop pattern for each immediate driver-worker delegation edge.
 - Every delegation edge must close back to its immediate driver.
 - Child results must not bypass the immediate driver.
 

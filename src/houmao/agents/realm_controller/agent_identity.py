@@ -114,9 +114,7 @@ def normalize_agent_identity_name(value: str) -> AgentIdentityNormalization:
     if not value or not value.strip():
         raise SessionManifestError("Agent identity must not be blank")
     if value == AGENT_RESERVED_TOKEN:
-        raise SessionManifestError(
-            "Agent identity `HOUMAO` is reserved; choose a different name."
-        )
+        raise SessionManifestError("Agent identity `HOUMAO` is reserved; choose a different name.")
 
     warnings: list[str] = []
     has_exact_prefix = value.startswith(AGENT_NAMESPACE_PREFIX)
@@ -272,9 +270,7 @@ def _validate_agent_name_portion(name_portion: str) -> None:
     """Validate the namespace-free identity name portion."""
 
     if not name_portion:
-        raise SessionManifestError(
-            "Agent identity name portion must not be empty after `HOUMAO-`."
-        )
+        raise SessionManifestError("Agent identity name portion must not be empty after `HOUMAO-`.")
     if not _ALLOWED_AGENT_NAME_RE.fullmatch(name_portion):
         raise SessionManifestError(
             "Invalid agent identity name portion. Allowed characters are ASCII "
