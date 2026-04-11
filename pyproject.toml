@@ -1,12 +1,12 @@
 [project]
 name = "Houmao"
 version = "0.6.0rc1"
-description = "Houmao runtime package for realm controller and CAO launcher workflows"
+description = "Framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "igamenovoer", email = "igamenovoer@xx.com" }]
 license = { file = "LICENSE" }
-keywords = ["agents", "runtime", "cao", "tmux", "cli"]
+keywords = ["agents", "ai", "llm", "tmux", "cli", "orchestration"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
