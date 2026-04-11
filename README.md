@@ -17,7 +17,9 @@ A team of three agents writing a sci-fi novel chapter by chapter: a **story-writ
      To get the URL: edit this README on github.com, drag-drop the .mp4 into the editor,
      GitHub will generate a https://github.com/user-attachments/assets/... URL.
      Replace the entire video tag below with that URL on its own line. -->
+
 https://github.com/user-attachments/assets/6cff608a-8b5b-4dcd-96fb-f2f0208a18b6
+
 
 ## Why This Design
 
