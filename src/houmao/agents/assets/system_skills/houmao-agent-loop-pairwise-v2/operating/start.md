@@ -11,7 +11,9 @@ Use this page when the user already has one authored plan and wants to perform t
    - designated master
    - participants
    - delegation policy
+   - authored topology and descendant relationships
    - prestart procedure
+   - preparation target policy
    - participant preparation material
    - completion condition
    - stop posture
@@ -20,8 +22,8 @@ Use this page when the user already has one authored plan and wants to perform t
 4. Confirm that `initialize` is already complete:
    - the participant set and standalone preparation material are valid
    - notifier preflight is complete
-   - the preparation wave has been sent
-   - if the plan uses `require_ack`, required replies have arrived and the run is `ready`
+   - the targeted preparation wave has been sent to the resolved preparation recipients
+   - if the plan uses `require_ack`, required replies from targeted preparation recipients have arrived and the run is `ready`
 5. If initialization is not yet complete, return to `prestart/prepare-run.md` instead of collapsing `initialize` into `start`.
 6. Derive or recover the user-visible `run_id`.
 7. Build one normalized charter from `references/run-charter.md`.
@@ -52,6 +54,8 @@ Use this page when the user already has one authored plan and wants to perform t
 - Do not send the raw user goal alone when the plan has already been normalized.
 - Do not trigger the master before the run is `ready`.
 - Do not make one participant's preparation brief depend on hidden upstream-specific information from another participant.
+- Do not treat leaf participants as readiness blockers unless the user explicitly included them in the preparation target set.
+- Do not start when the topology is too unclear to identify the targeted preparation recipients used by `initialize`.
 - Do not ask the user agent to keep the run alive after the master accepted it.
 - Do not block one live turn after downstream dispatch merely because timeout-watch policy exists.
 - Do not silently widen delegation authority while constructing the charter.

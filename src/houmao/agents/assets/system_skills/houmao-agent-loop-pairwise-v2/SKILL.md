@@ -19,7 +19,7 @@ The trigger word `houmao` is intentional. Use the `houmao-agent-loop-pairwise-v2
 This packaged skill covers three lanes and one canonical operator-facing lifecycle vocabulary:
 
 - `plan`: author or revise a pairwise loop plan from user intent
-- `initialize`: complete the prestart wave before the master trigger
+- `initialize`: complete the targeted prestart wave before the master trigger
 - `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`: operate an accepted run
 
 This packaged skill does not cover:
@@ -34,7 +34,7 @@ This packaged skill does not cover:
 The canonical operator-facing lifecycle actions are `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`.
 
 - `plan`: author or revise the pairwise loop contract before the run begins.
-- `initialize`: verify participant preparation material, verify or enable notifier posture, send standalone preparation mail, and optionally wait for acknowledgement replies before the master trigger.
+- `initialize`: verify participant preparation material, target delegating/non-leaf participants by default, send standalone preparation mail to the targeted recipients, and optionally wait for targeted acknowledgement replies before the master trigger.
 - `start`: send the normalized start charter only to the designated master after initialization is complete.
 - `peek master|all|<agent-name>`: perform read-only inspection of current run posture without sending a fresh control prompt.
 - `ping <agent-name>`: actively message one selected participant to ask what is going on.
@@ -50,9 +50,9 @@ If participant-wide advisory stop mail is ever needed, document it separately as
 The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`.
 
 - `authoring`: the plan is still being authored or revised.
-- `initializing`: the standalone preparation wave is being prepared or delivered.
-- `awaiting_ack`: acknowledgement-gated initialization has sent preparation mail and is waiting for required replies.
-- `ready`: initialization is complete and the run is ready for `start`.
+- `initializing`: the targeted standalone preparation wave is being prepared or delivered.
+- `awaiting_ack`: acknowledgement-gated initialization has sent preparation mail to targeted recipients and is waiting for their required replies.
+- `ready`: targeted initialization is complete and the run is ready for `start`.
 - `running`: the master accepted the run and owns live supervision.
 - `paused`: the run is intentionally stalled because its wakeup mechanisms are suspended.
 - `stopping`: a stop request is being reconciled by the master.
@@ -108,7 +108,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 
 ## Prestart Page
 
-- Read [prestart/prepare-run.md](prestart/prepare-run.md) when the user wants to verify notifier posture, send standalone preparation mail to all participants, or require readiness acknowledgement replies before the master trigger.
+- Read [prestart/prepare-run.md](prestart/prepare-run.md) when the user wants to verify notifier posture, send standalone preparation mail to delegating/non-leaf participants by default, explicitly include leaf participants, or require targeted readiness acknowledgement replies before the master trigger.
 
 ## References
 
@@ -144,6 +144,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not redefine canonical `stop` as an implicit participant-wide broadcast; keep any advisory `broadcast-stop` action separate.
 - Do not treat `hard-kill` as a synonym for canonical `stop`; `hard-kill` is the explicit participant-wide emergency override.
 - Do not assume that one participant preparation brief may depend on hidden upstream-specific context from another brief.
+- Do not send preparation mail to leaf participants by default; include leaf participants only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set.
 - Do not block the current live turn after one downstream dispatch merely because timeout-watch policy exists; use reminder-driven follow-up instead.
 - Do not describe `dead` as an operator action.
 - Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is pairwise local-close control plus a supervision loop.

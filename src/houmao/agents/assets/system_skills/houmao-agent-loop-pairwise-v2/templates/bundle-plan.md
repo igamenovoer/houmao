@@ -35,6 +35,9 @@ loop-plan/
 # Participants
 <named set>
 
+# Topology
+<descendant relationships that identify delegating/non-leaf participants and leaves>
+
 # Delegation Policy
 See `delegation.md`.
 
@@ -70,11 +73,12 @@ See `reporting.md`.
 Record:
 
 - notifier preflight procedure
-- participant preparation-mail procedure
+- preparation target policy: `delegating_non_leaf` by default, `all_participants` only when explicitly requested, or an explicit named target set
+- participant preparation-mail procedure for targeted preparation recipients
 - acknowledgement posture: `fire_and_proceed` or `require_ack`
-- operator reply policy: `none` or `operator_mailbox`
+- operator reply policy: `none` or `operator_mailbox`, applied to targeted preparation recipients
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
-- readiness barrier behavior when acknowledgement is required
+- readiness barrier behavior for targeted preparation recipients when acknowledgement is required
 - how the master trigger remains separate from the preparation wave
 
 ## `agents/<participant>.md`

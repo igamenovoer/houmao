@@ -10,6 +10,7 @@ Use this reference when the user agent is ready to send one `start` request to t
 - allowed participants
 - delegation policy summary
 - preparation posture summary
+- preparation target summary
 - completion condition summary
 - default stop mode
 - reporting contract summary with canonical observed states
@@ -39,8 +40,10 @@ Delegation policy:
 
 Preparation posture:
 - notifier preflight: completed
-- participant preparation wave: completed
+- preparation targets: <delegating_non_leaf | all_participants | named_set>
+- targeted preparation wave: completed
 - acknowledgement mode: <fire_and_proceed | require_ack>
+- required acknowledgements: completed for targeted preparation recipients
 
 Completion condition:
 <user-defined operational success condition>

@@ -11,6 +11,7 @@ participants:
   - <worker-b>
 delegation_policy: <delegate_none | delegate_to_named | delegate_freely_within_named_set | delegate_any>
 prestart_mode: <fire_and_proceed | require_ack>
+preparation_targets: <delegating_non_leaf | all_participants | named_set>
 default_stop_mode: interrupt-first
 ---
 
@@ -23,14 +24,18 @@ default_stop_mode: interrupt-first
 # Participants
 - `<agent>`: <role in the topology>
 
+# Topology
+- descendants: <which participants have downstream descendants and which are leaves>
+
 # Delegation Policy
 <normalized delegation rules>
 
 # Prestart Procedure
 - notifier preflight: <how notifier is verified or enabled>
-- participant preparation wave: <how standalone prep mail is sent>
+- preparation targets: <delegating_non_leaf by default; all_participants or named leaf targets only when explicitly requested>
+- participant preparation wave: <how standalone prep mail is sent to targeted preparation recipients>
 - acknowledgement posture: <fire_and_proceed | require_ack>
-- operator reply policy: <none | operator_mailbox>
+- operator reply policy: <none | operator_mailbox, applied to targeted preparation recipients>
 - master trigger: <how the start charter stays separate from preparation mail>
 
 # Participant Preparation
@@ -68,7 +73,7 @@ default_stop_mode: interrupt-first
 ```mermaid
 flowchart TD
     UA[User Agent<br/>control only]
-    Prep[Preparation Wave<br/>standalone mail<br/>before trigger]
+    Prep[Targeted Preparation Wave<br/>delegating/non-leaf mail<br/>before trigger]
     M[Master<br/>root run owner]
     W[Worker]
     Loop[Master Loop<br/>review run]

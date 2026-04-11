@@ -16,7 +16,9 @@ Use this page when the user has described what they want, but the designated mas
    - stop policy
    - reporting contract
    - lifecycle vocabulary summary
+   - authored topology and descendant relationships
    - preparation posture
+   - preparation target policy
    - standalone participant preparation material
    - optional timeout-watch policy, when requested
    - scripts, if any
@@ -26,7 +28,9 @@ Use this page when the user has described what they want, but the designated mas
 7. Draft the plan with `references/plan-structure.md` plus the matching template:
    - `templates/single-file-plan.md`
    - `templates/bundle-plan.md`
-8. Keep participant preparation standalone:
+8. Keep participant preparation material distinct from preparation mail targeting:
+   - by default, preparation mail targets only participants that have descendants in the authored topology
+   - leaf participants are included only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set
    - each participant brief records that participant's role, resources, delegation authority, obligations, and forbidden actions
    - do not make the brief depend on knowing which upstream participant may later send to it
 9. Render the final graph through `authoring/render-loop-graph.md`.
@@ -40,6 +44,7 @@ Use this page when the user has described what they want, but the designated mas
 - Use one root `run_id` for the run contract and keep pairwise `edge_loop_id` values as execution-local identifiers owned by the master and workers.
 - Preserve delegation restrictions when the user names a limited downstream set.
 - Keep the preparation wave separate from the master trigger even when the plan uses default fire-and-proceed preparation.
+- Keep the default preparation target set limited to delegating/non-leaf participants unless the user explicitly includes leaf participants.
 - Reject or rewrite any execution sketch that depends on child results bypassing the immediate driver.
 
 ## Output Checklist
@@ -48,8 +53,10 @@ The finalized authored plan should make these items easy to find:
 
 - master
 - participants
+- authored topology and descendant relationships
 - delegation policy
 - preparation posture
+- preparation target policy
 - participant preparation material
 - lifecycle vocabulary
 - completion condition

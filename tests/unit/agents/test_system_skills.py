@@ -1180,11 +1180,24 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "HOUMAO-operator@houmao.localhost" in pairwise_loop_prepare
     assert "reply_policy=operator_mailbox" in pairwise_loop_prepare
     assert "canonical `initialize` action" in pairwise_loop_prepare
+    assert "by default, include only participants that have descendants" in pairwise_loop_prepare
+    assert "exclude leaf participants by default" in pairwise_loop_prepare
+    assert "prepare leaf agents, prepare all participants" in pairwise_loop_prepare
+    assert (
+        "missing acknowledgements from leaf participants do not block `ready`"
+        in pairwise_loop_prepare
+    )
+    assert "Do not guess the preparation target set when the topology is unclear" in (
+        pairwise_loop_prepare
+    )
     assert "`awaiting_ack`" in pairwise_loop_prepare
     assert "`ready`" in pairwise_loop_prepare
     assert "After the master accepts the run, the master owns liveness" in pairwise_loop_start
     assert "houmao-agent-inspect" in pairwise_loop_start
     assert "`initialize` remains separate from `start`." in pairwise_loop_start
+    assert "targeted preparation wave has been sent" in pairwise_loop_start
+    assert "required replies from targeted preparation recipients" in pairwise_loop_start
+    assert "Do not treat leaf participants as readiness blockers" in pairwise_loop_start
     assert "Later `peek` remains read-only and does not keep the run alive." in pairwise_loop_start
     assert "Use this page when the user wants canonical read-only inspection" in pairwise_loop_peek
     assert "`peek master`, `peek all`, or `peek <agent-name>`" in pairwise_loop_peek
@@ -1202,19 +1215,38 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter
+    assert "preparation targets: <delegating_non_leaf | all_participants | named_set>" in (
+        pairwise_loop_charter
+    )
     assert "delegate_freely_within_named_set" in pairwise_loop_policy
     assert "## Canonical Observed States" in pairwise_loop_reporting
     assert "## Hard-Kill Summary Fields" in pairwise_loop_reporting
     assert "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
     assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
+    assert "Preparation material and preparation mail recipients are separate." in (
+        pairwise_loop_plan_structure
+    )
+    assert "preparation target policy: `delegating_non_leaf` by default" in (
+        pairwise_loop_plan_structure
+    )
     assert "`hard-kill`" in pairwise_loop_plan_structure
     assert "Treat `hard-kill` as a separate operator action" in pairwise_loop_stop_modes_path.read_text(
         encoding="utf-8"
     )
     assert "# Prestart Procedure" in pairwise_loop_single_template
+    assert "preparation_targets: <delegating_non_leaf | all_participants | named_set>" in (
+        pairwise_loop_single_template
+    )
+    assert "preparation targets: <delegating_non_leaf by default" in (
+        pairwise_loop_single_template
+    )
+    assert "Targeted Preparation Wave" in pairwise_loop_single_template
     assert "# Participant Preparation" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template
+    assert "preparation target policy: `delegating_non_leaf` by default" in (
+        pairwise_loop_bundle_template
+    )
     assert "# Lifecycle Vocabulary" in pairwise_loop_single_template
     assert "# Mermaid Control Graph" in pairwise_loop_single_template
     assert "prestart.md" in pairwise_loop_bundle_template

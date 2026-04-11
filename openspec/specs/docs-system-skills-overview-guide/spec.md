@@ -143,7 +143,6 @@ At minimum the guide SHALL surface the following skills currently declared in th
 - `houmao-specialist-mgr`
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
-- `houmao-loop-planner`
 - `houmao-agent-instance`
 - `houmao-agent-messaging`
 - `houmao-agent-gateway`
@@ -152,6 +151,7 @@ At minimum the guide SHALL surface the following skills currently declared in th
 - `houmao-process-emails-via-gateway`
 - `houmao-adv-usage-pattern`
 - `houmao-agent-loop-pairwise`
+- `houmao-agent-loop-pairwise-v2`
 - `houmao-agent-loop-relay`
 
 The guide MAY group these skills into concern-oriented subsections (for example "guided touring", "project, specialist, and credential authoring", "agent definition and instance management", "communication, gateway, and mailbox", "loop authoring and master-run control"), provided every catalog entry appears in exactly one subsection.
@@ -161,16 +161,24 @@ The guide MAY group these skills into concern-oriented subsections (for example 
 - **THEN** every `[skills.<name>]` entry in the catalog has exactly one row in the guide
 - **AND THEN** the guide does not list a skill that is not in the catalog
 
-#### Scenario: Loop-planner appears in the overview guide
+#### Scenario: Stable and v2 pairwise skills appear in the overview guide
 - **WHEN** a reader opens the overview guide
-- **THEN** the catalog table contains a row for `houmao-loop-planner` in the "Loop authoring and master-run control" concern group
-- **AND THEN** the row describes it as the operator-owned loop-bundle planning and runtime-handoff skill that is manual-invocation-only
-- **AND THEN** the row distinguishes it from `houmao-agent-loop-pairwise` and `houmao-agent-loop-relay` which are the live-run control skills
+- **THEN** the catalog table contains distinct rows for `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2`
+- **AND THEN** the stable row describes the simpler restored pairwise run-control surface
+- **AND THEN** the v2 row describes the enriched versioned pairwise workflow and distinguishes it from the stable pairwise skill
 
 #### Scenario: Loop skills appear in the overview guide
 - **WHEN** a reader opens the overview guide
-- **THEN** the catalog table contains rows for `houmao-agent-loop-pairwise` and `houmao-agent-loop-relay`
+- **THEN** the catalog table contains rows for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-relay`
 - **AND THEN** the "canonical CLI routing" column for each loop skill points the reader at the supported operating and authoring command paths actually shipped by the packaged skill assets
+
+### Requirement: Overview guide auto-install description includes both pairwise variants when `user-control` includes both
+The "Auto-Install vs Explicit Install" section of `docs/getting-started/system-skills-overview.md` SHALL explain that managed launch, managed join, and CLI-default installation all include both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` whenever the current `user-control` set resolves both skills.
+
+#### Scenario: Overview auto-install wording reflects both pairwise variants
+- **WHEN** a reader inspects the overview guide's auto-install narrative or diagram
+- **THEN** the guide includes both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` wherever it expands the current `user-control` set
+- **AND THEN** it does not imply that only one pairwise variant is auto-installed when the catalog includes both
 
 ### Requirement: Overview guide narrative count matches the catalog
 
