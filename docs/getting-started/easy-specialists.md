@@ -162,8 +162,13 @@ Manage existing easy profiles with:
 ```bash
 houmao-mgr project easy profile list
 houmao-mgr project easy profile get --name reviewer-default
+houmao-mgr project easy profile set --name reviewer-default --workdir /repos/next-target
 houmao-mgr project easy profile remove --name reviewer-default
 ```
+
+`profile set` patches stored easy-profile defaults for future launches while preserving unspecified fields such as mailbox config or prompt overlay. Use it for ordinary edits instead of removing and recreating the profile.
+
+If the profile should be rebuilt over a different specialist or should intentionally drop old optional defaults, run `project easy profile create --name reviewer-default --specialist <specialist> ... --yes`. Same-name replacement is lane-bounded: an easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name.
 
 `profile remove` deletes only the easy profile definition. It does not remove the specialist that the profile targeted.
 

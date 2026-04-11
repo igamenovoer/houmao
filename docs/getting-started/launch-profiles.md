@@ -165,6 +165,34 @@ Use the explicit lane (`project agents recipes` plus `project agents launch-prof
 
 Both lanes can coexist in the same project overlay. The shared catalog model means a future change can tighten the relationship between them without forcing a migration today.
 
+## Editing Profiles
+
+Direct launch-time overrides and stored profile edits are separate. `project easy instance launch ... --workdir <path>` or `agents launch --launch-profile <profile> --workdir <path>` affects only that launch; it does not rewrite the reusable profile.
+
+Use the patch command for ordinary stored-default edits:
+
+```bash
+# Easy lane
+houmao-mgr project easy profile set --name <profile> --workdir /repos/next-target
+
+# Explicit lane
+houmao-mgr project agents launch-profiles set --name <profile> --workdir /repos/next-target
+```
+
+Patch commands preserve unspecified stored fields, so existing mailbox config, prompt overlay, managed-header policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
+
+Use same-name replacement only when you want recreate semantics:
+
+```bash
+# Easy lane replacement
+houmao-mgr project easy profile create --name <profile> --specialist <specialist> --yes
+
+# Explicit lane replacement
+houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> --yes
+```
+
+Replacement is lane-bounded and clears omitted optional fields. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
+
 ## CLI Surfaces
 
 Canonical authoring surfaces:
@@ -173,6 +201,7 @@ Canonical authoring surfaces:
 # Easy lane
 houmao-mgr project easy specialist create --name <name> --tool <tool> ...
 houmao-mgr project easy profile create --name <profile> --specialist <name> ...
+houmao-mgr project easy profile set --name <profile> ...
 houmao-mgr project easy instance launch --profile <profile>           # easy-profile-backed
 houmao-mgr project easy instance launch --specialist <name> --name <managed-name>
 

@@ -23,6 +23,13 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
 )
+from houmao.srv_ctrl.commands import main as command_main
+from houmao.srv_ctrl.commands import project as project_commands
+from houmao.srv_ctrl.commands import project_definitions
+from houmao.srv_ctrl.commands import project_easy
+from houmao.srv_ctrl.commands import project_launch_profiles
+from houmao.srv_ctrl.commands import project_mailbox
+from houmao.srv_ctrl.commands import project_tools
 from houmao.srv_ctrl.commands.agents.core import emit_local_launch_completion
 from houmao.srv_ctrl.commands.main import cli
 
@@ -78,6 +85,62 @@ def _project_auth_root(repo_root: Path, *, tool: str, name: str) -> Path:
     return profile.resolved_projection_path(overlay)
 
 
+def _create_codex_specialist(
+    runner: CliRunner,
+    *,
+    name: str,
+    credential: str,
+    auth_json_path: Path,
+) -> None:
+    """Create one Codex-backed easy specialist for project command tests."""
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            name,
+            "--system-prompt",
+            f"You are specialist {name}.",
+            "--tool",
+            "codex",
+            "--credential",
+            credential,
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def _bootstrap_codex_researcher_project(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[CliRunner, Path, Path]:
+    """Create one project overlay with a Codex researcher specialist."""
+
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    _create_codex_specialist(
+        runner,
+        name="researcher",
+        credential="work",
+        auth_json_path=auth_json_path,
+    )
+    return runner, repo_root, auth_json_path
+
+
 def test_project_help_mentions_agents_credentials_easy_and_mailbox() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
@@ -90,6 +153,71 @@ def test_project_help_mentions_agents_credentials_easy_and_mailbox() -> None:
     assert "mailbox" in result.output
     assert "agent-tools" not in result.output
     assert "project-overlay" in result.output.lower()
+
+
+def test_project_module_remains_public_entrypoint() -> None:
+    source = Path(project_commands.__file__).read_text(encoding="utf-8")
+
+    assert project_commands.project_group.name == "project"
+    assert project_commands.project_group.get_command(None, "agents") is not None
+    assert project_commands.project_group.get_command(None, "credentials") is not None
+    assert (
+        project_commands.project_group.get_command(None, "easy") is project_easy.easy_project_group
+    )
+    assert (
+        project_commands.project_group.get_command(None, "mailbox")
+        is project_mailbox.project_mailbox_group
+    )
+    assert (
+        project_commands.agents_project_group.get_command(None, "tools")
+        is project_tools.project_tools_group
+    )
+    assert (
+        project_commands.agents_project_group.get_command(None, "roles")
+        is project_definitions.project_roles_group
+    )
+    assert (
+        project_commands.agents_project_group.get_command(None, "presets")
+        is project_definitions.project_presets_group
+    )
+    assert (
+        project_commands.agents_project_group.get_command(None, "recipes")
+        is project_definitions.project_recipes_group
+    )
+    assert (
+        project_commands.agents_project_group.get_command(None, "launch-profiles")
+        is project_launch_profiles.project_launch_profiles_group
+    )
+    assert "from .project import project_group" in Path(command_main.__file__).read_text(
+        encoding="utf-8"
+    )
+    assert "def project_group" in source
+    assert "def easy_project_group" not in source
+    assert "def project_mailbox_group" not in source
+    assert "def project_launch_profiles_group" not in source
+    assert "def project_tools_group" not in source
+    assert "def project_roles_group" not in source
+
+
+def test_project_extracted_subgroup_help_surfaces() -> None:
+    cases = [
+        (
+            ["project", "agents", "--help"],
+            ("tools", "roles", "presets", "recipes", "launch-profiles"),
+        ),
+        (["project", "easy", "--help"], ("profile", "specialist", "instance")),
+        (
+            ["project", "mailbox", "--help"],
+            ("init", "status", "register", "unregister", "accounts", "messages"),
+        ),
+    ]
+
+    for args, expected_terms in cases:
+        result = CliRunner().invoke(cli, [*args])
+
+        assert result.exit_code == 0, result.output
+        for expected in expected_terms:
+            assert expected in result.output
 
 
 def test_project_agents_tools_help_mentions_supported_tools() -> None:
@@ -2452,11 +2580,11 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -2905,6 +3033,487 @@ def test_project_easy_profile_crud_round_trip(
     )
 
 
+def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "credentials",
+                "codex",
+                "add",
+                "--name",
+                "reviewer-creds",
+                "--api-key",
+                "sk-openai",
+                "--auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--workdir",
+            "/repos/alice",
+            "--auth",
+            "work",
+            "--mail-transport",
+            "filesystem",
+            "--mail-principal-id",
+            "alice",
+            "--mail-address",
+            "alice@agents.localhost",
+            "--mail-root",
+            "/mail-root",
+            "--prompt-overlay-mode",
+            "append",
+            "--prompt-overlay-text",
+            "Prefer Alice repository conventions.",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--workdir",
+            "/repos/alice-next",
+            "--auth",
+            "reviewer-creds",
+        ],
+    )
+
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    assert set_payload["defaults"]["workdir"] == "/repos/alice-next"
+    assert set_payload["defaults"]["auth"] == "reviewer-creds"
+    assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
+    assert set_payload["defaults"]["prompt_overlay"] == {
+        "mode": "append",
+        "present": True,
+    }
+
+    projection = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection["defaults"]["workdir"] == "/repos/alice-next"
+    assert projection["defaults"]["prompt_overlay"] == {
+        "mode": "append",
+        "text": "Prefer Alice repository conventions.",
+    }
+
+
+def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    _create_codex_specialist(
+        runner,
+        name="reviewer-v2",
+        credential="work-v2",
+        auth_json_path=auth_json_path,
+    )
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--workdir",
+            "/repos/alice",
+            "--mail-transport",
+            "filesystem",
+            "--mail-principal-id",
+            "alice",
+            "--mail-address",
+            "alice@agents.localhost",
+            "--mail-root",
+            "/mail-root",
+            "--prompt-overlay-mode",
+            "replace",
+            "--prompt-overlay-text",
+            "Operate only on Alice-owned repositories.",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    replace_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "reviewer-v2",
+            "--workdir",
+            "/repos/alice-v2",
+            "--yes",
+        ],
+    )
+
+    assert replace_result.exit_code == 0, replace_result.output
+    replace_payload = json.loads(replace_result.output)
+    assert replace_payload["specialist"] == "reviewer-v2"
+    assert replace_payload["defaults"]["workdir"] == "/repos/alice-v2"
+    assert "mailbox" not in replace_payload["defaults"]
+    assert "prompt_overlay" not in replace_payload["defaults"]
+
+    projection = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection["source"] == {"kind": "specialist", "name": "reviewer-v2"}
+    assert projection["defaults"]["workdir"] == "/repos/alice-v2"
+    assert "mailbox" not in projection["defaults"]
+    assert "prompt_overlay" not in projection["defaults"]
+
+
+def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    _create_codex_specialist(
+        runner,
+        name="reviewer-v2",
+        credential="work-v2",
+        auth_json_path=auth_json_path,
+    )
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "researcher-codex-default",
+            "--workdir",
+            "/repos/alice",
+            "--mail-transport",
+            "filesystem",
+            "--mail-principal-id",
+            "alice",
+            "--mail-address",
+            "alice@agents.localhost",
+            "--mail-root",
+            "/mail-root",
+            "--prompt-overlay-mode",
+            "append",
+            "--prompt-overlay-text",
+            "Prefer Alice repository conventions.",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    replace_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "reviewer-v2-codex-default",
+            "--workdir",
+            "/repos/alice-v2",
+            "--yes",
+        ],
+    )
+
+    assert replace_result.exit_code == 0, replace_result.output
+    replace_payload = json.loads(replace_result.output)
+    assert replace_payload["recipe"] == "reviewer-v2-codex-default"
+    assert replace_payload["defaults"]["workdir"] == "/repos/alice-v2"
+    assert "mailbox" not in replace_payload["defaults"]
+    assert "prompt_overlay" not in replace_payload["defaults"]
+
+    projection = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection["source"] == {"kind": "recipe", "name": "reviewer-v2-codex-default"}
+    assert projection["defaults"]["workdir"] == "/repos/alice-v2"
+    assert "mailbox" not in projection["defaults"]
+    assert "prompt_overlay" not in projection["defaults"]
+
+
+def test_project_launch_profile_replacement_requires_yes_noninteractive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+                "--workdir",
+                "/repos/alice",
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "launch-profiles",
+                "add",
+                "--name",
+                "nightly",
+                "--recipe",
+                "researcher-codex-default",
+                "--workdir",
+                "/repos/nightly",
+            ],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: False,
+    )
+
+    easy_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--workdir",
+            "/repos/alice-v2",
+        ],
+    )
+    explicit_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "nightly",
+            "--recipe",
+            "researcher-codex-default",
+            "--workdir",
+            "/repos/nightly-v2",
+        ],
+    )
+
+    assert easy_result.exit_code != 0
+    assert "Rerun with `--yes`" in easy_result.output
+    assert explicit_result.exit_code != 0
+    assert "Rerun with `--yes`" in explicit_result.output
+    easy_payload = json.loads(
+        runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"]).output
+    )
+    explicit_payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "agents", "launch-profiles", "get", "--name", "nightly"],
+        ).output
+    )
+    assert easy_payload["defaults"]["workdir"] == "/repos/alice"
+    assert explicit_payload["defaults"]["workdir"] == "/repos/nightly"
+    assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
+
+
+def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+            ],
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "launch-profiles",
+                "add",
+                "--name",
+                "nightly",
+                "--recipe",
+                "researcher-codex-default",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    explicit_over_easy_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "researcher-codex-default",
+            "--yes",
+        ],
+    )
+    easy_over_explicit_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "nightly",
+            "--specialist",
+            "researcher",
+            "--yes",
+        ],
+    )
+
+    assert explicit_over_easy_result.exit_code != 0
+    assert "not an available `launch-profile` definition" in explicit_over_easy_result.output
+    assert easy_over_explicit_result.exit_code != 0
+    assert "not an available `easy-profile` definition" in easy_over_explicit_result.output
+    assert (
+        json.loads(
+            runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"]).output
+        )["profile_lane"]
+        == "easy-profile"
+    )
+    assert (
+        json.loads(
+            runner.invoke(
+                cli,
+                ["project", "agents", "launch-profiles", "get", "--name", "nightly"],
+            ).output
+        )["profile_lane"]
+        == "launch-profile"
+    )
+
+
+def test_project_easy_profile_set_without_updates_fails_without_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--workdir",
+            "/repos/alice",
+            "--prompt-overlay-mode",
+            "append",
+            "--prompt-overlay-text",
+            "Prefer Alice repository conventions.",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    before_result = runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"])
+    assert before_result.exit_code == 0, before_result.output
+
+    set_result = runner.invoke(cli, ["project", "easy", "profile", "set", "--name", "alice"])
+    after_result = runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"])
+
+    assert set_result.exit_code != 0
+    assert "No launch-profile updates were requested" in set_result.output
+    assert after_result.exit_code == 0, after_result.output
+    assert json.loads(after_result.output) == json.loads(before_result.output)
+
+
 def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3118,7 +3727,7 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         lambda **kwargs: (
             captured.update(kwargs)
             or SimpleNamespace(
@@ -3130,7 +3739,7 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -3316,7 +3925,7 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         lambda **kwargs: (
             captured.update(kwargs)
             or SimpleNamespace(
@@ -3328,7 +3937,7 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -3410,11 +4019,11 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
         emitted.update(kwargs)
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         _fake_emit,
     )
 
@@ -3508,11 +4117,11 @@ def test_project_easy_instance_launch_keeps_selected_overlay_when_workdir_points
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -3599,11 +4208,11 @@ def test_project_easy_instance_launch_no_gateway_opt_out(
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -3677,11 +4286,11 @@ def test_project_easy_instance_launch_gateway_port_override(
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -3756,11 +4365,11 @@ def test_project_easy_instance_launch_gateway_background_override(
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -3851,11 +4460,11 @@ def test_project_easy_instance_launch_gateway_background_override_forces_attach_
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -3930,11 +4539,11 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
         )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -4005,7 +4614,7 @@ def test_project_easy_instance_launch_rejects_conflicting_gateway_flags(
         return SimpleNamespace()
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _unexpected_launch,
     )
 
@@ -4074,7 +4683,7 @@ def test_project_easy_instance_launch_rejects_no_gateway_with_gateway_background
         return SimpleNamespace()
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         _unexpected_launch,
     )
 
@@ -4419,7 +5028,7 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         lambda **kwargs: (
             captured.update(kwargs)
             or SimpleNamespace(
@@ -4431,7 +5040,7 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -4475,11 +5084,11 @@ def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project._ensure_project_overlay",
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
         lambda: overlay,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project._load_specialist_or_click",
+        "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
         lambda **kwargs: SimpleNamespace(
             tool="codex",
             provider="codex",
@@ -4487,11 +5096,11 @@ def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.materialize_project_agent_catalog_projection",
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
         lambda project_overlay: source_agent_def_dir,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         lambda **kwargs: (
             captured.update(kwargs)
             or SimpleNamespace(
@@ -4503,7 +5112,7 @@ def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -4571,19 +5180,19 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project._ensure_project_overlay",
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
         lambda: overlay,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project._load_launch_profile_or_click",
+        "houmao.srv_ctrl.commands.project_easy._load_launch_profile_or_click",
         lambda **kwargs: resolved_profile,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.materialize_project_agent_catalog_projection",
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
         lambda project_overlay: source_agent_def_dir,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.launch_managed_agent_locally",
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         lambda **kwargs: (
             captured.update(kwargs)
             or SimpleNamespace(
@@ -4595,7 +5204,7 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
 
@@ -4648,17 +5257,17 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
     stop_calls: list[object] = []
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.resolve_managed_agent_target",
+        "houmao.srv_ctrl.commands.project_easy.resolve_managed_agent_target",
         lambda **kwargs: target,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project._load_manifest_payload",
+        "houmao.srv_ctrl.commands.project_easy._load_manifest_payload",
         lambda path: {
             "runtime": {"agent_def_dir": str((repo_root / ".houmao" / "agents").resolve())}
         },
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.stop_managed_agent",
+        "houmao.srv_ctrl.commands.project_easy.stop_managed_agent",
         lambda resolved_target: (
             stop_calls.append(resolved_target)
             or HoumaoManagedAgentActionResponse(
@@ -4735,11 +5344,11 @@ def test_project_easy_instance_stop_rejects_instances_from_other_overlay(
     target = SimpleNamespace(identity=identity)
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.resolve_managed_agent_target",
+        "houmao.srv_ctrl.commands.project_easy.resolve_managed_agent_target",
         lambda **kwargs: target,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project._load_manifest_payload",
+        "houmao.srv_ctrl.commands.project_easy._load_manifest_payload",
         lambda path: {
             "runtime": {"agent_def_dir": str((tmp_path / "other" / ".houmao" / "agents").resolve())}
         },
@@ -4847,15 +5456,19 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     }
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.list_managed_agents",
+        "houmao.srv_ctrl.commands.project_common.list_managed_agents",
         lambda *, port=None: HoumaoManagedAgentListResponse(agents=[identity]),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project.resolve_managed_agent_target",
+        "houmao.srv_ctrl.commands.project_easy.resolve_managed_agent_target",
         lambda **kwargs: SimpleNamespace(identity=identity),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project._load_manifest_payload",
+        "houmao.srv_ctrl.commands.project_common._load_manifest_payload",
+        lambda path: manifest_payload,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_manifest_payload",
         lambda path: manifest_payload,
     )
 
