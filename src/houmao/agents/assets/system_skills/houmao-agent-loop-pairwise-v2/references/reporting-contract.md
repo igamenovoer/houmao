@@ -55,6 +55,7 @@ Treat these state names as observations, not operator actions.
 ## Guardrails
 
 - Keep `peek` current and operational rather than historical by default.
+- Keep `peek` unintrusive: do not send prompts, email job messages, acknowledgements, or keepalive signals merely to produce a peek report.
 - Keep observed states distinct from lifecycle actions such as `start`, `peek`, or `stop`.
 - Keep `dead` as an observed condition, not an operator control verb.
 - Keep completion and stop summaries tied to the authored completion and stop conditions.

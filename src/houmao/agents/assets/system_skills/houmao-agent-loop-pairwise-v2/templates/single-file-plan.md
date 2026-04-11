@@ -10,7 +10,9 @@ participants:
   - <worker-a>
   - <worker-b>
 delegation_policy: <delegate_none | delegate_to_named | delegate_freely_within_named_set | delegate_any>
-prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>
+prestart_strategy: <email_initialization | packet_only_initialization>
+mail_notifier_interval_seconds: <5 unless user specified otherwise>
+acknowledgement_posture: <fire_and_proceed | require_ack>
 plan_revision: <revision or digest>
 default_stop_mode: interrupt-first
 ---
@@ -33,14 +35,16 @@ default_stop_mode: interrupt-first
 <normalized delegation rules>
 
 # Prestart Procedure
-- notifier preflight: <how notifier is verified or enabled>
-- selected strategy: `precomputed_routing_packets` by default
+- notifier preflight: enable gateway mail-notifier for targeted participants before initialization mail, interval `5s` unless user specified otherwise
+- selected strategy: `email_initialization` by default
+- initialization email targets: <all named participants | explicit target set>
+- acknowledgement posture: `fire_and_proceed` by default
 - graph-tool preflight: <analyze, optional slice, and packet-expectations results when a graph artifact exists>
 - routing packet validation: <validate-packets result when graph and packet JSON artifacts exist, or manual visible-coverage check when they do not>
 - root routing packet: <packet id or section reference included in the start charter>
-- child packet forwarding: append exact prepared child packet text to the ordinary pairwise edge request; do not edit, merge, or summarize unless this plan explicitly permits it
+- child packet forwarding: append exact prepared child packet text to the pairwise edge request email; do not edit, merge, or summarize unless this plan explicitly permits it
 - mismatch handling: stop downstream dispatch and report to the immediate driver, or to the operator when the driver is the master
-- explicit operator preparation wave: <not used | targets, acknowledgement posture, and operator reply policy when selected>
+- in-loop job communication: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
 - master trigger: <how the start charter stays separate from initialize>
 
 # Routing Packets
@@ -68,15 +72,15 @@ default_stop_mode: interrupt-first
 - forbidden actions: <what this participant must not do>
 - child dispatch table: <none | child packet ids>
 
-# Operator Preparation Wave
-<Only include when selected. Record preparation targets, mail posture `fire_and_proceed | require_ack`, operator reply policy, and leaf-target overrides.>
+# Email Initialization
+Record initialization mail targets, notifier interval, acknowledgement posture, and operator reply policy. Default posture is `fire_and_proceed`; use `require_ack` only when selected explicitly.
 
 # Lifecycle Vocabulary
 - operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
 - observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, `dead`
 
 # Reporting Contract
-<peek, completion, stop-summary, and hard-kill-summary expectations using canonical observed states>
+<peek, completion, stop-summary, and hard-kill-summary expectations using canonical observed states; peek remains unintrusive and read-only>
 
 # Timeout-Watch Policy
 - enabled for: <participants or edges, if any>
@@ -97,7 +101,7 @@ default_stop_mode: interrupt-first
 ```mermaid
 flowchart TD
     UA[User Agent<br/>control only]
-    Prep[Initialize<br/>routing packet validation<br/>default]
+    Prep[Initialize<br/>enable email notifier<br/>send init mail]
     M[Master<br/>root run owner]
     W[Worker]
     Loop[Master Loop<br/>review run]
@@ -111,8 +115,8 @@ flowchart TD
     UA ==> |stop| M
     UA ==> |hard-kill| M
     UA ==> |hard-kill| W
-    M -->|edge e1| W
-    W -->|result e1| M
+    M -->|email edge e1| W
+    W -->|email result e1| M
     M --> Loop
     Loop --> Done
     Loop --> Stop

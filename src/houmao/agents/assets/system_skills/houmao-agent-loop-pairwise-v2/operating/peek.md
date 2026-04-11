@@ -8,7 +8,7 @@ Use this page when the user wants canonical read-only inspection of one pairwise
    - `master`
    - `all`
    - one selected participant name
-2. Keep `peek` read-only. Do not turn it into a fresh progress prompt.
+2. Keep `peek` read-only and unintrusive. Do not turn it into a fresh progress prompt or job communication message.
 3. Route inspection through `houmao-agent-inspect`:
    - `peek master`: inspect the designated master's current run posture, visible artifacts, mailbox posture, or gateway-backed state for the run
    - `peek all`: inspect the master plus each current participant and aggregate the visible run posture
@@ -26,12 +26,14 @@ Use this page when the user wants canonical read-only inspection of one pairwise
 ## Peek Contract
 
 - `peek` is observational.
+- `peek` is unintrusive inspection; it does not ask agents to do work, acknowledge work, or report progress through a new prompt.
 - `peek` does not keep the run alive.
 - `peek master`, `peek all`, and `peek <agent-name>` are the canonical selectors.
 
 ## Guardrails
 
 - Do not send a fresh prompt merely to satisfy `peek`.
+- Do not send email or mailbox job communication merely to satisfy `peek`.
 - Do not treat `peek` as a heartbeat requirement for the master.
 - Do not mutate delegation policy, completion condition, or stop posture during ordinary inspection.
 - Do not describe `dead` as though it were an operator action.

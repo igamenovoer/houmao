@@ -1,6 +1,6 @@
 # Revise A Pairwise Loop Plan
 
-Use this page when a plan already exists, but the user wants to tighten delegation boundaries, change the designated master, revise prestart strategy, adjust routing packets or explicit preparation-wave material, revise completion or stop policy, add or remove scripts, or re-render the final graph.
+Use this page when a plan already exists, but the user wants to tighten delegation boundaries, change the designated master, revise prestart strategy, adjust routing packets or email initialization material, revise completion or stop policy, add or remove scripts, or re-render the final graph.
 
 ## Workflow
 
@@ -16,7 +16,9 @@ Use this page when a plan already exists, but the user wants to tighten delegati
    - prestart procedure
    - prestart strategy
    - routing packet inventory, root packet location, packet freshness marker, or child dispatch tables
-   - preparation target policy, when explicit `operator_preparation_wave` is selected
+   - initialization email target policy
+   - gateway mail-notifier interval
+   - acknowledgement posture
    - lifecycle vocabulary or reporting-state terminology
    - completion condition
    - stop posture
@@ -38,9 +40,10 @@ Use this page when a plan already exists, but the user wants to tighten delegati
    - each non-leaf packet has a child dispatch table and exact child packet text or exact references for each allowed child
    - no runtime recipient must infer descendants or recompute graph slices from the full plan
 7. Re-validate the selected prestart strategy:
-   - `precomputed_routing_packets` remains the default unless the user explicitly asks for preparation mail, participant warmup, or acknowledgement-gated readiness
-   - `operator_preparation_wave` preserves preparation mail targeting to delegating/non-leaf participants by default
-   - leaf participants are included in the explicit preparation wave only when the user asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set
+   - `email_initialization` remains the default unless the user explicitly disables email initialization
+   - gateway mail-notifier interval remains `5s` unless the user or plan specifies another interval
+   - initialization mail targets all named participants by default unless the user or plan explicitly narrows the set
+   - `fire_and_proceed` remains the acknowledgement posture unless the user explicitly selects `require_ack`
 8. Re-validate the graph semantics:
    - the user agent stays outside the execution loop
    - the master owns the supervision loop
@@ -52,8 +55,9 @@ Use this page when a plan already exists, but the user wants to tighten delegati
 
 - Do not quietly widen delegation authority while revising another part of the plan.
 - Do not drift away from the canonical action names or observed state names while revising related wording.
-- Do not change `precomputed_routing_packets` into `operator_preparation_wave` unless the revision says so explicitly.
-- Do not silently widen explicit preparation-wave mail to leaf participants while revising another part of the plan.
+- Do not change `email_initialization` into packet-only initialization unless the revision says so explicitly.
+- Do not silently narrow initialization mail away from all named participants while revising another part of the plan.
+- Do not change `fire_and_proceed` into `require_ack` unless the revision says so explicitly.
 - Do not leave stale routing packets or stale plan revisions in place after changing topology, participants, or delegation authority.
 - Do not let intermediate runtime agents repair missing, mismatched, or stale packets by graph reasoning from memory or by running graph analysis after `start`.
 - Do not leave a stale graph in place after changing the run topology.

@@ -17,9 +17,11 @@ Use this page when the user has described what they want, but the designated mas
    - reporting contract
    - lifecycle vocabulary summary
    - authored topology and descendant relationships
-   - prestart strategy: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+   - prestart strategy: default `email_initialization`, or explicit packet-only initialization when the user disables email initialization
+   - gateway mail-notifier interval: default `5s` unless the user specifies otherwise
+   - initialization email target policy: all named participants by default
+   - acknowledgement posture: default `fire_and_proceed`, or explicit `require_ack`
    - routing packet inventory, including one root packet for the master and one child packet for each parent-to-child pairwise edge
-   - operator preparation-wave target policy and acknowledgement posture, only when that explicit strategy is selected
    - optional timeout-watch policy, when requested
    - scripts, if any
 4. If any materially important field is still missing, ask for exactly that missing field instead of improvising it.
@@ -37,12 +39,13 @@ Use this page when the user has described what they want, but the designated mas
    - produce one child packet for each parent-to-child pairwise edge in the authored topology
    - include packet id, run id placeholder, plan id and revision or digest, intended recipient, immediate driver, local role and objective, allowed delegation targets, result-return contract, obligations, forbidden actions, and timeout-watch posture when used
    - for every non-leaf recipient, include a child dispatch table and either exact child packet text or exact references to the child packet text that it may forward
-   - instruct runtime drivers to append child packets verbatim to ordinary pairwise edge requests, without editing, merging, or summarizing them unless the plan explicitly permits that transformation
+   - instruct runtime drivers to append child packets verbatim to pairwise edge request email, without editing, merging, or summarizing them unless the plan explicitly permits that transformation
    - fail closed when a child packet is missing, names a different recipient, or carries a stale plan revision or digest
-9. If the user explicitly selects `operator_preparation_wave`, keep preparation material distinct from preparation mail targeting:
-   - preparation mail targets only participants that have descendants in the authored topology by default
-   - leaf participants are included only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set
-   - acknowledgement-gated preparation applies only to the actual preparation mail recipient set
+9. Define the email communication posture:
+   - initialization mail targets all named participants by default
+   - gateway mail-notifier interval is `5s` unless the user specifies otherwise
+   - acknowledgement posture is `fire_and_proceed` unless the user explicitly selects `require_ack`
+   - advise all agents to use the email system for in-loop job communication by default, including pairwise edge requests, receipts, and results
 10. Render the final graph through `authoring/render-loop-graph.md`.
 11. Produce a compact run-charter summary for later `start` delivery through `references/run-charter.md`.
 
@@ -54,9 +57,9 @@ Use this page when the user has described what they want, but the designated mas
 - Use one root `run_id` for the run contract and keep pairwise `edge_loop_id` values as execution-local identifiers owned by the master and workers.
 - Preserve delegation restrictions when the user names a limited downstream set.
 - Treat `houmao-mgr internals graph high` output as structural evidence only; it does not authorize broader delegation, omit forbidden actions, or replace semantic review of packet content.
-- Keep `initialize` separate from the master trigger: default initialization validates routing-packet coverage, while explicit `operator_preparation_wave` sends prestart preparation mail.
+- Keep `initialize` separate from the master trigger: default initialization enables gateway email notification first, sends initialization mail with `fire_and_proceed` posture, and validates routing-packet coverage when routing packets are part of the plan.
 - Keep graph-tool usage before `ready`; runtime recipients use dispatch tables and exact child packets instead of running graph analysis or recomputing descendants.
-- Do not use `fire_and_proceed` or `require_ack` as the default prestart strategy; those only apply inside explicit `operator_preparation_wave`.
+- Do not require acknowledgement by default; use `fire_and_proceed` unless the user explicitly selects `require_ack`.
 - Reject or rewrite any execution sketch that depends on child results bypassing the immediate driver.
 
 ## Output Checklist
@@ -68,9 +71,12 @@ The finalized authored plan should make these items easy to find:
 - authored topology and descendant relationships
 - delegation policy
 - prestart strategy
+- gateway mail-notifier interval
+- initialization email target policy
+- acknowledgement posture
 - routing packet inventory and root packet location
 - child dispatch tables and packet forwarding guardrails
-- operator preparation-wave target policy and acknowledgement posture, when selected
+- in-loop job communication posture
 - lifecycle vocabulary
 - completion condition
 - stop mode default
