@@ -710,7 +710,7 @@ def _upgrade_v3_manifest_payload(*, payload: SessionManifestPayloadV3) -> dict[s
         else None
     )
     upgraded["interactive"] = {
-        "turn_index": int(payload.backend_state.get("turn_index", 0)),
+        "turn_index": _coerce_legacy_manifest_int(payload.backend_state.get("turn_index"), default=0),
         "working_directory": str(
             payload.backend_state.get("working_directory", payload.working_directory)
         ),
@@ -768,6 +768,16 @@ def _require_legacy_tmux_session_name(backend_state: dict[str, Any], *, source: 
             f"Legacy manifest `{source}` is missing non-empty `backend_state.tmux_session_name`."
         )
     return tmux_session_name.strip()
+
+
+def _coerce_legacy_manifest_int(value: object, *, default: int) -> int:
+    """Coerce one legacy manifest scalar integer value."""
+
+    if value is None:
+        return default
+    if isinstance(value, str | int | float):
+        return int(value)
+    return default
 
 
 def _legacy_job_dir(*, payload: SessionManifestPayloadV2, source: str) -> str | None:

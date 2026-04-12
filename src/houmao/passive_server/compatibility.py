@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Literal, cast
 
+from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.backends.tmux_runtime import HEADLESS_AGENT_WINDOW_NAME
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
@@ -47,7 +48,9 @@ def managed_identity_from_discovered_summary(
 ) -> HoumaoManagedAgentIdentity:
     """Project one discovery summary into the shared managed-agent identity model."""
 
-    transport = "headless" if is_headless_backend(summary.backend) else "tui"
+    transport: Literal["headless", "tui"] = (
+        "headless" if is_headless_backend(summary.backend) else "tui"
+    )
     tmux_window_name = (
         HEADLESS_AGENT_WINDOW_NAME
         if transport == "headless" or summary.backend == "local_interactive"
@@ -87,7 +90,7 @@ def mailbox_summary_from_registry_record(
     if transport not in {"filesystem", "stalwart"}:
         return None
     return HoumaoManagedAgentMailboxSummaryView(
-        transport=cast(str, transport),
+        transport=cast(MailboxTransport, transport),
         principal_id=getattr(mailbox, "principal_id", None),
         address=getattr(mailbox, "address", None),
     )

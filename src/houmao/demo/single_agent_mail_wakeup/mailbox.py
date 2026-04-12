@@ -409,9 +409,9 @@ def observe_delivery_state(
         return delivery
 
     updated = delivery
-    message_ref = str(matched_message.get("message_ref", "")).strip() or None
-    if message_ref is not None and updated.message_ref is None:
-        updated = updated.model_copy(update={"message_ref": message_ref})
+    matched_message_ref = str(matched_message.get("message_ref", "")).strip() or None
+    if matched_message_ref is not None and updated.message_ref is None:
+        updated = updated.model_copy(update={"message_ref": matched_message_ref})
     if updated.unread_observed_at_utc is None and bool(matched_message.get("unread")):
         updated = updated.model_copy(
             update={

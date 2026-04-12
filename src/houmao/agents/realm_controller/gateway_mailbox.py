@@ -24,6 +24,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailboxMessageV1,
     GatewayMailboxParticipantV1,
 )
+from houmao.mailbox.errors import MailboxProtocolError
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import (
     DeliveryRequest,
@@ -51,6 +52,7 @@ from houmao.mailbox.protocol import (
     operator_origin_headers,
     parse_message_document,
     serialize_message_document,
+    validate_mailbox_address,
 )
 from houmao.mailbox.stalwart import StalwartError, StalwartJmapClient
 
@@ -446,6 +448,10 @@ class FilesystemGatewayMailboxAdapter:
         connection: sqlite3.Connection,
         address: str,
     ) -> ManagedPrincipal:
+        normalized_address = self._normalize_recipient_address(
+            connection=connection,
+            address=address,
+        )
         row = connection.execute(
             """
             SELECT owner_principal_id
@@ -453,16 +459,103 @@ class FilesystemGatewayMailboxAdapter:
             WHERE address = ? AND status = 'active'
             LIMIT 1
             """,
-            (address,),
+            (normalized_address,),
         ).fetchone()
         if row is None:
             raise GatewayMailboxError(
-                f"filesystem mailbox recipient `{address}` does not have an active mailbox registration"
+                self._missing_recipient_registration_detail(
+                    connection=connection,
+                    address=normalized_address,
+                )
             )
         return ManagedPrincipal(
             principal_id=str(row[0]),
-            address=address,
+            address=normalized_address,
         )
+
+    def _normalize_recipient_address(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        address: str,
+    ) -> str:
+        """Validate and normalize one recipient address for filesystem delivery."""
+
+        try:
+            return validate_mailbox_address(address)
+        except MailboxProtocolError as exc:
+            hint_address = self._active_address_hint_for_agent_name(
+                connection=connection,
+                agent_name=address,
+            )
+            raise GatewayMailboxError(
+                _invalid_recipient_address_detail(address=address, hint_address=hint_address)
+            ) from exc
+
+    def _missing_recipient_registration_detail(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        address: str,
+    ) -> str:
+        """Return an actionable error for a syntactically valid missing recipient."""
+
+        rows = connection.execute(
+            """
+            SELECT DISTINCT status
+            FROM mailbox_registrations
+            WHERE address = ? AND status != 'active'
+            ORDER BY status
+            """,
+            (address,),
+        ).fetchall()
+        if rows:
+            statuses = ", ".join(f"`{str(row[0])}`" for row in rows)
+            return (
+                f"filesystem mailbox recipient `{address}` is registered with status "
+                f"{statuses}, not `active`. `/v1/mail/send` can deliver only to active "
+                "mailbox addresses."
+            )
+        return (
+            f"filesystem mailbox recipient `{address}` is not an active registered mailbox "
+            "address. `/v1/mail/send` expects a full mailbox address with an active "
+            "registration."
+        )
+
+    def _active_address_hint_for_agent_name(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        agent_name: str,
+    ) -> str | None:
+        """Return a unique active mailbox address matching one likely agent name."""
+
+        normalized_agent_name = agent_name.strip()
+        if not normalized_agent_name:
+            return None
+        candidate_principal_ids = {normalized_agent_name}
+        if not normalized_agent_name.startswith("HOUMAO-"):
+            candidate_principal_ids.add(f"HOUMAO-{normalized_agent_name}")
+        rows = connection.execute(
+            """
+            SELECT address, owner_principal_id
+            FROM mailbox_registrations
+            WHERE status = 'active'
+            """
+        ).fetchall()
+        matches = {
+            str(row[0])
+            for row in rows
+            if _active_registration_matches_agent_name(
+                address=str(row[0]),
+                owner_principal_id=str(row[1]),
+                agent_name=normalized_agent_name,
+                candidate_principal_ids=candidate_principal_ids,
+            )
+        }
+        if len(matches) != 1:
+            return None
+        return next(iter(matches))
 
     def _load_message_by_id(self, message_id: str) -> MailboxMessage:
         with sqlite3.connect(
@@ -699,6 +792,33 @@ def _managed_attachment_from_upload(item: GatewayMailAttachmentUploadV1) -> Mana
         size_bytes=path.stat().st_size,
         label=item.label or path.name,
     )
+
+
+def _invalid_recipient_address_detail(*, address: str, hint_address: str | None) -> str:
+    """Return the filesystem send diagnostic for non-address recipient input."""
+
+    detail = (
+        f"filesystem mailbox recipient `{address}` is not a registered mailbox address. "
+        "`/v1/mail/send` expects email-like mailbox addresses such as "
+        "`daq-mgr@houmao.localhost`, not managed-agent names. Resolve the target "
+        "mailbox address first or use the managed-agent mail helper."
+    )
+    if hint_address is not None:
+        return f"{detail} Did you mean `{hint_address}`?"
+    return detail
+
+
+def _active_registration_matches_agent_name(
+    *,
+    address: str,
+    owner_principal_id: str,
+    agent_name: str,
+    candidate_principal_ids: set[str],
+) -> bool:
+    """Return whether one registration is a likely match for a bare agent name."""
+
+    local_part = address.split("@", 1)[0]
+    return local_part == agent_name or owner_principal_id in candidate_principal_ids
 
 
 def _stalwart_message_to_model(payload: dict[str, object]) -> GatewayMailboxMessageV1:

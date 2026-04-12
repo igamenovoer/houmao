@@ -180,7 +180,11 @@ def collect_headless_runtime_snapshot(
     stdout_present = stdout_path is not None and stdout_path.is_file()
     stderr_present = stderr_path is not None and stderr_path.is_file()
     exitcode_present = exitcode_path is not None and exitcode_path.is_file()
-    artifact_returncode = _read_turn_exitcode(exitcode_path) if exitcode_present else None
+    artifact_returncode = (
+        _read_turn_exitcode(exitcode_path)
+        if exitcode_present and exitcode_path is not None
+        else None
+    )
     artifact_completed_at_utc = (
         _isoformat_from_mtime(exitcode_path)
         if exitcode_present and exitcode_path is not None

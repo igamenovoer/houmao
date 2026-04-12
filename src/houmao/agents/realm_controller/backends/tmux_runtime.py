@@ -363,15 +363,27 @@ def resolve_tmux_pane(
 
     matching = panes
     selectors: list[tuple[str, str]] = []
-    for label, expected, accessor in (
-        ("window id", window_id, lambda pane: pane.window_id),
-        ("window index", window_index, lambda pane: pane.window_index),
-        ("window", window_name, lambda pane: pane.window_name),
-    ):
-        if expected is None:
-            continue
-        selectors.append((label, expected))
-        matching = tuple(pane for pane in matching if accessor(pane) == expected)
+    if window_id is not None:
+        selectors.append(("window id", window_id))
+        matching = tuple(pane for pane in matching if pane.window_id == window_id)
+        if not matching:
+            selector_detail = " and ".join(
+                f"{selector_label} `{selector_value}`"
+                for selector_label, selector_value in selectors
+            )
+            raise TmuxCommandError(f"No tmux panes matched {selector_detail} in `{session_name}`.")
+    if window_index is not None:
+        selectors.append(("window index", window_index))
+        matching = tuple(pane for pane in matching if pane.window_index == window_index)
+        if not matching:
+            selector_detail = " and ".join(
+                f"{selector_label} `{selector_value}`"
+                for selector_label, selector_value in selectors
+            )
+            raise TmuxCommandError(f"No tmux panes matched {selector_detail} in `{session_name}`.")
+    if window_name is not None:
+        selectors.append(("window", window_name))
+        matching = tuple(pane for pane in matching if pane.window_name == window_name)
         if not matching:
             selector_detail = " and ".join(
                 f"{selector_label} `{selector_value}`"

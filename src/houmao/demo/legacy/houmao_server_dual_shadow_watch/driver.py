@@ -862,6 +862,10 @@ def _resolve_lane_preflight(*, repo_root: Path, agent_def_dir: Path, slot: str) 
         raise HoumaoServerDualShadowWatchError(
             f"selected preset does not declare auth-backed launch inputs: {resolved_launch.preset_path}"
         )
+    if recipe.credential_profile is None:
+        raise HoumaoServerDualShadowWatchError(
+            f"selected preset does not declare an auth profile name: {resolved_launch.preset_path}"
+        )
     credential_profile_dir = resolved_launch.auth_path
     credential_env_path = resolved_launch.auth_env_path
     selected_env, selected_env_names = parse_allowlisted_env(

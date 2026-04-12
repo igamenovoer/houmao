@@ -102,6 +102,19 @@ Reasoning preset indices SHALL be projected through a Houmao-owned mapping polic
 - mutate only the constructed runtime home, launch environment, or final provider CLI override arguments for that build,
 - preserve secret-free provenance describing the requested preset index, the resolved native mapping, whether saturation occurred, and whether final CLI override arguments were generated.
 
+Codex reasoning mapping SHALL use a maintained model-aware ladder rather than treating every value in Codex's generic reasoning-effort enum as supported by every Codex model.
+
+For current maintained Codex coding models such as `gpt-5.4`, `gpt-5.3-codex`, and `gpt-5.2-codex`, the positive Codex reasoning ladder SHALL be:
+
+- `1=low`
+- `2=medium`
+- `3=high`
+- `4=xhigh`
+
+Higher positive values for those Codex model ladders SHALL saturate to `xhigh`.
+
+`minimal` SHALL NOT be projected for a resolved Codex model unless that model's maintained ladder explicitly includes `minimal`.
+
 Representative native target families SHALL include:
 
 - Claude runtime effort or thinking-related settings such as `effortLevel`
@@ -130,6 +143,13 @@ For Codex, generated runtime-home config projection SHALL remain present as fall
 - **WHEN** the resolved launch-owned reasoning level for one runtime is `1`
 - **THEN** Houmao projects the first maintained native reasoning preset supported for that resolved tool/model combination
 - **AND THEN** the manifest records both requested level `1` and the native resolved mapping summary
+
+#### Scenario: Current Codex coding model first preset maps to low
+- **WHEN** the resolved tool is `codex`
+- **AND WHEN** the resolved model is `gpt-5.4`
+- **AND WHEN** the resolved launch-owned reasoning level is `1`
+- **THEN** Houmao projects native `model_reasoning_effort = "low"`
+- **AND THEN** Houmao does not project native `model_reasoning_effort = "minimal"`
 
 #### Scenario: Codex reasoning projection patches runtime config and emits CLI override
 - **WHEN** the resolved launch-owned reasoning level for one Codex runtime maps to native `model_reasoning_effort = "low"`

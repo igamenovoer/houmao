@@ -3990,6 +3990,94 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert operator_count == (1,)
 
 
+def test_gateway_mail_send_reports_bare_agent_name_with_address_hint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    bootstrap_filesystem_mailbox(
+        tmp_path / "mailbox",
+        principal=MailboxPrincipal(
+            principal_id="HOUMAO-daq-mgr",
+            address="daq-mgr@houmao.localhost",
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/v1/mail/send",
+        json=GatewayMailSendRequestV1(
+            to=["daq-mgr"],
+            subject="Gateway route send",
+            body_content="filesystem send body",
+        ).model_dump(mode="json"),
+    )
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "filesystem mailbox recipient `daq-mgr` is not a registered mailbox address" in detail
+    assert "`/v1/mail/send` expects email-like mailbox addresses" in detail
+    assert "not managed-agent names" in detail
+    assert "Did you mean `daq-mgr@houmao.localhost`?" in detail
+
+
+def test_gateway_mail_send_reports_inactive_registration_separately(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    mailbox_root = tmp_path / "mailbox"
+    bootstrap_filesystem_mailbox(
+        mailbox_root,
+        principal=MailboxPrincipal(
+            principal_id="HOUMAO-stale",
+            address="stale@houmao.localhost",
+        ),
+    )
+    with sqlite3.connect((mailbox_root / "index.sqlite").resolve()) as connection:
+        connection.execute(
+            "UPDATE mailbox_registrations SET status = 'inactive' WHERE address = ?",
+            ("stale@houmao.localhost",),
+        )
+        connection.commit()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/v1/mail/send",
+        json=GatewayMailSendRequestV1(
+            to=["stale@houmao.localhost"],
+            subject="Gateway route send",
+            body_content="filesystem send body",
+        ).model_dump(mode="json"),
+    )
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert (
+        "filesystem mailbox recipient `stale@houmao.localhost` is registered with status "
+        "`inactive`, not `active`"
+    ) in detail
+    assert "does not have an active mailbox registration" not in detail
+
+
 def test_gateway_mail_reply_enabled_operator_post_routes_reply_to_reserved_operator_mailbox(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

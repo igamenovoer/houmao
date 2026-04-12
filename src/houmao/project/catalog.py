@@ -1468,7 +1468,7 @@ class ProjectCatalog:
     ) -> sqlite3.Row | None:
         """Return one auth-profile row for a `(tool, display_name)` lookup when present."""
 
-        return connection.execute(
+        row = connection.execute(
             """
             SELECT id, bundle_ref, content_ref_id
             FROM auth_profiles
@@ -1477,6 +1477,7 @@ class ProjectCatalog:
             """,
             (tool, display_name),
         ).fetchone()
+        return cast(sqlite3.Row | None, row)
 
     def _upsert_content_ref(
         self,
