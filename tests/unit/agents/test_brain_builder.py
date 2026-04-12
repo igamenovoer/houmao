@@ -1198,8 +1198,21 @@ def test_build_brain_home_projects_claude_model_selection(tmp_path: Path) -> Non
     settings_payload = json.loads((result.home_path / "settings.json").read_text(encoding="utf-8"))
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
 
-    assert "export ANTHROPIC_MODEL=claude-sonnet-4-5" in launch_script
+    assert "export ANTHROPIC_MODEL=claude-sonnet-4-5" not in launch_script
+    assert "--model claude-sonnet-4-5 --effort high" in launch_script
     assert settings_payload["effortLevel"] == "high"
+    assert manifest["runtime"]["launch_contract"]["model_selection"]["provider_cli_args"] == {
+        "tool": "claude",
+        "args": ["--model", "claude-sonnet-4-5", "--effort", "high"],
+    }
+    assert manifest["runtime"]["launch_contract"]["model_selection"]["native_projection"][
+        "model"
+    ] == {
+        "surface": "cli_arg",
+        "arg": "--model",
+        "value": "claude-sonnet-4-5",
+        "cli_args": ["--model", "claude-sonnet-4-5"],
+    }
     assert manifest["runtime"]["launch_contract"]["model_selection"]["native_projection"][
         "reasoning"
     ] == {
@@ -1228,6 +1241,7 @@ def test_build_brain_home_projects_claude_model_selection(tmp_path: Path) -> Non
             "path": "settings.json",
             "key_path": ["effortLevel"],
         },
+        "cli_args": ["--effort", "high"],
     }
 
 

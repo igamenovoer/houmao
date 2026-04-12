@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from houmao.agents.model_mapping_policy import project_reasoning_level, resolve_reasoning_mapping
+from houmao.agents.model_mapping_policy import (
+    project_reasoning_level,
+    resolve_reasoning_mapping,
+    temporary_project_model_config,
+)
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 
 
 def test_resolve_reasoning_mapping_claude_clamps_max_when_model_does_not_support_it() -> None:
@@ -73,6 +78,24 @@ def test_resolve_reasoning_mapping_claude_rejects_off_when_ladder_lacks_zero() -
             requested_level=0,
             model_name="claude-sonnet-4-5",
         )
+
+
+def test_project_reasoning_level_writes_claude_effort_cli_metadata(tmp_path: Path) -> None:
+    home_path = (tmp_path / "claude-home").resolve()
+
+    mapping = project_reasoning_level(
+        home_path=home_path,
+        tool="claude",
+        requested_level=3,
+        model_name="claude-sonnet-4-5",
+    )
+
+    payload = json.loads((home_path / "settings.json").read_text(encoding="utf-8"))
+
+    assert mapping["native_scale"] == "effortLevel"
+    assert mapping["native_value"] == "high"
+    assert mapping["cli_args"] == ["--effort", "high"]
+    assert payload["effortLevel"] == "high"
 
 
 def test_project_reasoning_level_writes_gemini_3_thinking_level(tmp_path: Path) -> None:
@@ -157,3 +180,26 @@ def test_project_reasoning_level_writes_codex_model_aware_reasoning_effort(
     assert mapping["native_value"] == "low"
     assert mapping["cli_args"] == ['--config=model_reasoning_effort="low"']
     assert payload["model_reasoning_effort"] == "low"
+
+
+def test_temporary_project_model_config_claude_uses_cli_args_without_persisting(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "claude-home").resolve()
+    settings_path = home_path / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text('{"effortLevel":"low"}\n', encoding="utf-8")
+
+    with temporary_project_model_config(
+        home_path=home_path,
+        tool="claude",
+        model_config=ModelConfig(
+            name="sonnet",
+            reasoning=ModelReasoningConfig(level=3),
+        ),
+    ) as projection:
+        assert projection.env == {}
+        assert projection.args == ["--model", "sonnet", "--effort", "high"]
+        assert json.loads(settings_path.read_text(encoding="utf-8"))["effortLevel"] == "high"
+
+    assert json.loads(settings_path.read_text(encoding="utf-8"))["effortLevel"] == "low"

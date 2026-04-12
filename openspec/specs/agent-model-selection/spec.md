@@ -87,9 +87,11 @@ Before provider startup, the system SHALL project the resolved model configurati
 
 At minimum, the maintained direct model-name projection targets SHALL be:
 
-- Claude: launch environment variable `ANTHROPIC_MODEL`
+- Claude: final Claude CLI argument `--model <name>` for Houmao-managed provider startup when the resolved model name comes from a launch-owned layer above copied native baseline
 - Codex: runtime `${CODEX_HOME}/config.toml` key `model` and final Codex CLI config override key `model`
 - Gemini: runtime user-settings file `${GEMINI_CLI_HOME}/.gemini/settings.json` key path `model.name`
+
+Claude auth-bundle or copied native baseline env vars such as `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, and `CLAUDE_CODE_SUBAGENT_MODEL` SHALL remain supported as baseline or native-provider inputs, but launch-owned Claude model overrides SHALL NOT depend on projecting a new `ANTHROPIC_MODEL` value into the final provider process.
 
 Reasoning preset indices SHALL be projected through a Houmao-owned mapping policy layer instead of through one hard-coded cross-tool key. That mapping policy SHALL:
 
@@ -117,16 +119,42 @@ Higher positive values for those Codex model ladders SHALL saturate to `xhigh`.
 
 Representative native target families SHALL include:
 
-- Claude runtime effort or thinking-related settings such as `effortLevel`
+- Claude final CLI effort argument `--effort <level>` for maintained Claude effort values such as `low`, `medium`, `high`, and `max`
 - Codex runtime `${CODEX_HOME}/config.toml` key `model_reasoning_effort` and final Codex CLI config override key `model_reasoning_effort`
 - Gemini runtime `${GEMINI_CLI_HOME}/.gemini/settings.json` generation settings under `modelConfigs` and `thinkingConfig`
 
 For Codex, generated runtime-home config projection SHALL remain present as fallback and inspection state, but the final Houmao-managed provider launch SHALL also include non-secret CLI config override arguments for resolved model-selection preferences so cwd/project `.codex/config.toml` cannot accidentally override them.
 
-#### Scenario: Claude model projection exports `ANTHROPIC_MODEL`
-- **WHEN** the resolved model for one Claude runtime is `claude-sonnet-4-5`
-- **THEN** the constructed Claude launch environment exports `ANTHROPIC_MODEL=claude-sonnet-4-5`
+For Claude, generated runtime-home settings MAY remain present as fallback and inspection state, but the final Houmao-managed provider launch SHALL include non-secret CLI arguments for resolved launch-owned model-selection preferences so tmux, headless, or other provider-startup paths cannot accidentally drop those preferences through environment propagation gaps.
+
+#### Scenario: Claude model projection emits final CLI argument
+- **WHEN** the resolved launch-owned model for one Claude runtime is `sonnet`
+- **THEN** the Houmao-managed Claude provider launch includes final CLI arguments `--model sonnet`
 - **AND THEN** Houmao does not require the source auth bundle to be rewritten with that value
+- **AND THEN** the launched Claude process does not depend on a newly projected `ANTHROPIC_MODEL=sonnet` environment variable to honor the launch-owned override
+
+#### Scenario: Claude effort projection emits final CLI argument
+- **WHEN** the resolved launch-owned reasoning level for one Claude runtime maps to native effort `high`
+- **THEN** the Houmao-managed Claude provider launch includes final CLI arguments `--effort high`
+- **AND THEN** the constructed runtime home or manifest records secret-free provenance for the requested reasoning level and resolved effort value
+
+#### Scenario: Claude TUI honors source-level Sonnet preference
+- **WHEN** a Claude specialist stores default model `sonnet`
+- **AND WHEN** a local interactive TUI instance is launched from that specialist without a higher-priority model override
+- **THEN** the final Claude TUI launch command includes `--model sonnet`
+- **AND THEN** Claude starts with the Sonnet model even when the account's native default model would otherwise be Opus
+
+#### Scenario: Claude headless honors direct model and effort overrides
+- **WHEN** a Claude headless launch receives direct overrides `--model sonnet --reasoning-level 3`
+- **AND WHEN** the resolved Claude reasoning ladder maps level `3` to effort `high`
+- **THEN** the final Claude headless provider command includes `--model sonnet --effort high`
+- **AND THEN** the direct overrides apply only to that launch and do not rewrite the reusable specialist, recipe, launch-profile, or auth-bundle state
+
+#### Scenario: Claude auth-bundle model env remains baseline input
+- **WHEN** the selected Claude auth bundle or copied native state provides `ANTHROPIC_MODEL=opus`
+- **AND WHEN** no source, launch-profile, or direct launch-owned model override is supplied
+- **THEN** the launched Claude runtime may use that native baseline model value
+- **AND THEN** Houmao does not require the operator to migrate the auth bundle to a unified launch-owned model field before launch succeeds
 
 #### Scenario: Codex model projection patches runtime config and emits CLI override
 - **WHEN** the resolved model for one Codex runtime is `gpt-5.4`

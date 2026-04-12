@@ -44,6 +44,7 @@ _CAO_SHADOW_UNKNOWN_TIMEOUT_KEY: Final[str] = "unknown_to_stalled_timeout_second
 _CAO_SHADOW_COMPLETION_STABILITY_KEY: Final[str] = "completion_stability_seconds"
 _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
+_CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
 
 
 @dataclass(frozen=True)
@@ -174,7 +175,19 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         backend=request.backend,
         launch_contract=launch_contract,
     )
+    provider_model_selection_cli_args = _provider_model_selection_cli_args_from_contract(
+        tool=tool,
+        backend=request.backend,
+        launch_contract=launch_contract,
+    )
+    if provider_model_selection_cli_args:
+        args, provider_model_selection_cli_args = _merge_claude_model_selection_cli_args(
+            args=args,
+            generated_args=provider_model_selection_cli_args,
+            launch_contract=launch_contract,
+        )
     args.extend(codex_cli_config_args)
+    args.extend(provider_model_selection_cli_args)
     if launch_policy_result.strategy is not None:
         metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
     metadata["launch_policy_request"] = {
@@ -187,6 +200,10 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             backend_resolution["args_after_launch_policy"] = list(args)
             if codex_cli_config_args:
                 backend_resolution["codex_cli_config_args"] = list(codex_cli_config_args)
+            if provider_model_selection_cli_args:
+                backend_resolution["provider_model_selection_cli_args"] = list(
+                    provider_model_selection_cli_args
+                )
 
     return LaunchPlan(
         backend=request.backend,
@@ -399,6 +416,180 @@ def _codex_cli_config_args_from_contract(
             "codex_cli_config_overrides.args` must be a list of strings."
         )
     return list(args)
+
+
+def _provider_model_selection_cli_args_from_contract(
+    *,
+    tool: str,
+    backend: BackendKind,
+    launch_contract: dict[str, Any],
+) -> list[str]:
+    """Return generated provider CLI args from one model-selection contract."""
+
+    if tool != "claude" or backend not in {"local_interactive", "claude_headless"}:
+        return []
+
+    model_selection = _optional_model_selection_contract(launch_contract)
+    if model_selection is None:
+        return []
+
+    provider_cli_args = model_selection.get("provider_cli_args")
+    if provider_cli_args is None:
+        return []
+    if not isinstance(provider_cli_args, dict):
+        raise LaunchPlanError(
+            "Manifest `runtime.launch_contract.model_selection.provider_cli_args` "
+            "must be a mapping."
+        )
+    provider_tool = provider_cli_args.get("tool")
+    if provider_tool is not None and provider_tool != tool:
+        return []
+    args = provider_cli_args.get("args")
+    if args is None:
+        return []
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise LaunchPlanError(
+            "Manifest `runtime.launch_contract.model_selection.provider_cli_args.args` "
+            "must be a list of strings."
+        )
+    _parse_claude_model_selection_arg_groups(args)
+    return list(args)
+
+
+def _optional_model_selection_contract(
+    launch_contract: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return the optional model-selection contract mapping."""
+
+    model_selection = launch_contract.get("model_selection")
+    if model_selection is None:
+        return None
+    if not isinstance(model_selection, dict):
+        raise LaunchPlanError(
+            "Manifest `runtime.launch_contract.model_selection` must be a mapping."
+        )
+    return model_selection
+
+
+def _merge_claude_model_selection_cli_args(
+    *,
+    args: list[str],
+    generated_args: list[str],
+    launch_contract: dict[str, Any],
+) -> tuple[list[str], list[str]]:
+    """Merge generated Claude model-selection args with caller-provided args."""
+
+    model_selection = _optional_model_selection_contract(launch_contract)
+    generated_groups = _parse_claude_model_selection_arg_groups(generated_args)
+
+    merged_args = list(args)
+    append_args: list[str] = []
+    for flag, flag_args in generated_groups:
+        source = _resolved_model_selection_source(model_selection=model_selection, flag=flag)
+        if source != "direct_launch" and _direct_launch_args_contain_flag(
+            launch_contract=launch_contract,
+            flag=flag,
+        ):
+            continue
+        merged_args = _remove_cli_option_with_value(merged_args, flag=flag)
+        append_args.extend(flag_args)
+
+    return merged_args, append_args
+
+
+def _parse_claude_model_selection_arg_groups(args: list[str]) -> list[tuple[str, list[str]]]:
+    """Parse generated Claude model-selection args into option groups."""
+
+    groups: list[tuple[str, list[str]]] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in _CLAUDE_MODEL_SELECTION_FLAGS:
+            if index + 1 >= len(args):
+                raise LaunchPlanError(
+                    f"Generated Claude model-selection arg `{arg}` needs a value."
+                )
+            groups.append((arg, [arg, args[index + 1]]))
+            index += 2
+            continue
+
+        matched_flag = _matched_cli_option_flag(arg, flags=_CLAUDE_MODEL_SELECTION_FLAGS)
+        if matched_flag is None:
+            raise LaunchPlanError(
+                "Generated Claude model-selection args may only contain "
+                "`--model` and `--effort` options."
+            )
+        groups.append((matched_flag, [arg]))
+        index += 1
+    return groups
+
+
+def _resolved_model_selection_source(
+    *,
+    model_selection: dict[str, Any] | None,
+    flag: str,
+) -> str | None:
+    """Return the resolved model-selection source for one generated Claude flag."""
+
+    if model_selection is None:
+        return None
+    resolved = model_selection.get("resolved")
+    if not isinstance(resolved, dict):
+        return None
+    sources = resolved.get("sources")
+    if not isinstance(sources, dict):
+        return None
+    key = "name" if flag == "--model" else "reasoning_level"
+    value = sources.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _direct_launch_args_contain_flag(
+    *,
+    launch_contract: dict[str, Any],
+    flag: str,
+) -> bool:
+    """Return whether direct launch overrides explicitly contain one CLI option."""
+
+    direct_overrides = _parse_requested_launch_overrides(launch_contract, layer="direct")
+    if direct_overrides is None or direct_overrides.args is None:
+        return False
+    return _args_contain_cli_option(list(direct_overrides.args.values), flag=flag)
+
+
+def _args_contain_cli_option(args: list[str], *, flag: str) -> bool:
+    """Return whether args contain one CLI option in split or equals form."""
+
+    return any(arg == flag or arg.startswith(f"{flag}=") for arg in args)
+
+
+def _remove_cli_option_with_value(args: list[str], *, flag: str) -> list[str]:
+    """Remove every occurrence of a value-taking CLI option."""
+
+    filtered: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == flag:
+            index += 1
+            if index < len(args) and not args[index].startswith("-"):
+                index += 1
+            continue
+        if arg.startswith(f"{flag}="):
+            index += 1
+            continue
+        filtered.append(arg)
+        index += 1
+    return filtered
+
+
+def _matched_cli_option_flag(arg: str, *, flags: frozenset[str]) -> str | None:
+    """Return the matching option flag for one equals-form CLI arg."""
+
+    for flag in sorted(flags):
+        if arg.startswith(f"{flag}="):
+            return flag
+    return None
 
 
 def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:

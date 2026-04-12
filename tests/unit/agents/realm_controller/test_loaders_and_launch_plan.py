@@ -713,6 +713,138 @@ def test_build_launch_plan_adds_codex_cli_preference_overrides(
     ]
 
 
+@pytest.mark.parametrize("backend", ["local_interactive", "claude_headless"])
+def test_build_launch_plan_adds_claude_model_selection_cli_args(
+    tmp_path: Path,
+    backend: str,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    manifest = _manifest(
+        tool="claude",
+        executable="claude",
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["ANTHROPIC_API_KEY"],
+        launch_args=["--x"],
+    )
+    manifest["runtime"]["launch_contract"]["model_selection"] = {
+        "resolved": {
+            "effective": {"name": "sonnet", "reasoning": {"level": 3}},
+            "sources": {"name": "source_launch", "reasoning_level": "source_launch"},
+        },
+        "provider_cli_args": {
+            "tool": "claude",
+            "args": ["--model", "sonnet", "--effort", "high"],
+        },
+    }
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend=backend,  # type: ignore[arg-type]
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.args[-4:] == ["--model", "sonnet", "--effort", "high"]
+    assert plan.metadata["launch_overrides"]["backend_resolution"][
+        "provider_model_selection_cli_args"
+    ] == ["--model", "sonnet", "--effort", "high"]
+
+
+def test_build_launch_plan_replaces_conflicting_claude_adapter_model_selection_args(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    manifest = _manifest(
+        tool="claude",
+        executable="claude",
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["ANTHROPIC_API_KEY"],
+        launch_args=["--model", "opus", "--effort", "low", "--x"],
+    )
+    manifest["runtime"]["launch_contract"]["model_selection"] = {
+        "resolved": {
+            "effective": {"name": "sonnet", "reasoning": {"level": 3}},
+            "sources": {"name": "source_launch", "reasoning_level": "source_launch"},
+        },
+        "provider_cli_args": {
+            "tool": "claude",
+            "args": ["--model", "sonnet", "--effort", "high"],
+        },
+    }
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="claude_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.args == ["--x", "--model", "sonnet", "--effort", "high"]
+
+
+def test_build_launch_plan_preserves_direct_claude_launch_args_over_source_defaults(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    manifest = _manifest(
+        tool="claude",
+        executable="claude",
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["ANTHROPIC_API_KEY"],
+        launch_args=["--x"],
+        direct_overrides={
+            "args": {
+                "mode": "append",
+                "values": ["--model", "opus", "--effort", "low"],
+            }
+        },
+    )
+    manifest["runtime"]["launch_contract"]["model_selection"] = {
+        "resolved": {
+            "effective": {"name": "sonnet", "reasoning": {"level": 3}},
+            "sources": {"name": "source_launch", "reasoning_level": "source_launch"},
+        },
+        "provider_cli_args": {
+            "tool": "claude",
+            "args": ["--model", "sonnet", "--effort", "high"],
+        },
+    }
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="claude_headless",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.args == ["--x", "--model", "opus", "--effort", "low"]
+    assert (
+        "provider_model_selection_cli_args"
+        not in plan.metadata["launch_overrides"]["backend_resolution"]
+    )
+
+
 @pytest.mark.parametrize(
     ("tool", "expected"),
     [
