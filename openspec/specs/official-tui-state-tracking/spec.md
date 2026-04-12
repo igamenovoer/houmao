@@ -144,7 +144,9 @@ The system SHALL NOT assume that every visible TUI change has a known cause. Sur
 
 Such unexplained surface churn MAY update diagnostics, parser-owned sidecar evidence, `surface`, generic stability, or recent transitions, but it SHALL NOT by itself create `turn.phase=active` or emit a new `last_turn` unless the stricter turn-evidence rules are satisfied.
 
-Visible progress or spinner signals SHALL be treated as supporting evidence only. When present, they are sufficient evidence for active-turn inference. When absent, they SHALL NOT by themselves negate the possibility of an active turn.
+Visible progress or spinner signals SHALL be treated as supporting evidence only. When present in the current live turn region, they are sufficient evidence for active-turn inference. When absent, they SHALL NOT by themselves negate the possibility of an active turn.
+
+Historical progress or spinner signals outside the current live turn region SHALL NOT by themselves keep `turn.phase=active` or downgrade `surface.ready_posture` when the current supported surface is accepting prompt input, not editing input, visibly ready for immediate submit, and lacks current active-turn evidence.
 
 Ambiguous menus, selection boxes, permission prompts, slash-command UI, and similar tool-specific interactive surfaces SHALL NOT create a dedicated public ask-user state or terminal outcome. Unless stronger active or terminal evidence exists, those observations SHALL be folded into `turn.phase=unknown`.
 
@@ -166,6 +168,13 @@ The system SHALL NOT publish a generic catch-all failure outcome. Only specifica
 - **WHEN** the live TUI surface shows a visible spinner, progress signal, or equivalent activity banner during a tracked turn
 - **THEN** the tracked state may report `turn.phase=active` from that evidence
 - **AND THEN** the same contract does not require such a signal to exist on every active turn
+
+#### Scenario: Historical Claude spinner does not block a ready prompt
+- **WHEN** captured tmux scrollback still contains older Claude thinking, spinner, or progress rows above the current live turn region
+- **AND WHEN** the current Claude surface is supported, accepting prompt input, not editing input, visibly ready for immediate submit, and lacks current active-turn evidence
+- **THEN** the tracked state reports `surface.accepting_input=yes`
+- **AND THEN** the tracked state reports `surface.ready_posture=yes`
+- **AND THEN** the tracked state reports `turn.phase=ready`
 
 #### Scenario: Unexplained prompt-area churn does not create a turn
 - **WHEN** the visible prompt area changes because of tab, cursor navigation, repaint, or other unexplained UI-local churn

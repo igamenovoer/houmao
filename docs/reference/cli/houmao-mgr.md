@@ -564,7 +564,8 @@ Low-level boundary notes:
 - by default, that easy auto-attach uses same-session foreground gateway execution and reports `gateway_execution_mode` plus `gateway_tmux_window_index` when foreground attach succeeds.
 - `--gateway-port <port>` keeps the default easy gateway attach enabled for that launch, but requests the specified loopback listener port instead of a system-assigned port.
 - `--gateway-background` keeps easy auto-attach enabled for that launch, but requests detached background gateway execution instead of the default foreground auxiliary-window execution.
-- `--no-gateway` is mutually exclusive with `--gateway-port` and `--gateway-background`.
+- `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, and `--gateway-tui-stale-active-recovery-seconds` are positive-second one-shot overrides for the gateway-owned TUI tracker. They affect the current launch-time gateway attach and are not stored in launch profiles or easy profiles.
+- `--no-gateway` is mutually exclusive with `--gateway-port`, `--gateway-background`, and any `--gateway-tui-*` override.
 - `--workdir` overrides only the launched agent runtime cwd; the selected project overlay, specialist source, runtime root, jobs root, and default mailbox root remain pinned to the selected project.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
 - Gemini specialists remain headless-only here and fail fast unless `--headless` is supplied.

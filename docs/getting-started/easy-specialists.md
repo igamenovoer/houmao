@@ -224,7 +224,7 @@ When `--profile` is used, the command derives the source specialist from the sto
 
 Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, `--managed-header` or `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`, and `--append-system-prompt-text` or `--append-system-prompt-file` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 
-By default, easy instance launch also auto-attaches a live loopback gateway for the new session on `127.0.0.1` with a system-assigned port. Use `--no-gateway` to skip that default for one launch, or `--gateway-port <port>` when you want one fixed loopback listener port on the current launch. If the managed session starts but gateway attachment fails afterward, Houmao keeps the session running and reports the attach error together with the manifest/session identity so you can retry or stop it explicitly.
+By default, easy instance launch also auto-attaches a live loopback gateway for the new session on `127.0.0.1` with a system-assigned port. Use `--no-gateway` to skip that default for one launch, or `--gateway-port <port>` when you want one fixed loopback listener port on the current launch. The `--gateway-tui-*` options tune gateway-owned TUI tracking timings for the current launch only; they do not rewrite the selected specialist or easy profile. If the managed session starts but gateway attachment fails afterward, Houmao keeps the session running and reports the attach error together with the manifest/session identity so you can retry or stop it explicitly.
 
 Key options:
 
@@ -237,6 +237,11 @@ Key options:
 | `--headless` | False | Launch in detached/background mode. |
 | `--no-gateway` | False | Skip the default launch-time gateway attach for this instance. |
 | `--gateway-port` | Auto | Request one fixed loopback gateway listener port for this launch. |
+| `--gateway-tui-watch-poll-interval-seconds` | Default | One-shot gateway-owned TUI watch poll interval override. |
+| `--gateway-tui-stability-threshold-seconds` | Default | One-shot gateway-owned TUI stability threshold override. |
+| `--gateway-tui-completion-stability-seconds` | Default | One-shot gateway-owned TUI completion stability guard-time override. |
+| `--gateway-tui-unknown-to-stalled-timeout-seconds` | Default | One-shot unknown-to-stalled timeout override. |
+| `--gateway-tui-stale-active-recovery-seconds` | Default | One-shot stale-active recovery safeguard-time override. |
 | `--managed-header`, `--no-managed-header` | Profile policy, otherwise enabled | Force-enable or disable the Houmao-managed prompt header for one launch. |
 | `--managed-header-section SECTION=enabled|disabled` | Profile section policy, otherwise section defaults | Repeatable one-shot managed-header section override for this launch. |
 | `--append-system-prompt-text`, `--append-system-prompt-file` | None | Mutually exclusive one-shot appendix input appended after any resolved prompt overlay for the current launch only. |
@@ -251,7 +256,7 @@ Gemini specialists remain headless-only here. Use `--headless` when launching a 
 
 `--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, jobs, and mailbox defaults.
 
-`--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port.
+`--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port. `--no-gateway` also cannot be combined with any `--gateway-tui-*` override because those timings only affect an attached gateway sidecar.
 
 `--managed-header` and `--no-managed-header` are mutually exclusive. When neither flag is supplied, easy-instance launch inherits managed-header policy from the selected easy profile when one is present; otherwise it falls back to the default enabled behavior. `--managed-header-section SECTION=enabled|disabled` resolves per section and wins over stored profile section policy for that launch only.
 

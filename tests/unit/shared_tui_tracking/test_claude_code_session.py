@@ -67,6 +67,28 @@ _CLAUDE_OVERLAPPING_ACTIVE_DRAFT_SURFACE = (
     "────────────────────────────────────────────────────────────────\n"
     "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt\n"
 )
+_CLAUDE_STALE_THINKING_SCROLLBACK_READY_SURFACE = (
+    "❯ Review the mailbox continuation request\n\n"
+    "✢ Musing…\n\n"
+    "● Reading story/02-see-it-properly.md\n"
+    "  ⎿ Read 152 lines\n\n"
+    "● Writing consistency notes\n"
+    "  ⎿ Updated story/review/20260409-chapter-02-see-it-properly.md\n\n"
+    "─ Worked for 1m 16s ─────────────────────────────────────────────\n\n"
+    "I’ve got the chapter context now and the review file is written.\n\n"
+    "────────────────────────────────────────────────────────────────\n"
+    "❯\n"
+    "────────────────────────────────────────────────────────────────\n"
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
+)
+_CLAUDE_STALE_THINKING_VISIBLE_TAIL_READY_SURFACE = (
+    "─ Worked for 1m 16s ─────────────────────────────────────────────\n\n"
+    "I’ve got the chapter context now and the review file is written.\n\n"
+    "────────────────────────────────────────────────────────────────\n"
+    "❯\n"
+    "────────────────────────────────────────────────────────────────\n"
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
+)
 
 
 def _claude_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
@@ -179,9 +201,25 @@ def test_claude_detector_keeps_overlapping_active_draft_visible() -> None:
     signals = detector.detect(output_text=_CLAUDE_OVERLAPPING_ACTIVE_DRAFT_SURFACE)
 
     assert signals.active_evidence is True
+    assert "thinking_line" in signals.active_reasons
     assert signals.interrupted is False
     assert signals.editing_input == "yes"
     assert signals.prompt_text == "Review staged changes"
+
+
+def test_claude_detector_ignores_stale_thinking_scrollback_above_ready_prompt() -> None:
+    detector = ClaudeCodeSignalDetectorV2_1_X()
+
+    full_signals = detector.detect(output_text=_CLAUDE_STALE_THINKING_SCROLLBACK_READY_SURFACE)
+    tail_signals = detector.detect(output_text=_CLAUDE_STALE_THINKING_VISIBLE_TAIL_READY_SURFACE)
+
+    assert full_signals.accepting_input == tail_signals.accepting_input == "yes"
+    assert full_signals.ready_posture == tail_signals.ready_posture == "yes"
+    assert full_signals.editing_input == tail_signals.editing_input == "no"
+    assert full_signals.active_evidence is False
+    assert tail_signals.active_evidence is False
+    assert "thinking_line" not in full_signals.active_reasons
+    assert full_signals.success_candidate is True
 
 
 def test_claude_session_clears_interrupted_result_when_stale_scrollback_turn_is_visible() -> None:
@@ -201,6 +239,21 @@ def test_claude_session_clears_interrupted_result_when_stale_scrollback_turn_is_
     assert state.surface_editing_input == "yes"
     assert state.last_turn_result == "none"
     assert state.last_turn_source == "none"
+
+
+def test_claude_session_stale_thinking_scrollback_stays_ready() -> None:
+    scheduler = TestScheduler()
+    session = _claude_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CLAUDE_STALE_THINKING_SCROLLBACK_READY_SURFACE)
+    state = session.current_state()
+
+    assert state.surface_accepting_input == "yes"
+    assert state.surface_ready_posture == "yes"
+    assert state.surface_editing_input == "no"
+    assert state.turn_phase == "ready"
+    assert "thinking_line" not in state.active_reasons
 
 
 def test_claude_session_keeps_overlapping_active_draft_visible() -> None:

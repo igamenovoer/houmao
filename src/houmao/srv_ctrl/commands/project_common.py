@@ -34,7 +34,10 @@ from houmao.agents.model_selection import (
     model_config_to_payload,
     normalize_model_config,
 )
-from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayCurrentExecutionMode,
+    GatewayTuiTrackingTimingOverridesV1,
+)
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog
 from houmao.project.easy import (
@@ -1853,6 +1856,7 @@ __all__ = [
     "model_config_to_payload",
     "normalize_model_config",
     "GatewayCurrentExecutionMode",
+    "GatewayTuiTrackingTimingOverridesV1",
     "load_session_manifest",
     "AuthProfileCatalogEntry",
     "ProjectCatalog",

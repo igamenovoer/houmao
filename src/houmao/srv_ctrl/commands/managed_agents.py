@@ -71,6 +71,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayRequestPayloadInterruptV1,
     GatewayStatusV1,
+    GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     build_offline_gateway_status,
@@ -703,7 +704,12 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     return _gateway_status_for_controller(target.controller)
 
 
-def attach_gateway(target: ManagedAgentTarget, *, background: bool = False) -> GatewayStatusV1:
+def attach_gateway(
+    target: ManagedAgentTarget,
+    *,
+    background: bool = False,
+    tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
+) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
 
     target = _local_gateway_target_for_passive_pair(target, operation="attach")
@@ -715,11 +721,17 @@ def attach_gateway(target: ManagedAgentTarget, *, background: bool = False) -> G
         return pair_request(
             target.client.attach_managed_agent_gateway,
             target.agent_ref,
-            HoumaoManagedAgentGatewayAttachRequest(execution_mode=execution_mode_override),
+            HoumaoManagedAgentGatewayAttachRequest(
+                execution_mode=execution_mode_override,
+                tui_tracking_timings=tui_tracking_timing_overrides,
+            ),
         )
 
     assert target.controller is not None
-    result = target.controller.attach_gateway(execution_mode_override=execution_mode_override)
+    result = target.controller.attach_gateway(
+        execution_mode_override=execution_mode_override,
+        tui_tracking_timing_overrides=tui_tracking_timing_overrides,
+    )
     if result.status != "ok":
         raise click.ClickException(result.detail)
     return _gateway_status_for_controller(target.controller)

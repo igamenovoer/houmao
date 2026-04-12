@@ -12,6 +12,7 @@ from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
 from houmao.srv_ctrl.commands.agents.core import launch_managed_agent_locally
 
 
@@ -182,6 +183,10 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     )
 
     captured: dict[str, object] = {}
+    timing_overrides = GatewayTuiTrackingTimingOverridesV1(
+        watch_poll_interval_seconds=0.25,
+        stale_active_recovery_seconds=6.0,
+    )
 
     def _fake_start_runtime_session(**kwargs: object) -> SimpleNamespace:
         captured.update(kwargs)
@@ -213,12 +218,14 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
         gateway_auto_attach=True,
         gateway_host="127.0.0.1",
         gateway_port=0,
+        gateway_tui_tracking_timing_overrides=timing_overrides,
     )
 
     assert captured["gateway_auto_attach"] is True
     assert captured["gateway_host"] == "127.0.0.1"
     assert captured["gateway_port"] == 0
     assert captured["gateway_execution_mode_override"] == "tmux_auxiliary_window"
+    assert captured["gateway_tui_tracking_timing_overrides"] == timing_overrides
     memory_binding = captured["memory_binding"]
     assert getattr(memory_binding, "kind") == "auto"
     assert (

@@ -101,6 +101,10 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
             surface=surface,
             prompt_anchor_index=latest_turn_anchor_index,
         )
+        activity_region_lines = _latest_turn_activity_line_items(
+            surface=surface,
+            prompt_anchor_index=latest_turn_anchor_index,
+        )
         slash_menu_visible = bool(prompt_text and prompt_text.startswith("/")) and any(
             stripped_line.strip().startswith("/")
             for _, _, stripped_line in surface.iter_lines_with_indices()
@@ -142,7 +146,7 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
                     known_failure = True
                     current_error_present = True
 
-        for _, _, stripped_line in surface.iter_lines_with_indices():
+        for _, _, stripped_line in activity_region_lines:
             if any(
                 pattern in stripped_line for pattern in THINKING_PATTERNS
             ) or SPINNER_LINE_RE.match(stripped_line.strip()):
@@ -156,13 +160,13 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
                 latest_response_index = index
 
         if footer_interruptable:
-            for _, _, stripped_line in surface.iter_lines_with_indices():
+            for _, _, stripped_line in activity_region_lines:
                 if stripped_line.strip().startswith("● ") and "Worked for" not in stripped_line:
                     active_reasons.append("active_block")
                     break
 
         if footer_interruptable:
-            for _, _, stripped_line in surface.iter_lines_with_indices():
+            for _, _, stripped_line in activity_region_lines:
                 if any(pattern in stripped_line for pattern in ACTIVE_TOOL_PATTERNS):
                     active_reasons.append("tool_activity")
                     break
@@ -329,18 +333,10 @@ def _latest_turn_status_line(
         return None, None
     latest_status_index: int | None = None
     latest_status_line: str | None = None
-    region_start_index = 0
-    for index in range(prompt_anchor_index - 1, -1, -1):
-        stripped_line = surface.stripped_lines[index].strip()
-        if not stripped_line.startswith("❯"):
-            continue
-        if not stripped_line[1:].strip():
-            continue
-        region_start_index = index + 1
-        break
-    for index, _, stripped_line in surface.iter_lines_with_indices():
-        if index < region_start_index or index >= prompt_anchor_index:
-            continue
+    for index, _, stripped_line in _latest_turn_region_line_items(
+        surface=surface,
+        prompt_anchor_index=prompt_anchor_index,
+    ):
         normalized_line = stripped_line.strip()
         if not normalized_line.startswith("⎿"):
             if latest_status_index is not None and normalized_line.startswith("● "):
@@ -350,3 +346,51 @@ def _latest_turn_status_line(
         latest_status_index = index
         latest_status_line = normalized_line
     return latest_status_index, latest_status_line
+
+
+def _latest_turn_region_line_items(
+    *,
+    surface: SurfaceView,
+    prompt_anchor_index: int | None,
+) -> tuple[tuple[int, str, str], ...]:
+    """Return line items in the latest visible Claude turn region."""
+
+    if prompt_anchor_index is None:
+        return tuple(surface.iter_lines_with_indices())
+    region_start_index = 0
+    for index in range(prompt_anchor_index - 1, -1, -1):
+        stripped_line = surface.stripped_lines[index].strip()
+        if not stripped_line.startswith("❯"):
+            continue
+        if not stripped_line[1:].strip():
+            continue
+        region_start_index = index + 1
+        break
+    return tuple(
+        item
+        for item in surface.iter_lines_with_indices()
+        if region_start_index <= item[0] < prompt_anchor_index
+    )
+
+
+def _latest_turn_activity_line_items(
+    *,
+    surface: SurfaceView,
+    prompt_anchor_index: int | None,
+) -> tuple[tuple[int, str, str], ...]:
+    """Return current activity line items, excluding completed-turn history."""
+
+    line_items = _latest_turn_region_line_items(
+        surface=surface,
+        prompt_anchor_index=prompt_anchor_index,
+    )
+    if prompt_anchor_index is None:
+        return line_items
+    latest_completion_offset: int | None = None
+    for offset, (_, _, stripped_line) in enumerate(line_items):
+        if COMPLETION_MARKER_RE.search(stripped_line) is None:
+            continue
+        latest_completion_offset = offset
+    if latest_completion_offset is None:
+        return line_items
+    return line_items[latest_completion_offset + 1 :]

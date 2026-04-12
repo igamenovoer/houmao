@@ -96,6 +96,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewaySurfaceEligibilityState,
     GatewayStoredRequestKind,
     GatewayStatusV1,
+    GatewayTuiTrackingTimingConfigV1,
+    GatewayTuiTrackingTimingOverridesV1,
+    resolve_gateway_tui_tracking_timing_config,
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.gateway_storage import (
@@ -838,7 +841,14 @@ def _build_gateway_execution_adapter(
 class GatewayServiceRuntime:
     """Mutable runtime for one live gateway process."""
 
-    def __init__(self, *, gateway_root: Path, host: GatewayHost, port: int) -> None:
+    def __init__(
+        self,
+        *,
+        gateway_root: Path,
+        host: GatewayHost,
+        port: int,
+        tui_tracking_timings: GatewayTuiTrackingTimingOverridesV1 | None = None,
+    ) -> None:
         """Initialize the gateway runtime state.
 
         Parameters
@@ -849,6 +859,8 @@ class GatewayServiceRuntime:
             Requested bind host for the live listener.
         port:
             Requested or resolved bind port for the live listener.
+        tui_tracking_timings:
+            Optional timing overrides for gateway-owned TUI tracking.
         """
 
         self.m_paths = gateway_paths_from_session_root(
@@ -858,6 +870,9 @@ class GatewayServiceRuntime:
         )
         self.m_host: GatewayHost = host
         self.m_port: int = port
+        self.m_tui_tracking_timings: GatewayTuiTrackingTimingConfigV1 = (
+            resolve_gateway_tui_tracking_timing_config(explicit=tui_tracking_timings)
+        )
         self.m_attach_contract = resolve_internal_gateway_attach_contract(self.m_paths)
         self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
             attach_contract=self.m_attach_contract
@@ -892,6 +907,7 @@ class GatewayServiceRuntime:
         gateway_root: Path,
         host: GatewayHost,
         port: int,
+        tui_tracking_timings: GatewayTuiTrackingTimingOverridesV1 | None = None,
     ) -> "GatewayServiceRuntime":
         """Create a runtime from a runtime-owned gateway root.
 
@@ -903,6 +919,8 @@ class GatewayServiceRuntime:
             Requested bind host for the gateway listener.
         port:
             Requested bind port for the gateway listener.
+        tui_tracking_timings:
+            Optional timing overrides for gateway-owned TUI tracking.
 
         Returns
         -------
@@ -910,7 +928,12 @@ class GatewayServiceRuntime:
             Initialized service runtime.
         """
 
-        return cls(gateway_root=gateway_root, host=host, port=port)
+        return cls(
+            gateway_root=gateway_root,
+            host=host,
+            port=port,
+            tui_tracking_timings=tui_tracking_timings,
+        )
 
     def _execution_mode_from_env(self) -> Literal["detached_process", "tmux_auxiliary_window"]:
         """Return the runtime execution mode published by the launcher."""
@@ -3464,7 +3487,16 @@ class GatewayServiceRuntime:
         identity = self._tui_tracking_identity_locked()
         if identity is None:
             return
-        tracking = SingleSessionTrackingRuntime(identity=identity)
+        tracking = SingleSessionTrackingRuntime(
+            identity=identity,
+            watch_poll_interval_seconds=self.m_tui_tracking_timings.watch_poll_interval_seconds,
+            stability_threshold_seconds=self.m_tui_tracking_timings.stability_threshold_seconds,
+            completion_stability_seconds=(self.m_tui_tracking_timings.completion_stability_seconds),
+            unknown_to_stalled_timeout_seconds=(
+                self.m_tui_tracking_timings.unknown_to_stalled_timeout_seconds
+            ),
+            stale_active_recovery_seconds=self.m_tui_tracking_timings.stale_active_recovery_seconds,
+        )
         tracking.start()
         self.m_tui_tracking = tracking
 
@@ -3846,6 +3878,18 @@ def _bound_port_from_server(server: uvicorn.Server) -> int:
     raise GatewayError("Gateway server did not expose a bound TCP listener.")
 
 
+def _positive_tui_timing_arg(value: str) -> float:
+    """Parse one positive gateway TUI tracking timing CLI value."""
+
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be numeric") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be > 0")
+    return parsed
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the gateway companion process.
 
@@ -3864,13 +3908,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gateway-root", required=True)
     parser.add_argument("--host", required=True, choices=["127.0.0.1", "0.0.0.0"])
     parser.add_argument("--port", required=True, type=int)
+    parser.add_argument("--tui-watch-poll-interval-seconds", type=_positive_tui_timing_arg)
+    parser.add_argument("--tui-stability-threshold-seconds", type=_positive_tui_timing_arg)
+    parser.add_argument("--tui-completion-stability-seconds", type=_positive_tui_timing_arg)
+    parser.add_argument("--tui-unknown-to-stalled-timeout-seconds", type=_positive_tui_timing_arg)
+    parser.add_argument("--tui-stale-active-recovery-seconds", type=_positive_tui_timing_arg)
     args = parser.parse_args(argv)
 
     gateway_root = Path(args.gateway_root).resolve()
+    tui_tracking_timings = GatewayTuiTrackingTimingOverridesV1(
+        watch_poll_interval_seconds=args.tui_watch_poll_interval_seconds,
+        stability_threshold_seconds=args.tui_stability_threshold_seconds,
+        completion_stability_seconds=args.tui_completion_stability_seconds,
+        unknown_to_stalled_timeout_seconds=args.tui_unknown_to_stalled_timeout_seconds,
+        stale_active_recovery_seconds=args.tui_stale_active_recovery_seconds,
+    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host=args.host,
         port=int(args.port),
+        tui_tracking_timings=tui_tracking_timings,
     )
     app = create_app(runtime=runtime)
     config = uvicorn.Config(

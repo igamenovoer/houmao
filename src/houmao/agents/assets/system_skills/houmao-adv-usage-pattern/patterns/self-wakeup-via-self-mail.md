@@ -74,7 +74,7 @@ Use a stable marker such as `[self-wakeup]`, `[self-reminder]`, or another clear
 ## Skill Boundary
 
 - Use `houmao-agent-email-comms` for mailbox `status`, `check`, `read`, `send`, `reply`, and `mark-read`.
-- Use `houmao-agent-gateway` for gateway attach or discovery, gateway mail-notifier control, and optional direct reminders.
+- Use `houmao-agent-gateway` for gateway attach or discovery, gateway mail-notifier control, and optional direct reminders. Let that skill choose attach posture; for tmux-backed managed sessions its lifecycle guidance is foreground-first and treats background gateway execution as explicit user intent.
 - Use `houmao-process-emails-via-gateway` when the notifier round actually arrives and you need the round-oriented unread-mail workflow.
 
 ## Durability Boundary
@@ -92,6 +92,7 @@ Use a stable marker such as `[self-wakeup]`, `[self-reminder]`, or another clear
 - For multi-step work, prefer one self-reminder that points to a local todo list over many mailbox reminders for individual substeps.
 - Use informative self-reminder titles so later rounds can distinguish internal backlog items from new external mail without opening every unread message first.
 - Do not describe this mode as the best choice for "ignore other new mail and work on this first"; that is the live gateway reminder mode.
+- Do not imply that background gateway execution is the default setup for this pattern.
 - Prefer deleting completed self-reminders when the available supported mailbox surface allows it.
 - If deletion is not available on the current supported mailbox surface, mark a completed self-reminder read only as a fallback and plan to prune completed reminders later instead of letting them pile up.
 - Do not mark deferred, failed, or only partially completed self-mail items read.

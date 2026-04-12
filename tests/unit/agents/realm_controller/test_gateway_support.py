@@ -55,6 +55,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderDefinitionV1,
     GatewayReminderPutV1,
     GatewayReminderSendKeysV1,
+    GatewayDesiredConfigV1,
+    GatewayTuiTrackingTimingConfigV1,
+    GatewayTuiTrackingTimingOverridesV1,
+    resolve_gateway_tui_tracking_timing_config,
 )
 from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
@@ -73,6 +77,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_gateway_manifest,
     read_gateway_notifier_audit_records,
     refresh_gateway_manifest_publication,
+    write_gateway_desired_config,
     write_gateway_current_instance,
 )
 from houmao.agents.realm_controller.loaders import load_blueprint
@@ -472,6 +477,92 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
     assert row == (1,)
 
 
+def test_gateway_tui_tracking_timing_config_resolves_precedence() -> None:
+    desired = GatewayTuiTrackingTimingConfigV1(
+        watch_poll_interval_seconds=0.75,
+        stability_threshold_seconds=2.0,
+        completion_stability_seconds=2.5,
+        unknown_to_stalled_timeout_seconds=15.0,
+        stale_active_recovery_seconds=8.0,
+    )
+    explicit = GatewayTuiTrackingTimingOverridesV1(
+        completion_stability_seconds=3.5,
+        stale_active_recovery_seconds=4.5,
+    )
+
+    resolved = resolve_gateway_tui_tracking_timing_config(
+        explicit=explicit,
+        desired=desired,
+    )
+
+    assert resolved.watch_poll_interval_seconds == 0.75
+    assert resolved.stability_threshold_seconds == 2.0
+    assert resolved.completion_stability_seconds == 3.5
+    assert resolved.unknown_to_stalled_timeout_seconds == 15.0
+    assert resolved.stale_active_recovery_seconds == 4.5
+    assert resolve_gateway_tui_tracking_timing_config().watch_poll_interval_seconds == 0.5
+
+
+@pytest.mark.parametrize(
+    "value",
+    [0, -1, float("inf"), True, "1.0"],
+)
+def test_gateway_tui_tracking_timing_config_rejects_invalid_values(value: object) -> None:
+    with pytest.raises(ValidationError):
+        GatewayTuiTrackingTimingConfigV1(watch_poll_interval_seconds=value)
+
+
+def test_gateway_desired_config_preserves_tui_tracking_timings(tmp_path: Path) -> None:
+    manifest_path = default_manifest_path(
+        tmp_path,
+        "cao_rest",
+        "cao_rest-20260312-120000Z-abcd1234",
+    )
+    _write(manifest_path, "{}\n")
+    publication = GatewayCapabilityPublication(
+        manifest_path=manifest_path,
+        backend="cao_rest",
+        tool="codex",
+        session_id="cao_rest-20260312-120000Z-abcd1234",
+        tmux_session_name="HOUMAO-gpu",
+        working_directory=tmp_path,
+        backend_state={
+            "api_base_url": "http://localhost:9889",
+            "terminal_id": "term-123",
+            "profile_name": "runtime-profile",
+            "profile_path": str(tmp_path / "runtime-profile.md"),
+            "parsing_mode": "shadow_only",
+        },
+        agent_def_dir=tmp_path / "agents",
+    )
+    paths = ensure_gateway_capability(publication)
+    assert (
+        load_gateway_desired_config(paths.desired_config_path).desired_tui_tracking_timings is None
+    )
+
+    persisted_timings = GatewayTuiTrackingTimingConfigV1(
+        watch_poll_interval_seconds=0.25,
+        stability_threshold_seconds=1.5,
+        completion_stability_seconds=1.75,
+        unknown_to_stalled_timeout_seconds=12.0,
+        stale_active_recovery_seconds=6.0,
+    )
+    write_gateway_desired_config(
+        paths.desired_config_path,
+        GatewayDesiredConfigV1(
+            desired_host="127.0.0.1",
+            desired_port=43123,
+            desired_execution_mode="tmux_auxiliary_window",
+            desired_tui_tracking_timings=persisted_timings,
+        ),
+    )
+
+    ensure_gateway_capability(publication)
+
+    desired_config = load_gateway_desired_config(paths.desired_config_path)
+    assert desired_config.desired_tui_tracking_timings == persisted_timings
+
+
 def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -557,7 +648,7 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port, execution_mode: (
+        lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
             captured_attach.update(
                 {
                     "controller": controller,
@@ -565,6 +656,7 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
                     "host": host,
                     "port": port,
                     "execution_mode": execution_mode,
+                    "tui_tracking_timings": tui_tracking_timings,
                 }
             )
             or 43123
@@ -582,6 +674,7 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
     assert captured_attach["host"] == "127.0.0.1"
     assert captured_attach["port"] == 0
     assert captured_attach["execution_mode"] == "detached_process"
+    assert isinstance(captured_attach["tui_tracking_timings"], GatewayTuiTrackingTimingConfigV1)
 
 
 def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
@@ -608,7 +701,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port, execution_mode: (
+        lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
             captured_attach.update(
                 {
                     "controller": controller,
@@ -616,6 +709,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
                     "host": host,
                     "port": port,
                     "execution_mode": execution_mode,
+                    "tui_tracking_timings": tui_tracking_timings,
                 }
             )
             or 43123
@@ -633,6 +727,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
     assert captured_attach["host"] == "127.0.0.1"
     assert captured_attach["port"] == 0
     assert captured_attach["execution_mode"] == "detached_process"
+    assert isinstance(captured_attach["tui_tracking_timings"], GatewayTuiTrackingTimingConfigV1)
 
 
 def test_gateway_service_routes_local_interactive_prompts_through_runtime_control(
@@ -1849,11 +1944,90 @@ def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Pat
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
 
-    command = _same_session_gateway_shell_command(paths=paths, host="127.0.0.1", port=43123)
+    command = _same_session_gateway_shell_command(
+        paths=paths,
+        host="127.0.0.1",
+        port=43123,
+        tui_tracking_timings=GatewayTuiTrackingTimingConfigV1(
+            watch_poll_interval_seconds=0.25,
+            stability_threshold_seconds=1.5,
+            completion_stability_seconds=1.75,
+            unknown_to_stalled_timeout_seconds=12.0,
+            stale_active_recovery_seconds=6.0,
+        ),
+    )
 
     assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_id}'" in command
     assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_index}'" in command
+    assert "--tui-watch-poll-interval-seconds 0.25" in command
+    assert "--tui-stale-active-recovery-seconds 6.0" in command
     assert "'$TMUX_PANE'" not in command
+
+
+def test_gateway_service_main_parses_tui_tracking_args(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeConfig:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            captured["uvicorn_config"] = (args, kwargs)
+
+    class _FakeServer:
+        def __init__(self, config: object, *, runtime: object, requested_host: object) -> None:
+            captured["server_config"] = config
+            captured["server_runtime"] = runtime
+            captured["requested_host"] = requested_host
+
+        def run(self) -> None:
+            captured["server_run"] = True
+
+    fake_runtime = object()
+
+    def _fake_from_gateway_root(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return fake_runtime
+
+    monkeypatch.setattr(gateway_service_module.uvicorn, "Config", _FakeConfig)
+    monkeypatch.setattr(gateway_service_module, "_GatewayUvicornServer", _FakeServer)
+    monkeypatch.setattr(gateway_service_module, "create_app", lambda *, runtime: object())
+    monkeypatch.setattr(
+        gateway_service_module.GatewayServiceRuntime,
+        "from_gateway_root",
+        staticmethod(_fake_from_gateway_root),
+    )
+
+    exit_code = gateway_service_module.main(
+        [
+            "--gateway-root",
+            str(tmp_path / "gateway"),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "43123",
+            "--tui-watch-poll-interval-seconds",
+            "0.25",
+            "--tui-stability-threshold-seconds",
+            "1.5",
+            "--tui-completion-stability-seconds",
+            "1.75",
+            "--tui-unknown-to-stalled-timeout-seconds",
+            "12",
+            "--tui-stale-active-recovery-seconds",
+            "6",
+        ]
+    )
+
+    timings = captured["tui_tracking_timings"]
+    assert exit_code == 0
+    assert captured["server_runtime"] is fake_runtime
+    assert isinstance(timings, GatewayTuiTrackingTimingOverridesV1)
+    assert timings.watch_poll_interval_seconds == 0.25
+    assert timings.stability_threshold_seconds == 1.5
+    assert timings.completion_stability_seconds == 1.75
+    assert timings.unknown_to_stalled_timeout_seconds == 12.0
+    assert timings.stale_active_recovery_seconds == 6.0
 
 
 def test_same_session_gateway_liveness_ignores_current_agent_window(

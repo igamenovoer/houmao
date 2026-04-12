@@ -26,6 +26,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderSendKeysV1,
     GatewayReminderV1,
     GatewayStatusV1,
+    GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.server.pair_client import PairAuthorityConnectionError, PairAuthorityHealthProbe
 from houmao.server.models import (
@@ -365,6 +366,8 @@ def test_agents_gateway_attach_help_mentions_foreground_default() -> None:
     assert "--foreground" not in result.output
     assert "--target-tmux-session" in result.output
     assert "--pair-port" in result.output
+    assert "--gateway-tui-watch-poll-interval-seconds FLOAT RANGE" in result.output
+    assert "--gateway-tui-stale-active-recovery-seconds FLOAT RANGE" in result.output
     assert "Window `0` remains" in result.output
     assert "foreground by default" in result.output
 
@@ -589,8 +592,15 @@ def test_agents_gateway_attach_defaults_to_foreground_execution(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False: (
-            captured.update({"target": target, "background": background}) or {"status": "ok"}
+        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
+            captured.update(
+                {
+                    "target": target,
+                    "background": background,
+                    "tui_tracking_timing_overrides": tui_tracking_timing_overrides,
+                }
+            )
+            or {"status": "ok"}
         ),
     )
 
@@ -601,6 +611,7 @@ def test_agents_gateway_attach_defaults_to_foreground_execution(
 
     assert result.exit_code == 0, result.output
     assert captured["background"] is False
+    assert captured["tui_tracking_timing_overrides"] is None
     assert captured["resolved_target"] == {
         "agent_id": "agent-123",
         "agent_name": None,
@@ -620,18 +631,40 @@ def test_agents_gateway_attach_forwards_background_flag(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False: (
-            captured.update({"target": target, "background": background}) or {"status": "ok"}
+        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
+            captured.update(
+                {
+                    "target": target,
+                    "background": background,
+                    "tui_tracking_timing_overrides": tui_tracking_timing_overrides,
+                }
+            )
+            or {"status": "ok"}
         ),
     )
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "gateway", "attach", "--agent-id", "agent-123", "--background"],
+        [
+            "agents",
+            "gateway",
+            "attach",
+            "--agent-id",
+            "agent-123",
+            "--background",
+            "--gateway-tui-watch-poll-interval-seconds",
+            "0.25",
+            "--gateway-tui-stale-active-recovery-seconds",
+            "6",
+        ],
     )
 
     assert result.exit_code == 0, result.output
     assert captured["background"] is True
+    timings = captured["tui_tracking_timing_overrides"]
+    assert isinstance(timings, GatewayTuiTrackingTimingOverridesV1)
+    assert timings.watch_poll_interval_seconds == 0.25
+    assert timings.stale_active_recovery_seconds == 6.0
     assert captured["resolved_target"] == {
         "agent_id": "agent-123",
         "agent_name": None,
@@ -832,8 +865,14 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False: (
-            captured.update({"target": target, "background": background})
+        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
+            captured.update(
+                {
+                    "target": target,
+                    "background": background,
+                    "tui_tracking_timing_overrides": tui_tracking_timing_overrides,
+                }
+            )
             or {"status": "local-attached"}
         ),
     )
@@ -845,6 +884,7 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     assert captured["session_manifest_path"] == manifest_path
     assert captured["target"].agent_ref == "published-alpha"
     assert captured["background"] is False
+    assert captured["tui_tracking_timing_overrides"] is None
     assert json.loads(result.output) == {"status": "local-attached"}
 
 
@@ -940,8 +980,14 @@ def test_agents_gateway_attach_target_tmux_session_falls_back_to_registry_termin
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False: (
-            captured.update({"target": target, "background": background})
+        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
+            captured.update(
+                {
+                    "target": target,
+                    "background": background,
+                    "tui_tracking_timing_overrides": tui_tracking_timing_overrides,
+                }
+            )
             or {"status": "local-attached"}
         ),
     )
@@ -1029,8 +1075,16 @@ def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_prompt",
-        lambda resolved_target, *, prompt, force: (
-            captured.update({"target": resolved_target, "prompt": prompt, "force": force})
+        lambda resolved_target, *, prompt, force, model=None, reasoning_level=None: (
+            captured.update(
+                {
+                    "target": resolved_target,
+                    "prompt": prompt,
+                    "force": force,
+                    "model": model,
+                    "reasoning_level": reasoning_level,
+                }
+            )
             or {"status": "ok", "sent": True, "forced": force}
         ),
     )
@@ -1060,6 +1114,8 @@ def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
     assert captured["target"] is target
     assert captured["prompt"] == "hello"
     assert captured["force"] is True
+    assert captured["model"] is None
+    assert captured["reasoning_level"] is None
     assert json.loads(result.output) == {"status": "ok", "sent": True, "forced": True}
 
 

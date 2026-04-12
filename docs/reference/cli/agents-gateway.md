@@ -32,6 +32,11 @@ houmao-mgr agents gateway attach [OPTIONS]
 | Option | Description |
 |---|---|
 | `--background` | Run the gateway as a detached background process instead of the default same-session auxiliary tmux window. |
+| `--gateway-tui-watch-poll-interval-seconds FLOAT` | Override the gateway-owned TUI watch poll interval for this attach. |
+| `--gateway-tui-stability-threshold-seconds FLOAT` | Override the gateway-owned TUI stability threshold for this attach. |
+| `--gateway-tui-completion-stability-seconds FLOAT` | Override the gateway-owned TUI completion stability guard time for this attach. |
+| `--gateway-tui-unknown-to-stalled-timeout-seconds FLOAT` | Override how long an unknown active surface waits before becoming stalled for this attach. |
+| `--gateway-tui-stale-active-recovery-seconds FLOAT` | Override the stale-active recovery safeguard time for this attach. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. Implied when no selector is provided inside tmux. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit attach. |
@@ -410,6 +415,7 @@ houmao-mgr agents gateway mail-notifier disable [OPTIONS]
 - `--target-tmux-session` cannot be combined with `--agent-id`, `--agent-name`, `--current-session`, or `--pair-port`.
 - `--target-tmux-session` resolves locally from the addressed tmux session's `HOUMAO_MANIFEST_PATH` first and falls back to an exact fresh shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
 - `--pair-port` is only supported with explicit `--agent-id` or `--agent-name` targeting. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
+- Gateway TUI timing overrides must be positive seconds. They apply to the gateway sidecar started by this attach and are persisted as the desired timing config for the gateway root after attach succeeds.
 
 ## See Also
 

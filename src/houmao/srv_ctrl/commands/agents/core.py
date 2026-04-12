@@ -47,7 +47,10 @@ from houmao.agents.native_launch_resolver import (
     resolve_preset_owner_agent_def_dir,
 )
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
-from houmao.agents.realm_controller.gateway_models import GatewayCurrentExecutionMode
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayCurrentExecutionMode,
+    GatewayTuiTrackingTimingOverridesV1,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -511,6 +514,7 @@ def launch_managed_agent_locally(
     gateway_host: str | None = None,
     gateway_port: int | None = None,
     gateway_execution_mode: GatewayCurrentExecutionMode | None = None,
+    gateway_tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
@@ -694,6 +698,7 @@ def launch_managed_agent_locally(
                 if gateway_auto_attach
                 else None
             ),
+            gateway_tui_tracking_timing_overrides=gateway_tui_tracking_timing_overrides,
             mailbox_transport=mailbox_transport,
             mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,

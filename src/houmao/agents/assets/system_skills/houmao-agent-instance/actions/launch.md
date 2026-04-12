@@ -46,6 +46,7 @@ Behavior note:
 
 - `--workdir` changes only the launched agent runtime cwd.
 - When the selected role or preset resolves from a Houmao project source, source-project overlay resolution stays pinned to that source instead of following `--workdir`.
+- Do not treat gateway attach as part of direct role or preset launch completion. If the user later asks to attach or operate a gateway, route that follow-up through `houmao-agent-gateway`, whose lifecycle guidance is foreground-first and treats background attach as explicit user intent.
 
 ### Explicit Launch-Profile-Backed Managed Launch
 
@@ -77,6 +78,7 @@ Behavior note:
 - `--launch-profile` and `--agents` are mutually exclusive.
 - The stored launch profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
 - Stored launch-profile defaults may already include gateway posture, prompt overlay, durable env records, and declared mailbox configuration.
+- Do not add one-shot background gateway overrides unless the user explicitly asks for background gateway execution. Stored launch-profile gateway posture owns launch-time defaults when present.
 - `--managed-header-section` is a one-shot section override and does not rewrite stored launch-profile section policy.
 - Direct CLI overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch only and do not rewrite the stored launch profile.
 - After launch, follow-up prompting or outgoing mailbox work should go through `houmao-agent-messaging`, which will discover any live gateway and prefer it when available.
@@ -111,6 +113,7 @@ Behavior note:
 - `--workdir` changes only the launched agent runtime cwd.
 - The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
 - `--managed-header-section` is a one-shot section override for the launched instance.
+- Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-specialist-mgr`.
 
 If the selected specialist is known to use Gemini, the launch must be headless.
 
@@ -126,3 +129,4 @@ If the selected specialist is known to use Gemini, the launch must be headless.
 - Do not include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
 - Do not treat prompt submission or gateway attach as part of launch completion for this skill.
+- Do not add a background gateway override unless the user explicitly asks for detached background gateway execution.
