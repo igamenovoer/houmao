@@ -413,12 +413,15 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/get.md" in manage_specialist_skill
     assert "actions/remove.md" in manage_specialist_skill
     assert "actions/launch.md" in manage_specialist_skill
+    assert "update specialist" in manage_specialist_skill
     assert "create profile" in manage_specialist_skill
     assert "list profiles" in manage_specialist_skill
     assert "get profile" in manage_specialist_skill
     assert "remove profile" in manage_specialist_skill
     assert "Explicit Auth Mode" in create_action
     assert "project easy profile create" in create_action
+    assert "project easy specialist set --name <name>" in create_action
+    assert "Do not remove and recreate an easy specialist" in create_action
     assert "--prompt-overlay-mode append|replace" in create_action
     assert "Env Lookup Mode" in create_action
     assert "Directory Scan Mode" in create_action

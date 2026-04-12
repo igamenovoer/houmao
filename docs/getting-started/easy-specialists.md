@@ -116,6 +116,36 @@ houmao-mgr project easy specialist create \
   --gemini-oauth-creds ./secrets/oauth_creds.json
 ```
 
+## Editing a Specialist
+
+Use `specialist set` for ordinary changes to an existing specialist. It patches the catalog-backed definition, rematerializes the `.houmao/agents/` compatibility projection, and preserves unspecified fields.
+
+```bash
+houmao-mgr project easy specialist set \
+  --name my-reviewer \
+  --system-prompt-file ./prompts/reviewer-v2.md \
+  --with-skill ./skills/repo-map \
+  --remove-skill old-notes \
+  --prompt-mode unattended
+```
+
+Common patch options:
+
+| Option | Effect |
+|---|---|
+| `--system-prompt` / `--system-prompt-file` | Replace the stored prompt from inline text or a file. |
+| `--clear-system-prompt` | Store an empty prompt. |
+| `--with-skill <dir>` | Import a skill directory and add it to the specialist. |
+| `--add-skill <name>` / `--remove-skill <name>` | Add or remove an already projected project skill by name. |
+| `--clear-skills` | Remove all skills from this specialist. Shared skill content remains available to other specialists. |
+| `--setup <name>` | Switch to a different setup bundle for the specialist's current tool lane. |
+| `--credential <name>` | Switch to another existing credential display name for the specialist's current tool lane. |
+| `--prompt-mode unattended|as_is` / `--clear-prompt-mode` | Replace or clear the stored operator prompt mode. |
+| `--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level` | Patch the launch-owned default model selection. |
+| `--env-set NAME=value` / `--clear-env` | Replace the stored specialist env mapping, or clear it. |
+
+`specialist set` requires at least one update or clear flag. It does not rename a specialist and does not move a specialist between tool lanes; create a new specialist when the name or tool lane should change. Changes affect future launches and profiles resolved from the updated specialist definition. Already-running easy instances keep their current runtime state.
+
 ## Easy Profiles
 
 An easy profile is reusable, specialist-backed birth-time launch configuration. It targets exactly one specialist and stores the launch context that the same specialist would otherwise need to be re-typed for: managed-agent identity, working directory, auth override, prompt-mode override, durable env records, declarative mailbox config, launch posture, and an optional prompt overlay.
