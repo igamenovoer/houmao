@@ -128,6 +128,10 @@ def project_reasoning_level(
             value=str(native_setting["native_value"]),
             repair_invalid=True,
         )
+        _attach_provider_cli_args_metadata(
+            mapping,
+            ["--effort", str(native_setting["native_value"])],
+        )
         return mapping
 
     if tool == "codex":
@@ -171,13 +175,14 @@ def project_model_name(
         raise ValueError("model_name must not be empty")
 
     if tool == "claude":
-        if env_exports is not None:
-            env_exports["ANTHROPIC_MODEL"] = stripped_model_name
-        return {
-            "surface": "env",
-            "env_var": "ANTHROPIC_MODEL",
+        del env_exports
+        projection: dict[str, Any] = {
+            "surface": "cli_arg",
+            "arg": "--model",
             "value": stripped_model_name,
         }
+        _attach_provider_cli_args_metadata(projection, ["--model", stripped_model_name])
+        return projection
 
     if tool == "codex":
         set_toml_key(
@@ -249,7 +254,7 @@ def temporary_project_model_config(
                     model_name=model_config.name,
                     env_exports=env_exports,
                 )
-                cli_args.extend(_codex_cli_args_from_projection(model_projection))
+                cli_args.extend(_cli_args_from_projection(model_projection))
             if model_config.reasoning is not None:
                 reasoning_projection = project_reasoning_level(
                     home_path=home_path,
@@ -257,10 +262,16 @@ def temporary_project_model_config(
                     requested_level=model_config.reasoning.level,
                     model_name=model_config.name,
                 )
-                cli_args.extend(_codex_cli_args_from_projection(reasoning_projection))
+                cli_args.extend(_cli_args_from_projection(reasoning_projection))
             yield TemporaryModelProjection(env=env_exports, args=cli_args)
         finally:
             _restore_model_config_paths(snapshots)
+
+
+def _attach_provider_cli_args_metadata(payload: dict[str, Any], args: list[str]) -> None:
+    """Attach provider CLI args metadata to one native projection payload."""
+
+    payload["cli_args"] = list(args)
 
 
 def _attach_codex_cli_override_metadata(
@@ -276,8 +287,8 @@ def _attach_codex_cli_override_metadata(
     payload["cli_args"] = codex_config_override_args((override,))
 
 
-def _codex_cli_args_from_projection(projection: dict[str, Any]) -> list[str]:
-    """Extract Codex CLI args from one projection payload when present."""
+def _cli_args_from_projection(projection: dict[str, Any]) -> list[str]:
+    """Extract provider CLI args from one projection payload when present."""
 
     cli_args = projection.get("cli_args")
     if not isinstance(cli_args, list) or not all(isinstance(item, str) for item in cli_args):

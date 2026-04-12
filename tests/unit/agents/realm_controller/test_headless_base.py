@@ -30,6 +30,7 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 
 
 def _sample_gemini_launch_plan(tmp_path: Path) -> LaunchPlan:
@@ -58,12 +59,13 @@ def _sample_claude_launch_plan(
     *,
     prompt: str = "role prompt",
     bootstrap_message: str = "bootstrap",
+    args: list[str] | None = None,
 ) -> LaunchPlan:
     return LaunchPlan(
         backend="claude_headless",
         tool="claude",
         executable="claude",
-        args=[],
+        args=list(args or []),
         working_directory=tmp_path,
         home_env_var="CLAUDE_CONFIG_DIR",
         home_path=tmp_path / "home",
@@ -409,6 +411,138 @@ def test_claude_headless_adds_verbose_for_stream_json_output(tmp_path: Path) -> 
         "--append-system-prompt",
         "role prompt",
         "hello",
+        "--output-format",
+        "stream-json",
+    ]
+
+
+def test_claude_headless_includes_model_selection_args_from_launch_plan(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    session = ClaudeHeadlessSession(
+        launch_plan=_sample_claude_launch_plan(
+            tmp_path,
+            args=["--model", "sonnet", "--effort", "high"],
+        ),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-claude",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            **_kwargs,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="sess-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt("hello")
+
+    assert captured["command"] == [
+        "claude",
+        "--model",
+        "sonnet",
+        "--effort",
+        "high",
+        "-p",
+        "--verbose",
+        "--append-system-prompt",
+        "role prompt",
+        "hello",
+        "--output-format",
+        "stream-json",
+    ]
+
+
+def test_claude_headless_uses_execution_model_args_for_one_prompt_only(
+    tmp_path: Path,
+) -> None:
+    commands: list[list[str]] = []
+
+    session = ClaudeHeadlessSession(
+        launch_plan=_sample_claude_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-claude",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            **_kwargs,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            commands.append(list(command))
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="sess-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt(
+        "hello",
+        execution_model=ModelConfig(
+            name="sonnet",
+            reasoning=ModelReasoningConfig(level=3),
+        ),
+    )
+    session.send_prompt("next")
+
+    assert commands[0] == [
+        "claude",
+        "--model",
+        "sonnet",
+        "--effort",
+        "high",
+        "-p",
+        "--verbose",
+        "--append-system-prompt",
+        "role prompt",
+        "hello",
+        "--output-format",
+        "stream-json",
+    ]
+    assert commands[1] == [
+        "claude",
+        "-p",
+        "--verbose",
+        "--resume",
+        "sess-1",
+        "next",
         "--output-format",
         "stream-json",
     ]

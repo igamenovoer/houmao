@@ -788,6 +788,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             requested_level=resolved_model_config.config.reasoning.level,
             model_name=resolved_model_config.config.name,
         )
+    provider_model_selection_cli_args = _provider_model_selection_cli_args(
+        tool=request.tool,
+        model_projection=model_projection,
+        reasoning_projection=reasoning_projection,
+    )
     codex_cli_config_overrides = _codex_cli_config_overrides(
         tool=request.tool,
         home_path=home_path,
@@ -812,7 +817,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         home_path=home_path,
         helper_path=launch_helper_path,
         adapter=adapter,
-        launch_args=[*launch_helper_args, *codex_cli_config_args],
+        launch_args=[
+            *launch_helper_args,
+            *codex_cli_config_args,
+            *provider_model_selection_cli_args,
+        ],
         env_exports={
             **{key: env_values[key] for key in selected_env_names},
             **effective_launch_env_records,
@@ -892,6 +901,14 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                     "codex_cli_config_overrides": (
                         codex_config_override_payload(codex_cli_config_overrides)
                         if codex_cli_config_overrides
+                        else None
+                    ),
+                    "provider_cli_args": (
+                        {
+                            "tool": request.tool,
+                            "args": list(provider_model_selection_cli_args),
+                        }
+                        if provider_model_selection_cli_args
                         else None
                     ),
                 },
@@ -1068,11 +1085,12 @@ def _project_model_name(
     if model_name is None:
         return None
     if tool == "claude":
-        launch_env_exports["ANTHROPIC_MODEL"] = model_name
+        del launch_env_exports
         return {
-            "surface": "env",
-            "env_name": "ANTHROPIC_MODEL",
+            "surface": "cli_arg",
+            "arg": "--model",
             "value": model_name,
+            "cli_args": ["--model", model_name],
         }
     if tool == "codex":
         set_toml_key(
@@ -1101,6 +1119,33 @@ def _project_model_name(
             "value": model_name,
         }
     raise BuildError(f"Unsupported model projection tool `{tool}`.")
+
+
+def _provider_model_selection_cli_args(
+    *,
+    tool: str,
+    model_projection: dict[str, Any] | None,
+    reasoning_projection: dict[str, Any] | None,
+) -> list[str]:
+    """Return generated provider CLI args from model-selection projections."""
+
+    if tool != "claude":
+        return []
+    args: list[str] = []
+    if model_projection is not None:
+        args.extend(_cli_args_from_projection(model_projection))
+    if reasoning_projection is not None:
+        args.extend(_cli_args_from_projection(reasoning_projection))
+    return args
+
+
+def _cli_args_from_projection(projection: dict[str, Any]) -> list[str]:
+    """Extract provider CLI args from one projection payload when present."""
+
+    cli_args = projection.get("cli_args")
+    if not isinstance(cli_args, list) or not all(isinstance(item, str) for item in cli_args):
+        return []
+    return list(cli_args)
 
 
 def _non_empty_str(value: object) -> str | None:
