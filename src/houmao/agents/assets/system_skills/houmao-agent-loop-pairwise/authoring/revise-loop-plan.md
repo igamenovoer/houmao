@@ -15,6 +15,7 @@ Use this page when a plan already exists, but the user wants to tighten delegati
    - completion condition
    - stop posture
    - reporting contract
+   - gateway mail-notifier interval
    - scripts or plan bundle layout
 3. Keep the control-plane versus execution-plane split intact while revising.
 4. Preserve the canonical entrypoint:
@@ -34,3 +35,4 @@ Use this page when a plan already exists, but the user wants to tighten delegati
 - Do not leave a stale graph in place after changing the run topology.
 - Do not move completion evaluation away from the designated master unless the plan explicitly changes the master.
 - Do not default a revised stop posture to graceful termination; keep `interrupt-first` unless the user explicitly changed it.
+- Do not change the gateway mail-notifier interval from `5s` unless the user or plan specifies another interval.

@@ -42,6 +42,9 @@ See `delegation.md`.
 # Stop Policy
 Default stop mode: interrupt-first
 
+# Mail-Notifier Setup
+- gateway mail-notifier interval: `5s` unless the user specified otherwise
+
 # Reporting Contract
 See `reporting.md`.
 

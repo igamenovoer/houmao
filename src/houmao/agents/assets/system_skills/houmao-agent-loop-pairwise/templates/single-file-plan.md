@@ -11,6 +11,7 @@ participants:
   - <worker-b>
 delegation_policy: <delegate_none | delegate_to_named | delegate_freely_within_named_set | delegate_any>
 default_stop_mode: interrupt-first
+mail_notifier_interval_seconds: <5 unless user specified otherwise>
 ---
 
 # Objective

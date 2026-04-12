@@ -15,6 +15,7 @@ Use this page when the user has described what they want, but the designated mas
    - completion condition
    - stop policy
    - reporting contract
+   - gateway mail-notifier interval: default `5s` unless the user specifies otherwise
    - scripts, if any
 4. If any materially important field is still missing, ask for exactly that missing field instead of improvising it.
 5. Break the work into pairwise local-close control edges. The loop is the supervision or review cycle, not an arbitrary worker-to-worker cycle.
@@ -43,5 +44,6 @@ The finalized authored plan should make these items easy to find:
 - completion condition
 - stop mode default
 - reporting contract
+- gateway mail-notifier interval
 - script inventory
 - Mermaid control graph
