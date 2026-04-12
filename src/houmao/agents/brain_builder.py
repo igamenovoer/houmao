@@ -14,6 +14,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from houmao.agents.codex_cli_config import (
+    CodexCliConfigOverride,
+    codex_config_override_args,
+    codex_config_override_payload,
+    codex_provider_cli_config_overrides,
+)
 from houmao.agents.definition_parser import (
     AgentPreset,
     PresetLaunchSettings,
@@ -782,6 +788,13 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             requested_level=resolved_model_config.config.reasoning.level,
             model_name=resolved_model_config.config.name,
         )
+    codex_cli_config_overrides = _codex_cli_config_overrides(
+        tool=request.tool,
+        home_path=home_path,
+        resolved_model_config=resolved_model_config.config,
+        reasoning_projection=reasoning_projection,
+    )
+    codex_cli_config_args = codex_config_override_args(codex_cli_config_overrides)
 
     if adapter.env_injection_mode == "home_dotenv":
         env_file_in_home = adapter.env_file_in_home or ".env"
@@ -799,7 +812,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         home_path=home_path,
         helper_path=launch_helper_path,
         adapter=adapter,
-        launch_args=launch_helper_args,
+        launch_args=[*launch_helper_args, *codex_cli_config_args],
         env_exports={
             **{key: env_values[key] for key in selected_env_names},
             **effective_launch_env_records,
@@ -876,6 +889,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                         "model": model_projection,
                         "reasoning": reasoning_projection,
                     },
+                    "codex_cli_config_overrides": (
+                        codex_config_override_payload(codex_cli_config_overrides)
+                        if codex_cli_config_overrides
+                        else None
+                    ),
                 },
                 "construction_provenance": construction_provenance,
             },
@@ -970,6 +988,36 @@ def _derive_gemini_launch_env_records(
     ):
         return {}
     return {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def _codex_cli_config_overrides(
+    *,
+    tool: str,
+    home_path: Path,
+    resolved_model_config: ModelConfig | None,
+    reasoning_projection: dict[str, Any] | None,
+) -> tuple[CodexCliConfigOverride, ...]:
+    """Return launch-owned Codex CLI config overrides for one built home."""
+
+    if tool != "codex":
+        return ()
+
+    overrides: list[CodexCliConfigOverride] = []
+    if resolved_model_config is not None and resolved_model_config.name is not None:
+        overrides.append(CodexCliConfigOverride(("model",), resolved_model_config.name))
+
+    if reasoning_projection is not None:
+        native_scale = reasoning_projection.get("native_scale")
+        native_value = reasoning_projection.get("native_value")
+        if native_scale == "model_reasoning_effort" and isinstance(native_value, (str, bool, int)):
+            overrides.append(CodexCliConfigOverride(("model_reasoning_effort",), native_value))
+
+    try:
+        config_payload = load_toml_state(home_path / "config.toml", repair_invalid=True)
+    except Exception:
+        config_payload = {}
+    overrides.extend(codex_provider_cli_config_overrides(config_payload))
+    return tuple(overrides)
 
 
 def _extract_native_model_config_baseline(

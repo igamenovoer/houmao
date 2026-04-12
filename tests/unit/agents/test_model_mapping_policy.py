@@ -140,4 +140,5 @@ def test_project_reasoning_level_writes_codex_reasoning_effort(tmp_path: Path) -
     payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
 
     assert mapping["native_scale"] == "model_reasoning_effort"
+    assert mapping["cli_args"] == ['--config=model_reasoning_effort="xhigh"']
     assert payload["model_reasoning_effort"] == "xhigh"

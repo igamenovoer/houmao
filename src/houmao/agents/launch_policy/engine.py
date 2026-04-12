@@ -73,6 +73,7 @@ _ACTION_KINDS: tuple[
 _RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS: frozenset[str] = frozenset(
     {
         "codex.canonicalize_unattended_launch_inputs",
+        "codex.append_unattended_cli_overrides",
         "gemini.canonicalize_unattended_launch_inputs",
     }
 )

@@ -665,6 +665,54 @@ def test_build_launch_plan_codex_headless_sets_cli_mode_metadata(
     assert plan.metadata["headless_display_detail"] == "concise"
 
 
+@pytest.mark.parametrize("backend", ["local_interactive", "codex_headless"])
+def test_build_launch_plan_adds_codex_cli_preference_overrides(
+    tmp_path: Path,
+    backend: str,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / ".codex/config.toml", 'model_reasoning_effort = "xhigh"\n')
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        launch_args=["--x"],
+    )
+    manifest["runtime"]["launch_contract"]["model_selection"] = {
+        "codex_cli_config_overrides": {
+            "args": [
+                '--config=model="gpt-5.4"',
+                '--config=model_reasoning_effort="low"',
+            ],
+            "overrides": [],
+        }
+    }
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend=backend,  # type: ignore[arg-type]
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.args[-2:] == [
+        '--config=model="gpt-5.4"',
+        '--config=model_reasoning_effort="low"',
+    ]
+    assert plan.metadata["launch_overrides"]["backend_resolution"]["codex_cli_config_args"] == [
+        '--config=model="gpt-5.4"',
+        '--config=model_reasoning_effort="low"',
+    ]
+
+
 @pytest.mark.parametrize(
     ("tool", "expected"),
     [
