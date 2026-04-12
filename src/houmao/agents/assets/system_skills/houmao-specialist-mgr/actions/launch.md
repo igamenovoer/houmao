@@ -38,6 +38,7 @@ Common optional inputs:
 - `--no-headless`
 - `--no-gateway`
 - `--gateway-port`
+- `--gateway-background` only when the user explicitly requests detached background gateway execution
 - `--workdir`
 - `--env-set NAME=value|NAME`
 - `--mail-transport filesystem|email`
@@ -53,6 +54,9 @@ Behavior note:
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
 - `--managed-header-section` is a one-shot managed-header section override and never rewrites the selected easy profile.
 - `--no-gateway` and `--gateway-port` cannot be combined.
+- Launch-time gateway auto-attach is enabled by default unless `--no-gateway` or stored profile posture disables it.
+- Default launch-time gateway auto-attach uses foreground same-session auxiliary-window execution when supported; use `--gateway-background` only when the user explicitly asks for background gateway execution, detached gateway process execution, or avoiding a gateway tmux window.
+- Managed-agent `--headless` or `--no-headless` posture is separate from gateway sidecar foreground/background execution. A headless managed-agent launch, including a required Gemini headless launch, does not by itself justify `--gateway-background`.
 - `--mail-account-dir` is only supported with `--mail-transport filesystem`.
 - `--mail-transport filesystem` requires `--mail-root`.
 - `--mail-transport email` is not implemented on this surface.
@@ -75,6 +79,7 @@ If the selected specialist or selected profile source is known to use Gemini, th
 - Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
 - Do not route specialist-backed launch through `agents launch`.
 - Do not route profile-backed launch through `agents launch`.
+- Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
 - Do not present `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url` as supported `project easy instance launch` flags.
 - Do not describe `--mail-account-dir` as the already-registered shared-root mailbox directory; it is a private filesystem mailbox directory outside the shared root.
 - Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled easy launch.
