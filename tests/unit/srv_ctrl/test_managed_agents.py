@@ -31,6 +31,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailStatusV1,
     GatewayMailboxMessageV1,
     GatewayMailboxParticipantV1,
+    GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
@@ -1474,10 +1475,15 @@ class _FakePassivePairClient:
 
 class _FakeGatewayController:
     def __init__(self) -> None:
-        self.attach_calls: list[str | None] = []
+        self.attach_calls: list[tuple[str | None, object | None]] = []
 
-    def attach_gateway(self, *, execution_mode_override: str | None = None) -> SimpleNamespace:
-        self.attach_calls.append(execution_mode_override)
+    def attach_gateway(
+        self,
+        *,
+        execution_mode_override: str | None = None,
+        tui_tracking_timing_overrides: object | None = None,
+    ) -> SimpleNamespace:
+        self.attach_calls.append((execution_mode_override, tui_tracking_timing_overrides))
         return SimpleNamespace(status="ok", detail="attached")
 
 
@@ -1746,7 +1752,7 @@ def test_attach_gateway_prefers_local_authority_for_passive_pair(
     response = attach_gateway(target)
 
     assert response.gateway_port == 9901
-    assert controller.attach_calls == ["tmux_auxiliary_window"]
+    assert controller.attach_calls == [("tmux_auxiliary_window", None)]
 
 
 def test_detach_gateway_requires_local_authority_for_passive_pair(
@@ -2152,7 +2158,7 @@ def test_attach_gateway_uses_local_runtime_controller(
     response = attach_gateway(target)
 
     assert response.gateway_port == 9901
-    assert controller.attach_calls == ["tmux_auxiliary_window"]
+    assert controller.attach_calls == [("tmux_auxiliary_window", None)]
 
 
 def test_attach_gateway_can_request_background_execution_for_local_controller(
@@ -2174,7 +2180,30 @@ def test_attach_gateway_can_request_background_execution_for_local_controller(
     response = attach_gateway(target, background=True)
 
     assert response.gateway_port == 9901
-    assert controller.attach_calls == ["detached_process"]
+    assert controller.attach_calls == [("detached_process", None)]
+
+
+def test_attach_gateway_forwards_tui_timing_overrides_to_local_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = _FakeGatewayController()
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="published-alpha",
+        identity=_managed_identity(),
+        controller=controller,
+    )
+    timings = GatewayTuiTrackingTimingOverridesV1(stale_active_recovery_seconds=6.0)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._gateway_status_for_controller",
+        lambda resolved_controller: _gateway_status(),
+    )
+
+    response = attach_gateway(target, tui_tracking_timing_overrides=timings)
+
+    assert response.gateway_port == 9901
+    assert controller.attach_calls == [("tmux_auxiliary_window", timings)]
 
 
 def test_attach_gateway_sends_execution_mode_to_pair_client() -> None:
@@ -2197,6 +2226,34 @@ def test_attach_gateway_sends_execution_mode_to_pair_client() -> None:
     assert len(captured) == 1
     assert captured[0][0] == "published-alpha"
     assert getattr(captured[0][1], "execution_mode") == "detached_process"
+
+
+def test_attach_gateway_sends_tui_timing_overrides_to_pair_client() -> None:
+    captured: list[tuple[str, object]] = []
+    timings = GatewayTuiTrackingTimingOverridesV1(
+        watch_poll_interval_seconds=0.25,
+        stale_active_recovery_seconds=6.0,
+    )
+    target = ManagedAgentTarget(
+        mode="server",
+        agent_ref="published-alpha",
+        identity=_managed_identity(),
+        client=SimpleNamespace(
+            pair_authority_kind="houmao-server",
+            attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
+                captured.append((agent_ref, request_model)) or _gateway_status()
+            ),
+        ),
+    )
+
+    response = attach_gateway(target, tui_tracking_timing_overrides=timings)
+
+    assert response.gateway_port == 9901
+    assert len(captured) == 1
+    assert captured[0][0] == "published-alpha"
+    request_model = captured[0][1]
+    assert getattr(request_model, "execution_mode") == "tmux_auxiliary_window"
+    assert getattr(request_model, "tui_tracking_timings") == timings
 
 
 def test_submit_headless_turn_uses_local_runtime_controller(

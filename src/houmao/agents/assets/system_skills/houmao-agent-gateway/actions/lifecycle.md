@@ -25,6 +25,8 @@ Attach:
 
 For tmux-backed managed sessions, these attach forms use foreground same-session auxiliary-window execution when supported. The managed-agent surface remains tmux window `0`; the live gateway sidecar uses a non-zero auxiliary tmux window. Treat returned `execution_mode` and `gateway_tmux_window_index` from status or attach output as authoritative; do not infer topology from tmux window names or ordering.
 
+Use `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, or `--gateway-tui-stale-active-recovery-seconds` only when the user explicitly asks to tune gateway TUI tracking timing or safeguard timing. Values are positive seconds and affect the attached gateway sidecar, not the managed agent's foreground/background posture.
+
 Detach:
 
 ```text
@@ -61,3 +63,4 @@ Pair-managed lifecycle routes:
 - Do not assume attach succeeds just because the session is gateway-capable.
 - Do not confuse detached offline status with permanent loss of gateway capability.
 - Do not choose `--background` by default; background gateway execution is an explicit user override, not the normal attach posture.
+- Do not add `--gateway-tui-*` timing overrides unless the user asked for custom TUI tracking or safeguard timings.

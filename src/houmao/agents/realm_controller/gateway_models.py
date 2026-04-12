@@ -75,6 +75,11 @@ GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION = 1
 GATEWAY_REMINDER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
+DEFAULT_GATEWAY_TUI_WATCH_POLL_INTERVAL_SECONDS = 0.5
+DEFAULT_GATEWAY_TUI_STABILITY_THRESHOLD_SECONDS = 1.0
+DEFAULT_GATEWAY_TUI_COMPLETION_STABILITY_SECONDS = 1.0
+DEFAULT_GATEWAY_TUI_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS = 30.0
+DEFAULT_GATEWAY_TUI_STALE_ACTIVE_RECOVERY_SECONDS = 5.0
 
 
 def default_gateway_execution_mode_for_backend(
@@ -161,6 +166,149 @@ class BlueprintGatewayDefaults(_StrictGatewayModel):
         if value < 1 or value > 65535:
             raise ValueError("must be between 1 and 65535")
         return value
+
+
+class GatewayTuiTrackingTimingConfigV1(_StrictGatewayModel):
+    """Resolved gateway-owned TUI tracking timing configuration."""
+
+    watch_poll_interval_seconds: float = DEFAULT_GATEWAY_TUI_WATCH_POLL_INTERVAL_SECONDS
+    stability_threshold_seconds: float = DEFAULT_GATEWAY_TUI_STABILITY_THRESHOLD_SECONDS
+    completion_stability_seconds: float = DEFAULT_GATEWAY_TUI_COMPLETION_STABILITY_SECONDS
+    unknown_to_stalled_timeout_seconds: float = (
+        DEFAULT_GATEWAY_TUI_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS
+    )
+    stale_active_recovery_seconds: float = DEFAULT_GATEWAY_TUI_STALE_ACTIVE_RECOVERY_SECONDS
+
+    @field_validator(
+        "watch_poll_interval_seconds",
+        "stability_threshold_seconds",
+        "completion_stability_seconds",
+        "unknown_to_stalled_timeout_seconds",
+        "stale_active_recovery_seconds",
+        mode="before",
+    )
+    @classmethod
+    def _positive_float(cls, value: object) -> float:
+        """Validate one required positive timing value."""
+
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError("must be numeric")
+        normalized = float(value)
+        if not math.isfinite(normalized) or normalized <= 0:
+            raise ValueError("must be > 0")
+        return normalized
+
+
+class GatewayTuiTrackingTimingOverridesV1(_StrictGatewayModel):
+    """Partial gateway-owned TUI tracking timing overrides."""
+
+    watch_poll_interval_seconds: float | None = None
+    stability_threshold_seconds: float | None = None
+    completion_stability_seconds: float | None = None
+    unknown_to_stalled_timeout_seconds: float | None = None
+    stale_active_recovery_seconds: float | None = None
+
+    @field_validator(
+        "watch_poll_interval_seconds",
+        "stability_threshold_seconds",
+        "completion_stability_seconds",
+        "unknown_to_stalled_timeout_seconds",
+        "stale_active_recovery_seconds",
+        mode="before",
+    )
+    @classmethod
+    def _optional_positive_float(cls, value: object) -> float | None:
+        """Validate one optional positive timing override."""
+
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError("must be numeric")
+        normalized = float(value)
+        if not math.isfinite(normalized) or normalized <= 0:
+            raise ValueError("must be > 0")
+        return normalized
+
+    def has_values(self) -> bool:
+        """Return whether any override value is present."""
+
+        return any(
+            value is not None
+            for value in (
+                self.watch_poll_interval_seconds,
+                self.stability_threshold_seconds,
+                self.completion_stability_seconds,
+                self.unknown_to_stalled_timeout_seconds,
+                self.stale_active_recovery_seconds,
+            )
+        )
+
+
+GatewayTuiTrackingTimingInput: TypeAlias = (
+    GatewayTuiTrackingTimingConfigV1 | GatewayTuiTrackingTimingOverridesV1
+)
+
+
+def resolve_gateway_tui_tracking_timing_config(
+    *,
+    explicit: GatewayTuiTrackingTimingInput | None = None,
+    desired: GatewayTuiTrackingTimingConfigV1 | None = None,
+) -> GatewayTuiTrackingTimingConfigV1:
+    """Resolve effective gateway TUI tracking timings from override, desired, and default."""
+
+    defaults = GatewayTuiTrackingTimingConfigV1()
+    return GatewayTuiTrackingTimingConfigV1(
+        watch_poll_interval_seconds=_resolve_tui_timing_field(
+            "watch_poll_interval_seconds",
+            explicit=explicit,
+            desired=desired,
+            defaults=defaults,
+        ),
+        stability_threshold_seconds=_resolve_tui_timing_field(
+            "stability_threshold_seconds",
+            explicit=explicit,
+            desired=desired,
+            defaults=defaults,
+        ),
+        completion_stability_seconds=_resolve_tui_timing_field(
+            "completion_stability_seconds",
+            explicit=explicit,
+            desired=desired,
+            defaults=defaults,
+        ),
+        unknown_to_stalled_timeout_seconds=_resolve_tui_timing_field(
+            "unknown_to_stalled_timeout_seconds",
+            explicit=explicit,
+            desired=desired,
+            defaults=defaults,
+        ),
+        stale_active_recovery_seconds=_resolve_tui_timing_field(
+            "stale_active_recovery_seconds",
+            explicit=explicit,
+            desired=desired,
+            defaults=defaults,
+        ),
+    )
+
+
+def _resolve_tui_timing_field(
+    field_name: str,
+    *,
+    explicit: GatewayTuiTrackingTimingInput | None,
+    desired: GatewayTuiTrackingTimingConfigV1 | None,
+    defaults: GatewayTuiTrackingTimingConfigV1,
+) -> float:
+    """Resolve one gateway TUI timing field by precedence."""
+
+    if explicit is not None:
+        explicit_value = getattr(explicit, field_name)
+        if explicit_value is not None:
+            return float(explicit_value)
+    if desired is not None:
+        desired_value = getattr(desired, field_name)
+        if desired_value is not None:
+            return float(desired_value)
+    return float(getattr(defaults, field_name))
 
 
 class GatewayAttachBackendMetadataHeadlessV1(_StrictGatewayModel):
@@ -457,6 +605,7 @@ class GatewayDesiredConfigV1(_StrictGatewayModel):
     desired_host: GatewayHost | None = None
     desired_port: int | None = None
     desired_execution_mode: GatewayCurrentExecutionMode = Field(default="detached_process")
+    desired_tui_tracking_timings: GatewayTuiTrackingTimingConfigV1 | None = None
 
     @field_validator("desired_port")
     @classmethod

@@ -30,6 +30,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderListV1,
     GatewayReminderPutV1,
     GatewayReminderV1,
+    GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -137,6 +138,62 @@ def _gateway_pair_port_option(
     return pair_port_option(help_text=help_text, option_name="--pair-port")
 
 
+def _gateway_tui_tracking_timing_options(function: _FunctionT) -> _FunctionT:
+    """Attach gateway TUI tracking timing override options."""
+
+    for option_name, help_text in reversed(
+        (
+            (
+                "--gateway-tui-watch-poll-interval-seconds",
+                "Override gateway-owned TUI watch poll interval seconds for this attach.",
+            ),
+            (
+                "--gateway-tui-stability-threshold-seconds",
+                "Override gateway-owned TUI stability threshold seconds for this attach.",
+            ),
+            (
+                "--gateway-tui-completion-stability-seconds",
+                "Override gateway-owned TUI completion stability seconds for this attach.",
+            ),
+            (
+                "--gateway-tui-unknown-to-stalled-timeout-seconds",
+                "Override gateway-owned TUI unknown-to-stalled timeout seconds for this attach.",
+            ),
+            (
+                "--gateway-tui-stale-active-recovery-seconds",
+                "Override gateway-owned TUI stale-active recovery seconds for this attach.",
+            ),
+        )
+    ):
+        function = click.option(
+            option_name,
+            type=click.FloatRange(min=0.0, min_open=True),
+            default=None,
+            help=help_text,
+        )(function)
+    return function
+
+
+def _gateway_tui_tracking_timing_overrides_or_none(
+    *,
+    gateway_tui_watch_poll_interval_seconds: float | None,
+    gateway_tui_stability_threshold_seconds: float | None,
+    gateway_tui_completion_stability_seconds: float | None,
+    gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
+    gateway_tui_stale_active_recovery_seconds: float | None,
+) -> GatewayTuiTrackingTimingOverridesV1 | None:
+    """Build gateway TUI timing overrides only when at least one option is present."""
+
+    overrides = GatewayTuiTrackingTimingOverridesV1(
+        watch_poll_interval_seconds=gateway_tui_watch_poll_interval_seconds,
+        stability_threshold_seconds=gateway_tui_stability_threshold_seconds,
+        completion_stability_seconds=gateway_tui_completion_stability_seconds,
+        unknown_to_stalled_timeout_seconds=gateway_tui_unknown_to_stalled_timeout_seconds,
+        stale_active_recovery_seconds=gateway_tui_stale_active_recovery_seconds,
+    )
+    return overrides if overrides.has_values() else None
+
+
 @gateway_group.command(name="attach")
 @click.option(
     "--background",
@@ -147,12 +204,18 @@ def _gateway_pair_port_option(
         "when foreground mode is active."
     ),
 )
+@_gateway_tui_tracking_timing_options
 @_current_session_option
 @_target_tmux_session_option
 @_gateway_pair_port_option(help_text="Houmao pair authority port override for explicit attach")
 @managed_agent_selector_options
 def attach_gateway_command(
     background: bool,
+    gateway_tui_watch_poll_interval_seconds: float | None,
+    gateway_tui_stability_threshold_seconds: float | None,
+    gateway_tui_completion_stability_seconds: float | None,
+    gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
+    gateway_tui_stale_active_recovery_seconds: float | None,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
@@ -169,7 +232,23 @@ def attach_gateway_command(
         target_tmux_session=target_tmux_session,
         operation_name="attach",
     )
-    emit(attach_gateway(target, background=background))
+    emit(
+        attach_gateway(
+            target,
+            background=background,
+            tui_tracking_timing_overrides=_gateway_tui_tracking_timing_overrides_or_none(
+                gateway_tui_watch_poll_interval_seconds=(gateway_tui_watch_poll_interval_seconds),
+                gateway_tui_stability_threshold_seconds=gateway_tui_stability_threshold_seconds,
+                gateway_tui_completion_stability_seconds=(gateway_tui_completion_stability_seconds),
+                gateway_tui_unknown_to_stalled_timeout_seconds=(
+                    gateway_tui_unknown_to_stalled_timeout_seconds
+                ),
+                gateway_tui_stale_active_recovery_seconds=(
+                    gateway_tui_stale_active_recovery_seconds
+                ),
+            ),
+        )
+    )
 
 
 @gateway_group.command(name="detach")

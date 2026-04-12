@@ -39,6 +39,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlResultV1,
     GatewayRecoveryState,
     GatewayRequestCreateV1,
+    GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
 from houmao.shared_tui_tracking.models import (
@@ -815,9 +816,10 @@ class HoumaoManagedAgentGatewayRequestCreate(GatewayRequestCreateV1):
 
 
 class HoumaoManagedAgentGatewayAttachRequest(_HoumaoModel):
-    """Optional execution-mode selection for managed-agent gateway attach."""
+    """Optional execution-mode and TUI tracking selection for managed-agent gateway attach."""
 
     execution_mode: GatewayCurrentExecutionMode | None = None
+    tui_tracking_timings: GatewayTuiTrackingTimingOverridesV1 | None = None
 
 
 class HoumaoManagedAgentGatewayRequestAcceptedResponse(GatewayAcceptedRequestV1):

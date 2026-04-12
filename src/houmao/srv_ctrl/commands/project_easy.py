@@ -1298,6 +1298,36 @@ def easy_instance_group() -> None:
     help="Run the auto-attached gateway as a detached background process for this launch.",
 )
 @click.option(
+    "--gateway-tui-watch-poll-interval-seconds",
+    type=click.FloatRange(min=0.0, min_open=True),
+    default=None,
+    help="Override gateway-owned TUI watch poll interval seconds for this launch.",
+)
+@click.option(
+    "--gateway-tui-stability-threshold-seconds",
+    type=click.FloatRange(min=0.0, min_open=True),
+    default=None,
+    help="Override gateway-owned TUI stability threshold seconds for this launch.",
+)
+@click.option(
+    "--gateway-tui-completion-stability-seconds",
+    type=click.FloatRange(min=0.0, min_open=True),
+    default=None,
+    help="Override gateway-owned TUI completion stability seconds for this launch.",
+)
+@click.option(
+    "--gateway-tui-unknown-to-stalled-timeout-seconds",
+    type=click.FloatRange(min=0.0, min_open=True),
+    default=None,
+    help="Override gateway-owned TUI unknown-to-stalled timeout seconds for this launch.",
+)
+@click.option(
+    "--gateway-tui-stale-active-recovery-seconds",
+    type=click.FloatRange(min=0.0, min_open=True),
+    default=None,
+    help="Override gateway-owned TUI stale-active recovery seconds for this launch.",
+)
+@click.option(
     "--workdir",
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
     default=None,
@@ -1364,6 +1394,11 @@ def launch_easy_instance_command(
     no_gateway: bool,
     gateway_port: int | None,
     gateway_background: bool,
+    gateway_tui_watch_poll_interval_seconds: float | None,
+    gateway_tui_stability_threshold_seconds: float | None,
+    gateway_tui_completion_stability_seconds: float | None,
+    gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
+    gateway_tui_stale_active_recovery_seconds: float | None,
     workdir: Path | None,
     memory_dir: Path | None,
     no_memory_dir: bool,
@@ -1494,6 +1529,17 @@ def launch_easy_instance_command(
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
     if no_gateway and gateway_background:
         raise click.ClickException("`--no-gateway` and `--gateway-background` cannot be combined.")
+    gateway_tui_tracking_timing_overrides = GatewayTuiTrackingTimingOverridesV1(
+        watch_poll_interval_seconds=gateway_tui_watch_poll_interval_seconds,
+        stability_threshold_seconds=gateway_tui_stability_threshold_seconds,
+        completion_stability_seconds=gateway_tui_completion_stability_seconds,
+        unknown_to_stalled_timeout_seconds=gateway_tui_unknown_to_stalled_timeout_seconds,
+        stale_active_recovery_seconds=gateway_tui_stale_active_recovery_seconds,
+    )
+    if no_gateway and gateway_tui_tracking_timing_overrides.has_values():
+        raise click.ClickException(
+            "`--no-gateway` cannot be combined with gateway TUI timing overrides."
+        )
     if mail_transport == "email":
         raise click.ClickException(
             "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
@@ -1524,6 +1570,12 @@ def launch_easy_instance_command(
         requested_gateway_port = gateway_port
         gateway_host = default_gateway_host or "127.0.0.1"
     elif gateway_background:
+        gateway_auto_attach = True
+        if requested_gateway_port is None:
+            requested_gateway_port = 0
+        if gateway_host is None:
+            gateway_host = "127.0.0.1"
+    elif gateway_tui_tracking_timing_overrides.has_values():
         gateway_auto_attach = True
         if requested_gateway_port is None:
             requested_gateway_port = 0
@@ -1566,6 +1618,11 @@ def launch_easy_instance_command(
         gateway_host=gateway_host,
         gateway_port=requested_gateway_port,
         gateway_execution_mode=gateway_execution_mode,
+        gateway_tui_tracking_timing_overrides=(
+            gateway_tui_tracking_timing_overrides
+            if gateway_tui_tracking_timing_overrides.has_values()
+            else None
+        ),
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
         mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),

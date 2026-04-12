@@ -1164,7 +1164,10 @@ class HoumaoServerService:
                 request_model.execution_mode
                 if request_model is not None and request_model.execution_mode is not None
                 else "tmux_auxiliary_window"
-            )
+            ),
+            tui_tracking_timing_overrides=(
+                request_model.tui_tracking_timings if request_model is not None else None
+            ),
         )
         if attach_result.status != "ok":
             detail = attach_result.detail.lower()

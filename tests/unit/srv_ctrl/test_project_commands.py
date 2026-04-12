@@ -9,7 +9,10 @@ from click.testing import CliRunner
 import pytest
 import yaml
 
-from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayStatusV1,
+    GatewayTuiTrackingTimingOverridesV1,
+)
 from houmao.project.catalog import ProjectCatalog
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR,
@@ -4727,6 +4730,8 @@ def test_project_easy_instance_launch_help_exposes_workdir() -> None:
     assert "--no-gateway" in result.output
     assert "--gateway-port INTEGER RANGE" in result.output
     assert "--gateway-background" in result.output
+    assert "--gateway-tui-watch-poll-interval-seconds FLOAT RANGE" in result.output
+    assert "--gateway-tui-stale-active-recovery-seconds FLOAT RANGE" in result.output
 
 
 def test_project_easy_instance_launch_no_gateway_opt_out(
@@ -5057,6 +5062,154 @@ def test_project_easy_instance_launch_gateway_background_override_forces_attach_
     assert captured["gateway_host"] == "127.0.0.1"
     assert captured["gateway_port"] == 0
     assert captured["gateway_execution_mode"] == "detached_process"
+
+
+def test_project_easy_instance_launch_gateway_tui_timing_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--gateway-tui-watch-poll-interval-seconds",
+            "0.25",
+            "--gateway-tui-stale-active-recovery-seconds",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    timings = captured["gateway_tui_tracking_timing_overrides"]
+    assert captured["gateway_auto_attach"] is True
+    assert captured["gateway_host"] == "127.0.0.1"
+    assert captured["gateway_port"] == 0
+    assert captured["gateway_execution_mode"] == "tmux_auxiliary_window"
+    assert isinstance(timings, GatewayTuiTrackingTimingOverridesV1)
+    assert timings.watch_poll_interval_seconds == 0.25
+    assert timings.stale_active_recovery_seconds == 6.0
+    assert timings.completion_stability_seconds is None
+
+
+def test_project_easy_instance_launch_rejects_no_gateway_with_tui_timing_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "specialist",
+                "create",
+                "--name",
+                "researcher",
+                "--tool",
+                "codex",
+                "--api-key",
+                "sk-openai",
+                "--codex-auth-json",
+                str(auth_json_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    launch_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: launch_calls.append(kwargs),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--no-gateway",
+            "--gateway-tui-stale-active-recovery-seconds",
+            "6",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "cannot be combined with gateway TUI timing overrides" in result.output
+    assert launch_calls == []
 
 
 def test_project_easy_instance_launch_resolves_one_off_env_set(

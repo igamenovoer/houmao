@@ -22,6 +22,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.server.app import create_app
 from houmao.server.models import (
@@ -1366,7 +1367,12 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert (
         gateway_attach_route.endpoint(
             agent_ref="claude-headless-1",
-            request_model=HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+            request_model=HoumaoManagedAgentGatewayAttachRequest(
+                execution_mode="detached_process",
+                tui_tracking_timings=GatewayTuiTrackingTimingOverridesV1(
+                    stale_active_recovery_seconds=6.0
+                ),
+            ),
         ).request_admission
         == "open"
     )
@@ -1505,7 +1511,12 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert service.m_gateway_attach_calls == [
         (
             "claude-headless-1",
-            HoumaoManagedAgentGatewayAttachRequest(execution_mode="detached_process"),
+            HoumaoManagedAgentGatewayAttachRequest(
+                execution_mode="detached_process",
+                tui_tracking_timings=GatewayTuiTrackingTimingOverridesV1(
+                    stale_active_recovery_seconds=6.0
+                ),
+            ),
         )
     ]
     assert service.m_gateway_tui_state_calls == ["claude-headless-1"]

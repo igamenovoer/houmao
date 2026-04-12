@@ -128,7 +128,10 @@ from .gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    GatewayTuiTrackingTimingConfigV1,
+    GatewayTuiTrackingTimingOverridesV1,
     default_gateway_execution_mode_for_backend,
+    resolve_gateway_tui_tracking_timing_config,
 )
 from .gateway_storage import (
     AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
@@ -876,6 +879,7 @@ class RuntimeSessionController:
         host_override: str | None = None,
         port_override: int | None = None,
         execution_mode_override: GatewayCurrentExecutionMode | None = None,
+        tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     ) -> GatewayControlResult:
         """Start a live gateway instance for the addressed session."""
 
@@ -884,6 +888,7 @@ class RuntimeSessionController:
             host_override=host_override,
             port_override=port_override,
             execution_mode_override=execution_mode_override,
+            tui_tracking_timing_overrides=tui_tracking_timing_overrides,
         )
         if result.status == "ok":
             self.refresh_shared_registry_record()
@@ -1097,6 +1102,7 @@ def start_runtime_session(
     gateway_host: str | None = None,
     gateway_port: int | None = None,
     gateway_execution_mode_override: GatewayCurrentExecutionMode | None = None,
+    gateway_tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
     managed_force_mode: ManagedLaunchForceMode | None = None,
@@ -1111,6 +1117,14 @@ def start_runtime_session(
     if gateway_execution_mode_override is not None and not gateway_auto_attach:
         raise SessionManifestError(
             "Gateway execution-mode overrides require launch-time gateway attach."
+        )
+    if (
+        gateway_tui_tracking_timing_overrides is not None
+        and gateway_tui_tracking_timing_overrides.has_values()
+        and not gateway_auto_attach
+    ):
+        raise SessionManifestError(
+            "Gateway TUI tracking timing overrides require launch-time gateway attach."
         )
 
     manifest = load_brain_manifest(brain_manifest_path)
@@ -1339,6 +1353,7 @@ def start_runtime_session(
             host_override=gateway_host,
             port_override=gateway_port,
             execution_mode_override=gateway_execution_mode_override,
+            tui_tracking_timing_overrides=gateway_tui_tracking_timing_overrides,
         )
         if attach_result.status == "error":
             controller.gateway_auto_attach_error = attach_result.detail
@@ -3511,6 +3526,7 @@ def _attach_gateway_for_controller(
     host_override: str | None,
     port_override: int | None,
     execution_mode_override: GatewayCurrentExecutionMode | None,
+    tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None,
 ) -> GatewayControlResult:
     """Start a live gateway process for one runtime-owned controller.
 
@@ -3524,6 +3540,8 @@ def _attach_gateway_for_controller(
         Optional CLI port override for the attach action.
     execution_mode_override:
         Optional CLI execution-mode override for the attach action.
+    tui_tracking_timing_overrides:
+        Optional CLI/API timing override for gateway-owned TUI tracking.
 
     Returns
     -------
@@ -3562,12 +3580,17 @@ def _attach_gateway_for_controller(
             paths=paths,
             execution_mode_override=execution_mode_override,
         )
+        tui_tracking_timings = _resolve_gateway_tui_tracking_timings(
+            paths=paths,
+            explicit=tui_tracking_timing_overrides,
+        )
         resolved_port = _start_gateway_process(
             controller=controller,
             paths=paths,
             host=host,
             port=requested_port,
             execution_mode=execution_mode,
+            tui_tracking_timings=tui_tracking_timings,
         )
     except (
         GatewayAttachError,
@@ -3985,6 +4008,22 @@ def _resolve_gateway_execution_mode(
     return default_gateway_execution_mode_for_backend(controller.launch_plan.backend)
 
 
+def _resolve_gateway_tui_tracking_timings(
+    *,
+    paths: GatewayPaths,
+    explicit: GatewayTuiTrackingTimingOverridesV1 | None,
+) -> GatewayTuiTrackingTimingConfigV1:
+    """Resolve effective gateway-owned TUI tracking timings for one attach action."""
+
+    desired_config = _load_optional_desired_config(paths)
+    return resolve_gateway_tui_tracking_timing_config(
+        explicit=explicit,
+        desired=(
+            desired_config.desired_tui_tracking_timings if desired_config is not None else None
+        ),
+    )
+
+
 def _find_tmux_pane(
     *,
     session_name: str,
@@ -4076,6 +4115,7 @@ def _same_session_gateway_shell_command(
     paths: GatewayPaths,
     host: GatewayHost,
     port: int,
+    tui_tracking_timings: GatewayTuiTrackingTimingConfigV1,
 ) -> str:
     """Return the shell command used to launch a gateway in an auxiliary tmux window."""
 
@@ -4102,10 +4142,30 @@ def _same_session_gateway_shell_command(
             host,
             "--port",
             str(port),
+            *_gateway_tui_tracking_timing_cli_args(tui_tracking_timings),
         )
     )
     log_target = shlex.quote(str(paths.log_path))
     return f"{exports}{gateway_command} 2>&1 | tee -a {log_target}; exit ${{PIPESTATUS[0]}}"
+
+
+def _gateway_tui_tracking_timing_cli_args(
+    timings: GatewayTuiTrackingTimingConfigV1,
+) -> tuple[str, ...]:
+    """Return internal gateway-service CLI args for resolved TUI tracking timings."""
+
+    return (
+        "--tui-watch-poll-interval-seconds",
+        str(timings.watch_poll_interval_seconds),
+        "--tui-stability-threshold-seconds",
+        str(timings.stability_threshold_seconds),
+        "--tui-completion-stability-seconds",
+        str(timings.completion_stability_seconds),
+        "--tui-unknown-to-stalled-timeout-seconds",
+        str(timings.unknown_to_stalled_timeout_seconds),
+        "--tui-stale-active-recovery-seconds",
+        str(timings.stale_active_recovery_seconds),
+    )
 
 
 def _launch_same_session_gateway_window(
@@ -4115,10 +4175,16 @@ def _launch_same_session_gateway_window(
     paths: GatewayPaths,
     host: GatewayHost,
     port: int,
+    tui_tracking_timings: GatewayTuiTrackingTimingConfigV1,
 ) -> _TmuxAuxiliaryWindowHandle:
     """Launch one same-session gateway window and return its tmux execution handle."""
 
-    command = _same_session_gateway_shell_command(paths=paths, host=host, port=port)
+    command = _same_session_gateway_shell_command(
+        paths=paths,
+        host=host,
+        port=port,
+        tui_tracking_timings=tui_tracking_timings,
+    )
     try:
         result = run_tmux_shared(
             [
@@ -4230,6 +4296,7 @@ def _start_gateway_process(
     host: GatewayHost,
     port: int,
     execution_mode: GatewayCurrentExecutionMode,
+    tui_tracking_timings: GatewayTuiTrackingTimingConfigV1,
 ) -> int:
     """Launch the gateway subprocess and wait for health readiness.
 
@@ -4246,6 +4313,8 @@ def _start_gateway_process(
         the gateway bind step.
     execution_mode:
         Execution mode requested for the live gateway instance.
+    tui_tracking_timings:
+        Resolved TUI tracking timings for the gateway-owned tracker.
 
     Returns
     -------
@@ -4271,6 +4340,7 @@ def _start_gateway_process(
             paths=paths,
             host=host,
             port=port,
+            tui_tracking_timings=tui_tracking_timings,
         )
         deadline = time.monotonic() + 10.0
         observed_pane = False
@@ -4321,6 +4391,7 @@ def _start_gateway_process(
                         desired_host=host,
                         desired_port=endpoint.port,
                         desired_execution_mode=execution_mode,
+                        desired_tui_tracking_timings=tui_tracking_timings,
                     ),
                 )
                 refresh_internal_gateway_publication(paths)
@@ -4360,6 +4431,7 @@ def _start_gateway_process(
             host,
             "--port",
             str(port),
+            *_gateway_tui_tracking_timing_cli_args(tui_tracking_timings),
         ],
         stdout=log_stream,
         stderr=subprocess.STDOUT,
@@ -4403,6 +4475,7 @@ def _start_gateway_process(
                     desired_host=host,
                     desired_port=endpoint.port,
                     desired_execution_mode=execution_mode,
+                    desired_tui_tracking_timings=tui_tracking_timings,
                 ),
             )
             refresh_internal_gateway_publication(paths)

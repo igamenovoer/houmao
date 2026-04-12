@@ -49,6 +49,7 @@ class SingleSessionTrackingRuntime:
         stability_threshold_seconds: float = 1.0,
         completion_stability_seconds: float = 1.0,
         unknown_to_stalled_timeout_seconds: float = 30.0,
+        stale_active_recovery_seconds: float = 5.0,
         supported_tui_processes: dict[str, tuple[str, ...]] | None = None,
     ) -> None:
         """Initialize the single-session tracking runtime."""
@@ -66,6 +67,7 @@ class SingleSessionTrackingRuntime:
             stability_threshold_seconds=stability_threshold_seconds,
             completion_stability_seconds=completion_stability_seconds,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
+            stale_active_recovery_seconds=stale_active_recovery_seconds,
         )
         self.m_stop_event = threading.Event()
         self.m_thread = threading.Thread(

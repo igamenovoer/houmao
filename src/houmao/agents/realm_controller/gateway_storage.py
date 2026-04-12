@@ -242,6 +242,7 @@ def ensure_gateway_capability(
             if existing.desired_port is not None
             else desired_defaults.desired_port,
             desired_execution_mode=existing.desired_execution_mode,
+            desired_tui_tracking_timings=existing.desired_tui_tracking_timings,
         )
     write_gateway_desired_config(paths.desired_config_path, desired_defaults)
 

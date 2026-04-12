@@ -39,6 +39,7 @@ Common optional inputs:
 - `--no-gateway`
 - `--gateway-port`
 - `--gateway-background` only when the user explicitly requests detached background gateway execution
+- `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, or `--gateway-tui-stale-active-recovery-seconds` only when the user explicitly requests custom gateway TUI tracking timing
 - `--workdir`
 - `--env-set NAME=value|NAME`
 - `--mail-transport filesystem|email`
@@ -54,8 +55,10 @@ Behavior note:
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
 - `--managed-header-section` is a one-shot managed-header section override and never rewrites the selected easy profile.
 - `--no-gateway` and `--gateway-port` cannot be combined.
+- `--no-gateway` cannot be combined with any `--gateway-tui-*` timing override.
 - Launch-time gateway auto-attach is enabled by default unless `--no-gateway` or stored profile posture disables it.
 - Default launch-time gateway auto-attach uses foreground same-session auxiliary-window execution when supported; use `--gateway-background` only when the user explicitly asks for background gateway execution, detached gateway process execution, or avoiding a gateway tmux window.
+- One-shot `--gateway-tui-*` values are positive seconds, tune only the gateway sidecar's TUI tracking, and never rewrite the selected easy profile.
 - Managed-agent `--headless` or `--no-headless` posture is separate from gateway sidecar foreground/background execution. A headless managed-agent launch, including a required Gemini headless launch, does not by itself justify `--gateway-background`.
 - `--mail-account-dir` is only supported with `--mail-transport filesystem`.
 - `--mail-transport filesystem` requires `--mail-root`.
