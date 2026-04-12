@@ -80,10 +80,16 @@ This packaged skill does not cover:
 - Read [templates/single-file-plan.md](templates/single-file-plan.md) for the compact one-file plan form.
 - Read [templates/bundle-plan.md](templates/bundle-plan.md) for the structured directory form with `plan.md` as the canonical entrypoint.
 
+## Preferred Communication Channel
+
+Mailbox-based communication through `houmao-agent-email-comms` is the preferred channel for inter-agent messaging in pairwise loop runs. Mailbox messages are durable, asynchronous, and auditable. Use `houmao-agent-messaging` prompt delivery only for control-plane signals that require immediate synchronous delivery (start charter, status request, stop request) when the target agent does not yet have an active gateway mail-notifier or when the signal must bypass the mailbox queue.
+
+At run start, before delivering the start charter, enable gateway mail-notifier polling for every targeted participant that has a live gateway and mailbox binding. Use interval `5s` unless the user or plan specifies another interval. This ensures participants can receive mailbox-routed work promptly once the run begins.
+
 ## Routing Guidance
 
 - Route plan delivery, status requests, and stop requests to `houmao-agent-messaging`.
-- Route master reminder and live review-loop timing work to `houmao-agent-gateway`.
+- Route gateway mail-notifier enablement and master reminder work to `houmao-agent-gateway`.
 - Route mailbox receipt, result, or follow-up semantics referenced by the plan to `houmao-agent-email-comms`.
 - Keep composed topology, recursive child-control edges, rendered graphs, run charters, and start/status/stop control in this skill.
 - Route only atomic immediate driver-worker edge execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
@@ -99,3 +105,5 @@ This packaged skill does not cover:
 - Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is pairwise local-close control plus a supervision loop.
 - Do not push multi-edge topology, recursive child-control planning, rendered graph semantics, or run-control actions down into `houmao-adv-usage-pattern`; those remain in this skill.
 - Do not replace the existing elemental pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern` for each immediate driver-worker edge.
+- Do not skip gateway mail-notifier enablement before start when targeted participants have a live gateway and mailbox binding, unless the user explicitly disables notifier setup.
+- Do not use a mail-notifier interval other than `5s` unless the user or plan specifies another interval.

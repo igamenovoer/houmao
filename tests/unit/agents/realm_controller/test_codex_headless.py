@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 
 
 def _sample_codex_launch_plan(tmp_path: Path, *, prompt: str = "role prompt") -> LaunchPlan:
@@ -215,3 +216,60 @@ def test_codex_headless_skips_empty_developer_instructions(tmp_path: Path) -> No
     session.send_prompt("hello world")
 
     assert captured["command"] == ["codex", "--x", "exec", "--json", "hello world"]
+
+
+def test_codex_headless_passes_execution_model_as_cli_config_overrides(
+    tmp_path: Path,
+) -> None:
+    session = CodexHeadlessSession(
+        launch_plan=_sample_codex_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-codex",
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            **_kwargs,
+        ) -> HeadlessRunResult:
+            captured["command"] = command
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="thread-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+    session.send_prompt(
+        "hello world",
+        execution_model=ModelConfig(
+            name="gpt-5.4-mini",
+            reasoning=ModelReasoningConfig(level=2),
+        ),
+    )
+
+    assert captured["command"] == [
+        "codex",
+        "--x",
+        "-c",
+        "developer_instructions=role prompt",
+        '--config=model="gpt-5.4-mini"',
+        '--config=model_reasoning_effort="medium"',
+        "exec",
+        "--json",
+        "hello world",
+    ]

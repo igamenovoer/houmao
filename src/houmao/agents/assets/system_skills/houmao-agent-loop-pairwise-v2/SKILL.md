@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-loop-pairwise-v2
-description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v2` to author one enriched pairwise loop plan, run routing-packet or preparation-wave `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`.
+description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v2` to author one enriched pairwise loop plan, run email-based `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`.
 license: MIT
 ---
 
@@ -21,7 +21,7 @@ The trigger word `houmao` is intentional. Use the `houmao-agent-loop-pairwise-v2
 This packaged skill covers three lanes and one canonical operator-facing lifecycle vocabulary:
 
 - `plan`: author or revise a pairwise loop plan from user intent
-- `initialize`: complete the selected prestart strategy before the master trigger; default `precomputed_routing_packets` validates root and child routing packets, while explicit `operator_preparation_wave` sends the targeted standalone preparation mail wave
+- `initialize`: complete the selected prestart strategy before the master trigger; default `email_initialization` enables gateway mail-notifier polling first with interval `5s` unless the user specified another interval, then sends participant initialization mail with `fire_and_proceed` acknowledgement posture unless `require_ack` is selected explicitly
 - `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`: operate an accepted run
 
 This packaged skill does not cover:
@@ -36,7 +36,7 @@ This packaged skill does not cover:
 The canonical operator-facing lifecycle actions are `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`.
 
 - `plan`: author or revise the pairwise loop contract before the run begins.
-- `initialize`: complete the selected prestart strategy. By default, validate `precomputed_routing_packets` coverage and root packet availability without sending operator-origin participant preparation mail. When the plan explicitly selects `operator_preparation_wave`, send standalone preparation mail to targeted recipients and optionally wait for targeted acknowledgement replies before the master trigger.
+- `initialize`: complete the selected prestart strategy. By default, turn on gateway email notification for the run participants first with interval `5s` unless the user specified another interval, then send standalone initialization email through the owned mailbox surfaces with `fire_and_proceed` acknowledgement posture. When the plan explicitly selects `require_ack`, wait for targeted acknowledgement replies before the master trigger.
 - `start`: send the normalized start charter only to the designated master after initialization is complete.
 - `peek master|all|<agent-name>`: perform read-only inspection of current run posture without sending a fresh control prompt.
 - `ping <agent-name>`: actively message one selected participant to ask what is going on.
@@ -52,8 +52,8 @@ If participant-wide advisory stop mail is ever needed, document it separately as
 The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`.
 
 - `authoring`: the plan is still being authored or revised.
-- `initializing`: the selected prestart strategy is in progress, either routing-packet validation or explicit operator preparation-wave delivery.
-- `awaiting_ack`: explicit `operator_preparation_wave` initialization has sent acknowledgement-gated preparation mail to targeted recipients and is waiting for their required replies.
+- `initializing`: the selected prestart strategy is in progress, including notifier setup, initialization email delivery, acknowledgement review when selected, or routing-packet validation when packets are part of the plan.
+- `awaiting_ack`: email initialization used explicit `require_ack`, sent acknowledgement-gated initialization mail to targeted recipients, and is waiting for their required replies.
 - `ready`: the selected prestart strategy is complete and the run is ready for `start`.
 - `running`: the master accepted the run and owns live supervision.
 - `paused`: the run is intentionally stalled because its wakeup mechanisms are suspended.
@@ -66,13 +66,13 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 1. Confirm that the user explicitly asked for `houmao-agent-loop-pairwise-v2` and wants one pairwise loop plan or one run-control action rather than one ordinary direct-operation request.
 2. Keep the two planes separate from the start:
    - control plane: user agent to designated master
-   - execution plane: master and downstream workers using the existing pairwise edge-loop pattern for each immediate driver-worker edge
+   - execution plane: master and downstream workers using the existing pairwise edge-loop pattern for each immediate driver-worker edge, with email/mailbox as the default job communication channel for requests, receipts, and results
 3. Treat the user agent as outside the execution loop. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
 4. If the user needs a new plan or a revised plan, load exactly one authoring page:
    - `authoring/formulate-loop-plan.md`
    - `authoring/revise-loop-plan.md`
    - `authoring/render-loop-graph.md`
-5. If the user needs initialization, routing-packet validation, or the explicit preparation wave, load:
+5. If the user needs initialization, routing-packet validation, notifier setup, or initialization mail delivery, load:
    - `prestart/prepare-run.md`
 6. If the user already has a plan and wants to operate it, load exactly one operating page:
    - `operating/start.md`
@@ -110,7 +110,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 
 ## Prestart Page
 
-- Read [prestart/prepare-run.md](prestart/prepare-run.md) when the user wants to run `initialize`: validate default precomputed routing-packet coverage and root packet readiness, or explicitly run `operator_preparation_wave` with notifier posture, targeted preparation mail, optional leaf inclusion, and targeted readiness acknowledgement replies before the master trigger.
+- Read [prestart/prepare-run.md](prestart/prepare-run.md) when the user wants to run `initialize`: enable gateway email notification first with the default `5s` interval unless overridden, send participant initialization mail with default `fire_and_proceed` posture, optionally wait for explicit `require_ack` replies, and keep routing-packet validation as structural preflight when packet artifacts are part of the plan.
 
 ## References
 
@@ -128,11 +128,11 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 ## Routing Guidance
 
 - Route `start`, `ping`, `pause`, `resume`, `stop`, and participant interrupts within `hard-kill` requests to `houmao-agent-messaging`.
-- Route `initialize` notifier preflight for explicit `operator_preparation_wave` plus `hard-kill` reminder or mail-notifier shutdown to `houmao-agent-gateway`.
-- Route mailbox receipt, result, or follow-up semantics referenced by the plan plus `hard-kill` unread draining to `houmao-agent-email-comms`.
+- Route default `initialize` mail-notifier enablement plus `hard-kill` reminder or mail-notifier shutdown to `houmao-agent-gateway`.
+- Route default `initialize` email delivery, in-loop pairwise edge request/result/receipt mail, mailbox follow-up semantics referenced by the plan, and `hard-kill` unread draining to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr` or the owned mailbox surfaces that expose `HOUMAO-operator@houmao.localhost`.
 - Route `peek` requests, overdue downstream peeking, and other read-only state inspection to `houmao-agent-inspect`.
-- Route authoring-time and initialization structural preflight to `houmao-mgr internals graph high ...` as the first-class helper surface when a NetworkX node-link graph and packet JSON document are available: use `analyze` for topology checks, `slice` for plan-time descendant or subtree inspection, `packet-expectations` for root and child packet expectations, and `validate-packets` before default initialization enters `ready`.
+- Route authoring-time and initialization structural preflight to `houmao-mgr internals graph high ...` as the first-class helper surface when a NetworkX node-link graph and packet JSON document are available: use `analyze` for topology checks, `slice` for plan-time descendant or subtree inspection, `packet-expectations` for root and child packet expectations, and `validate-packets` before initialization enters `ready` when routing packets are part of the plan.
 - Treat `houmao-mgr internals graph high` output as structural evidence only; keep delegation policy, result routing, forbidden actions, lifecycle vocabulary, and final readiness decisions in this skill.
 - Keep composed topology, recursive child-control edges, rendered graphs, run charters, lifecycle preparation, and run-control actions in this skill.
 - Route only atomic immediate driver-worker edge execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
@@ -144,6 +144,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not make the user agent the upstream driver of the execution loop.
 - Do not allow free delegation unless the plan says so explicitly.
 - Do not treat `peek` as a keepalive signal or fresh control prompt; the master owns liveness after accepting the run.
+- Do not let `peek` disturb participant state or job communication; it remains unintrusive inspection through read-only surfaces.
 - Do not treat `ping` as equivalent to `peek`.
 - Do not default to graceful stop. Default to `interrupt-first` unless the user explicitly requests graceful termination.
 - Do not redefine canonical `stop` as an implicit participant-wide broadcast; keep any advisory `broadcast-stop` action separate.
@@ -151,8 +152,9 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not require intermediate runtime agents to run graph analysis, recompute graph topology, or recompute descendant plan slices; author precomputed routing packets and dispatch tables instead.
 - Do not edit, merge, or summarize prepared child routing packets during runtime handoff unless the authored plan explicitly permits that transformation.
 - Do not repair missing, mismatched, or stale child routing packets by graph reasoning from memory; fail closed and report the mismatch to the immediate driver or operator.
-- Do not send operator-origin preparation mail by default. Use `operator_preparation_wave` only when the user or plan explicitly selects that strategy.
-- Under explicit `operator_preparation_wave`, do not send preparation mail to leaf participants by default; include leaf participants only when the user explicitly asks to prepare leaf agents, prepare all participants, or names leaf participants in the preparation target set.
+- Do not skip gateway mail-notifier enablement before default email initialization unless the user explicitly disables notifier setup or the participant has no supported live gateway or mailbox binding.
+- Do not use an interval other than `5s` for default gateway email notification unless the user or plan specifies another interval.
+- Do not require acknowledgement by default; default initialization uses `fire_and_proceed`, and `require_ack` is explicit.
 - Do not block the current live turn after one downstream dispatch merely because timeout-watch policy exists; use reminder-driven follow-up instead.
 - Do not describe `dead` as an operator action.
 - Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is pairwise local-close control plus a supervision loop.

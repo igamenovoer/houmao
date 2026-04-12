@@ -79,7 +79,7 @@ Claude-specific auth inputs now support four maintained credential lanes plus se
 Current maintained ladders:
 
 - Claude: `1=low`, `2=medium`, `3=high`, and `4=max` only on models that support Claude `max`; higher numbers saturate to the highest supported Claude preset.
-- Codex: `0=none`, `1=minimal`, `2=low`, `3=medium`, `4=high`, `5=xhigh`; higher numbers saturate to `xhigh`.
+- Codex: current maintained Codex coding models such as `gpt-5.4`, `gpt-5.3-codex`, and `gpt-5.2-codex` use `1=low`, `2=medium`, `3=high`, `4=xhigh`; higher numbers saturate to `xhigh`. `0` and `minimal` are used only when the resolved Codex model ladder explicitly supports those native efforts.
 - Gemini 3 models: Houmao preset rows currently map `1=(thinkingLevel LOW, thinkingBudget 1024)`, `2=(MEDIUM, 4096)`, `3=(HIGH, 16384)`; higher numbers saturate to the highest maintained row.
 - Other Gemini models: `0=thinkingBudget 0`, `1=512`, `2=2048`, `3=4096`, `4=8192`, `5=16384`; higher numbers saturate to `16384`.
 
@@ -115,6 +115,36 @@ houmao-mgr project easy specialist create \
   --base-url https://gemini.example.test \
   --gemini-oauth-creds ./secrets/oauth_creds.json
 ```
+
+## Editing a Specialist
+
+Use `specialist set` for ordinary changes to an existing specialist. It patches the catalog-backed definition, rematerializes the `.houmao/agents/` compatibility projection, and preserves unspecified fields.
+
+```bash
+houmao-mgr project easy specialist set \
+  --name my-reviewer \
+  --system-prompt-file ./prompts/reviewer-v2.md \
+  --with-skill ./skills/repo-map \
+  --remove-skill old-notes \
+  --prompt-mode unattended
+```
+
+Common patch options:
+
+| Option | Effect |
+|---|---|
+| `--system-prompt` / `--system-prompt-file` | Replace the stored prompt from inline text or a file. |
+| `--clear-system-prompt` | Store an empty prompt. |
+| `--with-skill <dir>` | Import a skill directory and add it to the specialist. |
+| `--add-skill <name>` / `--remove-skill <name>` | Add or remove an already projected project skill by name. |
+| `--clear-skills` | Remove all skills from this specialist. Shared skill content remains available to other specialists. |
+| `--setup <name>` | Switch to a different setup bundle for the specialist's current tool lane. |
+| `--credential <name>` | Switch to another existing credential display name for the specialist's current tool lane. |
+| `--prompt-mode unattended|as_is` / `--clear-prompt-mode` | Replace or clear the stored operator prompt mode. |
+| `--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level` | Patch the launch-owned default model selection. |
+| `--env-set NAME=value` / `--clear-env` | Replace the stored specialist env mapping, or clear it. |
+
+`specialist set` requires at least one update or clear flag. It does not rename a specialist and does not move a specialist between tool lanes; create a new specialist when the name or tool lane should change. Changes affect future launches and profiles resolved from the updated specialist definition. Already-running easy instances keep their current runtime state.
 
 ## Easy Profiles
 

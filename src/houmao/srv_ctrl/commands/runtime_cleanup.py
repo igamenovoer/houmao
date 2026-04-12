@@ -1010,11 +1010,13 @@ def _load_cleanup_target_from_registry_record(
         manifest_target_error = str(exc)
     else:
         registry_session_root = _registry_record_session_root(record)
-        if target.payload is not None:
+        if target is not None and target.payload is not None:
             return target
-        if registry_session_root is None or registry_session_root == target.session_root:
+        if target is not None and (
+            registry_session_root is None or registry_session_root == target.session_root
+        ):
             return target
-        manifest_target_error = target.parse_error
+        manifest_target_error = target.parse_error if target is not None else manifest_target_error
 
     registry_session_root = _registry_record_session_root(record)
     if registry_session_root is None:

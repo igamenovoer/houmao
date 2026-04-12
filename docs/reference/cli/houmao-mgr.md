@@ -152,8 +152,8 @@ Cleanup targeting rules:
 - The override flags apply to exactly the submitted prompt. They do not mutate launch profiles, recipes, specialists, manifests, stored easy profiles, or any other live session defaults, and they do not persist beyond the submission.
 - When the resolved target is a TUI-backed session, the command rejects `--model` and `--reasoning-level` clearly rather than silently dropping them. Only request-scoped headless prompt routes accept the overrides.
 - Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden. Supplying neither leaves the launch-resolved defaults in effect.
-- Higher unused reasoning numbers saturate to the highest maintained Houmao preset for the resolved tool/model ladder. `0` means explicit off only for ladders that support it, such as Codex and non-Gemini-3 Gemini budget presets.
-- Current maintained ladders are: Claude `1=low`, `2=medium`, `3=high`, optional `4=max`; Codex `0=none`, `1=minimal`, `2=low`, `3=medium`, `4=high`, `5=xhigh`; Gemini uses documented Houmao preset tables per model family and may map one level to multiple native Gemini thinking settings together.
+- Higher unused reasoning numbers saturate to the highest maintained Houmao preset for the resolved tool/model ladder. `0` means explicit off only for ladders that support it, such as non-Gemini-3 Gemini budget presets and any Codex model ladder that explicitly exposes off.
+- Current maintained ladders are: Claude `1=low`, `2=medium`, `3=high`, optional `4=max`; current Codex coding models such as `gpt-5.4`, `gpt-5.3-codex`, and `gpt-5.2-codex` use `1=low`, `2=medium`, `3=high`, `4=xhigh`; Gemini uses documented Houmao preset tables per model family and may map one level to multiple native Gemini thinking settings together. Codex `minimal` is projected only when the resolved Codex model ladder explicitly includes it.
 - If you need finer native control than those Houmao presets provide, omit `--reasoning-level` and manage native tool config or environment directly.
 - The same override contract applies to `agents turn submit` and `agents gateway prompt`; for the dedicated per-command option tables, see [agents turn](agents-turn.md#submit) and [agents gateway](agents-gateway.md#prompt). The managed-agent HTTP payload shape is described in [Managed Agent API](../managed_agent_api.md).
 
@@ -351,7 +351,7 @@ Notes:
 - `credentials` is the supported credential-management surface. The retired `project agents tools <tool> auth ...` CRUD subtree is no longer maintained; use `credentials ...` or `project credentials ...` instead.
 - `add` and `set` are patch-preserving: setting one input flag does not implicitly delete other stored fields on the same credential. Refreshing `--config-dir` replaces the imported Claude vendor login files as one maintained set.
 - `login` is the supported way to let Houmao own the temp-home lifecycle around provider login and import. Do not manually copy fresh vendor login files into `.houmao/content/auth/`, `.houmao/agents/tools/<tool>/auth/`, or `tools/<tool>/auth/<name>/` for this ordinary workflow.
-- Auth-owned model env on Claude is separate from launch-owned model selection. Use `credentials claude add|set --model <value>` only when you need to pin `ANTHROPIC_MODEL` in the credential bundle; use the launch-owned `--model` on `agents launch` / `project easy specialist create` / `project easy profile create` / `project agents launch-profiles add` when you are selecting a Houmao launch-time model through the provider mapping.
+- Auth-owned model env on Claude is separate from launch-owned model selection. Use `credentials claude add|set --model <value>` only when you need to pin `ANTHROPIC_MODEL` in the credential bundle; use the launch-owned `--model` on `agents launch` / `project easy specialist create|set` / `project easy profile create|set` / `project agents launch-profiles add|set` when you are selecting a Houmao launch-time model through the provider mapping.
 - For the agent-driven workflow that wraps this surface, see the packaged [`houmao-credential-mgr`](../../getting-started/system-skills-overview.md) system skill. For the easy-lane credential notes exposed through `project easy specialist create` and `project credentials`, see the `project credentials claude add|set` notes under the [`project`](#project-repo-local-houmao-project-overlays) command group below.
 
 ### `system-skills` — Packaged Houmao-owned skill installation for resolved tool homes
@@ -492,6 +492,7 @@ Low-level boundary notes:
 | Subcommand | Description |
 |---|---|
 | `specialist create` | Persist one specialist in `catalog.sqlite`, snapshot prompt/auth/skill payloads into `content/`, and materialize the needed `agents/` compatibility projection under the active overlay root. |
+| `specialist set` | Patch one existing specialist without recreating it. Preserves unspecified prompt, skill, setup, credential, launch-model, prompt-mode, and env fields, then rematerializes the compatibility projection. |
 | `specialist list|get|remove` | Inspect or remove persisted specialist definitions without forcing manual tree inspection; `get` reports stored launch config such as `launch.prompt_mode` and `launch.env_records`. |
 | `profile create` | Persist one specialist-backed easy profile that captures reusable birth-time launch defaults over exactly one specialist. Stored in the shared launch-profile catalog family with `profile_lane=easy_profile`. |
 | `profile list|get|set|remove` | Inspect, patch, or remove persisted easy profiles. `get` reports the source specialist plus the stored easy-profile launch defaults. `set` patches stored defaults without dropping unspecified fields. `remove` deletes the easy profile without removing the specialist it referenced. |
@@ -519,6 +520,17 @@ Low-level boundary notes:
 - Gemini credential lanes use the same contract in both `project credentials gemini add|set` and `project easy specialist create --tool gemini`: `--api-key`, optional `--base-url`, and optional `--oauth-creds` or `--gemini-oauth-creds`.
 - Gemini auth bundle updates are patch-preserving: setting `--base-url` or `--oauth-creds` does not implicitly delete other Gemini auth inputs that were already stored.
 - The project-local catalog is the source of truth; `agents/` under the active overlay root is a compatibility projection that is materialized as needed.
+
+`project easy specialist set` notes:
+
+- `--name` is required and must identify an existing specialist. At least one update or clear flag is required.
+- Patchable fields include prompt (`--system-prompt`, `--system-prompt-file`, `--clear-system-prompt`), skills (`--with-skill`, `--add-skill`, `--remove-skill`, `--clear-skills`), setup (`--setup`), credential (`--credential`), prompt mode (`--prompt-mode`, `--clear-prompt-mode`), launch-owned model (`--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level`), and persistent env (`--env-set`, `--clear-env`).
+- `--env-set` replaces the stored specialist env mapping with the repeated `NAME=value` records supplied on that command. Use `--clear-env` to remove the mapping.
+- `--with-skill <dir>` imports a skill directory and adds it to the specialist. `--add-skill <name>` adds an already projected project skill by name. `--remove-skill <name>` removes that skill from the specialist definition; shared projected skill content is not deleted just because one specialist stops referencing it.
+- `--setup <name>` switches to another setup bundle for the specialist's current tool lane. When the preset name changes, the old specialist-owned projected preset file is removed after the catalog projection is materialized.
+- `--credential <name>` selects an existing credential display name for the specialist's current tool lane. It does not create or mutate credential bundles.
+- `specialist set` does not rename specialists and does not change the tool lane; create a new specialist when either identity should change.
+- Updates affect future launches and profile resolutions. Already-running easy instances are not mutated in place.
 
 `project easy profile create` notes:
 

@@ -18,6 +18,7 @@ strategies:
       notes:
         - Runtime-owned config.toml synthesis force-overrides trust, approval, sandbox, and migration state in the runtime home.
         - Caller launch args and config overrides that target unattended-owned no-prompt surfaces are canonicalized away.
+        - Final Codex CLI --config overrides force approval_policy, sandbox_mode, and notice.hide_full_access_warning over project-local config.
         - User-authored no-prompt config files are not required.
     evidence:
       - kind: source_reference
@@ -70,3 +71,6 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: codex.ensure_model_migration_state
+      - kind: provider_hook.call
+        params:
+          hook_id: codex.append_unattended_cli_overrides

@@ -56,6 +56,7 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 | `codex.validate_credential_readiness` | Ensures `auth.json` exists or a config-backed env-only provider is set up. |
 | `codex.ensure_project_trust` | Seeds project trust level in `config.toml`. |
 | `codex.ensure_model_migration_state` | Seeds model migration state in `config.toml`. |
+| `codex.append_unattended_cli_overrides` | Appends final Codex CLI `-c` override arguments for `approval_policy`, `sandbox_mode`, and `notice.hide_full_access_warning` so project-local `config.toml` cannot weaken unattended posture. |
 
 ### Gemini Hooks
 

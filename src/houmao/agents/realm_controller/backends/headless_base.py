@@ -144,18 +144,19 @@ class HeadlessInteractiveSession:
 
         session_name = self._require_tmux_session_name()
         turn_index = self._state.turn_index + 1
-        command, input_prompt = self._build_command(
-            prompt=prompt,
-            session_selection=session_selection,
-        )
         with temporary_project_model_config(
             home_path=self._plan.home_path,
             tool=self._plan.tool,
             model_config=execution_model,
-        ) as execution_env:
+        ) as execution_projection:
+            command, input_prompt = self._build_command(
+                prompt=prompt,
+                session_selection=session_selection,
+                extra_args=execution_projection.args,
+            )
             env = os.environ.copy()
             env.update(self._plan.env)
-            env.update(execution_env)
+            env.update(execution_projection.env)
             env[self._plan.home_env_var] = str(self._plan.home_path)
             inject_loopback_no_proxy_env(env)
 
@@ -322,8 +323,10 @@ class HeadlessInteractiveSession:
         *,
         prompt: str,
         session_selection: HeadlessTurnSessionSelection | None = None,
+        extra_args: list[str] | None = None,
     ) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args]
+        command.extend(extra_args or [])
         if not self._uses_joined_operator_launch_args():
             command.extend(self._base_command_args())
         effective_prompt = prompt

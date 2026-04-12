@@ -11,7 +11,7 @@ The build-phase reference SHALL include a page at `docs/reference/build-phase/la
 
 - What a launch policy is: a set of rules that govern agent behavior during the run phase, including operator prompt mode, auto-approval settings, and provider-specific constraints.
 - The `OperatorPromptMode` enum: the available prompt modes and what each means for agent autonomy and operator involvement.
-- Provider hooks: how launch policies can include provider-specific hooks that customize behavior for Claude, Codex, or Gemini backends, including strategy-owned startup surfaces such as Gemini unattended approval mode and sandbox posture.
+- Provider hooks: how launch policies can include provider-specific hooks that customize behavior for Claude, Codex, or Gemini backends, including strategy-owned startup surfaces such as Gemini unattended approval mode and sandbox posture. The Codex hooks table SHALL include `codex.append_unattended_cli_overrides`, which appends final Codex CLI `-c` override arguments for unattended-owned surfaces so project-local `config.toml` cannot weaken the strategy-owned unattended posture.
 - The versioned registry: how launch policies are stored and resolved from `agents/launch_policy/registry/`, with version-based selection.
 - Integration with the build phase: how launch policies are resolved during `BrainBuilder.build()` and included in the `BrainManifest`.
 - Maintained unattended ownership: how launch policies may replace conflicting caller or copied-baseline startup inputs so the final provider launch matches the maintained unattended contract.

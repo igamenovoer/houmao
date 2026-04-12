@@ -319,6 +319,25 @@ When the reference documents Claude-specific flags, it SHALL make clear that `cl
 - **THEN** the page distinguishes credential-providing Claude inputs from the optional state-template input
 - **AND THEN** it does not present the state-template input as one of the ways to authenticate Claude
 
+### Requirement: CLI reference documents specialist editing controls
+The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable easy specialists.
+
+For `project easy specialist`, the reference SHALL list `create`, `list`, `get`, `set`, and `remove`, and SHALL document `set` as the patch command that preserves unspecified stored specialist fields.
+
+For `project easy specialist create`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-name specialist, and SHALL state that replacement uses create semantics where omitted optional fields may be cleared.
+
+The reference SHALL state that `specialist set` updates the reusable specialist source for future launches and does not mutate running managed agents in place.
+
+#### Scenario: Reader finds specialist set in CLI reference
+- **WHEN** a reader looks up `houmao-mgr project easy specialist`
+- **THEN** the CLI reference lists `set` alongside `create`, `list`, `get`, and `remove`
+- **AND THEN** the reference explains that `set` mutates stored future source defaults rather than one running instance
+
+#### Scenario: Reader finds specialist replacement guidance
+- **WHEN** a reader looks up same-name specialist creation
+- **THEN** the CLI reference explains when to use `--yes` for replacement
+- **AND THEN** it distinguishes replacement from patching through `set`
+
 ### Requirement: CLI reference documents the root `houmao-mgr --version` option
 The CLI reference page `docs/reference/cli/houmao-mgr.md` SHALL document `--version` as a root option on `houmao-mgr`.
 
@@ -997,4 +1016,3 @@ The CLI reference SHALL list supported section names and states, and SHALL state
 - **THEN** the reference lists `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` as supported sections
 - **AND THEN** the reference lists `enabled` and `disabled` as supported states
 - **AND THEN** the reference states that `task-reminder` and `mail-ack` default to disabled
-

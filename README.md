@@ -380,7 +380,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 |---|---|
 | `houmao-touring` | Manual guided tour for first-time or re-orienting users; branches across project setup, mailbox setup, specialist/profile authoring, launches, live-agent operations, and lifecycle follow-up. Use it only when the user explicitly asks for the tour |
 | `houmao-project-mgr` | Initialize or inspect project overlays, explain `.houmao/` layout and project-aware effects, manage explicit launch profiles, and inspect or stop project easy instances |
-| `houmao-specialist-mgr` | Create, list, inspect, remove, launch, and stop easy specialist/profile-backed project-local workflows |
+| `houmao-specialist-mgr` | Create, set, list, inspect, remove, launch, and stop easy specialist/profile-backed project-local workflows |
 | `houmao-credential-mgr` | Add, update, inspect, and remove project-local tool auth bundles |
 | `houmao-agent-definition` | List, inspect, initialize, update, and remove roles and recipes |
 | `houmao-agent-instance` | Launch, join, list, stop, relaunch, and clean up managed agent instances |

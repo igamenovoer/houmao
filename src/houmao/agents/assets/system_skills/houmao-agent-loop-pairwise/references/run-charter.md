@@ -12,6 +12,7 @@ Use this reference when the user agent is ready to send one `start` request to t
 - completion condition summary
 - default stop mode
 - reporting contract summary
+- gateway mail-notifier interval and preflight status
 
 ## Charter Template
 
@@ -45,6 +46,10 @@ Default stop mode:
 
 Reporting contract:
 <status, completion, and stop-summary expectations>
+
+Mail-notifier preflight:
+- gateway mail-notifier interval: <5s unless user specified otherwise>
+- notifier enabled for: <list of participants where notifier was enabled, or "all targeted participants">
 
 Start procedure:
 1. Read the plan.

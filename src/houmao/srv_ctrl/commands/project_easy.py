@@ -754,6 +754,461 @@ def create_easy_specialist_command(
     )
 
 
+def _has_specialist_set_updates(
+    *,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+    clear_system_prompt: bool,
+    setup: str | None,
+    credential: str | None,
+    prompt_mode: str | None,
+    clear_prompt_mode: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
+    env_set: tuple[str, ...],
+    clear_env: bool,
+    skill_dirs: tuple[Path, ...],
+    add_skill_names: tuple[str, ...],
+    remove_skill_names: tuple[str, ...],
+    clear_skills: bool,
+) -> bool:
+    """Return whether a specialist patch command requested any mutation."""
+
+    return any(
+        (
+            system_prompt is not None,
+            system_prompt_file is not None,
+            clear_system_prompt,
+            setup is not None,
+            credential is not None,
+            prompt_mode is not None,
+            clear_prompt_mode,
+            model is not None,
+            clear_model,
+            reasoning_level is not None,
+            clear_reasoning_level,
+            bool(env_set),
+            clear_env,
+            bool(skill_dirs),
+            bool(add_skill_names),
+            bool(remove_skill_names),
+            clear_skills,
+        )
+    )
+
+
+def _resolve_specialist_set_prompt_path(
+    *,
+    overlay: HoumaoProjectOverlay,
+    specialist: SpecialistMetadata,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+    clear_system_prompt: bool,
+) -> Path:
+    """Resolve the prompt file source for one specialist patch."""
+
+    if clear_system_prompt and (system_prompt is not None or system_prompt_file is not None):
+        raise click.ClickException(
+            "`--clear-system-prompt` cannot be combined with `--system-prompt` or "
+            "`--system-prompt-file`."
+        )
+    if clear_system_prompt:
+        return _write_role_prompt(
+            role_root=_role_root(overlay=overlay, role_name=specialist.role_name),
+            prompt_text="",
+            overwrite=True,
+        )
+    if system_prompt is not None or system_prompt_file is not None:
+        return _write_role_prompt(
+            role_root=_role_root(overlay=overlay, role_name=specialist.role_name),
+            prompt_text=_resolve_system_prompt_text(
+                system_prompt=system_prompt,
+                system_prompt_file=system_prompt_file,
+            ),
+            overwrite=True,
+        )
+    prompt_path = specialist.resolved_system_prompt_path(overlay)
+    if not prompt_path.is_file():
+        raise click.ClickException(f"Specialist prompt projection was not found: {prompt_path}")
+    return prompt_path
+
+
+def _deduplicate_names(names: list[str]) -> list[str]:
+    """Return unique non-empty names while preserving operator order."""
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw_name in names:
+        name = raw_name.strip()
+        if not name:
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        result.append(name)
+    return result
+
+
+def _resolve_specialist_set_skill_paths(
+    *,
+    overlay: HoumaoProjectOverlay,
+    specialist: SpecialistMetadata,
+    skill_dirs: tuple[Path, ...],
+    add_skill_names: tuple[str, ...],
+    remove_skill_names: tuple[str, ...],
+    clear_skills: bool,
+) -> tuple[Path, ...]:
+    """Resolve projected skill directories for one specialist patch."""
+
+    skill_names = [] if clear_skills else list(specialist.skills)
+    for raw_name in remove_skill_names:
+        remove_name = _require_non_empty_name(raw_name, field_name="--remove-skill")
+        skill_names = [name for name in skill_names if name != remove_name]
+    for raw_name in add_skill_names:
+        skill_names.append(_require_non_empty_name(raw_name, field_name="--add-skill"))
+    imported_skill_paths = _import_skill_directories(overlay=overlay, skill_dirs=skill_dirs)
+    skill_names.extend(path.name for path in imported_skill_paths)
+    resolved_skill_names = _deduplicate_names(skill_names)
+
+    skill_paths: list[Path] = []
+    for skill_name in resolved_skill_names:
+        skill_path = (overlay.agents_root / "skills" / skill_name).resolve()
+        if not (skill_path / "SKILL.md").is_file():
+            raise click.ClickException(
+                f"Skill `{skill_name}` was not found in the project projection: {skill_path}"
+            )
+        skill_paths.append(skill_path)
+    return tuple(skill_paths)
+
+
+def _load_specialist_auth_profile_by_id_or_click(
+    *,
+    catalog: ProjectCatalog,
+    specialist: SpecialistMetadata,
+) -> AuthProfileCatalogEntry:
+    """Load the specialist's current auth profile."""
+
+    try:
+        return catalog.load_auth_profile_by_id(specialist.auth_profile_id)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _specialist_model_fields(launch_mapping: dict[str, Any]) -> tuple[str | None, int | None]:
+    """Return stored model name and reasoning level from a launch mapping."""
+
+    raw_model = launch_mapping.get("model")
+    if not isinstance(raw_model, dict):
+        return None, None
+    raw_name = raw_model.get("name")
+    model_name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None
+    raw_reasoning = raw_model.get("reasoning")
+    raw_level = raw_reasoning.get("level") if isinstance(raw_reasoning, dict) else None
+    if raw_level is None:
+        return model_name, None
+    try:
+        return model_name, int(raw_level)
+    except (TypeError, ValueError) as exc:
+        raise click.ClickException(
+            f"Specialist stores invalid launch.model.reasoning.level {raw_level!r}."
+        ) from exc
+
+
+def _resolve_specialist_set_launch_mapping(
+    *,
+    overlay: HoumaoProjectOverlay,
+    specialist: SpecialistMetadata,
+    prompt_mode: str | None,
+    clear_prompt_mode: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
+    env_set: tuple[str, ...],
+    clear_env: bool,
+) -> dict[str, Any]:
+    """Resolve launch payload updates for one specialist patch."""
+
+    if prompt_mode is not None and clear_prompt_mode:
+        raise click.ClickException("`--prompt-mode` cannot be combined with `--clear-prompt-mode`.")
+    if model is not None and clear_model:
+        raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
+    if reasoning_level is not None and clear_reasoning_level:
+        raise click.ClickException(
+            "`--reasoning-level` cannot be combined with `--clear-reasoning-level`."
+        )
+    if env_set and clear_env:
+        raise click.ClickException("`--env-set` cannot be combined with `--clear-env`.")
+
+    launch_mapping = dict(specialist.launch_payload)
+    if clear_prompt_mode:
+        launch_mapping.pop("prompt_mode", None)
+    elif prompt_mode is not None:
+        launch_mapping["prompt_mode"] = prompt_mode
+
+    if any((model is not None, clear_model, reasoning_level is not None, clear_reasoning_level)):
+        current_model_name, current_reasoning_level = _specialist_model_fields(launch_mapping)
+        model_config = _merge_model_config_for_storage(
+            current_name=current_model_name,
+            current_reasoning_level=current_reasoning_level,
+            model_name=_resolve_model_name_or_click(model),
+            reasoning_level=reasoning_level,
+            clear_model=clear_model,
+            clear_reasoning_level=clear_reasoning_level,
+        )
+        model_payload = _model_mapping_payload(model_config)
+        if model_payload is None:
+            launch_mapping.pop("model", None)
+        else:
+            launch_mapping["model"] = model_payload
+
+    if clear_env:
+        launch_mapping.pop("env_records", None)
+    elif env_set:
+        adapter = _load_overlay_tool_adapter(overlay=overlay, tool=specialist.tool)
+        launch_mapping["env_records"] = _parse_launch_profile_env_records_or_click(
+            adapter=adapter,
+            env_set=env_set,
+            source_label="project easy specialist set --env-set",
+        )
+    return launch_mapping
+
+
+def _store_specialist_patch_from_cli(
+    *,
+    overlay: HoumaoProjectOverlay,
+    specialist: SpecialistMetadata,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+    clear_system_prompt: bool,
+    setup: str | None,
+    credential: str | None,
+    prompt_mode: str | None,
+    clear_prompt_mode: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
+    env_set: tuple[str, ...],
+    clear_env: bool,
+    skill_dirs: tuple[Path, ...],
+    add_skill_names: tuple[str, ...],
+    remove_skill_names: tuple[str, ...],
+    clear_skills: bool,
+) -> tuple[SpecialistMetadata, Path | None]:
+    """Apply one specialist patch to the catalog and return the updated metadata."""
+
+    materialize_project_agent_catalog_projection(overlay)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    old_preset_path = specialist.resolved_preset_path(overlay)
+    prompt_path = _resolve_specialist_set_prompt_path(
+        overlay=overlay,
+        specialist=specialist,
+        system_prompt=system_prompt,
+        system_prompt_file=system_prompt_file,
+        clear_system_prompt=clear_system_prompt,
+    )
+    skill_paths = _resolve_specialist_set_skill_paths(
+        overlay=overlay,
+        specialist=specialist,
+        skill_dirs=skill_dirs,
+        add_skill_names=add_skill_names,
+        remove_skill_names=remove_skill_names,
+        clear_skills=clear_skills,
+    )
+    setup_name = (
+        _require_non_empty_name(setup, field_name="--setup")
+        if setup is not None
+        else specialist.setup_name
+    )
+    setup_path = _tool_setup_path(overlay=overlay, tool=specialist.tool, name=setup_name)
+    if not setup_path.is_dir():
+        raise click.ClickException(f"Setup bundle not found: {setup_path}")
+    credential_name = (
+        _require_non_empty_name(credential, field_name="--credential")
+        if credential is not None
+        else specialist.credential_name
+    )
+    auth_profile = (
+        _load_auth_profile_or_click(overlay=overlay, tool=specialist.tool, name=credential_name)
+        if credential is not None
+        else _load_specialist_auth_profile_by_id_or_click(
+            catalog=catalog,
+            specialist=specialist,
+        )
+    )
+    launch_mapping = _resolve_specialist_set_launch_mapping(
+        overlay=overlay,
+        specialist=specialist,
+        prompt_mode=prompt_mode,
+        clear_prompt_mode=clear_prompt_mode,
+        model=model,
+        clear_model=clear_model,
+        reasoning_level=reasoning_level,
+        clear_reasoning_level=clear_reasoning_level,
+        env_set=env_set,
+        clear_env=clear_env,
+    )
+    metadata = catalog.store_specialist_from_sources(
+        name=specialist.name,
+        preset_name=_canonical_preset_name(
+            role_name=specialist.role_name,
+            tool=specialist.tool,
+            setup=setup_name,
+        ),
+        tool=specialist.tool,
+        provider=specialist.provider,
+        auth_profile=auth_profile,
+        role_name=specialist.role_name,
+        setup_name=setup_name,
+        prompt_path=prompt_path,
+        skill_paths=skill_paths,
+        setup_path=setup_path,
+        launch_mapping=launch_mapping,
+        mailbox_mapping=specialist.mailbox_payload,
+        extra_mapping=specialist.extra_payload,
+    )
+    removed_old_preset_path = (
+        old_preset_path if metadata.preset_name != specialist.preset_name else None
+    )
+    materialize_project_agent_catalog_projection(overlay)
+    if removed_old_preset_path is not None:
+        removed_old_preset_path.unlink(missing_ok=True)
+    return metadata, removed_old_preset_path
+
+
+@easy_specialist_group.command(name="set")
+@click.option("--name", required=True, help="Specialist name.")
+@click.option("--system-prompt", default=None, help="Replace system prompt with inline content.")
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Replace system prompt from a Markdown file.",
+)
+@click.option("--clear-system-prompt", is_flag=True, help="Clear the stored system prompt.")
+@click.option("--setup", default=None, help="Replace the specialist setup bundle name.")
+@click.option("--credential", default=None, help="Replace the credential bundle name.")
+@click.option(
+    "--prompt-mode",
+    type=click.Choice(("unattended", "as_is")),
+    default=None,
+    help="Replace the persisted operator prompt mode.",
+)
+@click.option("--clear-prompt-mode", is_flag=True, help="Clear the persisted prompt mode.")
+@click.option("--model", default=None, help="Replace the launch-owned default model name.")
+@click.option("--clear-model", is_flag=True, help="Clear the persisted default model name.")
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(min=0),
+    default=None,
+    help="Replace the launch-owned tool/model-specific reasoning preset index (>=0).",
+)
+@click.option(
+    "--clear-reasoning-level",
+    is_flag=True,
+    help="Clear the persisted reasoning preset index.",
+)
+@click.option(
+    "--env-set",
+    "env_set",
+    multiple=True,
+    help="Replace persistent specialist env records with repeatable `NAME=value` entries.",
+)
+@click.option("--clear-env", is_flag=True, help="Clear persistent specialist env records.")
+@click.option(
+    "--with-skill",
+    "skill_dirs",
+    multiple=True,
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    help="Repeatable skill directory to import and add to the specialist.",
+)
+@click.option("--add-skill", "add_skill_names", multiple=True, help="Add a project skill by name.")
+@click.option(
+    "--remove-skill",
+    "remove_skill_names",
+    multiple=True,
+    help="Remove a skill by name from this specialist.",
+)
+@click.option("--clear-skills", is_flag=True, help="Remove all skills from this specialist.")
+def set_easy_specialist_command(
+    name: str,
+    system_prompt: str | None,
+    system_prompt_file: Path | None,
+    clear_system_prompt: bool,
+    setup: str | None,
+    credential: str | None,
+    prompt_mode: str | None,
+    clear_prompt_mode: bool,
+    model: str | None,
+    clear_model: bool,
+    reasoning_level: int | None,
+    clear_reasoning_level: bool,
+    env_set: tuple[str, ...],
+    clear_env: bool,
+    skill_dirs: tuple[Path, ...],
+    add_skill_names: tuple[str, ...],
+    remove_skill_names: tuple[str, ...],
+    clear_skills: bool,
+) -> None:
+    """Patch one existing project-local specialist without recreating it."""
+
+    if not _has_specialist_set_updates(
+        system_prompt=system_prompt,
+        system_prompt_file=system_prompt_file,
+        clear_system_prompt=clear_system_prompt,
+        setup=setup,
+        credential=credential,
+        prompt_mode=prompt_mode,
+        clear_prompt_mode=clear_prompt_mode,
+        model=model,
+        clear_model=clear_model,
+        reasoning_level=reasoning_level,
+        clear_reasoning_level=clear_reasoning_level,
+        env_set=env_set,
+        clear_env=clear_env,
+        skill_dirs=skill_dirs,
+        add_skill_names=add_skill_names,
+        remove_skill_names=remove_skill_names,
+        clear_skills=clear_skills,
+    ):
+        raise click.ClickException("No specialist updates requested.")
+
+    overlay = _resolve_existing_project_overlay()
+    specialist = _load_specialist_or_click(
+        overlay=overlay,
+        name=_require_non_empty_name(name, field_name="--name"),
+    )
+    metadata, removed_old_preset_path = _store_specialist_patch_from_cli(
+        overlay=overlay,
+        specialist=specialist,
+        system_prompt=system_prompt,
+        system_prompt_file=system_prompt_file,
+        clear_system_prompt=clear_system_prompt,
+        setup=setup,
+        credential=credential,
+        prompt_mode=prompt_mode,
+        clear_prompt_mode=clear_prompt_mode,
+        model=model,
+        clear_model=clear_model,
+        reasoning_level=reasoning_level,
+        clear_reasoning_level=clear_reasoning_level,
+        env_set=env_set,
+        clear_env=clear_env,
+        skill_dirs=skill_dirs,
+        add_skill_names=add_skill_names,
+        remove_skill_names=remove_skill_names,
+        clear_skills=clear_skills,
+    )
+    payload = _specialist_payload(overlay=overlay, metadata=metadata)
+    payload["updated"] = True
+    if removed_old_preset_path is not None:
+        payload["removed_old_preset_path"] = str(removed_old_preset_path)
+    emit(payload)
+
+
 @easy_specialist_group.command(name="list")
 def list_easy_specialists_command() -> None:
     """List persisted project-local specialist definitions."""

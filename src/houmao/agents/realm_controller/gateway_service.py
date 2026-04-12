@@ -97,6 +97,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStoredRequestKind,
     GatewayStatusV1,
 )
+from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
@@ -2467,7 +2468,7 @@ class GatewayServiceRuntime:
             )
         return mailbox
 
-    def _load_manifest_payload_for_mailbox_support(self):
+    def _load_manifest_payload_for_mailbox_support(self) -> SessionManifestPayloadV4:
         """Load and parse the runtime-owned manifest payload required by mailbox routes."""
 
         manifest_path = self.m_attach_contract.manifest_path

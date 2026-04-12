@@ -79,6 +79,7 @@ __all__ = (
     "ParseStatus",
     "ProcessState",
     "ReadinessState",
+    "TrackedDiagnosticsAvailability",
     "TransportState",
 )
 

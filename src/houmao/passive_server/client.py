@@ -191,7 +191,7 @@ class PassiveServerClient(HoumaoServerClient):
                     headless_turn_index=accepted.turn_index,
                 )
             escaped = parse.quote(agent_ref, safe="")
-            accepted = self._request_root_model(
+            passive_accepted = self._request_root_model(
                 "POST",
                 f"/houmao/agents/{escaped}/requests",
                 PassiveRequestAcceptedResponse,
@@ -200,10 +200,10 @@ class PassiveServerClient(HoumaoServerClient):
             return HoumaoManagedAgentRequestAcceptedResponse(
                 success=True,
                 tracked_agent_id=identity.tracked_agent_id,
-                request_id=accepted.request_id,
+                request_id=passive_accepted.request_id,
                 request_kind="submit_prompt",
                 disposition="accepted",
-                detail=accepted.detail,
+                detail=passive_accepted.detail,
             )
 
         action = self.interrupt_managed_agent(agent_ref)

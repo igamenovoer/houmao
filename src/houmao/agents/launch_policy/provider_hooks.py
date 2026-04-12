@@ -11,6 +11,10 @@ import fcntl
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from houmao.agents.codex_cli_config import (
+    CodexCliConfigOverride,
+    append_or_replace_codex_config_overrides,
+)
 from houmao.agents.launch_policy.models import LaunchPolicyError, LaunchPolicyRequest
 
 _CLAUDE_RUNTIME_STATE_FILENAME = ".claude.json"
@@ -52,6 +56,9 @@ def run_provider_hook(
         return
     if hook_id == "codex.ensure_model_migration_state":
         _codex_ensure_model_migration_state(request)
+        return
+    if hook_id == "codex.append_unattended_cli_overrides":
+        _codex_append_unattended_cli_overrides(args)
         return
     if hook_id == "gemini.canonicalize_unattended_launch_inputs":
         _gemini_canonicalize_unattended_launch_inputs(args)
@@ -476,6 +483,27 @@ def _codex_ensure_model_migration_state(request: LaunchPolicyRequest) -> None:
     _ensure_codex_model_migration_state(
         config_path=_codex_config_path(request),
         repair_invalid=request.application_kind == "provider_start",
+    )
+
+
+def _codex_append_unattended_cli_overrides(args: list[str] | None) -> None:
+    """Append final Codex unattended CLI config overrides."""
+
+    if args is None:
+        return
+    append_or_replace_codex_config_overrides(
+        args,
+        (
+            CodexCliConfigOverride(
+                ("approval_policy",),
+                _CODEX_UNATTENDED_APPROVAL_POLICY,
+            ),
+            CodexCliConfigOverride(
+                ("sandbox_mode",),
+                _CODEX_UNATTENDED_SANDBOX_MODE,
+            ),
+            CodexCliConfigOverride(("notice", "hide_full_access_warning"), True),
+        ),
     )
 
 

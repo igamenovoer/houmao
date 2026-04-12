@@ -32,10 +32,13 @@ from houmao.owned_paths import (
     HOUMAO_JOB_DIR_ENV_VAR,
     HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
-from houmao.project.catalog import PROJECT_CATALOG_FILENAME, ProjectCatalog
+from houmao.project.catalog import (
+    PROJECT_CATALOG_FILENAME,
+    PROJECT_CONTENT_DIRNAME,
+    ProjectCatalog,
+)
 from houmao.project.overlay import (
     PROJECT_CONFIG_FILENAME,
-    PROJECT_CONTENT_DIRNAME,
     PROJECT_EASY_DIRNAME,
     PROJECT_MAILBOX_DIRNAME,
     PROJECT_OVERLAY_DIR_ENV_VAR,

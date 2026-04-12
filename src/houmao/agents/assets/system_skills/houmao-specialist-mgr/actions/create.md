@@ -1,15 +1,17 @@
 # Create Or Edit Specialist/Easy Profile
 
-Use this action only when the user wants to create one reusable easy specialist, or create, patch, or replace one reusable specialist-backed easy profile through Houmao's supported higher-level authoring commands.
+Use this action only when the user wants to create or patch one reusable easy specialist, or create, patch, or replace one reusable specialist-backed easy profile through Houmao's supported higher-level authoring commands.
 
 ## Workflow
 
 1. Determine whether the target resource is `specialist` or `profile`.
-2. For profile work, determine whether the user wants a new profile, a patch edit to an existing profile, or same-name replacement.
-3. If the target resource kind or profile operation is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
-4. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-5. If the target resource is `profile`, follow `Profile Authoring Workflow` below and stop after reporting the result.
-6. Otherwise follow `Specialist Create Workflow` below.
+2. For specialist work, determine whether the user wants a new specialist, a patch edit to an existing specialist, or same-name replacement.
+3. For profile work, determine whether the user wants a new profile, a patch edit to an existing profile, or same-name replacement.
+4. If the target resource kind or authoring operation is still ambiguous after checking the prompt and recent chat context, ask the user before proceeding.
+5. Use the `houmao-mgr` launcher already chosen by the top-level skill.
+6. If the target resource is `profile`, follow `Profile Authoring Workflow` below and stop after reporting the result.
+7. For specialist patch edits, follow `Specialist Set Workflow` below and stop after reporting the result.
+8. Otherwise follow `Specialist Create Workflow` below.
 
 ## Profile Authoring Workflow
 
@@ -46,6 +48,19 @@ Use this action only when the user wants to create one reusable easy specialist,
    - mention that they can either provide auth explicitly, point you at env names or patterns, point you at a directory, or ask for `auto credentials`
 10. Run `project easy specialist create` through the chosen `houmao-mgr` launcher.
 11. Report the created specialist, selected tool, resolved credential display name, and the generated artifact paths returned by the command.
+
+## Specialist Set Workflow
+
+1. Collect the user's intended specialist patch inputs from the current prompt first.
+2. If some necessary inputs are missing, look in recent chat context for exact previously stated values.
+3. Require the specialist name and at least one update or clear flag. If no update is stated, ask before proceeding.
+4. Treat prompt, skill, setup, credential, prompt-mode, model, reasoning-level, and env changes as `project easy specialist set` work.
+5. If the user asks to rename the specialist or change its tool lane, explain that `project easy specialist set` intentionally does not support that identity change and ask whether to create a new specialist instead.
+6. For credential changes, require an existing credential display name for the specialist's current tool lane. Use `project easy specialist get --name <name>` if you need to inspect the current tool before confirming or applying the credential change.
+7. For `--add-skill <name>`, require the project skill name. For `--with-skill <dir>`, require a skill directory path that contains `SKILL.md`.
+8. For env changes, treat repeatable `--env-set NAME=value` as replacing the specialist's stored env mapping. Use `--clear-env` only when the user explicitly wants the mapping removed.
+9. Run `project easy specialist set` through the chosen `houmao-mgr` launcher.
+10. Report the updated specialist, selected tool, resolved credential display name, skills, and launch metadata returned by the command.
 
 ## Credential Source Modes
 
@@ -172,7 +187,7 @@ Profile authoring rules:
 - `--clear-managed-header-section` removes one stored section policy entry, and `--clear-managed-header-sections` removes all stored section policy entries
 - `--auth` is only the stored auth display-name override for later launches; it does not create credentials, and the stored relationship continues to resolve after auth rename
 
-## Specialist Required Inputs
+## Specialist Create Required Inputs
 
 - `--name`
 - `--tool`
@@ -180,7 +195,7 @@ Profile authoring rules:
 
 `--system-prompt` and `--system-prompt-file` are both optional. Use at most one of them.
 
-## Specialist Command Shape
+## Specialist Create Command Shape
 
 Use the chosen `houmao-mgr` launcher with:
 
@@ -196,6 +211,49 @@ Use these documented defaults and options exactly:
 - `--no-unattended` is the explicit opt-out from the easy unattended default
 - repeatable `--with-skill <dir>` imports selected skill directories
 - repeatable `--env-set NAME=value` persists non-credential launch env
+
+## Specialist Set Command Shape
+
+Use the chosen `houmao-mgr` launcher with:
+
+```text
+<chosen houmao-mgr launcher> project easy specialist set --name <name> ...
+```
+
+Required inputs for patch edits:
+
+- `--name`
+- at least one update or clear option
+
+Common update and clear inputs:
+
+- `--system-prompt`
+- `--system-prompt-file`
+- `--clear-system-prompt`
+- `--with-skill <dir>`
+- `--add-skill <name>`
+- `--remove-skill <name>`
+- `--clear-skills`
+- `--setup <name>`
+- `--credential <name>`
+- `--prompt-mode unattended|as_is`
+- `--clear-prompt-mode`
+- `--model`
+- `--clear-model`
+- `--reasoning-level`
+- `--clear-reasoning-level`
+- repeatable `--env-set NAME=value`
+- `--clear-env`
+
+Specialist patch rules:
+
+- use `project easy specialist set` for ordinary edits; do not remove and recreate a specialist just to change prompt, skills, setup, credential, prompt-mode, model, reasoning-level, or env
+- do not pass `--tool`; set preserves the existing specialist tool lane
+- do not try to rename the specialist through set; create a new specialist when the name should change
+- `--env-set` replaces the specialist's stored env mapping with the repeated records supplied on that command
+- `--with-skill <dir>` imports and adds a skill directory; `--add-skill <name>` adds an already projected project skill by name
+- `--credential <name>` selects an existing credential display name for the specialist's current tool lane; it does not create credentials
+- set updates future launches and profile resolutions, not already-running easy instances
 
 Tool-specific auth inputs:
 
@@ -219,7 +277,9 @@ Claude vendor-login file usage:
 - Do not enter credential discovery or credential import workflow for easy-profile creation.
 - Do not treat profile creation as launching or mutating a live easy instance.
 - Do not remove and recreate an easy profile for ordinary default edits; use `project easy profile set`.
+- Do not remove and recreate an easy specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits; use `project easy specialist set`.
 - Do not use `project agents launch-profiles set` for easy-profile edits.
+- Do not use `project easy specialist set` for specialist rename or tool-lane changes.
 - Do not mix `--prompt-overlay-text` and `--prompt-overlay-file` for easy-profile creation.
 - Do not guess the specialist name, tool lane, or auth values.
 - Do not continue specialist creation from partially inferred required inputs when the prompt and recent chat context do not state them explicitly.

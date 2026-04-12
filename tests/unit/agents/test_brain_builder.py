@@ -342,6 +342,17 @@ wire_api = "responses"
     )
 
     assert (result.home_path / "config.toml").read_text(encoding="utf-8") == custom_setup
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    codex_overrides = manifest["runtime"]["launch_contract"]["model_selection"][
+        "codex_cli_config_overrides"
+    ]
+    assert '--config=model="gpt-5.4"' in codex_overrides["args"]
+    assert '--config=model_provider="yunwu-openai"' in codex_overrides["args"]
+    assert (
+        '--config=model_providers.yunwu-openai.base_url="https://api.example.test/v1"'
+        in codex_overrides["args"]
+    )
+    assert "sk-test-123" not in str(codex_overrides)
 
 
 def test_build_brain_home_persists_persistent_launch_env_records(
@@ -1146,6 +1157,12 @@ def test_build_brain_home_resolves_model_selection_precedence_for_codex(tmp_path
 
     assert payload["model"] == "gpt-5.4-nano"
     assert payload["model_reasoning_effort"] == "xhigh"
+    assert manifest["runtime"]["launch_contract"]["model_selection"]["codex_cli_config_overrides"][
+        "args"
+    ] == [
+        '--config=model="gpt-5.4-nano"',
+        '--config=model_reasoning_effort="xhigh"',
+    ]
     assert manifest["runtime"]["launch_contract"]["model_selection"]["resolved"] == {
         "effective": {"name": "gpt-5.4-nano", "reasoning": {"level": 10}},
         "sources": {
@@ -1253,7 +1270,7 @@ def test_build_brain_home_projects_gemini_model_selection(tmp_path: Path) -> Non
 
 
 def test_claude_tool_adapter_allowlist_and_file_mappings_include_vendor_auth_surfaces() -> None:
-    agent_def_dir = Path(__file__).resolve().parents[2] / "fixtures" / "agents"
+    agent_def_dir = Path(__file__).resolve().parents[2] / "fixtures" / "plain-agent-def"
     adapter = _load_tool_adapter(agent_def_dir / "tools" / "claude" / "adapter.yaml")
 
     allowlist = set(adapter.credential_env_allowlist)

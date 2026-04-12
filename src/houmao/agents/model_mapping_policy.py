@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.codex_cli_config import (
+    CodexCliConfigOverride,
+    codex_config_override_args,
+    codex_config_override_payload,
+)
 from houmao.agents.launch_policy.provider_hooks import (
     provider_state_mutation_lock,
     set_json_key,
@@ -18,6 +24,31 @@ from houmao.agents.model_selection import ModelConfig
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
 _GEMINI_SETTINGS_PATH = Path(".gemini") / "settings.json"
+_CODEX_CURRENT_CODING_MODEL_PREFIXES = (
+    "gpt-5.4",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+)
+_CODEX_CURRENT_CODING_MODEL_POSITIVE_VALUES = ("low", "medium", "high", "xhigh")
+_CODEX_REASONING_LADDERS_BY_MODEL_PREFIX = (
+    (
+        _CODEX_CURRENT_CODING_MODEL_PREFIXES,
+        None,
+        _CODEX_CURRENT_CODING_MODEL_POSITIVE_VALUES,
+    ),
+)
+_CODEX_FALLBACK_REASONING_LADDER = (
+    None,
+    _CODEX_CURRENT_CODING_MODEL_POSITIVE_VALUES,
+)
+
+
+@dataclass(frozen=True)
+class TemporaryModelProjection:
+    """Temporary per-turn model projection for headless execution."""
+
+    env: dict[str, str]
+    args: list[str]
 
 
 def resolve_reasoning_mapping(
@@ -107,6 +138,11 @@ def project_reasoning_level(
             value=str(native_setting["native_value"]),
             repair_invalid=True,
         )
+        _attach_codex_cli_override_metadata(
+            mapping,
+            key_path=("model_reasoning_effort",),
+            value=str(native_setting["native_value"]),
+        )
         return mapping
 
     if tool == "gemini":
@@ -150,12 +186,18 @@ def project_model_name(
             value=stripped_model_name,
             repair_invalid=True,
         )
-        return {
+        projection = {
             "surface": "toml",
             "path": _CODEX_CONFIG_FILENAME,
             "key_path": ["model"],
             "value": stripped_model_name,
         }
+        _attach_codex_cli_override_metadata(
+            projection,
+            key_path=("model",),
+            value=stripped_model_name,
+        )
+        return projection
 
     if tool == "gemini":
         set_json_key(
@@ -180,14 +222,15 @@ def temporary_project_model_config(
     home_path: Path,
     tool: str,
     model_config: ModelConfig | None,
-) -> Iterator[dict[str, str]]:
+) -> Iterator[TemporaryModelProjection]:
     """Apply one effective model config for a single headless turn and then restore state."""
 
     if model_config is None or model_config.is_empty():
-        yield {}
+        yield TemporaryModelProjection(env={}, args=[])
         return
 
     env_exports: dict[str, str] = {}
+    cli_args: list[str] = []
     mutated_paths = _mutated_model_config_paths(
         home_path=home_path,
         tool=tool,
@@ -200,22 +243,46 @@ def temporary_project_model_config(
         }
         try:
             if model_config.name is not None:
-                project_model_name(
+                model_projection = project_model_name(
                     home_path=home_path,
                     tool=tool,
                     model_name=model_config.name,
                     env_exports=env_exports,
                 )
+                cli_args.extend(_codex_cli_args_from_projection(model_projection))
             if model_config.reasoning is not None:
-                project_reasoning_level(
+                reasoning_projection = project_reasoning_level(
                     home_path=home_path,
                     tool=tool,
                     requested_level=model_config.reasoning.level,
                     model_name=model_config.name,
                 )
-            yield env_exports
+                cli_args.extend(_codex_cli_args_from_projection(reasoning_projection))
+            yield TemporaryModelProjection(env=env_exports, args=cli_args)
         finally:
             _restore_model_config_paths(snapshots)
+
+
+def _attach_codex_cli_override_metadata(
+    payload: dict[str, Any],
+    *,
+    key_path: tuple[str, ...],
+    value: str | bool | int,
+) -> None:
+    """Attach Codex CLI override metadata to one native projection payload."""
+
+    override = CodexCliConfigOverride(key_path, value)
+    payload["cli_overrides"] = codex_config_override_payload((override,))
+    payload["cli_args"] = codex_config_override_args((override,))
+
+
+def _codex_cli_args_from_projection(projection: dict[str, Any]) -> list[str]:
+    """Extract Codex CLI args from one projection payload when present."""
+
+    cli_args = projection.get("cli_args")
+    if not isinstance(cli_args, list) or not all(isinstance(item, str) for item in cli_args):
+        return []
+    return list(cli_args)
 
 
 def _resolve_gemini_reasoning_mapping(
@@ -313,63 +380,67 @@ def _resolve_reasoning_ladder(
         }
 
     if tool == "codex":
-        return {
-            "off_preset": (
-                _native_setting(
-                    "model_reasoning_effort",
-                    "none",
-                    surface="toml",
-                    path=_CODEX_CONFIG_FILENAME,
-                ),
-            ),
-            "positive_presets": (
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "minimal",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "low",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "medium",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "high",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "xhigh",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-            ),
-        }
+        return _resolve_codex_reasoning_ladder(model_name=model_name)
 
     if tool == "gemini":
         return _resolve_gemini_reasoning_ladder(model_name=model_name)
 
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
+
+
+def _resolve_codex_reasoning_ladder(
+    *,
+    model_name: str | None,
+) -> dict[str, Any]:
+    """Resolve one maintained Codex reasoning preset ladder."""
+
+    for prefixes, off_value, positive_values in _CODEX_REASONING_LADDERS_BY_MODEL_PREFIX:
+        if _model_name_matches_prefix(model_name, prefixes):
+            return _codex_reasoning_ladder(
+                off_value=off_value,
+                positive_values=positive_values,
+            )
+
+    off_value, positive_values = _CODEX_FALLBACK_REASONING_LADDER
+    return _codex_reasoning_ladder(
+        off_value=off_value,
+        positive_values=positive_values,
+    )
+
+
+def _codex_reasoning_ladder(
+    *,
+    off_value: str | None,
+    positive_values: tuple[str, ...],
+) -> dict[str, Any]:
+    """Build one Codex reasoning ladder from native effort values."""
+
+    off_preset = (
+        (
+            _native_setting(
+                "model_reasoning_effort",
+                off_value,
+                surface="toml",
+                path=_CODEX_CONFIG_FILENAME,
+            ),
+        )
+        if off_value is not None
+        else None
+    )
+    return {
+        "off_preset": off_preset,
+        "positive_presets": tuple(
+            (
+                _native_setting(
+                    "model_reasoning_effort",
+                    value,
+                    surface="toml",
+                    path=_CODEX_CONFIG_FILENAME,
+                ),
+            )
+            for value in positive_values
+        ),
+    }
 
 
 def _resolve_gemini_reasoning_ladder(
@@ -517,6 +588,15 @@ def _claude_model_supports_max(model_name: str | None) -> bool:
         return False
     lowered = model_name.lower()
     return "opus-4-6" in lowered
+
+
+def _model_name_matches_prefix(model_name: str | None, prefixes: tuple[str, ...]) -> bool:
+    """Return whether one model name matches any maintained model-family prefix."""
+
+    if model_name is None:
+        return False
+    lowered = model_name.lower()
+    return any(lowered.startswith(prefix) for prefix in prefixes)
 
 
 def _is_gemini_3_model(model_name: str | None) -> bool:

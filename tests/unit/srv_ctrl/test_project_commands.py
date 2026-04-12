@@ -2374,6 +2374,417 @@ def test_project_easy_specialist_create_persists_env_records(
     assert specialist_payload["launch"] == preset_payload["launch"]
 
 
+def test_project_easy_specialist_set_patches_prompt_skills_and_launch_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    docs_skill_dir = _make_skill_dir(tmp_path, "docs")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "Initial prompt",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--with-skill",
+            str(notes_skill_dir),
+            "--model",
+            "gpt-5.4",
+            "--reasoning-level",
+            "6",
+            "--env-set",
+            "FEATURE_FLAG_X=0",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    secondary_credential_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "credentials",
+            "codex",
+            "add",
+            "--name",
+            "shared-codex",
+            "--api-key",
+            "sk-openai-secondary",
+        ],
+    )
+    assert secondary_credential_result.exit_code == 0, secondary_credential_result.output
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--system-prompt",
+            "Updated prompt",
+            "--remove-skill",
+            "notes",
+            "--with-skill",
+            str(docs_skill_dir),
+            "--credential",
+            "shared-codex",
+            "--prompt-mode",
+            "as_is",
+            "--model",
+            "gpt-5.5",
+            "--clear-reasoning-level",
+            "--env-set",
+            "FEATURE_FLAG_X=1",
+            "--env-set",
+            "REVIEW_DEPTH=deep",
+        ],
+    )
+
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    assert set_payload["updated"] is True
+    assert set_payload["credential"] == "shared-codex"
+    assert set_payload["skills"] == ["docs"]
+    assert set_payload["launch"] == {
+        "prompt_mode": "as_is",
+        "model": {"name": "gpt-5.5"},
+        "env_records": {"FEATURE_FLAG_X": "1", "REVIEW_DEPTH": "deep"},
+    }
+    prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    assert prompt_path.read_text(encoding="utf-8") == "Updated prompt\n"
+    assert (
+        yaml.safe_load(preset_path.read_text(encoding="utf-8"))["launch"] == set_payload["launch"]
+    )
+    assert (repo_root / ".houmao" / "agents" / "skills" / "docs" / "SKILL.md").is_file()
+    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+
+
+def test_project_easy_specialist_set_changes_setup_and_removes_old_projection_preset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    _clone_setup_dir(repo_root, tool="codex", source="default", target="yunwu-openai")
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    old_preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    new_preset_path = (
+        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-yunwu-openai.yaml"
+    )
+    assert old_preset_path.is_file()
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--setup",
+            "yunwu-openai",
+        ],
+    )
+
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    assert set_payload["preset_name"] == "researcher-codex-yunwu-openai"
+    assert set_payload["setup"] == "yunwu-openai"
+    assert set_payload["removed_old_preset_path"] == str(old_preset_path.resolve())
+    assert not old_preset_path.exists()
+    assert new_preset_path.is_file()
+
+
+def test_project_easy_specialist_set_rejects_empty_and_credential_owned_env_updates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    empty_result = runner.invoke(
+        cli,
+        ["project", "easy", "specialist", "set", "--name", "researcher"],
+    )
+    assert empty_result.exit_code != 0
+    assert "No specialist updates requested" in empty_result.output
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    env_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--env-set",
+            "OPENAI_API_KEY=other",
+        ],
+    )
+    assert env_result.exit_code != 0
+    assert "belongs to credential env" in env_result.output
+
+
+def test_project_easy_specialist_set_adds_existing_skill_and_clears_optional_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    docs_skill_dir = _make_skill_dir(tmp_path, "docs")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    researcher_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "Initial prompt",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--with-skill",
+            str(notes_skill_dir),
+            "--model",
+            "gpt-5.4",
+            "--reasoning-level",
+            "6",
+            "--env-set",
+            "FEATURE_FLAG_X=1",
+        ],
+    )
+    assert researcher_result.exit_code == 0, researcher_result.output
+    helper_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "helper",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai-helper",
+            "--with-skill",
+            str(docs_skill_dir),
+        ],
+    )
+    assert helper_result.exit_code == 0, helper_result.output
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--add-skill",
+            "docs",
+        ],
+    )
+
+    assert add_result.exit_code == 0, add_result.output
+    assert json.loads(add_result.output)["skills"] == ["notes", "docs"]
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--clear-system-prompt",
+            "--clear-skills",
+            "--clear-prompt-mode",
+            "--clear-model",
+            "--clear-reasoning-level",
+            "--clear-env",
+        ],
+    )
+
+    assert clear_result.exit_code == 0, clear_result.output
+    clear_payload = json.loads(clear_result.output)
+    assert clear_payload["skills"] == []
+    assert clear_payload["launch"] == {}
+    prompt_path = repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
+    preset_path = repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    preset_payload = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
+    assert prompt_path.read_text(encoding="utf-8") == ""
+    assert preset_payload["skills"] == []
+    assert "launch" not in preset_payload
+    assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+    assert (repo_root / ".houmao" / "agents" / "skills" / "docs" / "SKILL.md").is_file()
+
+
+def test_project_easy_specialist_set_rejects_missing_refs_and_tool_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    setup_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--setup",
+            "missing",
+        ],
+    )
+    assert setup_result.exit_code != 0
+    assert "Setup bundle not found" in setup_result.output
+
+    credential_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--credential",
+            "missing",
+        ],
+    )
+    assert credential_result.exit_code != 0
+    assert "Auth profile `codex/missing` was not found" in credential_result.output
+
+    tool_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--tool",
+            "claude",
+        ],
+    )
+    assert tool_result.exit_code != 0
+    assert "No such option: --tool" in tool_result.output
+
+
 def test_project_easy_specialist_create_persists_non_default_setup(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

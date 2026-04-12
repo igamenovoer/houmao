@@ -169,6 +169,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         raise LaunchPlanError(str(exc)) from exc
 
     args = list(launch_policy_result.args)
+    codex_cli_config_args = _codex_cli_config_args_from_contract(
+        tool=tool,
+        backend=request.backend,
+        launch_contract=launch_contract,
+    )
+    args.extend(codex_cli_config_args)
     if launch_policy_result.strategy is not None:
         metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
     metadata["launch_policy_request"] = {
@@ -179,6 +185,8 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         backend_resolution = launch_overrides_metadata.get("backend_resolution")
         if isinstance(backend_resolution, dict):
             backend_resolution["args_after_launch_policy"] = list(args)
+            if codex_cli_config_args:
+                backend_resolution["codex_cli_config_args"] = list(codex_cli_config_args)
 
     return LaunchPlan(
         backend=request.backend,
@@ -354,6 +362,43 @@ def _persistent_launch_env_records(launch_contract: dict[str, Any]) -> dict[str,
             )
         env_records[raw_name.strip()] = raw_item
     return env_records
+
+
+def _codex_cli_config_args_from_contract(
+    *,
+    tool: str,
+    backend: BackendKind,
+    launch_contract: dict[str, Any],
+) -> list[str]:
+    """Return generated Codex CLI config overrides from one launch contract."""
+
+    if tool != "codex" or backend not in {"local_interactive", "codex_headless"}:
+        return []
+
+    model_selection = launch_contract.get("model_selection")
+    if model_selection is None:
+        return []
+    if not isinstance(model_selection, dict):
+        raise LaunchPlanError(
+            "Manifest `runtime.launch_contract.model_selection` must be a mapping."
+        )
+    overrides = model_selection.get("codex_cli_config_overrides")
+    if overrides is None:
+        return []
+    if not isinstance(overrides, dict):
+        raise LaunchPlanError(
+            "Manifest `runtime.launch_contract.model_selection."
+            "codex_cli_config_overrides` must be a mapping."
+        )
+    args = overrides.get("args")
+    if args is None:
+        return []
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise LaunchPlanError(
+            "Manifest `runtime.launch_contract.model_selection."
+            "codex_cli_config_overrides.args` must be a list of strings."
+        )
+    return list(args)
 
 
 def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:

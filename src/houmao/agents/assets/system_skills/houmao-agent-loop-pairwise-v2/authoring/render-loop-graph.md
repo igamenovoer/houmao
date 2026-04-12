@@ -21,7 +21,7 @@ At minimum, the top-level graph must show:
 - Draw the supervision loop as a review cycle owned by the master, not as a worker-to-worker cycle.
 - If a worker becomes a child driver, draw that child control edge beneath the worker and show the child result returning to the immediate parent.
 - When labeling operator controls, prefer the canonical names `initialize`, `start`, `peek master`, `pause/resume`, and `stop`.
-- Label the default `initialize` path as routing-packet validation. Label an operator preparation wave only when the authored plan explicitly selects that strategy.
+- Label the default `initialize` path as email initialization with notifier setup. Label packet-only initialization only when the authored plan explicitly selects that strategy.
 - Keep labels short and wrap with `<br/>` when needed.
 - Split a very large topology into one top-level diagram plus supporting subtree diagrams instead of making one unreadable diagram.
 
@@ -38,22 +38,22 @@ flowchart TD
     Done[Completion Condition<br/>user-defined]
     Stop[Stop Condition<br/>default: interrupt-first]
 
-    Prep[Initialize<br/>routing packet validation]
+    Prep[Initialize<br/>enable email notifier<br/>send init mail]
 
     UA -->|initialize| Prep
-    Prep -->|start<br/>root packet| M
+    Prep -->|start<br/>root packet if used| M
     UA -.->|peek master| M
     UA -.->|pause/resume| M
     UA ==> |stop| M
 
-    M -->|edge e1<br/>append packet A| A
-    A -->|result e1| M
+    M -->|email edge e1<br/>packet A if used| A
+    A -->|email result e1| M
 
-    A -->|edge e2<br/>append packet B| B
-    B -->|result e2| A
+    A -->|email edge e2<br/>packet B if used| B
+    B -->|email result e2| A
 
-    A -->|edge e3<br/>append packet C| C
-    C -->|result e3| A
+    A -->|email edge e3<br/>packet C if used| C
+    C -->|email result e3| A
 
     M --> ML
     ML --> Done

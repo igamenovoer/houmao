@@ -15,6 +15,7 @@ Minimum sections:
 - Completion Condition
 - Stop Policy
 - Reporting Contract
+- Mail-Notifier Setup: gateway mail-notifier interval `5s` unless the user specified otherwise
 - Script Inventory, when scripts exist
 - Mermaid Control Graph
 

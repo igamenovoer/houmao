@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Literal, TypeVar
+from typing import TypeVar
 from urllib import error, parse, request
 
 from pydantic import BaseModel, ValidationError
@@ -96,7 +96,7 @@ class HoumaoServerClient(CaoRestClient):
         )
 
     @property
-    def pair_authority_kind(self) -> Literal["houmao-server"]:
+    def pair_authority_kind(self) -> str:
         """Return the old server pair-authority identity."""
 
         return "houmao-server"

@@ -6,6 +6,7 @@ from typing import cast
 
 import click
 
+from houmao.cao.models import CaoSessionInfo
 from houmao.cao.rest_client import CaoApiError
 from houmao.server.client import HoumaoServerClient
 from houmao.server.pair_client import (
@@ -139,7 +140,7 @@ def status_server_command(port: int | None) -> None:
     except Exception:
         instance = None
 
-    sessions: list[object] | None
+    sessions: list[CaoSessionInfo] | None
     if resolution.health.houmao_service == "houmao-server":
         try:
             sessions = cast(HoumaoServerClient, client).list_sessions()

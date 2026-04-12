@@ -16,6 +16,7 @@ This packaged skill covers exactly these routed easy-workflow actions:
 
 - `create specialist`
 - `create profile`
+- `update specialist`
 - `update profile`
 - `list specialists`
 - `list profiles`
@@ -63,7 +64,7 @@ This packaged skill does not cover:
 
 ## Routing Guidance
 
-- Use `actions/create.md` only when the user wants to create one reusable specialist, or create, update, or replace one reusable easy profile.
+- Use `actions/create.md` only when the user wants to create or update one reusable specialist, or create, update, or replace one reusable easy profile.
 - Use `actions/list.md` only when the user wants to list persisted specialists or persisted easy profiles.
 - Use `actions/get.md` only when the user wants to inspect one persisted specialist definition or one persisted easy profile.
 - Use `actions/remove.md` only when the user wants to remove one persisted specialist definition or one persisted easy profile.
@@ -74,6 +75,7 @@ This packaged skill does not cover:
 
 - Do not guess the intended action when the prompt could mean specialist authoring, easy-profile authoring, or easy-instance runtime work.
 - Do not guess between specialist and easy-profile authoring when the prompt could mean either reusable source.
+- Do not remove and recreate a specialist for ordinary prompt, skill, setup, credential, model, prompt-mode, or env edits; use `project easy specialist set`.
 - Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
 - Do not route `project easy instance list|get` through this skill.
 - Do not route generic managed-agent `join`, `list`, `stop`, or `cleanup` requests through this skill.

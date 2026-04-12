@@ -69,6 +69,15 @@ The managed-header callout block within or after step 4 SHALL describe the five-
 - **AND THEN** they see `--no-managed-header` for whole-header opt-out
 - **AND THEN** they can follow the link to the reference page for the full section list, resolution precedence, and stored-profile policy
 
+### Requirement: System Skills section lists every shipped skill with its purpose
+
+The System Skills table in README.md SHALL list `houmao-specialist-mgr` with a description that includes the "set" (edit/patch) verb alongside create, list, inspect, remove, launch, and stop.
+
+#### Scenario: Reader sees specialist editing in the skill table
+
+- **WHEN** a reader scans the System Skills table in README.md
+- **THEN** the `houmao-specialist-mgr` row includes "set" in its verb list
+
 ### Requirement: Intro condensed to two sections
 
 The introductory content SHALL be condensed from four subsections (What It Is, Core Idea, What The Framework Provides, Why This Is Useful) into two: **What It Is** (one paragraph covering what Houmao does and the real-CLI-process model) and **Why This Approach** (bullet list of capabilities, specialist/project/loop first, join as one bullet). The name-origin blockquote SHALL be preserved.

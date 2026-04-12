@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import click
 
@@ -11,6 +12,7 @@ from houmao.agents.realm_controller.gateway_models import GatewayMailAttachmentU
 from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+    OperatorOriginReplyPolicy,
 )
 
 from ..common import managed_agent_selector_options, pair_port_option, resolve_body_text
@@ -132,7 +134,7 @@ def post_mail_command(
             target,
             subject=subject,
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
-            reply_policy=reply_policy,
+            reply_policy=cast(OperatorOriginReplyPolicy, reply_policy),
             attachments=_resolve_attachment_uploads(attachments),
         )
     )

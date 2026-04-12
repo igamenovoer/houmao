@@ -544,7 +544,10 @@ def replaceable_mailbox_cleanup_paths(config: MailboxResolvedConfig | None) -> t
     if isinstance(config, FilesystemMailboxResolvedConfig):
         if config.mailbox_kind != "symlink":
             return ()
-        return (config.mailbox_path.resolve(),)
+        mailbox_path = config.mailbox_path
+        if mailbox_path is None:
+            return ()
+        return (mailbox_path.resolve(),)
     if config.credential_file is None:
         return ()
     return (config.credential_file.resolve(),)

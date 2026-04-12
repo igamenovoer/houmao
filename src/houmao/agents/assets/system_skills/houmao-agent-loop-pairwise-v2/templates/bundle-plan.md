@@ -81,15 +81,17 @@ See `reporting.md`.
 Record:
 
 - notifier preflight procedure
-- selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+- selected `prestart_strategy`: default `email_initialization`, or explicit packet-only initialization when the user disables email initialization
+- gateway mail-notifier interval: `5s` unless the user specified otherwise
+- initialization email target policy: all named participants by default, or an explicit target set when provided
+- acknowledgement posture: `fire_and_proceed` by default, or explicit `require_ack`
 - graph artifact and packet JSON artifact locations when available
 - graph-tool preflight: `analyze`, optional `slice`, and `packet-expectations` during packet authoring when a graph artifact exists
 - routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
 - validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
-- optional preparation target policy for explicit `operator_preparation_wave`: `delegating_non_leaf` by default, `all_participants` only when explicitly requested, or an explicit named target set
-- optional participant preparation-mail procedure for explicit targeted preparation recipients
-- optional acknowledgement posture for explicit preparation mail: `fire_and_proceed` or `require_ack`
-- optional operator reply policy for explicit preparation mail: `none` or `operator_mailbox`, applied to targeted preparation recipients
+- initialization mail procedure for targeted initialization recipients
+- operator reply policy for initialization mail: `none` for default `fire_and_proceed`, or `operator_mailbox` for explicit `require_ack`
+- in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
 - readiness behavior for the selected strategy
 - how the master trigger remains separate from `initialize`
