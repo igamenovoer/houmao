@@ -24,34 +24,46 @@ def test_resolve_reasoning_mapping_claude_clamps_max_when_model_does_not_support
     assert mapping["off_requested"] is False
 
 
-def test_resolve_reasoning_mapping_codex_uses_lowest_and_highest_supported_buckets() -> None:
-    off = resolve_reasoning_mapping(
-        tool="codex",
-        requested_level=0,
-        model_name="gpt-5.4",
-    )
+@pytest.mark.parametrize(
+    "model_name",
+    ("gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex"),
+)
+def test_resolve_reasoning_mapping_codex_uses_model_aware_supported_buckets(
+    model_name: str,
+) -> None:
     lowest = resolve_reasoning_mapping(
         tool="codex",
         requested_level=1,
-        model_name="gpt-5.4",
+        model_name=model_name,
     )
     highest = resolve_reasoning_mapping(
         tool="codex",
         requested_level=10,
-        model_name="gpt-5.4",
+        model_name=model_name,
     )
     intermediate = resolve_reasoning_mapping(
         tool="codex",
         requested_level=7,
-        model_name="gpt-5.4",
+        model_name=model_name,
     )
 
-    assert off["native_value"] == "none"
-    assert off["effective_level"] == 0
-    assert lowest["native_value"] == "minimal"
+    assert lowest["native_value"] == "low"
+    assert lowest["effective_level"] == 1
     assert highest["native_value"] == "xhigh"
+    assert highest["effective_level"] == 4
+    assert highest["saturated"] is True
     assert intermediate["native_value"] == "xhigh"
+    assert intermediate["effective_level"] == 4
     assert intermediate["saturated"] is True
+
+
+def test_resolve_reasoning_mapping_codex_rejects_off_when_model_ladder_lacks_zero() -> None:
+    with pytest.raises(ValueError, match="does not support reasoning level 0"):
+        resolve_reasoning_mapping(
+            tool="codex",
+            requested_level=0,
+            model_name="gpt-5.4",
+        )
 
 
 def test_resolve_reasoning_mapping_claude_rejects_off_when_ladder_lacks_zero() -> None:
@@ -127,18 +139,21 @@ def test_project_reasoning_level_writes_gemini_3_thinking_level(tmp_path: Path) 
     }
 
 
-def test_project_reasoning_level_writes_codex_reasoning_effort(tmp_path: Path) -> None:
+def test_project_reasoning_level_writes_codex_model_aware_reasoning_effort(
+    tmp_path: Path,
+) -> None:
     home_path = (tmp_path / "codex-home").resolve()
 
     mapping = project_reasoning_level(
         home_path=home_path,
         tool="codex",
-        requested_level=10,
+        requested_level=1,
         model_name="gpt-5.4",
     )
 
     payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
 
     assert mapping["native_scale"] == "model_reasoning_effort"
-    assert mapping["cli_args"] == ['--config=model_reasoning_effort="xhigh"']
-    assert payload["model_reasoning_effort"] == "xhigh"
+    assert mapping["native_value"] == "low"
+    assert mapping["cli_args"] == ['--config=model_reasoning_effort="low"']
+    assert payload["model_reasoning_effort"] == "low"

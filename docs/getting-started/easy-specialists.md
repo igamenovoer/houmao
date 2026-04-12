@@ -79,7 +79,7 @@ Claude-specific auth inputs now support four maintained credential lanes plus se
 Current maintained ladders:
 
 - Claude: `1=low`, `2=medium`, `3=high`, and `4=max` only on models that support Claude `max`; higher numbers saturate to the highest supported Claude preset.
-- Codex: `0=none`, `1=minimal`, `2=low`, `3=medium`, `4=high`, `5=xhigh`; higher numbers saturate to `xhigh`.
+- Codex: current maintained Codex coding models such as `gpt-5.4`, `gpt-5.3-codex`, and `gpt-5.2-codex` use `1=low`, `2=medium`, `3=high`, `4=xhigh`; higher numbers saturate to `xhigh`. `0` and `minimal` are used only when the resolved Codex model ladder explicitly supports those native efforts.
 - Gemini 3 models: Houmao preset rows currently map `1=(thinkingLevel LOW, thinkingBudget 1024)`, `2=(MEDIUM, 4096)`, `3=(HIGH, 16384)`; higher numbers saturate to the highest maintained row.
 - Other Gemini models: `0=thinkingBudget 0`, `1=512`, `2=2048`, `3=4096`, `4=8192`, `5=16384`; higher numbers saturate to `16384`.
 

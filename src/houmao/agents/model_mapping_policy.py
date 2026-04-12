@@ -24,6 +24,23 @@ from houmao.agents.model_selection import ModelConfig
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
 _GEMINI_SETTINGS_PATH = Path(".gemini") / "settings.json"
+_CODEX_CURRENT_CODING_MODEL_PREFIXES = (
+    "gpt-5.4",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+)
+_CODEX_CURRENT_CODING_MODEL_POSITIVE_VALUES = ("low", "medium", "high", "xhigh")
+_CODEX_REASONING_LADDERS_BY_MODEL_PREFIX = (
+    (
+        _CODEX_CURRENT_CODING_MODEL_PREFIXES,
+        None,
+        _CODEX_CURRENT_CODING_MODEL_POSITIVE_VALUES,
+    ),
+)
+_CODEX_FALLBACK_REASONING_LADDER = (
+    None,
+    _CODEX_CURRENT_CODING_MODEL_POSITIVE_VALUES,
+)
 
 
 @dataclass(frozen=True)
@@ -363,63 +380,67 @@ def _resolve_reasoning_ladder(
         }
 
     if tool == "codex":
-        return {
-            "off_preset": (
-                _native_setting(
-                    "model_reasoning_effort",
-                    "none",
-                    surface="toml",
-                    path=_CODEX_CONFIG_FILENAME,
-                ),
-            ),
-            "positive_presets": (
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "minimal",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "low",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "medium",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "high",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "model_reasoning_effort",
-                        "xhigh",
-                        surface="toml",
-                        path=_CODEX_CONFIG_FILENAME,
-                    ),
-                ),
-            ),
-        }
+        return _resolve_codex_reasoning_ladder(model_name=model_name)
 
     if tool == "gemini":
         return _resolve_gemini_reasoning_ladder(model_name=model_name)
 
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
+
+
+def _resolve_codex_reasoning_ladder(
+    *,
+    model_name: str | None,
+) -> dict[str, Any]:
+    """Resolve one maintained Codex reasoning preset ladder."""
+
+    for prefixes, off_value, positive_values in _CODEX_REASONING_LADDERS_BY_MODEL_PREFIX:
+        if _model_name_matches_prefix(model_name, prefixes):
+            return _codex_reasoning_ladder(
+                off_value=off_value,
+                positive_values=positive_values,
+            )
+
+    off_value, positive_values = _CODEX_FALLBACK_REASONING_LADDER
+    return _codex_reasoning_ladder(
+        off_value=off_value,
+        positive_values=positive_values,
+    )
+
+
+def _codex_reasoning_ladder(
+    *,
+    off_value: str | None,
+    positive_values: tuple[str, ...],
+) -> dict[str, Any]:
+    """Build one Codex reasoning ladder from native effort values."""
+
+    off_preset = (
+        (
+            _native_setting(
+                "model_reasoning_effort",
+                off_value,
+                surface="toml",
+                path=_CODEX_CONFIG_FILENAME,
+            ),
+        )
+        if off_value is not None
+        else None
+    )
+    return {
+        "off_preset": off_preset,
+        "positive_presets": tuple(
+            (
+                _native_setting(
+                    "model_reasoning_effort",
+                    value,
+                    surface="toml",
+                    path=_CODEX_CONFIG_FILENAME,
+                ),
+            )
+            for value in positive_values
+        ),
+    }
 
 
 def _resolve_gemini_reasoning_ladder(
@@ -567,6 +588,15 @@ def _claude_model_supports_max(model_name: str | None) -> bool:
         return False
     lowered = model_name.lower()
     return "opus-4-6" in lowered
+
+
+def _model_name_matches_prefix(model_name: str | None, prefixes: tuple[str, ...]) -> bool:
+    """Return whether one model name matches any maintained model-family prefix."""
+
+    if model_name is None:
+        return False
+    lowered = model_name.lower()
+    return any(lowered.startswith(prefix) for prefix in prefixes)
 
 
 def _is_gemini_3_model(model_name: str | None) -> bool:

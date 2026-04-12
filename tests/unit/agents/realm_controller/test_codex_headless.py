@@ -268,7 +268,7 @@ def test_codex_headless_passes_execution_model_as_cli_config_overrides(
         "-c",
         "developer_instructions=role prompt",
         '--config=model="gpt-5.4-mini"',
-        '--config=model_reasoning_effort="low"',
+        '--config=model_reasoning_effort="medium"',
         "exec",
         "--json",
         "hello world",
