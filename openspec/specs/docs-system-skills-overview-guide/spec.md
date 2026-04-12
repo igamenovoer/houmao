@@ -11,7 +11,7 @@ The docs site SHALL include a getting-started guide at `docs/getting-started/sys
 That guide SHALL list every system skill currently shipped under `src/houmao/agents/assets/system_skills/`. At minimum, that list SHALL include:
 
 - `houmao-project-mgr` — project overlay lifecycle, project layout explanation, project-aware command effects, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing,
-- `houmao-specialist-mgr` — specialist authoring and specialist-scoped launch/stop entry,
+- `houmao-specialist-mgr` — specialist authoring (create and set/edit), inspection, removal, and specialist-scoped launch/stop entry,
 - `houmao-credential-mgr` — dedicated credential management for project overlays and plain agent-definition directories,
 - `houmao-agent-definition` — low-level role and recipe administration,
 - `houmao-agent-instance` — managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `cleanup`),
