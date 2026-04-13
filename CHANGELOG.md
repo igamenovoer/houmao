@@ -4,6 +4,14 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.6.5] - 2026-04-13
+
+### Added
+
+- **Mailbox `clear-messages` command**: `houmao-mgr mailbox clear-messages` (and `project mailbox clear-messages`) clears delivered filesystem mail, message projections, mailbox-local message/thread state, and managed-copy attachments while preserving mailbox registrations and account directories. Supports `--dry-run` preview and `--yes` for non-interactive confirmation.
+- **Mailbox `export` command**: `houmao-mgr mailbox export` (and `project mailbox export`) exports selected mailbox accounts and indexed messages into a portable archive directory with `manifest.json`, canonical messages, account metadata, and managed-copy attachments. Requires `--output-dir` plus explicit account scope (`--all-accounts` or `--address`). Default `--symlink-mode materialize` writes regular files with no symlinks.
+- **`houmao-mailbox-mgr` system skill updated**: skill actions now cover `clear-messages` and `export` verbs alongside existing mailbox lifecycle operations.
+
 ## [0.6.4] - 2026-04-13
 
 ### Added
@@ -240,6 +248,7 @@ Release superseded by 0.6.4 (missing changelog update).
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.6.5]: https://github.com/igamenovoer/houmao/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/igamenovoer/houmao/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/igamenovoer/houmao/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/igamenovoer/houmao/compare/v0.6.1...v0.6.2
