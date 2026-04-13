@@ -4165,6 +4165,8 @@ def _gateway_tui_tracking_timing_cli_args(
         str(timings.unknown_to_stalled_timeout_seconds),
         "--tui-stale-active-recovery-seconds",
         str(timings.stale_active_recovery_seconds),
+        "--tui-final-stable-active-recovery-seconds",
+        str(timings.final_stable_active_recovery_seconds),
     )
 
 

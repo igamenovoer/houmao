@@ -55,7 +55,7 @@ stateDiagram-v2
     ready --> active : explicit input anchor armed<br/>or active evidence detected
     ready --> unknown : diagnostics degraded<br/>(error / tui_down / unavailable)<br/>or ambiguous interactive surface
 
-    active --> ready : turn completed —<br/>success settled +<br/>ready_posture=yes<br/>OR interrupted/failure +<br/>ready surface<br/>OR host stale-active recovery
+    active --> ready : turn completed —<br/>success settled +<br/>ready_posture=yes<br/>OR interrupted/failure +<br/>ready surface<br/>OR host active recovery
     active --> unknown : diagnostics degraded<br/>(error / tui_down / unavailable)
 
     note right of unknown : Not an error —<br/>means the system<br/>cannot confidently classify<br/>the current posture

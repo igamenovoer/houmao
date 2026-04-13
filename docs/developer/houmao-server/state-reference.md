@@ -175,7 +175,7 @@ Whether the visible surface looks ready for an immediate submit — the prompt i
 
 **Derivation:** Raw-text detector profiles emit `yes` when a prompt is visible, the surface is not actively working, and no ambiguous overlay is present. Claude and Codex use their own prompt/activity heuristics; fallback profiles stay conservative.
 
-In the live server contract, `ready_posture=yes` may also appear after host-owned stale-active recovery for an unanchored session that stayed submit-ready through the configured recovery window. That recovery corrects a stuck active posture; it is not itself a success verdict.
+In the live server contract, `ready_posture=yes` may also appear after host-owned stale-active recovery for an unanchored session that stayed submit-ready through the configured recovery window, or after final stable-active recovery for a stable false-active surface with independent idle/freeform prompt-ready evidence. These recoveries correct stuck active posture; they are not success verdicts.
 
 **Operational implications:** The terminal is ready to receive and begin processing a new prompt. This is the ideal state for sending input via `POST /houmao/terminals/{terminal_id}/input`.
 
@@ -220,7 +220,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** The TUI appears ready for another turn — no active work is in progress, and the surface looks ready for submission.
 
-**Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server can also publish `ready` after stale-active recovery when an unanchored session has remained submit-ready for the configured recovery window without stronger live evidence.
+**Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server can also publish `ready` after stale-active recovery when an unanchored session has remained submit-ready for the configured recovery window without stronger live evidence, or after the final stable-active recovery window when raw TUI evidence and published state are unchanged while parser evidence remains idle/freeform and input-ready.
 
 **Operational implications:** It is safe to send a new prompt via `POST /houmao/terminals/{terminal_id}/input`. The terminal is idle and waiting for the next instruction.
 

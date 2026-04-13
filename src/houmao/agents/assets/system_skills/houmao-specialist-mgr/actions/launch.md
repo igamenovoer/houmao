@@ -39,7 +39,7 @@ Common optional inputs:
 - `--no-gateway`
 - `--gateway-port`
 - `--gateway-background` only when the user explicitly requests detached background gateway execution
-- `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, or `--gateway-tui-stale-active-recovery-seconds` only when the user explicitly requests custom gateway TUI tracking timing
+- `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, `--gateway-tui-stale-active-recovery-seconds`, or `--gateway-tui-final-stable-active-recovery-seconds` only when the user explicitly requests custom gateway TUI tracking timing
 - `--workdir`
 - `--env-set NAME=value|NAME`
 - `--mail-transport filesystem|email`

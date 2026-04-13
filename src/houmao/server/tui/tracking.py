@@ -93,6 +93,14 @@ class _StaleActiveRecoveryCandidate:
     active_reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _FinalStableActiveRecoveryCandidate:
+    """Final recovery candidate for a stable false-active tracked state."""
+
+    signature: str
+    active_reasons: tuple[str, ...]
+
+
 class LiveSessionTracker:
     """Own one tracked session's in-memory live state and recent history."""
 
@@ -106,6 +114,7 @@ class LiveSessionTracker:
         completion_stability_seconds: float,
         unknown_to_stalled_timeout_seconds: float,
         stale_active_recovery_seconds: float = 5.0,
+        final_stable_active_recovery_seconds: float = 20.0,
         tracking_debug_sink: TrackingDebugSink | None = None,
     ) -> None:
         """Initialize the live session tracker."""
@@ -117,6 +126,7 @@ class LiveSessionTracker:
         self.m_completion_stability_seconds = completion_stability_seconds
         self.m_unknown_to_stalled_timeout_seconds = unknown_to_stalled_timeout_seconds
         self.m_stale_active_recovery_seconds = stale_active_recovery_seconds
+        self.m_final_stable_active_recovery_seconds = final_stable_active_recovery_seconds
         self.m_tracking_debug_sink = tracking_debug_sink
         self.m_lock = threading.RLock()
         self.m_scheduler = HistoricalScheduler()
@@ -160,11 +170,15 @@ class LiveSessionTracker:
         self.m_pending_stale_active_recovery: SerialDisposable = SerialDisposable()
         self.m_pending_stale_active_recovery_signature: str | None = None
         self.m_recovered_stale_active_signature: str | None = None
+        self.m_pending_final_stable_active_recovery: SerialDisposable = SerialDisposable()
+        self.m_pending_final_stable_active_recovery_signature: str | None = None
+        self.m_recovered_final_stable_active_signature: str | None = None
         self.m_last_state = _build_initial_state(
             identity=identity,
             completion_stability_seconds=completion_stability_seconds,
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             stale_active_recovery_seconds=stale_active_recovery_seconds,
+            final_stable_active_recovery_seconds=final_stable_active_recovery_seconds,
         )
         self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
 
@@ -228,6 +242,7 @@ class LiveSessionTracker:
         ):
             return False
         self._cancel_stale_active_recovery_locked(reason="tracker_rebuilt")
+        self._cancel_final_stable_active_recovery_locked(reason="tracker_rebuilt")
         self.m_tracker_session.close()
         self.m_tracker_app_id = tracker_app_id
         self.m_tracker_observed_tool_version = observed_tool_version
@@ -364,6 +379,7 @@ class LiveSessionTracker:
                 observed_tool_version=self.m_identity.observed_tool_version,
             )
             self._cancel_stale_active_recovery_locked(reason="input_submitted")
+            self._cancel_final_stable_active_recovery_locked(reason="input_submitted")
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
             self.m_tracker_session.on_input_submitted()
@@ -658,6 +674,58 @@ class LiveSessionTracker:
                         ),
                     },
                 )
+            final_stable_active_candidate = _build_final_stable_active_recovery_candidate(
+                parsed_surface=parsed_surface,
+                diagnostics=diagnostics,
+                surface=surface,
+                turn=turn,
+                tracker_state=tracker_state,
+                raw_surface_signature=_raw_surface_signature(output_text),
+            )
+            final_stable_active_recovered = self._update_final_stable_active_recovery_locked(
+                candidate=final_stable_active_candidate,
+                monotonic_ts=monotonic_ts,
+                cycle_seq=cycle_seq,
+            )
+            if final_stable_active_recovered:
+                surface = surface.model_copy(update={"ready_posture": "yes"})
+                turn = turn.model_copy(update={"phase": "ready"})
+                operator_state = operator_state.model_copy(
+                    update={
+                        "status": "ready",
+                        "readiness_state": "ready",
+                        "detail": (
+                            "Tracker recovered a stable false-active phase after "
+                            f"{self.m_final_stable_active_recovery_seconds:.1f} seconds of "
+                            "unchanged prompt-ready posture."
+                        ),
+                        "updated_at_utc": observed_at_utc,
+                    }
+                )
+                self._expire_turn_anchor_for_final_recovery_locked(
+                    observed_at_utc=observed_at_utc,
+                    monotonic_ts=monotonic_ts,
+                    cycle_seq=cycle_seq,
+                )
+                lifecycle_authority = self._current_lifecycle_authority()
+                self._emit_debug(
+                    stream="tracker-recovery",
+                    event_type="final_stable_active_recovery_applied",
+                    monotonic_ts=monotonic_ts,
+                    cycle_seq=cycle_seq,
+                    data={
+                        "recovery_signature_sha1": _sha1_text(
+                            final_stable_active_candidate.signature
+                            if final_stable_active_candidate is not None
+                            else None
+                        ),
+                        "active_reasons": list(
+                            final_stable_active_candidate.active_reasons
+                            if final_stable_active_candidate is not None
+                            else ()
+                        ),
+                    },
+                )
             stability = self._build_stability(
                 diagnostics=diagnostics,
                 parsed_surface=parsed_surface,
@@ -690,6 +758,9 @@ class LiveSessionTracker:
                     unknown_to_stalled_timeout_seconds=self.m_unknown_to_stalled_timeout_seconds,
                     completion_stability_seconds=self.m_completion_stability_seconds,
                     stale_active_recovery_seconds=self.m_stale_active_recovery_seconds,
+                    final_stable_active_recovery_seconds=(
+                        self.m_final_stable_active_recovery_seconds
+                    ),
                 ),
                 lifecycle_authority=lifecycle_authority,
                 stability=stability,
@@ -941,6 +1012,109 @@ class LiveSessionTracker:
             },
         )
 
+    def _update_final_stable_active_recovery_locked(
+        self,
+        *,
+        candidate: _FinalStableActiveRecoveryCandidate | None,
+        monotonic_ts: float,
+        cycle_seq: int,
+    ) -> bool:
+        """Refresh final stable-active recovery timing and return whether recovery applies."""
+
+        if candidate is None:
+            self._cancel_final_stable_active_recovery_locked(
+                reason="candidate_cleared",
+                monotonic_ts=monotonic_ts,
+                cycle_seq=cycle_seq,
+            )
+            return False
+        if self.m_recovered_final_stable_active_signature == candidate.signature:
+            return True
+        if self.m_pending_final_stable_active_recovery_signature == candidate.signature:
+            return False
+        self._cancel_final_stable_active_recovery_locked(
+            reason="candidate_replaced",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=cycle_seq,
+        )
+        self.m_pending_final_stable_active_recovery_signature = candidate.signature
+        self.m_pending_final_stable_active_recovery.disposable = reactivex.timer(
+            timedelta(seconds=self.m_final_stable_active_recovery_seconds),
+            scheduler=self.m_scheduler,
+        ).subscribe(
+            lambda _unused: self._handle_final_stable_active_recovery_timer(
+                candidate_signature=candidate.signature
+            )
+        )
+        self._emit_debug(
+            stream="tracker-recovery",
+            event_type="final_stable_active_recovery_armed",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=cycle_seq,
+            data={
+                "recovery_signature_sha1": _sha1_text(candidate.signature),
+                "active_reasons": list(candidate.active_reasons),
+                "recovery_seconds": self.m_final_stable_active_recovery_seconds,
+            },
+        )
+        return False
+
+    def _handle_final_stable_active_recovery_timer(self, *, candidate_signature: str) -> None:
+        """Mark one final stable-active candidate signature as recovered."""
+
+        with self.m_lock:
+            if self.m_pending_final_stable_active_recovery_signature != candidate_signature:
+                self._emit_debug(
+                    stream="tracker-recovery",
+                    event_type="final_stable_active_recovery_timer_skipped",
+                    monotonic_ts=self.m_last_scheduler_monotonic,
+                    data={
+                        "reason": "candidate_signature_mismatch",
+                        "pending_signature_sha1": _sha1_text(
+                            self.m_pending_final_stable_active_recovery_signature
+                        ),
+                        "timer_signature_sha1": _sha1_text(candidate_signature),
+                    },
+                )
+                return
+            self.m_pending_final_stable_active_recovery_signature = None
+            self.m_recovered_final_stable_active_signature = candidate_signature
+            self._emit_debug(
+                stream="tracker-recovery",
+                event_type="final_stable_active_recovery_timer_fired",
+                monotonic_ts=self.m_last_scheduler_monotonic,
+                data={"recovery_signature_sha1": _sha1_text(candidate_signature)},
+            )
+
+    def _cancel_final_stable_active_recovery_locked(
+        self,
+        *,
+        reason: str,
+        monotonic_ts: float | None = None,
+        cycle_seq: int | None = None,
+    ) -> None:
+        """Cancel or clear final stable-active recovery state."""
+
+        had_pending = self.m_pending_final_stable_active_recovery_signature is not None
+        had_recovered = self.m_recovered_final_stable_active_signature is not None
+        self.m_pending_final_stable_active_recovery.dispose()
+        self.m_pending_final_stable_active_recovery = SerialDisposable()
+        self.m_pending_final_stable_active_recovery_signature = None
+        self.m_recovered_final_stable_active_signature = None
+        if not had_pending and not had_recovered:
+            return
+        self._emit_debug(
+            stream="tracker-recovery",
+            event_type="final_stable_active_recovery_cleared",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=cycle_seq,
+            data={
+                "reason": reason,
+                "had_pending": had_pending,
+                "had_recovered": had_recovered,
+            },
+        )
+
     def _build_stability(
         self,
         *,
@@ -1097,6 +1271,37 @@ class LiveSessionTracker:
             data={"lost_at_utc": lost_at_utc, "reason": reason},
         )
 
+    def _expire_turn_anchor_for_final_recovery_locked(
+        self,
+        *,
+        observed_at_utc: str,
+        monotonic_ts: float,
+        cycle_seq: int,
+    ) -> None:
+        """Expire the active turn anchor when final stable-active recovery fires."""
+
+        if self.m_active_turn_anchor is None:
+            return
+        previous_anchor_id = self.m_active_turn_anchor.anchor_id
+        self._dispose_completion_subscription()
+        self.m_active_turn_anchor = None
+        self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
+        self.m_last_published_turn_anchor_id = None
+        self.m_last_completion_snapshot = None
+        self.m_anchor_should_expire_after_publish = False
+        self.m_lost_turn_anchor = _LostTurnAnchor(
+            lost_at_utc=observed_at_utc,
+            reason="final_stable_active_recovery",
+        )
+        self._emit_debug(
+            stream="tracker-anchor",
+            event_type="turn_anchor_expired_by_final_stable_active_recovery",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=cycle_seq,
+            anchor_id=previous_anchor_id,
+            data={"lost_at_utc": observed_at_utc},
+        )
+
     def _expire_turn_anchor_after_publish(
         self,
         *,
@@ -1138,6 +1343,7 @@ def _build_initial_state(
     completion_stability_seconds: float,
     unknown_to_stalled_timeout_seconds: float,
     stale_active_recovery_seconds: float,
+    final_stable_active_recovery_seconds: float,
 ) -> HoumaoTerminalStateResponse:
     """Return the initial unknown state for a newly admitted tracked session."""
 
@@ -1186,6 +1392,7 @@ def _build_initial_state(
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             completion_stability_seconds=completion_stability_seconds,
             stale_active_recovery_seconds=stale_active_recovery_seconds,
+            final_stable_active_recovery_seconds=final_stable_active_recovery_seconds,
         ),
         lifecycle_authority=HoumaoLifecycleAuthorityMetadata(
             completion_authority="unanchored_background",
@@ -1612,6 +1819,61 @@ def _build_stale_active_recovery_candidate(
         signature=hashlib.sha1(signature_payload.encode("utf-8")).hexdigest(),
         active_reasons=active_reasons,
     )
+
+
+def _build_final_stable_active_recovery_candidate(
+    *,
+    parsed_surface: HoumaoParsedSurface | None,
+    diagnostics: HoumaoTrackedDiagnostics,
+    surface: HoumaoTrackedSurface,
+    turn: HoumaoTrackedTurn,
+    tracker_state: TrackedStateSnapshot,
+    raw_surface_signature: str | None,
+) -> _FinalStableActiveRecoveryCandidate | None:
+    """Return one final stable-active recovery candidate for a prompt-ready false active."""
+
+    if parsed_surface is None or diagnostics.availability != "available":
+        return None
+    if not _is_submit_ready(parsed_surface):
+        return None
+    if surface.accepting_input != "yes" or surface.editing_input != "no":
+        return None
+    if turn.phase != "active":
+        return None
+    active_reasons = tracker_state.active_reasons
+    signature_payload = json.dumps(
+        {
+            "raw_surface_signature": raw_surface_signature,
+            "tracker_stability_signature": tracker_state.stability_signature,
+            "parsed_surface": {
+                "availability": parsed_surface.availability,
+                "business_state": parsed_surface.business_state,
+                "input_mode": parsed_surface.input_mode,
+                "ui_context": parsed_surface.ui_context,
+                "normalized_projection_text": parsed_surface.normalized_projection_text,
+            },
+            "surface": surface.model_dump(mode="json"),
+            "turn_phase": turn.phase,
+            "last_turn_result": tracker_state.last_turn_result,
+            "last_turn_source": tracker_state.last_turn_source,
+            "active_reasons": list(active_reasons),
+            "notes": list(tracker_state.notes),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return _FinalStableActiveRecoveryCandidate(
+        signature=hashlib.sha1(signature_payload.encode("utf-8")).hexdigest(),
+        active_reasons=active_reasons,
+    )
+
+
+def _raw_surface_signature(output_text: str | None) -> str | None:
+    """Return an internal raw-surface signature for recovery stability."""
+
+    if output_text is None:
+        return None
+    return hashlib.sha1(output_text.encode("utf-8")).hexdigest()
 
 
 def _message_excerpt(message: str) -> str | None:

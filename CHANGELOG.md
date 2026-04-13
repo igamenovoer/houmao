@@ -4,6 +4,66 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.6.4] - 2026-04-13
+
+### Added
+
+- **Final stable-active recovery**: new 20-second recovery path that clears stuck active TUI posture when raw evidence and published state stop changing while independent parser evidence confirms idle/freeform prompt-ready state, complementing the existing 5-second stale-active recovery for broader false-positive correction.
+- **`--gateway-tui-final-stable-active-recovery-seconds`** CLI flag for tuning the final recovery window at attach and launch time.
+
+### Changed
+
+- **Simplified Claude Code activity detection**: replaced fragile text-matching patterns (`THINKING_PATTERNS`, `ACTIVE_TOOL_PATTERNS`) with spinner-line regex for more reliable activity detection.
+
+## [0.6.3] - 2026-04-13
+
+Release superseded by 0.6.4 (missing changelog update).
+
+## [0.6.2] - 2026-04-12
+
+### Fixed
+
+- **Claude model selection via CLI args**: pass Claude model name and reasoning effort through CLI arguments (`--model`, `--reasoning-effort`) on launch instead of relying solely on environment variables, matching the Codex CLI override pattern.
+
+## [0.6.1] - 2026-04-12
+
+### Fixed
+
+- **Claude Code stale scrollback active-state detection**: fixed false-positive active state when scrollback contained stale tool-use patterns but the visible surface showed idle.
+
+### Added
+
+- **Gateway TUI tracking timings**: expose gateway-owned TUI tracking timing metadata through `houmao-mgr agents gateway tui state`, the managed-agent API, and the `houmao-server` pair surface.
+- **Easy instance launch `--gateway-tui-tracking` flag**: opt into gateway TUI state tracking at launch time through `project easy instance launch`.
+
+### Changed
+
+- **Foreground gateway skill guidance clarified**: system skill action docs for `houmao-agent-gateway`, `houmao-agent-instance`, `houmao-specialist-mgr`, `houmao-touring`, and `houmao-adv-usage-pattern` now clarify foreground gateway lifecycle expectations.
+- **Specs synced**: updated OpenSpec specs for TUI state tracking, signal profiles, gateway, system skills, and easy CLI surfaces.
+
+## [0.6.0] - 2026-04-12
+
+### Added
+
+- **Per-section managed-header policy**: the managed prompt header now has five independently controllable sections (`identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, `mail-ack`) with per-section defaults, stored profile policy, and one-shot CLI overrides via `--managed-header-section SECTION=enabled|disabled`.
+- **Easy specialist patch command** (`project easy specialist set`): patch an existing specialist's prompt, skills, setup, credential, model, reasoning level, prompt mode, and env without recreating it.
+- **Codex CLI config override preference layer**: Houmao-managed Codex launches now pass final `-c` override arguments for model, reasoning effort, provider selection, and unattended posture so project-local `.codex/config.toml` cannot override Houmao-resolved preferences.
+- **Internals graph tools** (`houmao-mgr internals graph`): NetworkX-backed graph helpers for loop plan authoring, structural analysis, packet validation, slicing, and Mermaid rendering.
+- **Pairwise-v2 routing packets**: prestart routing-packet model for `houmao-agent-loop-pairwise-v2` with `initialize` strategy support.
+- **Generic loop planner skill** (`houmao-agent-loop-generic`): decompose generic multi-agent loop graphs into typed pairwise and relay components.
+- **Mailbox preferred in pairwise loop skill**: `houmao-agent-loop-pairwise` now states mailbox as the preferred communication channel and requires gateway mail-notifier preflight (interval 5s default) before start.
+
+### Changed
+
+- **Launch profile workflows improved**: expanded easy profile and explicit launch profile editing surfaces with full patch-preserving `set` commands and clear flags.
+- **Codex reasoning ladder revised**: current Codex coding models (`gpt-5.4`, `gpt-5.3-codex`, `gpt-5.2-codex`) use `1=low`, `2=medium`, `3=high`, `4=xhigh`; `minimal` projected only when the model ladder explicitly includes it.
+- **README and docs updated**: managed-header section architecture, specialist set verb, Codex CLI override hook, and loop authoring guide all reflected across README, getting-started guides, CLI reference, and system-skills overview.
+- **Agent-driven workflow positioned as recommended**: README Step 1 leads with system-skills install and agent-driven conversation.
+
+### Notes
+
+- This release bumps the minor segment for the per-section managed-header policy, the new specialist set command, the Codex override preference layer, the graph tools, and the generic loop planner skill.
+
 ## [0.5.1] - 2026-04-10
 
 ### Added
@@ -180,6 +240,15 @@ The entries below summarize user-visible changes from the tagged release history
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.6.4]: https://github.com/igamenovoer/houmao/compare/v0.6.3...v0.6.4
+[0.6.3]: https://github.com/igamenovoer/houmao/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/igamenovoer/houmao/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/igamenovoer/houmao/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/igamenovoer/houmao/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/igamenovoer/houmao/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/igamenovoer/houmao/compare/v0.4.2...v0.5.0
+[0.4.2]: https://github.com/igamenovoer/houmao/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/igamenovoer/houmao/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/igamenovoer/houmao/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/igamenovoer/houmao/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/igamenovoer/houmao/releases/tag/v0.1.0

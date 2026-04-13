@@ -1375,6 +1375,7 @@ The timing configuration SHALL include:
 - completion stability seconds
 - unknown-to-stalled timeout seconds
 - stale-active recovery seconds
+- final stable-active recovery seconds
 
 When a timing value is omitted, the gateway attach flow SHALL preserve the existing default or previously persisted desired value for that field.
 
@@ -1389,7 +1390,7 @@ The gateway reset-context wait and poll constants SHALL remain unaffected by thi
 #### Scenario: Explicit attach timings configure gateway-owned TUI tracking
 - **WHEN** an operator attaches a gateway to a TUI-backed managed session with explicit gateway TUI timing overrides
 - **THEN** the gateway service starts its TUI tracking runtime with those resolved timing values
-- **AND THEN** the gateway-owned TUI state lifecycle metadata reflects the configured completion stability, unknown-to-stalled, and stale-active recovery values
+- **AND THEN** the gateway-owned TUI state lifecycle metadata reflects the configured completion stability, unknown-to-stalled, stale-active recovery, and final stable-active recovery values
 
 #### Scenario: Later attach reuses persisted gateway TUI timings
 - **WHEN** a gateway attach succeeds with explicit gateway TUI timing overrides
@@ -1403,6 +1404,5 @@ The gateway reset-context wait and poll constants SHALL remain unaffected by thi
 
 #### Scenario: Gateway reset-context timing remains separate
 - **WHEN** a gateway is attached with gateway TUI tracking timing overrides
-- **THEN** those overrides affect continuous TUI tracking and stale-active recovery
+- **THEN** those overrides affect continuous TUI tracking, stale-active recovery, and final stable-active recovery
 - **AND THEN** they do not change the gateway reset-context wait or reset-context polling constants
-

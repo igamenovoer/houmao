@@ -25,7 +25,7 @@ flowchart TD
     TSS --> HOST --> PUB
 ```
 
-`TrackedStateSnapshot` is the shared tracker output. Server and gateway hosts publish a larger public model on top of it by merging parsed-surface diagnostics, lifecycle timing sidecars, visible-state stability, and a small number of host-owned corrections such as stale-active recovery.
+`TrackedStateSnapshot` is the shared tracker output. Server and gateway hosts publish a larger public model on top of it by merging parsed-surface diagnostics, lifecycle timing sidecars, visible-state stability, and a small number of host-owned corrections such as stale-active and final stable-active recovery.
 
 ## TurnPhase State Machine
 
@@ -35,7 +35,7 @@ stateDiagram-v2
     unknown --> ready : ready_posture=yes +<br/>no active evidence
     unknown --> active : explicit input /<br/>active evidence
     ready --> active : prompt sent /<br/>activity resumes
-    active --> ready : success settled /<br/>interrupted / failure /<br/>host stale-active recovery
+    active --> ready : success settled /<br/>interrupted / failure /<br/>host active recovery
     active --> unknown : probe error
 ```
 

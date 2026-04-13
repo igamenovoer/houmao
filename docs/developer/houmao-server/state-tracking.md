@@ -46,7 +46,7 @@ Server-owned lifecycle sidecars still remain available for consumers that need t
 - `lifecycle_timing`
 - `lifecycle_authority`
 
-`lifecycle_timing` now includes the configured stale-active recovery window in addition to readiness unknown and anchored completion timing.
+`lifecycle_timing` now includes the configured stale-active and final stable-active recovery windows in addition to readiness unknown and anchored completion timing.
 
 Those lower-level fields are diagnostic evidence, not the primary consumer-facing lifecycle vocabulary.
 
@@ -125,12 +125,13 @@ That split prevents stale historical `• Working (... esc to interrupt)` rows f
 
 Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge.
 
-There is one host-owned correction on top of the shared tracker: if an unanchored session stays submit-ready for the configured stale-active recovery window, the server can clear a stale `active` posture to `ready` even when the shared tracker is still stuck on stale `status_row` evidence. That recovery:
+There are two host-owned corrections on top of the shared tracker. The narrow stale-active correction clears an unanchored session after it stays submit-ready for the configured stale-active recovery window while the shared tracker is still stuck on stale `status_row` evidence. The final stable-active correction uses a longer default 20-second window and clears a stable false-active posture when raw TUI evidence and published state stop changing while independent parser evidence still says the prompt is idle/freeform and input-ready. These recoveries:
 
-- requires parsed submit-ready posture plus `surface.accepting_input=yes` and `surface.editing_input=no`
-- does not fire for explicit-input anchored turns
-- does not fire for stronger active reasons such as transcript growth
-- does not manufacture `last_turn.result=success`
+- require parsed submit-ready posture plus `surface.accepting_input=yes` and `surface.editing_input=no`
+- keep the 5-second narrow recovery limited to unanchored stale `status_row` evidence
+- allow the final 20-second recovery to correct `surface.ready_posture=no`
+- stop anchored completion monitoring when final recovery expires a stale active anchor
+- do not manufacture `last_turn.result=success`
 
 ### Last Turn
 
@@ -190,7 +191,7 @@ Any change resets `stable_since_utc` and `stable_for_seconds`.
 
 The low-level transport/process/parse fields remain attached for debugging and coarse managed-agent availability projection.
 
-Because stale-active recovery changes the published `surface` / `turn` fields, it also resets visible-state stability just like any other public-state change.
+Because stale-active and final stable-active recovery change the published `surface` / `turn` fields, they also reset visible-state stability just like any other public-state change.
 
 ## Maintainer Validation
 

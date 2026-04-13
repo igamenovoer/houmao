@@ -1370,7 +1370,8 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
             request_model=HoumaoManagedAgentGatewayAttachRequest(
                 execution_mode="detached_process",
                 tui_tracking_timings=GatewayTuiTrackingTimingOverridesV1(
-                    stale_active_recovery_seconds=6.0
+                    stale_active_recovery_seconds=6.0,
+                    final_stable_active_recovery_seconds=18.0,
                 ),
             ),
         ).request_admission
@@ -1514,7 +1515,8 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
             HoumaoManagedAgentGatewayAttachRequest(
                 execution_mode="detached_process",
                 tui_tracking_timings=GatewayTuiTrackingTimingOverridesV1(
-                    stale_active_recovery_seconds=6.0
+                    stale_active_recovery_seconds=6.0,
+                    final_stable_active_recovery_seconds=18.0,
                 ),
             ),
         )

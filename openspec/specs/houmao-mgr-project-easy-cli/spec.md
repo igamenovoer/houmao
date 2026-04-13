@@ -911,6 +911,7 @@ The launch surface SHALL expose the timing overrides as:
 - `--gateway-tui-completion-stability-seconds`
 - `--gateway-tui-unknown-to-stalled-timeout-seconds`
 - `--gateway-tui-stale-active-recovery-seconds`
+- `--gateway-tui-final-stable-active-recovery-seconds`
 
 When launch-time gateway auto-attach is enabled, the command SHALL pass any supplied gateway TUI timing overrides to the delegated managed-agent launch and gateway attach path.
 
@@ -923,6 +924,12 @@ Supplying gateway TUI timing overrides SHALL NOT rewrite the stored specialist o
 - **AND WHEN** launch-time gateway auto-attach is enabled
 - **THEN** the delegated managed-agent launch receives a gateway TUI tracking timing override for completion stability of `2.5` seconds
 - **AND THEN** the attached gateway uses that override for gateway-owned TUI tracking
+
+#### Scenario: Easy launch passes final stable-active recovery timing override
+- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name repo-research-1 --gateway-tui-final-stable-active-recovery-seconds 30`
+- **AND WHEN** launch-time gateway auto-attach is enabled
+- **THEN** the delegated managed-agent launch receives a gateway TUI tracking timing override for final stable-active recovery of `30` seconds
+- **AND THEN** the attached gateway uses that override for final stable-active recovery
 
 #### Scenario: Easy launch timing override does not mutate profile defaults
 - **WHEN** an operator launches from easy profile `alice` with one or more `--gateway-tui-*` timing overrides

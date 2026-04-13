@@ -2233,6 +2233,7 @@ def test_attach_gateway_sends_tui_timing_overrides_to_pair_client() -> None:
     timings = GatewayTuiTrackingTimingOverridesV1(
         watch_poll_interval_seconds=0.25,
         stale_active_recovery_seconds=6.0,
+        final_stable_active_recovery_seconds=18.0,
     )
     target = ManagedAgentTarget(
         mode="server",
