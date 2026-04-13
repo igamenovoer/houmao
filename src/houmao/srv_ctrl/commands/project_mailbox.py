@@ -162,6 +162,93 @@ def cleanup_project_mailbox_command(
     )
 
 
+@project_mailbox_group.command(name="clear-messages")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview delivered-message clearing without deleting mail.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    help="Confirm delivered-message clearing non-interactively.",
+)
+def clear_project_mailbox_messages_command(dry_run: bool, yes: bool) -> None:
+    """Clear delivered messages under `mailbox/` while preserving registrations."""
+
+    if not dry_run:
+        confirm_destructive_action(
+            prompt=(
+                "Clear all delivered messages from the selected project mailbox root while "
+                "preserving mailbox registrations?"
+            ),
+            yes=yes,
+            non_interactive_message=(
+                "Project mailbox message clearing would delete delivered messages. Rerun with "
+                "`--yes` to confirm non-interactively or use `--dry-run` to preview."
+            ),
+            cancelled_message="Project mailbox message clearing cancelled.",
+        )
+    roots = _ensure_project_mailbox_roots()
+    emit_cleanup_payload(
+        _project_mailbox_payload(
+            roots=roots,
+            payload=clear_mailbox_messages_at_root(
+                mailbox_root=roots.mailbox_root,
+                dry_run=dry_run,
+            ),
+        )
+    )
+
+
+@project_mailbox_group.command(name="export")
+@click.option(
+    "--output-dir",
+    required=True,
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help="New archive directory to create for the project mailbox export.",
+)
+@click.option(
+    "--all-accounts",
+    is_flag=True,
+    help="Export every registration row and every indexed canonical message.",
+)
+@click.option(
+    "--address",
+    "addresses",
+    multiple=True,
+    help="Full mailbox address to export; repeat for multiple selected accounts.",
+)
+@click.option(
+    "--symlink-mode",
+    type=click.Choice(("materialize", "preserve")),
+    default="materialize",
+    show_default=True,
+    help="Materialize symlinks by default, or preserve archive-internal projection symlinks.",
+)
+def export_project_mailbox_command(
+    output_dir: Path,
+    all_accounts: bool,
+    addresses: tuple[str, ...],
+    symlink_mode: str,
+) -> None:
+    """Export selected project mailbox state into a portable archive directory."""
+
+    roots = _resolve_existing_project_mailbox_roots()
+    emit(
+        _project_mailbox_payload(
+            roots=roots,
+            payload=export_mailbox_root(
+                mailbox_root=roots.mailbox_root,
+                output_dir=output_dir,
+                all_accounts=all_accounts,
+                addresses=addresses,
+                symlink_mode=symlink_mode,
+            ),
+        )
+    )
+
+
 @project_mailbox_group.group(name="accounts")
 def project_mailbox_accounts_group() -> None:
     """Inspect mailbox registrations under `mailbox/` in the selected overlay."""

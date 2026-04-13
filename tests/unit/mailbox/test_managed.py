@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -17,13 +18,16 @@ from houmao.mailbox.filesystem import (
 from houmao.mailbox.managed import (
     DeliveryRequest,
     DeregisterMailboxRequest,
+    MailboxExportRequest,
     ManagedMailboxOperationError,
     RegisterMailboxRequest,
     RepairRequest,
     StateUpdateRequest,
+    clear_mailbox_messages,
     cleanup_mailbox_registrations,
     deliver_message,
     deregister_mailbox,
+    export_mailbox_archive,
     register_mailbox,
     repair_mailbox_index,
     update_mailbox_state,
@@ -111,6 +115,14 @@ def _parse_script_stdout(stdout: str) -> dict[str, object]:
     output_lines = [line for line in stdout.splitlines() if line]
     assert len(output_lines) == 1
     payload = json.loads(output_lines[0])
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _read_export_manifest(output_dir: Path) -> dict[str, object]:
+    """Read an export manifest from one archive directory."""
+
+    payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
 
@@ -961,6 +973,454 @@ def test_deliver_message_routes_by_address_and_state_updates_use_active_registra
         address=recipient.address,
         message_id=request.message_id,
     ) == (1, 1, 0, 0)
+
+
+def test_clear_mailbox_messages_removes_mail_content_and_preserves_registrations(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    private_mailbox = tmp_path / "private-mailboxes" / recipient.address
+    external_attachment = tmp_path / "external" / "evidence.txt"
+    external_attachment.parent.mkdir(parents=True, exist_ok=True)
+    external_attachment.write_text("external\n", encoding="utf-8")
+    managed_attachment = paths.attachments_managed_dir / "managed-evidence.txt"
+    managed_attachment.write_text("managed\n", encoding="utf-8")
+
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=private_mailbox.resolve(),
+        ),
+    )
+
+    staged_message = paths.staging_dir / "pending-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T051600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T051600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T05:16:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Clear mailbox test",
+            "attachments": [
+                {
+                    "attachment_id": "att-path-ref",
+                    "kind": "path_ref",
+                    "path": str(external_attachment.resolve()),
+                    "media_type": "text/plain",
+                },
+                {
+                    "attachment_id": "att-managed",
+                    "kind": "managed_copy",
+                    "path": str(managed_attachment.resolve()),
+                    "media_type": "text/plain",
+                },
+            ],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+
+    canonical_path = paths.messages_dir / "2026-03-11" / f"{request.message_id}.md"
+    sender_projection = (
+        paths.mailbox_entry_path(sender.address) / "sent" / f"{request.message_id}.md"
+    )
+    recipient_projection = private_mailbox / "inbox" / f"{request.message_id}.md"
+    assert canonical_path.is_file()
+    assert sender_projection.is_symlink()
+    assert recipient_projection.is_symlink()
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=recipient.address,
+        message_id=request.message_id,
+    ) == (0, 0, 0, 0)
+
+    dry_run_result = clear_mailbox_messages(paths.root, dry_run=True)
+
+    planned_kinds = {record.artifact_kind for record in dry_run_result.planned}
+    assert {
+        "canonical_message",
+        "mailbox_projection",
+        "mailbox_local_state",
+        "managed_attachment",
+    }.issubset(planned_kinds)
+    assert canonical_path.is_file()
+    assert sender_projection.is_symlink()
+    assert recipient_projection.is_symlink()
+    assert managed_attachment.is_file()
+    assert external_attachment.is_file()
+
+    result = clear_mailbox_messages(paths.root)
+
+    assert not result.blocked
+    removed_kinds = {record.artifact_kind for record in result.removed}
+    assert {
+        "canonical_message",
+        "mailbox_projection",
+        "mailbox_local_state",
+        "managed_attachment",
+    }.issubset(removed_kinds)
+    assert (
+        load_active_mailbox_registration(paths.root, address=sender.address).address
+        == sender.address
+    )
+    assert (
+        load_active_mailbox_registration(paths.root, address=recipient.address).address
+        == recipient.address
+    )
+    assert paths.mailbox_entry_path(recipient.address).is_symlink()
+    assert private_mailbox.is_dir()
+    assert not canonical_path.exists()
+    assert not sender_projection.exists()
+    assert not recipient_projection.exists()
+    assert not managed_attachment.exists()
+    assert external_attachment.is_file()
+    assert (
+        _mailbox_state_for_address(
+            paths.sqlite_path,
+            address=recipient.address,
+            message_id=request.message_id,
+        )
+        is None
+    )
+
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        for table_name in (
+            "messages",
+            "message_recipients",
+            "attachments",
+            "message_attachments",
+            "mailbox_projections",
+            "mailbox_state",
+            "thread_summaries",
+        ):
+            assert connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM mailbox_registrations").fetchone()[0] >= 2
+
+    rerun_result = clear_mailbox_messages(paths.root)
+
+    assert not rerun_result.removed
+    assert not rerun_result.blocked
+    assert any(record.artifact_kind == "mailbox_registration" for record in rerun_result.preserved)
+
+
+def test_export_mailbox_archive_materializes_selected_symlink_account_and_attachments(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-private",
+        address="HOUMAO-private@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    private_mailbox = tmp_path / "private-mailboxes" / recipient.address
+    external_attachment = tmp_path / "external" / "evidence.txt"
+    external_attachment.parent.mkdir(parents=True, exist_ok=True)
+    external_attachment.write_text("external\n", encoding="utf-8")
+    managed_attachment = paths.attachments_managed_dir / "managed-evidence.txt"
+    managed_attachment.write_text("managed\n", encoding="utf-8")
+    outside_managed_attachment = tmp_path / "outside-managed.txt"
+    outside_managed_attachment.write_text("outside\n", encoding="utf-8")
+
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="symlink",
+            mailbox_path=private_mailbox.resolve(),
+        ),
+    )
+    recipient_registration = load_active_mailbox_registration(paths.root, address=recipient.address)
+
+    staged_message = paths.staging_dir / "export-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T061600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T061600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T06:16:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Export mailbox test",
+            "attachments": [
+                {
+                    "attachment_id": "att-path-ref",
+                    "kind": "path_ref",
+                    "path": str(external_attachment.resolve()),
+                    "media_type": "text/plain",
+                },
+                {
+                    "attachment_id": "att-managed",
+                    "kind": "managed_copy",
+                    "path": str(managed_attachment.resolve()),
+                    "media_type": "text/plain",
+                },
+                {
+                    "attachment_id": "att-blocked-managed",
+                    "kind": "managed_copy",
+                    "path": str(outside_managed_attachment.resolve()),
+                    "media_type": "text/plain",
+                },
+            ],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+
+    result = export_mailbox_archive(
+        paths.root,
+        MailboxExportRequest(
+            output_dir=tmp_path / "selected-archive",
+            addresses=(recipient.address,),
+        ),
+    )
+
+    assert result.account_count == 1
+    assert result.message_count == 1
+    assert result.attachment_count == 3
+    assert not any(path.is_symlink() for path in result.output_dir.rglob("*"))
+    manifest = _read_export_manifest(result.output_dir)
+    assert manifest["source_mailbox_root"] == str(paths.root)
+    assert manifest["symlink_mode"] == "materialize"
+    assert manifest["selection"] == {
+        "all_accounts": False,
+        "addresses": [recipient.address],
+    }
+    assert [account["address"] for account in manifest["accounts"]] == [recipient.address]
+    account = manifest["accounts"][0]
+    assert account["source_mailbox_entry_is_symlink"] is True
+    account_dir = result.output_dir / str(account["archive_account_path"])
+    assert account_dir.is_dir()
+    assert not account_dir.is_symlink()
+    assert (account_dir / "account.json").is_file()
+    assert (account_dir / "mailbox.sqlite").is_file()
+    projection_path = account_dir / "inbox" / f"{request.message_id}.md"
+    assert projection_path.is_file()
+    assert not projection_path.is_symlink()
+    assert (result.output_dir / "attachments" / "managed" / "att-managed").is_dir()
+    assert any(
+        record.attachment_id == "att-path-ref" and record.outcome == "skipped"
+        for record in result.skipped
+    )
+    assert any(
+        record.attachment_id == "att-blocked-managed" and record.outcome == "blocked"
+        for record in result.blocked
+    )
+    assert recipient_registration.registration_id in str(account_dir)
+
+
+def test_export_mailbox_archive_all_accounts_preserve_mode_uses_relative_projection_symlinks(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-recipient",
+        address="HOUMAO-recipient@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="in_root",
+            mailbox_path=paths.mailbox_entry_path(recipient.address),
+        ),
+    )
+    staged_message = paths.staging_dir / "preserve-export-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T071600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T071600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T07:16:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Preserve export mailbox test",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+
+    result = export_mailbox_archive(
+        paths.root,
+        MailboxExportRequest(
+            output_dir=tmp_path / "preserve-archive",
+            all_accounts=True,
+            symlink_mode="preserve",
+        ),
+    )
+
+    manifest = _read_export_manifest(result.output_dir)
+    assert manifest["selection"] == {"all_accounts": True, "addresses": []}
+    assert result.preserved_symlinks
+    projection = next(
+        item
+        for item in manifest["projections"]
+        if item["message_id"] == request.message_id and item["folder_name"] == "inbox"
+    )
+    projection_path = result.output_dir / str(projection["archive_path"])
+    assert projection_path.is_symlink()
+    link_target = Path(os.readlink(projection_path))
+    assert not link_target.is_absolute()
+    assert projection_path.resolve().is_file()
+    assert result.output_dir.resolve() in projection_path.resolve().parents
+
+
+def test_export_mailbox_archive_rejects_missing_scope_and_existing_output(
+    tmp_path: Path,
+) -> None:
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
+    output_dir = tmp_path / "archive"
+    output_dir.mkdir()
+
+    with pytest.raises(ManagedMailboxOperationError, match="all_accounts or at least one address"):
+        MailboxExportRequest.from_payload({"output_dir": str(tmp_path / "missing-scope")})
+
+    with pytest.raises(ManagedMailboxOperationError, match="already exists"):
+        export_mailbox_archive(
+            paths.root,
+            MailboxExportRequest(output_dir=output_dir, all_accounts=True),
+        )
+
+
+def test_export_mailbox_archive_records_missing_canonical_files_as_blocked(
+    tmp_path: Path,
+) -> None:
+    sender = MailboxPrincipal(
+        principal_id="HOUMAO-sender",
+        address="HOUMAO-sender@agents.localhost",
+    )
+    recipient = MailboxPrincipal(
+        principal_id="HOUMAO-recipient",
+        address="HOUMAO-recipient@agents.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=recipient.address,
+            owner_principal_id=recipient.principal_id,
+            mailbox_kind="in_root",
+            mailbox_path=paths.mailbox_entry_path(recipient.address),
+        ),
+    )
+    staged_message = paths.staging_dir / "missing-canonical-export-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260311T081600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T081600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T08:16:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Missing canonical export mailbox test",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+    canonical_path = paths.messages_dir / "2026-03-11" / f"{request.message_id}.md"
+    canonical_path.unlink()
+
+    result = export_mailbox_archive(
+        paths.root,
+        MailboxExportRequest(
+            output_dir=tmp_path / "blocked-archive",
+            addresses=(recipient.address,),
+        ),
+    )
+    manifest = _read_export_manifest(result.output_dir)
+
+    assert any(
+        record.artifact_kind == "canonical_message" and record.message_id == request.message_id
+        for record in result.blocked
+    )
+    assert any(
+        record.artifact_kind == "mailbox_projection" and record.message_id == request.message_id
+        for record in result.blocked
+    )
+    assert any(
+        artifact["artifact_kind"] == "canonical_message"
+        and artifact["message_id"] == request.message_id
+        for artifact in manifest["blocked_artifacts"]
+    )
 
 
 def test_deliver_message_self_addressed_mail_starts_unread(tmp_path: Path) -> None:

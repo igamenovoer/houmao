@@ -833,6 +833,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     relay_loop_bundle_template_path = relay_loop_templates / "bundle-plan.md"
     mailbox_init_action_path = mailbox_mgr_actions / "init.md"
     mailbox_register_action_path = mailbox_mgr_actions / "register.md"
+    mailbox_clear_messages_action_path = mailbox_mgr_actions / "clear-messages.md"
+    mailbox_export_action_path = mailbox_mgr_actions / "export.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
     mailbox_agent_binding_register_action_path = mailbox_mgr_actions / "agent-binding-register.md"
     mailbox_root_reference_path = mailbox_mgr_references / "root-selection.md"
@@ -840,6 +842,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
     mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
+    mailbox_export_action = mailbox_export_action_path.read_text(encoding="utf-8")
     touring_setup = touring_setup_path.read_text(encoding="utf-8")
     discover_action = discover_action_path.read_text(encoding="utf-8")
     interrupt_action = interrupt_action_path.read_text(encoding="utf-8")
@@ -892,6 +895,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
 
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
+    assert "actions/clear-messages.md" in mailbox_mgr_skill
+    assert "actions/export.md" in mailbox_mgr_skill
     assert "actions/agent-binding-register.md" in mailbox_mgr_skill
     assert "references/root-selection.md" in mailbox_mgr_skill
     assert "command -v houmao-mgr" in mailbox_mgr_skill
@@ -907,6 +912,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "route to `actions/agent-binding-register.md` instead" in mailbox_mgr_skill
     assert mailbox_init_action_path.is_file()
     assert mailbox_register_action_path.is_file()
+    assert mailbox_clear_messages_action_path.is_file()
+    assert mailbox_export_action_path.is_file()
     assert mailbox_messages_get_action_path.is_file()
     assert mailbox_agent_binding_register_action_path.is_file()
     assert mailbox_root_reference_path.is_file()
@@ -924,6 +931,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "may own mailbox registration instead of preregistering that address here"
         in mailbox_register_action
     )
+    assert "mailbox export" in mailbox_export_action
+    assert "--symlink-mode materialize|preserve" in mailbox_export_action
+    assert "Do not recommend raw recursive mailbox-root copying" in mailbox_export_action
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill
@@ -1156,9 +1166,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "foreground same-session auxiliary-window attach is the default" in (
         gateway_lifecycle_action
     )
-    assert "agents gateway attach --background --agent-name <name>" in (
-        gateway_lifecycle_action
-    )
+    assert "agents gateway attach --background --agent-name <name>" in (gateway_lifecycle_action)
     assert "Do not choose `--background` by default" in gateway_lifecycle_action
     assert "gateway_tmux_window_index" in gateway_lifecycle_action
     assert (
@@ -1339,7 +1347,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "routing packet validation: <validate-packets result when graph and packet JSON" in (
         pairwise_loop_single_template
     )
-    assert "Initialize<br/>enable email notifier<br/>send init mail" in pairwise_loop_single_template
+    assert (
+        "Initialize<br/>enable email notifier<br/>send init mail" in pairwise_loop_single_template
+    )
     assert "# Routing Packets" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template

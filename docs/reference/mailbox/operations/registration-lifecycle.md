@@ -131,6 +131,19 @@ Scope boundary:
 - It does not remove runtime-owned Stalwart credential files under `<runtime-root>/mailbox-credentials/`; use `houmao-mgr admin cleanup runtime mailbox-credentials` for those.
 - It does not remove one session's local Stalwart secret copy under `<session-root>/mailbox-secrets/`; use `houmao-mgr agents cleanup mailbox` for that scope.
 
+## Clearing Delivered Messages While Keeping Accounts
+
+Use `clear-messages` when you need to reset delivered filesystem mail without unregistering mailbox accounts:
+
+```bash
+houmao-mgr mailbox clear-messages --mailbox-root /abs/path/shared-mail --dry-run
+houmao-mgr mailbox clear-messages --mailbox-root /abs/path/shared-mail --yes
+houmao-mgr project mailbox clear-messages --dry-run
+houmao-mgr project mailbox clear-messages --yes
+```
+
+This command removes canonical delivered messages, recorded projection artifacts, shared message index rows, mailbox-local message/thread state, and mailbox-owned managed-copy attachments. It preserves mailbox registrations, account directories, private symlink mailbox targets, root protocol/rules/locks/staging layout, and external `path_ref` attachment targets. It is separate from `cleanup`: `cleanup` is registration cleanup, while `clear-messages` is delivered-message reset.
+
 ## Source References
 
 - [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)

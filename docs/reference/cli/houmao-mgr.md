@@ -177,10 +177,16 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 | `messages list|get` | Inspect structural message projections for one registered mailbox address. |
 | `repair` | Rebuild one filesystem mailbox root's shared index state locally. |
 | `cleanup` | Remove inactive or stashed mailbox registrations while preserving active registrations and canonical `messages/` history. |
+| `clear-messages` | Clear delivered message content and derived message state while preserving mailbox registrations. |
+| `export` | Export selected mailbox accounts and indexed messages into a portable archive directory. |
 
 `mailbox register` keeps the existing `safe`, `force`, and `stash` mode vocabulary. When a requested registration would replace existing durable mailbox state or an occupying mailbox entry artifact, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
 
 `mailbox messages list|get` is structural inspection over canonical message metadata plus address-scoped projection metadata. Participant-local mutable state such as `read`, `starred`, `archived`, and `deleted` belongs on actor-scoped `houmao-mgr agents mail ...` workflows rather than this operator/admin surface.
+
+`mailbox clear-messages` is the destructive whole-root message reset. It clears delivered filesystem mail, message projections, mailbox-local message/thread state, and mailbox-owned managed-copy attachments while preserving mailbox registrations and account directories. Use `--dry-run` to preview and `--yes` for non-interactive confirmation; external `path_ref` attachment targets are not deleted.
+
+`mailbox export` is the maintained archive path for filesystem mailbox roots. It requires `--output-dir <dir>` plus an explicit account scope: either `--all-accounts` or one or more `--address <full-address>` values. The output directory must not already exist. The default `--symlink-mode materialize` writes regular files and directories, including materialized projection links and symlink-backed private account directories, and verifies the archive contains no symlinks. Use `--symlink-mode preserve` only when you explicitly want archive-internal relative projection symlinks and the target filesystem supports symlink creation. The archive root contains `manifest.json`, canonical messages under `messages/`, selected account metadata and mailbox-local state under `accounts/`, and copied mailbox-owned managed-copy attachments under `attachments/managed/`; external `path_ref` targets are recorded in the manifest instead of copied. Prefer this command over raw recursive mailbox-root copying when preparing an archive.
 
 ### `brains` — Local brain-construction commands
 
@@ -583,11 +589,15 @@ Low-level boundary notes:
 
 | Subcommand | Description |
 |---|---|
-| `init`, `status`, `register`, `unregister`, `repair`, `cleanup` | Perform mailbox-root lifecycle operations against `.houmao/mailbox`. |
+| `init`, `status`, `register`, `unregister`, `repair`, `cleanup`, `clear-messages`, `export` | Perform mailbox-root lifecycle operations against `.houmao/mailbox`. |
 | `accounts list|get` | Inspect mailbox registrations under the project mailbox root. |
 | `messages list|get` | Inspect structural message projections under the project mailbox root. |
 
 `project mailbox register` mirrors the generic mailbox overwrite-confirmation contract, including interactive overwrite prompts and `--yes` for non-interactive replacement.
+
+`project mailbox clear-messages` mirrors the generic delivered-message reset, but targets the selected overlay mailbox root automatically.
+
+`project mailbox export --output-dir <dir> (--all-accounts | --address <full-address>...) [--symlink-mode materialize|preserve]` mirrors the generic export behavior, but targets `mailbox/` under the selected project overlay and includes the selected overlay details in the structured result.
 
 `project mailbox messages list|get` follows the same structural-only contract as `houmao-mgr mailbox messages list|get`; use `houmao-mgr agents mail ...` when the workflow needs actor-scoped unread/read follow-up state.
 

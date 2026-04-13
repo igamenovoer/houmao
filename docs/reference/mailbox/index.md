@@ -15,7 +15,8 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 - In the filesystem transport, operator-origin mail may opt into replies by posting with `reply_policy=operator_mailbox`; those replies route back to the reserved system mailbox `HOUMAO-operator@houmao.localhost`.
 - The `stalwart` transport delegates delivery, unread state, reply ancestry, and mailbox access to Stalwart instead of recreating those invariants in Houmao-owned files.
 - For filesystem-backed sessions, sensitive filesystem mutations are still funneled through managed scripts published into the mailbox-local `rules/` tree.
-- `houmao-mgr mailbox cleanup` only removes inactive or stashed filesystem registrations and intentionally preserves canonical `messages/` history. Runtime-owned Stalwart credential cleanup lives under `houmao-mgr admin cleanup runtime mailbox-credentials`, and per-session Stalwart secret cleanup lives under `houmao-mgr agents cleanup mailbox`.
+- `houmao-mgr mailbox cleanup` only removes inactive or stashed filesystem registrations and intentionally preserves canonical `messages/` history. Use `houmao-mgr mailbox clear-messages` or `houmao-mgr project mailbox clear-messages` when you need to clear delivered filesystem mail while keeping accounts registered. Runtime-owned Stalwart credential cleanup lives under `houmao-mgr admin cleanup runtime mailbox-credentials`, and per-session Stalwart secret cleanup lives under `houmao-mgr agents cleanup mailbox`.
+- Use `houmao-mgr mailbox export` or `houmao-mgr project mailbox export` when you need a filesystem mailbox archive. The maintained export path materializes symlinks by default so the archive can move to filesystems that do not support symlink artifacts.
 
 ## Key Terms
 
@@ -45,6 +46,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 - [Common Workflows](operations/common-workflows.md): Bootstrap, read, send, post, reply, and when to inspect `rules/` first.
 - [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md): Prerequisites, first session, secret lifecycle, and the direct-versus-gateway reader path for Stalwart-backed sessions.
 - [Registration Lifecycle](operations/registration-lifecycle.md): `safe`, `force`, `stash`, `deactivate`, `purge`, and cleanup of inactive or stashed registrations.
+- [Export Archive](operations/export-archive.md): Export all accounts or selected addresses into a portable archive directory with manifest metadata.
 - [Repair And Recovery](operations/repair-recovery.md): What repair rebuilds, what it preserves, and what it cannot recover.
 
 ### Internals

@@ -12,6 +12,7 @@ from houmao.mailbox import (
     resolve_filesystem_mailbox_paths,
 )
 from houmao.mailbox.managed import DeliveryRequest, ManagedPrincipal, deliver_message
+from houmao.owned_paths import HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR
 from houmao.project.overlay import PROJECT_OVERLAY_DIR_ENV_VAR
 from houmao.srv_ctrl.commands.main import cli
 
@@ -32,6 +33,44 @@ def _init_project_mailbox_repo(
     assert runner.invoke(cli, ["project", "init"]).exit_code == 0
     assert runner.invoke(cli, ["project", "mailbox", "init"]).exit_code == 0
     return runner, repo_root, repo_root / ".houmao" / "mailbox"
+
+
+def _deliver_cli_test_message(
+    *,
+    mailbox_root: Path,
+    sender_address: str,
+    sender_principal_id: str,
+    recipient_address: str,
+    recipient_principal_id: str,
+) -> str:
+    """Deliver one test message through the managed mailbox layer."""
+
+    mailbox_paths = resolve_filesystem_mailbox_paths(mailbox_root)
+    staged_message_path = (mailbox_paths.staging_dir / f"{generate_message_id()}.md").resolve()
+    staged_message_path.parent.mkdir(parents=True, exist_ok=True)
+    staged_message_path.write_text("Hello from a CLI test.\n", encoding="utf-8")
+    message_id = generate_message_id()
+    deliver_message(
+        mailbox_root,
+        DeliveryRequest(
+            staged_message_path=staged_message_path,
+            message_id=message_id,
+            thread_id=message_id,
+            created_at_utc="2026-03-28T12:00:00Z",
+            sender=ManagedPrincipal(
+                principal_id=sender_principal_id,
+                address=sender_address,
+            ),
+            to=(
+                ManagedPrincipal(
+                    principal_id=recipient_principal_id,
+                    address=recipient_address,
+                ),
+            ),
+            subject="Hello recipient",
+        ),
+    )
+    return message_id
 
 
 def test_generic_mailbox_init_bootstraps_project_overlay_root_by_default(
@@ -325,6 +364,265 @@ def test_mailbox_messages_commands_and_project_wrapper_share_visibility(
     assert generic_message["subject"] == "Hello Alice"
     assert _AMBIGUOUS_MESSAGE_STATE_FIELDS.isdisjoint(generic_message)
     assert _AMBIGUOUS_MESSAGE_STATE_FIELDS.isdisjoint(project_message)
+
+
+def test_mailbox_clear_messages_preserves_accounts_and_requires_yes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    sender_address = "HOUMAO-bob@agents.localhost"
+    recipient_address = "HOUMAO-alice@agents.localhost"
+
+    assert (
+        runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
+    )
+    for address, principal_id in (
+        (sender_address, "HOUMAO-bob"),
+        (recipient_address, "HOUMAO-alice"),
+    ):
+        assert (
+            runner.invoke(
+                cli,
+                [
+                    "mailbox",
+                    "register",
+                    "--mailbox-root",
+                    str(mailbox_root),
+                    "--address",
+                    address,
+                    "--principal-id",
+                    principal_id,
+                ],
+            ).exit_code
+            == 0
+        )
+    message_id = _deliver_cli_test_message(
+        mailbox_root=mailbox_root,
+        sender_address=sender_address,
+        sender_principal_id="HOUMAO-bob",
+        recipient_address=recipient_address,
+        recipient_principal_id="HOUMAO-alice",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.common.has_interactive_terminal",
+        lambda *streams: False,
+    )
+
+    help_result = runner.invoke(cli, ["mailbox", "--help"])
+    apply_without_yes_result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "clear-messages",
+            "--mailbox-root",
+            str(mailbox_root),
+        ],
+    )
+    dry_run_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "mailbox",
+            "clear-messages",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--dry-run",
+        ],
+    )
+    apply_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "mailbox",
+            "clear-messages",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--yes",
+        ],
+    )
+
+    assert help_result.exit_code == 0, help_result.output
+    assert "clear-messages" in help_result.output
+    assert apply_without_yes_result.exit_code != 0
+    assert "Rerun with `--yes`" in apply_without_yes_result.output
+    assert dry_run_result.exit_code == 0, dry_run_result.output
+    dry_run_payload = json.loads(dry_run_result.output)
+    assert dry_run_payload["dry_run"] is True
+    assert any(
+        action["artifact_kind"] == "canonical_message"
+        for action in dry_run_payload["planned_actions"]
+    )
+    assert apply_result.exit_code == 0, apply_result.output
+    apply_payload = json.loads(apply_result.output)
+    assert apply_payload["scope"]["kind"] == "mailbox_message_clear"
+    assert any(
+        action["artifact_kind"] == "canonical_message"
+        for action in apply_payload["applied_actions"]
+    )
+    assert load_active_mailbox_registration(mailbox_root, address=recipient_address).address == (
+        recipient_address
+    )
+
+    messages_result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "messages",
+            "list",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--address",
+            recipient_address,
+        ],
+    )
+
+    assert messages_result.exit_code == 0, messages_result.output
+    assert json.loads(messages_result.output)["messages"] == []
+    assert message_id not in messages_result.output
+
+
+def test_mailbox_export_command_validates_scope_and_writes_archive(
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    sender_address = "HOUMAO-bob@agents.localhost"
+    recipient_address = "HOUMAO-alice@agents.localhost"
+
+    assert (
+        runner.invoke(cli, ["mailbox", "init", "--mailbox-root", str(mailbox_root)]).exit_code == 0
+    )
+    for address, principal_id in (
+        (sender_address, "HOUMAO-bob"),
+        (recipient_address, "HOUMAO-alice"),
+    ):
+        assert (
+            runner.invoke(
+                cli,
+                [
+                    "mailbox",
+                    "register",
+                    "--mailbox-root",
+                    str(mailbox_root),
+                    "--address",
+                    address,
+                    "--principal-id",
+                    principal_id,
+                ],
+            ).exit_code
+            == 0
+        )
+    message_id = _deliver_cli_test_message(
+        mailbox_root=mailbox_root,
+        sender_address=sender_address,
+        sender_principal_id="HOUMAO-bob",
+        recipient_address=recipient_address,
+        recipient_principal_id="HOUMAO-alice",
+    )
+
+    help_result = runner.invoke(cli, ["mailbox", "--help"])
+    missing_scope_result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "export",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--output-dir",
+            str(tmp_path / "missing-scope-archive"),
+        ],
+    )
+    conflicting_scope_result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "export",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--output-dir",
+            str(tmp_path / "conflict-archive"),
+            "--all-accounts",
+            "--address",
+            recipient_address,
+        ],
+    )
+    existing_output = tmp_path / "existing-archive"
+    existing_output.mkdir()
+    existing_output_result = runner.invoke(
+        cli,
+        [
+            "mailbox",
+            "export",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--output-dir",
+            str(existing_output),
+            "--all-accounts",
+        ],
+    )
+    selected_output = tmp_path / "selected-archive"
+    selected_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "mailbox",
+            "export",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--output-dir",
+            str(selected_output),
+            "--address",
+            recipient_address,
+        ],
+    )
+    preserve_output = tmp_path / "preserve-archive"
+    preserve_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "mailbox",
+            "export",
+            "--mailbox-root",
+            str(mailbox_root),
+            "--output-dir",
+            str(preserve_output),
+            "--all-accounts",
+            "--symlink-mode",
+            "preserve",
+        ],
+    )
+
+    assert help_result.exit_code == 0, help_result.output
+    assert "export" in help_result.output
+    assert missing_scope_result.exit_code != 0
+    assert "Choose `--all-accounts`" in missing_scope_result.output
+    assert conflicting_scope_result.exit_code != 0
+    assert "not both" in conflicting_scope_result.output
+    assert existing_output_result.exit_code != 0
+    assert "already exists" in existing_output_result.output
+    assert selected_result.exit_code == 0, selected_result.output
+    selected_payload = json.loads(selected_result.output)
+    assert selected_payload["mailbox_root"] == str(mailbox_root)
+    assert selected_payload["output_dir"] == str(selected_output.resolve())
+    assert selected_payload["symlink_mode"] == "materialize"
+    assert selected_payload["selected_addresses"] == [recipient_address]
+    assert selected_payload["all_accounts"] is False
+    assert selected_payload["account_count"] == 1
+    assert selected_payload["message_count"] == 1
+    assert Path(selected_payload["manifest_path"]).is_file()
+    assert any(
+        action["artifact_kind"] == "mailbox_projection"
+        for action in selected_payload["materialized_artifacts"]
+    )
+    assert not any(path.is_symlink() for path in selected_output.rglob("*"))
+    assert message_id in (selected_output / "manifest.json").read_text(encoding="utf-8")
+    assert preserve_result.exit_code == 0, preserve_result.output
+    preserve_payload = json.loads(preserve_result.output)
+    assert preserve_payload["symlink_mode"] == "preserve"
+    assert preserve_payload["all_accounts"] is True
+    assert preserve_payload["preserved_symlinks"]
 
 
 def test_mailbox_register_prompts_before_overwriting_active_registration(
@@ -654,6 +952,168 @@ def test_project_mailbox_env_selected_overlay_without_config_fails_non_creating(
     assert "uses non-creating resolution and did not bootstrap it" in result.output
     assert "did not fall back to the shared mailbox root" in result.output
     assert not (overlay_root / "houmao-config.toml").exists()
+
+
+def test_project_mailbox_clear_messages_uses_selected_overlay_and_preserves_accounts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, repo_root, mailbox_root = _init_project_mailbox_repo(monkeypatch, tmp_path)
+    sender_address = "HOUMAO-bob@agents.localhost"
+    recipient_address = "HOUMAO-alice@agents.localhost"
+
+    for address, principal_id in (
+        (sender_address, "HOUMAO-bob"),
+        (recipient_address, "HOUMAO-alice"),
+    ):
+        assert (
+            runner.invoke(
+                cli,
+                [
+                    "project",
+                    "mailbox",
+                    "register",
+                    "--address",
+                    address,
+                    "--principal-id",
+                    principal_id,
+                ],
+            ).exit_code
+            == 0
+        )
+    _deliver_cli_test_message(
+        mailbox_root=mailbox_root,
+        sender_address=sender_address,
+        sender_principal_id="HOUMAO-bob",
+        recipient_address=recipient_address,
+        recipient_principal_id="HOUMAO-alice",
+    )
+
+    help_result = runner.invoke(cli, ["project", "mailbox", "--help"])
+    dry_run_result = runner.invoke(
+        cli,
+        ["--print-json", "project", "mailbox", "clear-messages", "--dry-run"],
+    )
+    apply_result = runner.invoke(
+        cli,
+        ["--print-json", "project", "mailbox", "clear-messages", "--yes"],
+    )
+
+    assert help_result.exit_code == 0, help_result.output
+    assert "clear-messages" in help_result.output
+    assert dry_run_result.exit_code == 0, dry_run_result.output
+    dry_run_payload = json.loads(dry_run_result.output)
+    assert dry_run_payload["scope"]["mailbox_root"] == str(mailbox_root.resolve())
+    assert dry_run_payload["selected_overlay_root"] == str((repo_root / ".houmao").resolve())
+    assert dry_run_payload["dry_run"] is True
+    assert any(
+        action["artifact_kind"] == "canonical_message"
+        for action in dry_run_payload["planned_actions"]
+    )
+    assert apply_result.exit_code == 0, apply_result.output
+    apply_payload = json.loads(apply_result.output)
+    assert apply_payload["scope"]["mailbox_root"] == str(mailbox_root.resolve())
+    assert load_active_mailbox_registration(mailbox_root, address=recipient_address).address == (
+        recipient_address
+    )
+
+    messages_result = runner.invoke(
+        cli,
+        ["project", "mailbox", "messages", "list", "--address", recipient_address],
+    )
+
+    assert messages_result.exit_code == 0, messages_result.output
+    assert json.loads(messages_result.output)["messages"] == []
+
+
+def test_project_mailbox_export_uses_selected_overlay_and_ignores_global_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, repo_root, mailbox_root = _init_project_mailbox_repo(monkeypatch, tmp_path)
+    sender_address = "HOUMAO-bob@agents.localhost"
+    recipient_address = "HOUMAO-alice@agents.localhost"
+    global_mailbox_root = (tmp_path / "global-mailbox").resolve()
+    assert (
+        runner.invoke(
+            cli,
+            ["mailbox", "init", "--mailbox-root", str(global_mailbox_root)],
+        ).exit_code
+        == 0
+    )
+    monkeypatch.setenv(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR, str(global_mailbox_root))
+
+    for address, principal_id in (
+        (sender_address, "HOUMAO-bob"),
+        (recipient_address, "HOUMAO-alice"),
+    ):
+        assert (
+            runner.invoke(
+                cli,
+                [
+                    "project",
+                    "mailbox",
+                    "register",
+                    "--address",
+                    address,
+                    "--principal-id",
+                    principal_id,
+                ],
+            ).exit_code
+            == 0
+        )
+    message_id = _deliver_cli_test_message(
+        mailbox_root=mailbox_root,
+        sender_address=sender_address,
+        sender_principal_id="HOUMAO-bob",
+        recipient_address=recipient_address,
+        recipient_principal_id="HOUMAO-alice",
+    )
+
+    help_result = runner.invoke(cli, ["project", "mailbox", "--help"])
+    selected_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "project",
+            "mailbox",
+            "export",
+            "--output-dir",
+            str(tmp_path / "project-selected-archive"),
+            "--address",
+            recipient_address,
+        ],
+    )
+    all_accounts_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "project",
+            "mailbox",
+            "export",
+            "--output-dir",
+            str(tmp_path / "project-all-archive"),
+            "--all-accounts",
+        ],
+    )
+
+    assert help_result.exit_code == 0, help_result.output
+    assert "export" in help_result.output
+    assert selected_result.exit_code == 0, selected_result.output
+    selected_payload = json.loads(selected_result.output)
+    assert selected_payload["mailbox_root"] == str(mailbox_root.resolve())
+    assert selected_payload["selected_overlay_root"] == str((repo_root / ".houmao").resolve())
+    assert selected_payload["selected_addresses"] == [recipient_address]
+    assert selected_payload["account_count"] == 1
+    assert selected_payload["message_count"] == 1
+    assert selected_payload["mailbox_root"] != str(global_mailbox_root)
+    assert Path(selected_payload["manifest_path"]).is_file()
+    assert message_id in Path(selected_payload["manifest_path"]).read_text(encoding="utf-8")
+    assert all_accounts_result.exit_code == 0, all_accounts_result.output
+    all_accounts_payload = json.loads(all_accounts_result.output)
+    assert all_accounts_payload["mailbox_root"] == str(mailbox_root.resolve())
+    assert all_accounts_payload["all_accounts"] is True
+    assert all_accounts_payload["account_count"] >= 2
 
 
 def test_project_mailbox_register_yes_overwrites_without_tty(

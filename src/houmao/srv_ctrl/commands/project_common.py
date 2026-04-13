@@ -76,7 +76,9 @@ from .common import (
 )
 from .output import emit
 from .mailbox_support import (
+    clear_mailbox_messages_at_root,
     cleanup_mailbox_root,
+    export_mailbox_root,
     get_mailbox_account,
     get_mailbox_message,
     init_mailbox_root,
@@ -1887,7 +1889,9 @@ __all__ = [
     "managed_launch_force_option",
     "overwrite_confirm_option",
     "emit",
+    "clear_mailbox_messages_at_root",
     "cleanup_mailbox_root",
+    "export_mailbox_root",
     "get_mailbox_account",
     "get_mailbox_message",
     "init_mailbox_root",
