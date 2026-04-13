@@ -12,6 +12,8 @@ At minimum, that family SHALL include:
 - `unregister`
 - `repair`
 - `cleanup`
+- `clear-messages`
+- `export`
 - `accounts`
 - `messages`
 
@@ -19,7 +21,7 @@ The family SHALL target the filesystem mailbox transport only in v1.
 
 #### Scenario: Operator sees the local mailbox administration commands
 - **WHEN** an operator runs `houmao-mgr mailbox --help`
-- **THEN** the help output lists `init`, `status`, `register`, `unregister`, `repair`, `cleanup`, `accounts`, and `messages`
+- **THEN** the help output lists `init`, `status`, `register`, `unregister`, `repair`, `cleanup`, `clear-messages`, `export`, `accounts`, and `messages`
 - **AND THEN** the command family is presented as a local mailbox administration surface rather than a server-backed API surface
 
 ### Requirement: `houmao-mgr mailbox accounts` inspects mailbox registrations as operator-facing accounts
@@ -211,6 +213,128 @@ The command SHALL accept `--dry-run`. In dry-run mode, it SHALL report matching 
 - **AND WHEN** the mailbox root still contains an active registration for one mailbox address
 - **THEN** the command preserves that active registration
 - **AND THEN** the cleanup result does not report the active mailbox as removed
+
+### Requirement: `houmao-mgr mailbox clear-messages` clears delivered messages while preserving registrations
+`houmao-mgr mailbox clear-messages` SHALL clear delivered filesystem mailbox message content under one resolved mailbox root without requiring `houmao-server`.
+
+The effective mailbox root SHALL resolve using the same project-aware root-selection contract as the generic `houmao-mgr mailbox` family.
+
+The command SHALL preserve:
+
+- all mailbox registration rows and their active, inactive, or stashed lifecycle state,
+- registered mailbox account directories and symlinked private mailbox account targets,
+- mailbox root protocol, rules, locks, staging, and mailbox directory layout.
+
+The command SHALL remove delivered mail content and derived message state, including:
+
+- canonical mailbox messages under `messages/`,
+- mailbox projection artifacts for cleared messages,
+- shared index rows for messages, recipients, message attachments, projections, mailbox state, and thread summaries,
+- mailbox-local `mailbox.sqlite` message and thread state for registered accounts,
+- managed-copy attachment artifacts owned by the mailbox root for cleared messages.
+
+The command SHALL NOT delete external `path_ref` attachment targets.
+
+The command SHALL accept `--dry-run`. In dry-run mode, it SHALL report planned message-clear actions without deleting files or mutating SQLite state.
+
+The command SHALL require explicit destructive confirmation before applying changes. When `--yes` is present, the command SHALL apply without prompting. When `--yes` is absent and an interactive terminal is available, the command SHALL prompt before clearing delivered messages. When `--yes` is absent and no interactive terminal is available, the command SHALL fail clearly before clearing messages and direct the operator to rerun with `--yes` or `--dry-run`.
+
+The command SHALL be idempotent: rerunning it against an already-cleared mailbox root SHALL preserve registrations and report no remaining delivered messages to clear.
+
+#### Scenario: Dry-run previews mailbox-wide message clearing
+- **WHEN** an operator runs `houmao-mgr mailbox clear-messages --mailbox-root /tmp/shared-mail --dry-run`
+- **AND WHEN** `/tmp/shared-mail` contains registered mailbox accounts and delivered messages
+- **THEN** the command reports planned clearing of delivered messages and derived message state
+- **AND THEN** it does not delete canonical message files, projection artifacts, account registrations, or mailbox-local state
+
+#### Scenario: Yes clears messages and preserves accounts
+- **WHEN** an operator runs `houmao-mgr mailbox clear-messages --mailbox-root /tmp/shared-mail --yes`
+- **AND WHEN** `/tmp/shared-mail` contains active registered mailbox accounts and delivered messages
+- **THEN** the command removes delivered message content and derived message state from the mailbox root
+- **AND THEN** the active mailbox registrations remain registered for later delivery
+- **AND THEN** the registered mailbox account directories remain present
+
+#### Scenario: Non-interactive apply without yes fails before clearing
+- **WHEN** an operator runs `houmao-mgr mailbox clear-messages --mailbox-root /tmp/shared-mail` without `--yes`
+- **AND WHEN** no interactive terminal is available
+- **THEN** the command fails clearly before deleting delivered message content
+- **AND THEN** the failure tells the operator to rerun with `--yes` or `--dry-run`
+
+#### Scenario: External attachment targets are preserved
+- **WHEN** a delivered mailbox message references an external `path_ref` attachment target
+- **AND WHEN** an operator runs `houmao-mgr mailbox clear-messages --mailbox-root /tmp/shared-mail --yes`
+- **THEN** the command removes mailbox-owned message metadata for that attachment
+- **AND THEN** it does not delete the external attachment target path
+
+#### Scenario: Existing cleanup command remains registration-scoped
+- **WHEN** an operator runs `houmao-mgr mailbox cleanup --mailbox-root /tmp/shared-mail`
+- **THEN** the cleanup command remains limited to inactive or stashed registration cleanup
+- **AND THEN** it does not clear delivered messages or canonical mailbox history
+
+#### Scenario: Mailbox help lists the clear-messages command
+- **WHEN** an operator runs `houmao-mgr mailbox --help`
+- **THEN** the help output lists `clear-messages` alongside the maintained filesystem mailbox administration commands
+- **AND THEN** the help output keeps `cleanup` and `clear-messages` as separate command verbs
+
+### Requirement: `houmao-mgr mailbox export` writes a filesystem mailbox archive
+`houmao-mgr mailbox export` SHALL export selected state from one resolved filesystem mailbox root into a portable archive directory without requiring `houmao-server`.
+
+The command SHALL accept:
+
+- `--output-dir <dir>`,
+- either `--all-accounts` or one or more `--address <full-address>` values,
+- `--symlink-mode materialize|preserve`.
+
+The default `--symlink-mode` value SHALL be `materialize`.
+
+The effective mailbox root SHALL resolve using the same project-aware root-selection contract as the generic `houmao-mgr mailbox` family.
+
+When `--all-accounts` is present, the command SHALL export all mailbox registration rows and all canonical messages known to the shared mailbox index.
+
+When one or more `--address` values are present, the command SHALL export registrations for those addresses and messages visible through projection rows for those registrations.
+
+The command SHALL fail clearly when neither `--all-accounts` nor `--address` is provided.
+
+The command SHALL fail clearly when `--all-accounts` and `--address` are both provided.
+
+The command SHALL fail clearly when `--output-dir` already exists.
+
+The command SHALL emit a structured payload identifying the resolved mailbox root, output directory, symlink mode, selected addresses, manifest path, summary counts, copied or materialized artifacts, skipped artifacts, and blocked artifacts.
+
+#### Scenario: Export all accounts from an explicit mailbox root
+- **WHEN** an operator runs `houmao-mgr mailbox export --mailbox-root /tmp/shared-mail --output-dir /tmp/archive --all-accounts`
+- **AND WHEN** `/tmp/shared-mail` contains registered accounts and delivered messages
+- **THEN** the command writes a mailbox export archive under `/tmp/archive`
+- **AND THEN** the result reports the archive manifest path
+- **AND THEN** the default archive contains no symlink artifacts
+
+#### Scenario: Export selected accounts from a project-aware mailbox root
+- **WHEN** an active project overlay resolves as `/repo/.houmao`
+- **AND WHEN** an operator runs `houmao-mgr mailbox export --output-dir /tmp/archive --address alice@houmao.localhost`
+- **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
+- **THEN** the command exports selected account state from `/repo/.houmao/mailbox`
+- **AND THEN** the command does not inspect the shared global mailbox root
+
+#### Scenario: Export requires explicit account scope
+- **WHEN** an operator runs `houmao-mgr mailbox export --mailbox-root /tmp/shared-mail --output-dir /tmp/archive`
+- **THEN** the command fails clearly
+- **AND THEN** the failure instructs the operator to choose `--all-accounts` or one or more `--address` values
+
+#### Scenario: Export rejects conflicting account scope
+- **WHEN** an operator runs `houmao-mgr mailbox export --mailbox-root /tmp/shared-mail --output-dir /tmp/archive --all-accounts --address alice@houmao.localhost`
+- **THEN** the command fails clearly before exporting
+- **AND THEN** it does not create or modify `/tmp/archive`
+
+#### Scenario: Preserve mode is explicit
+- **WHEN** an operator runs `houmao-mgr mailbox export --mailbox-root /tmp/shared-mail --output-dir /tmp/archive --all-accounts --symlink-mode preserve`
+- **THEN** the command attempts to preserve supported archive-internal symlink relationships
+- **AND THEN** the command reports the selected symlink mode in the structured payload
+
+#### Scenario: Existing output directory fails
+- **WHEN** `/tmp/archive` already exists
+- **AND WHEN** an operator runs `houmao-mgr mailbox export --mailbox-root /tmp/shared-mail --output-dir /tmp/archive --all-accounts`
+- **THEN** the command fails clearly before writing archive content
+- **AND THEN** the command does not merge new export artifacts into the existing directory
 
 ### Requirement: `houmao-mgr mailbox` resolves mailbox roots project-aware by default
 When a generic `houmao-mgr mailbox ...` command runs without an explicit `--mailbox-root` and without `HOUMAO_GLOBAL_MAILBOX_DIR`, the effective mailbox root SHALL resolve project-aware from the active project overlay as `<active-overlay>/mailbox`.

@@ -13,7 +13,7 @@ At minimum, `project mailbox` SHALL expose the same verbs supported by the gener
 - mailbox-address lifecycle
 - mailbox account inspection
 - direct mailbox message listing and retrieval
-- repair and cleanup
+- repair, cleanup, delivered-message clearing, and export
 
 The help text SHALL present `project mailbox` as mailbox-root operations for the current repo-local project rather than as a managed-agent mailbox-binding surface.
 
@@ -21,6 +21,76 @@ The help text SHALL present `project mailbox` as mailbox-root operations for the
 - **WHEN** an operator runs `houmao-mgr project mailbox --help`
 - **THEN** the help output exposes the project-scoped mailbox-root verbs that correspond to the generic `houmao-mgr mailbox` surface
 - **AND THEN** the help output presents `project mailbox` as mailbox-root administration for the current project
+
+### Requirement: `houmao-mgr project mailbox clear-messages` clears selected overlay messages while preserving registrations
+`houmao-mgr project mailbox clear-messages` SHALL expose the same delivered-message clearing behavior as `houmao-mgr mailbox clear-messages` after resolving the selected project overlay mailbox root.
+
+The command SHALL resolve the project mailbox root using the same selected-overlay contract as the rest of the `houmao-mgr project mailbox` family and SHALL apply the message-clear operation against:
+
+```text
+<overlay-root>/mailbox
+```
+
+The command SHALL preserve project mailbox account registrations and mailbox account directories while removing delivered message content and derived message state from the selected project mailbox root.
+
+The command SHALL accept `--dry-run` and `--yes` with the same safety semantics as the generic command.
+
+#### Scenario: Project dry-run previews selected overlay message clearing
+- **WHEN** `/repo/.houmao/` exists
+- **AND WHEN** `/repo/.houmao/mailbox` contains registered mailbox accounts and delivered messages
+- **AND WHEN** an operator runs `houmao-mgr project mailbox clear-messages --dry-run` from `/repo`
+- **THEN** the command reports planned clearing against `/repo/.houmao/mailbox`
+- **AND THEN** it does not inspect or mutate the shared global mailbox root
+- **AND THEN** it does not delete messages or unregister accounts
+
+#### Scenario: Project clear preserves selected overlay accounts
+- **WHEN** `/repo/.houmao/` exists
+- **AND WHEN** `/repo/.houmao/mailbox` contains active mailbox registrations and delivered messages
+- **AND WHEN** an operator runs `houmao-mgr project mailbox clear-messages --yes` from `/repo/subdir`
+- **THEN** the command removes delivered message content and derived message state from `/repo/.houmao/mailbox`
+- **AND THEN** the active project mailbox registrations remain registered for later delivery
+
+#### Scenario: Project help lists clear-messages
+- **WHEN** an operator runs `houmao-mgr project mailbox --help`
+- **THEN** the help output lists `clear-messages` as a project-scoped mailbox-root operation
+- **AND THEN** the help output keeps `cleanup` and `clear-messages` as separate project mailbox command verbs
+
+### Requirement: `houmao-mgr project mailbox export` exports the selected overlay mailbox root
+`houmao-mgr project mailbox export` SHALL expose the same mailbox export behavior as `houmao-mgr mailbox export` after resolving the selected project overlay mailbox root.
+
+The command SHALL accept:
+
+- `--output-dir <dir>`,
+- either `--all-accounts` or one or more `--address <full-address>` values,
+- `--symlink-mode materialize|preserve`.
+
+The command SHALL apply the export operation against:
+
+```text
+<overlay-root>/mailbox
+```
+
+The command SHALL include selected overlay details in the structured result using the same project mailbox result wording as the rest of the `houmao-mgr project mailbox` family.
+
+#### Scenario: Project mailbox export writes an all-account archive
+- **WHEN** `/repo/.houmao/mailbox` contains registered accounts and delivered messages
+- **AND WHEN** an operator runs `houmao-mgr project mailbox export --output-dir /tmp/archive --all-accounts` from `/repo`
+- **THEN** the command exports mailbox state from `/repo/.houmao/mailbox`
+- **AND THEN** the command writes a mailbox export archive under `/tmp/archive`
+- **AND THEN** the structured result identifies `/repo/.houmao` as the selected overlay root
+
+#### Scenario: Project mailbox export writes a selected-account archive
+- **WHEN** `/repo/.houmao/mailbox` contains an account for `alice@houmao.localhost`
+- **AND WHEN** an operator runs `houmao-mgr project mailbox export --output-dir /tmp/archive --address alice@houmao.localhost` from `/repo/subdir`
+- **THEN** the command exports selected account state from `/repo/.houmao/mailbox`
+- **AND THEN** the operator does not need to provide `--mailbox-root`
+
+#### Scenario: Project mailbox export preserves root boundary
+- **WHEN** `/repo/.houmao/mailbox` is the selected project mailbox root
+- **AND WHEN** a different shared mailbox root exists under `HOUMAO_GLOBAL_MAILBOX_DIR`
+- **AND WHEN** an operator runs `houmao-mgr project mailbox export --output-dir /tmp/archive --all-accounts`
+- **THEN** the command exports from `/repo/.houmao/mailbox`
+- **AND THEN** it does not inspect the generic shared mailbox root
 
 ### Requirement: `project mailbox` resolves the current project's `.houmao/mailbox` root automatically
 

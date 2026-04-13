@@ -145,6 +145,61 @@ The mailbox operation documentation SHALL NOT require mailbox-specific shell exp
 - **THEN** the mailbox operations docs explain how to verify the requested outcome through manager-owned `status` or `check`, filesystem mailbox inspection, or transport-native mailbox state
 - **AND THEN** the docs do not treat submission-only fallback as self-verifying mailbox success
 
+### Requirement: Mailbox reference documentation explains the delivered-message clear workflow
+The mailbox reference documentation SHALL document the supported delivered-message clear workflow for filesystem mailbox roots.
+
+At minimum, the documentation SHALL explain:
+
+- `houmao-mgr mailbox clear-messages` for an arbitrary resolved mailbox root,
+- `houmao-mgr project mailbox clear-messages` for the selected project overlay mailbox root,
+- that `clear-messages` removes delivered message content and derived message state while preserving mailbox account registrations,
+- that `mailbox cleanup` remains registration cleanup and does not delete canonical messages,
+- that external `path_ref` attachment targets are not deleted by message clearing,
+- that the command supports dry-run preview and explicit destructive confirmation.
+
+#### Scenario: Reader can choose between cleanup and clear-messages
+- **WHEN** an operator reads the mailbox reference docs while trying to remove all delivered emails from a mailbox root
+- **THEN** the docs identify `clear-messages` as the maintained command for delivered-message reset
+- **AND THEN** the docs state that `cleanup` is not the command for deleting canonical mail
+
+#### Scenario: Reader sees account preservation and attachment boundaries
+- **WHEN** an operator reads the message-clear documentation
+- **THEN** the docs explain that mailbox account registrations remain registered after message clearing
+- **AND THEN** the docs explain that external `path_ref` attachment targets are not deleted
+
+### Requirement: Mailbox reference documentation explains the export archive workflow
+The mailbox reference documentation SHALL document the supported filesystem mailbox export workflow.
+
+At minimum, the documentation SHALL explain:
+
+- `houmao-mgr mailbox export` for an arbitrary resolved filesystem mailbox root,
+- `houmao-mgr project mailbox export` for the selected project overlay mailbox root,
+- explicit account scope with `--all-accounts` or repeated `--address`,
+- `--output-dir`,
+- default symlink materialization,
+- optional `--symlink-mode preserve`,
+- that default exports contain no symlinks,
+- the archive's `manifest.json` role,
+- the high-level archive directory structure,
+- managed-copy attachment copying,
+- external `path_ref` attachment manifest-only behavior,
+- why the maintained export command is preferred over raw recursive mailbox-root copying.
+
+#### Scenario: Reader learns the maintained export commands
+- **WHEN** a reader opens mailbox reference docs to archive filesystem mailbox state
+- **THEN** the docs identify `houmao-mgr mailbox export` and `houmao-mgr project mailbox export` as the maintained command surfaces
+- **AND THEN** the docs show how to choose all-account or selected-address export scope
+
+#### Scenario: Reader understands default symlink materialization
+- **WHEN** a reader needs an archive that can be moved to a filesystem without symlink support
+- **THEN** the docs explain that default mailbox export materializes symlinks
+- **AND THEN** the docs explain that `--symlink-mode preserve` is the explicit opt-in path for supported archive-internal symlinks
+
+#### Scenario: Reader understands attachment boundaries
+- **WHEN** a reader exports mailbox messages that reference attachments
+- **THEN** the docs explain that managed-copy attachments under the mailbox root are copied
+- **AND THEN** the docs explain that external `path_ref` targets are recorded in the manifest rather than copied by default
+
 ### Requirement: Mailbox internal documentation explains runtime integration and mutable-state architecture
 The mailbox internal documentation SHALL explain how the runtime integrates mailbox support and how the filesystem transport divides immutable content from mutable state.
 

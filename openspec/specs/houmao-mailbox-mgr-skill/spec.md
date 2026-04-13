@@ -10,10 +10,10 @@ The system SHALL package a Houmao-owned system skill named `houmao-mailbox-mgr` 
 
 That skill SHALL instruct agents and operators to handle mailbox-administration work through these maintained command surfaces:
 
-- `houmao-mgr mailbox init|status|register|unregister|repair|cleanup`
+- `houmao-mgr mailbox init|status|register|unregister|repair|cleanup|clear-messages|export`
 - `houmao-mgr mailbox accounts list|get`
 - `houmao-mgr mailbox messages list|get`
-- `houmao-mgr project mailbox init|status|register|unregister|repair|cleanup`
+- `houmao-mgr project mailbox init|status|register|unregister|repair|cleanup|clear-messages|export`
 - `houmao-mgr project mailbox accounts list|get`
 - `houmao-mgr project mailbox messages list|get`
 - `houmao-mgr agents mailbox status|register|unregister`
@@ -37,6 +37,55 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **WHEN** an agent reads the installed `houmao-mailbox-mgr` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for mailbox-admin actions
 - **AND THEN** the detailed workflow lives in local action-specific documents rather than one flattened entry page
+
+### Requirement: `houmao-mailbox-mgr` routes delivered-message reset work to clear-messages
+The packaged `houmao-mailbox-mgr` skill SHALL route requests to remove all delivered messages while preserving mailbox accounts to the maintained `clear-messages` command for the selected mailbox scope.
+
+When the task targets an arbitrary filesystem mailbox root, the skill SHALL use `houmao-mgr mailbox clear-messages`.
+
+When the task targets the selected project overlay mailbox root, the skill SHALL use `houmao-mgr project mailbox clear-messages`.
+
+The skill SHALL distinguish `clear-messages` from `cleanup`: `cleanup` remains for inactive or stashed registration cleanup, while `clear-messages` is the destructive delivered-message reset.
+
+The skill SHALL NOT instruct callers to hand-edit mailbox-root files for message clearing when the maintained `clear-messages` command covers the request.
+
+#### Scenario: Skill routes project-local message reset to project clear-messages
+- **WHEN** the user asks to remove all emails from the active project mailbox root while preserving accounts
+- **THEN** the skill directs the caller to `houmao-mgr project mailbox clear-messages`
+- **AND THEN** it does not route the request to `project mailbox cleanup` or account unregister commands
+
+#### Scenario: Skill routes arbitrary-root message reset to generic clear-messages
+- **WHEN** the user asks to remove all emails from an explicit filesystem mailbox root while preserving accounts
+- **THEN** the skill directs the caller to `houmao-mgr mailbox clear-messages --mailbox-root <path>`
+- **AND THEN** it does not recommend ad hoc deletion inside the mailbox root
+
+### Requirement: `houmao-mailbox-mgr` routes mailbox export work to the maintained export command
+The packaged `houmao-mailbox-mgr` skill SHALL route requests to archive or export filesystem mailbox state to the maintained mailbox export command for the selected mailbox scope.
+
+When the task targets an arbitrary filesystem mailbox root, the skill SHALL use `houmao-mgr mailbox export`.
+
+When the task targets the selected project overlay mailbox root, the skill SHALL use `houmao-mgr project mailbox export`.
+
+The skill SHALL explain that default mailbox export materializes symlinks so the archive can be used on filesystems that do not support symlinks.
+
+The skill SHALL expose the optional `--symlink-mode preserve` choice only when the user explicitly wants symlink preservation.
+
+The skill SHALL NOT recommend ad hoc recursive mailbox-root copying when the maintained export command covers the request.
+
+#### Scenario: Skill routes project mailbox archive request to project export
+- **WHEN** the user asks to archive the active project mailbox root
+- **THEN** the skill directs the caller to `houmao-mgr project mailbox export --output-dir <dir> --all-accounts`
+- **AND THEN** it explains that default export materializes symlinks
+
+#### Scenario: Skill routes explicit mailbox-root archive request to generic export
+- **WHEN** the user asks to export an explicit filesystem mailbox root at `/tmp/shared-mail`
+- **THEN** the skill directs the caller to `houmao-mgr mailbox export --mailbox-root /tmp/shared-mail --output-dir <dir> --all-accounts`
+- **AND THEN** it does not recommend direct filesystem copying inside the mailbox root
+
+#### Scenario: Skill preserves selected-account export intent
+- **WHEN** the user asks to export only `alice@houmao.localhost`
+- **THEN** the skill preserves that account selection in the chosen command using `--address alice@houmao.localhost`
+- **AND THEN** it does not replace the selected-account request with an all-account export
 
 ### Requirement: `houmao-mailbox-mgr` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-mailbox-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
