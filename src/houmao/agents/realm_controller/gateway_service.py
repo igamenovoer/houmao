@@ -3496,6 +3496,9 @@ class GatewayServiceRuntime:
                 self.m_tui_tracking_timings.unknown_to_stalled_timeout_seconds
             ),
             stale_active_recovery_seconds=self.m_tui_tracking_timings.stale_active_recovery_seconds,
+            final_stable_active_recovery_seconds=(
+                self.m_tui_tracking_timings.final_stable_active_recovery_seconds
+            ),
         )
         tracking.start()
         self.m_tui_tracking = tracking
@@ -3913,6 +3916,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tui-completion-stability-seconds", type=_positive_tui_timing_arg)
     parser.add_argument("--tui-unknown-to-stalled-timeout-seconds", type=_positive_tui_timing_arg)
     parser.add_argument("--tui-stale-active-recovery-seconds", type=_positive_tui_timing_arg)
+    parser.add_argument(
+        "--tui-final-stable-active-recovery-seconds",
+        type=_positive_tui_timing_arg,
+    )
     args = parser.parse_args(argv)
 
     gateway_root = Path(args.gateway_root).resolve()
@@ -3922,6 +3929,7 @@ def main(argv: list[str] | None = None) -> int:
         completion_stability_seconds=args.tui_completion_stability_seconds,
         unknown_to_stalled_timeout_seconds=args.tui_unknown_to_stalled_timeout_seconds,
         stale_active_recovery_seconds=args.tui_stale_active_recovery_seconds,
+        final_stable_active_recovery_seconds=args.tui_final_stable_active_recovery_seconds,
     )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,

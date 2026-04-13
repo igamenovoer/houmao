@@ -4732,6 +4732,7 @@ def test_project_easy_instance_launch_help_exposes_workdir() -> None:
     assert "--gateway-background" in result.output
     assert "--gateway-tui-watch-poll-interval-seconds FLOAT RANGE" in result.output
     assert "--gateway-tui-stale-active-recovery-seconds FLOAT RANGE" in result.output
+    assert "--gateway-tui-final-stable-active-recovery-seconds FLOAT RANGE" in result.output
 
 
 def test_project_easy_instance_launch_no_gateway_opt_out(
@@ -5135,6 +5136,8 @@ def test_project_easy_instance_launch_gateway_tui_timing_overrides(
             "0.25",
             "--gateway-tui-stale-active-recovery-seconds",
             "6",
+            "--gateway-tui-final-stable-active-recovery-seconds",
+            "18",
         ],
     )
 
@@ -5147,6 +5150,7 @@ def test_project_easy_instance_launch_gateway_tui_timing_overrides(
     assert isinstance(timings, GatewayTuiTrackingTimingOverridesV1)
     assert timings.watch_poll_interval_seconds == 0.25
     assert timings.stale_active_recovery_seconds == 6.0
+    assert timings.final_stable_active_recovery_seconds == 18.0
     assert timings.completion_stability_seconds is None
 
 
@@ -5204,6 +5208,8 @@ def test_project_easy_instance_launch_rejects_no_gateway_with_tui_timing_overrid
             "--no-gateway",
             "--gateway-tui-stale-active-recovery-seconds",
             "6",
+            "--gateway-tui-final-stable-active-recovery-seconds",
+            "18",
         ],
     )
 

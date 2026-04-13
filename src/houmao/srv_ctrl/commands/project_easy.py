@@ -1328,6 +1328,12 @@ def easy_instance_group() -> None:
     help="Override gateway-owned TUI stale-active recovery seconds for this launch.",
 )
 @click.option(
+    "--gateway-tui-final-stable-active-recovery-seconds",
+    type=click.FloatRange(min=0.0, min_open=True),
+    default=None,
+    help="Override gateway-owned TUI final stable-active recovery seconds for this launch.",
+)
+@click.option(
     "--workdir",
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
     default=None,
@@ -1399,6 +1405,7 @@ def launch_easy_instance_command(
     gateway_tui_completion_stability_seconds: float | None,
     gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
     gateway_tui_stale_active_recovery_seconds: float | None,
+    gateway_tui_final_stable_active_recovery_seconds: float | None,
     workdir: Path | None,
     memory_dir: Path | None,
     no_memory_dir: bool,
@@ -1535,6 +1542,7 @@ def launch_easy_instance_command(
         completion_stability_seconds=gateway_tui_completion_stability_seconds,
         unknown_to_stalled_timeout_seconds=gateway_tui_unknown_to_stalled_timeout_seconds,
         stale_active_recovery_seconds=gateway_tui_stale_active_recovery_seconds,
+        final_stable_active_recovery_seconds=(gateway_tui_final_stable_active_recovery_seconds),
     )
     if no_gateway and gateway_tui_tracking_timing_overrides.has_values():
         raise click.ClickException(

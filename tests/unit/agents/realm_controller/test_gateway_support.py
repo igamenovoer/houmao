@@ -484,10 +484,12 @@ def test_gateway_tui_tracking_timing_config_resolves_precedence() -> None:
         completion_stability_seconds=2.5,
         unknown_to_stalled_timeout_seconds=15.0,
         stale_active_recovery_seconds=8.0,
+        final_stable_active_recovery_seconds=18.0,
     )
     explicit = GatewayTuiTrackingTimingOverridesV1(
         completion_stability_seconds=3.5,
         stale_active_recovery_seconds=4.5,
+        final_stable_active_recovery_seconds=9.5,
     )
 
     resolved = resolve_gateway_tui_tracking_timing_config(
@@ -500,7 +502,9 @@ def test_gateway_tui_tracking_timing_config_resolves_precedence() -> None:
     assert resolved.completion_stability_seconds == 3.5
     assert resolved.unknown_to_stalled_timeout_seconds == 15.0
     assert resolved.stale_active_recovery_seconds == 4.5
+    assert resolved.final_stable_active_recovery_seconds == 9.5
     assert resolve_gateway_tui_tracking_timing_config().watch_poll_interval_seconds == 0.5
+    assert resolve_gateway_tui_tracking_timing_config().final_stable_active_recovery_seconds == 20.0
 
 
 @pytest.mark.parametrize(
@@ -510,6 +514,8 @@ def test_gateway_tui_tracking_timing_config_resolves_precedence() -> None:
 def test_gateway_tui_tracking_timing_config_rejects_invalid_values(value: object) -> None:
     with pytest.raises(ValidationError):
         GatewayTuiTrackingTimingConfigV1(watch_poll_interval_seconds=value)
+    with pytest.raises(ValidationError):
+        GatewayTuiTrackingTimingOverridesV1(final_stable_active_recovery_seconds=value)
 
 
 def test_gateway_desired_config_preserves_tui_tracking_timings(tmp_path: Path) -> None:
@@ -546,6 +552,7 @@ def test_gateway_desired_config_preserves_tui_tracking_timings(tmp_path: Path) -
         completion_stability_seconds=1.75,
         unknown_to_stalled_timeout_seconds=12.0,
         stale_active_recovery_seconds=6.0,
+        final_stable_active_recovery_seconds=18.0,
     )
     write_gateway_desired_config(
         paths.desired_config_path,
@@ -1954,6 +1961,7 @@ def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Pat
             completion_stability_seconds=1.75,
             unknown_to_stalled_timeout_seconds=12.0,
             stale_active_recovery_seconds=6.0,
+            final_stable_active_recovery_seconds=18.0,
         ),
     )
 
@@ -1961,6 +1969,7 @@ def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Pat
     assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_index}'" in command
     assert "--tui-watch-poll-interval-seconds 0.25" in command
     assert "--tui-stale-active-recovery-seconds 6.0" in command
+    assert "--tui-final-stable-active-recovery-seconds 18.0" in command
     assert "'$TMUX_PANE'" not in command
 
 
@@ -2016,6 +2025,8 @@ def test_gateway_service_main_parses_tui_tracking_args(
             "12",
             "--tui-stale-active-recovery-seconds",
             "6",
+            "--tui-final-stable-active-recovery-seconds",
+            "18",
         ]
     )
 
@@ -2028,6 +2039,7 @@ def test_gateway_service_main_parses_tui_tracking_args(
     assert timings.completion_stability_seconds == 1.75
     assert timings.unknown_to_stalled_timeout_seconds == 12.0
     assert timings.stale_active_recovery_seconds == 6.0
+    assert timings.final_stable_active_recovery_seconds == 18.0
 
 
 def test_same_session_gateway_liveness_ignores_current_agent_window(

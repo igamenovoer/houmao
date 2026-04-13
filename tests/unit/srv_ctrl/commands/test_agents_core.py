@@ -186,6 +186,7 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     timing_overrides = GatewayTuiTrackingTimingOverridesV1(
         watch_poll_interval_seconds=0.25,
         stale_active_recovery_seconds=6.0,
+        final_stable_active_recovery_seconds=18.0,
     )
 
     def _fake_start_runtime_session(**kwargs: object) -> SimpleNamespace:

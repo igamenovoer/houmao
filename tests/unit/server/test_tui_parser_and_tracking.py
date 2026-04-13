@@ -53,6 +53,8 @@ def _identity(*, observed_tool_version: str | None = None) -> HoumaoTrackedSessi
 
 def _tracker_state(
     *,
+    surface_accepting_input: str = "yes",
+    surface_editing_input: str = "no",
     surface_ready_posture: str = "yes",
     turn_phase: str = "ready",
     active_reasons: tuple[str, ...] = (),
@@ -61,8 +63,8 @@ def _tracker_state(
     notes: tuple[str, ...] = (),
 ) -> TrackedStateSnapshot:
     return TrackedStateSnapshot(
-        surface_accepting_input="yes",
-        surface_editing_input="no",
+        surface_accepting_input=surface_accepting_input,
+        surface_editing_input=surface_editing_input,
         surface_ready_posture=surface_ready_posture,
         turn_phase=turn_phase,
         last_turn_result=last_turn_result,
@@ -273,6 +275,7 @@ def test_live_session_tracker_accumulates_stability_and_bounds_recent_transition
     assert first.stability.stable is False
     assert first.lifecycle_timing.completion_stability_seconds == 1.0
     assert first.lifecycle_timing.stale_active_recovery_seconds == 5.0
+    assert first.lifecycle_timing.final_stable_active_recovery_seconds == 20.0
     assert first.lifecycle_timing.unknown_to_stalled_timeout_seconds == 30.0
     assert first.lifecycle_authority.completion_authority == "unanchored_background"
     assert first.lifecycle_authority.turn_anchor_state == "absent"
@@ -897,6 +900,248 @@ def test_live_session_tracker_transcript_growth_does_not_trigger_recovery() -> N
     assert state.turn.phase == "active"
     assert state.surface.ready_posture == "no"
     assert state.last_turn.result == "none"
+
+
+def test_live_session_tracker_final_recovery_clears_stable_false_active() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("current_spinner",),
+            notes=("active_turn_detected",),
+        )
+    )
+
+    first = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:20+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="stable raw ready surface",
+    )
+    second = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:22+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="stable raw ready surface",
+    )
+    recovered = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:23+00:00",
+        monotonic_ts=13.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="stable raw ready surface",
+    )
+
+    assert first.turn.phase == "active"
+    assert second.turn.phase == "active"
+    assert recovered.surface.ready_posture == "yes"
+    assert recovered.turn.phase == "ready"
+    assert recovered.last_turn.result == "none"
+    assert "recovered a stable false-active phase" in recovered.operator_state.detail
+
+
+def test_live_session_tracker_final_recovery_resets_when_raw_surface_changes() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("current_spinner",),
+        )
+    )
+
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:20+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="raw surface A",
+    )
+    changed = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:22+00:00",
+        monotonic_ts=12.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="raw surface B",
+    )
+    not_yet_recovered = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:24+00:00",
+        monotonic_ts=14.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="raw surface B",
+    )
+
+    assert changed.turn.phase == "active"
+    assert not_yet_recovered.turn.phase == "active"
+    assert not_yet_recovered.surface.ready_posture == "no"
+
+
+def test_live_session_tracker_final_recovery_requires_prompt_ready_parser_evidence() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("current_spinner",),
+        )
+    )
+
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:20+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_processing_surface(),
+        output_text="stable raw working surface",
+    )
+    state = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:24+00:00",
+        monotonic_ts=14.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_processing_surface(),
+        output_text="stable raw working surface",
+    )
+
+    assert state.turn.phase == "active"
+    assert state.surface.ready_posture == "no"
+
+
+def test_live_session_tracker_final_recovery_expires_anchor_without_success() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:20+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+    _arm_anchor(tracker, at=10.1, observed_at_utc="2026-04-09T12:08:20+00:00")
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("current_spinner",),
+        )
+    )
+
+    armed = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:21+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="stable raw ready surface",
+    )
+    recovered = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:08:24+00:00",
+        monotonic_ts=14.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("waiting for the next notification"),
+        output_text="stable raw ready surface",
+    )
+
+    assert armed.lifecycle_authority.turn_anchor_state == "active"
+    assert recovered.turn.phase == "ready"
+    assert recovered.last_turn.result == "none"
+    assert recovered.lifecycle_authority.completion_authority == "unanchored_background"
+    assert recovered.lifecycle_authority.turn_anchor_state == "lost"
+    assert recovered.lifecycle_authority.completion_monitoring_armed is False
+    assert recovered.lifecycle_authority.anchor_loss_reason == "final_stable_active_recovery"
 
 
 def test_live_session_tracker_does_not_arm_tracker_authority_from_parser_only_churn() -> None:

@@ -242,6 +242,7 @@ Key options:
 | `--gateway-tui-completion-stability-seconds` | Default | One-shot gateway-owned TUI completion stability guard-time override. |
 | `--gateway-tui-unknown-to-stalled-timeout-seconds` | Default | One-shot unknown-to-stalled timeout override. |
 | `--gateway-tui-stale-active-recovery-seconds` | Default | One-shot stale-active recovery safeguard-time override. |
+| `--gateway-tui-final-stable-active-recovery-seconds` | Default | One-shot final stable-active recovery safeguard-time override. |
 | `--managed-header`, `--no-managed-header` | Profile policy, otherwise enabled | Force-enable or disable the Houmao-managed prompt header for one launch. |
 | `--managed-header-section SECTION=enabled|disabled` | Profile section policy, otherwise section defaults | Repeatable one-shot managed-header section override for this launch. |
 | `--append-system-prompt-text`, `--append-system-prompt-file` | None | Mutually exclusive one-shot appendix input appended after any resolved prompt overlay for the current launch only. |

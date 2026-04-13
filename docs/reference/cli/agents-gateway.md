@@ -37,6 +37,7 @@ houmao-mgr agents gateway attach [OPTIONS]
 | `--gateway-tui-completion-stability-seconds FLOAT` | Override the gateway-owned TUI completion stability guard time for this attach. |
 | `--gateway-tui-unknown-to-stalled-timeout-seconds FLOAT` | Override how long an unknown active surface waits before becoming stalled for this attach. |
 | `--gateway-tui-stale-active-recovery-seconds FLOAT` | Override the stale-active recovery safeguard time for this attach. |
+| `--gateway-tui-final-stable-active-recovery-seconds FLOAT` | Override the final stable-active recovery safeguard time for this attach. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. Implied when no selector is provided inside tmux. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit attach. |

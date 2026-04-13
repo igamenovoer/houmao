@@ -18,22 +18,6 @@ from houmao.shared_tui_tracking.models import DetectedTurnSignals, ParsedSurface
 from houmao.shared_tui_tracking.surface import SurfaceView
 
 
-THINKING_PATTERNS = (
-    "Cerebrating…",
-    "Nebulizing…",
-    "Unfurling…",
-    "Slithering…",
-    "Musing…",
-    "Pouncing…",
-    "Bloviating…",
-    "thinking with high effort",
-)
-ACTIVE_TOOL_PATTERNS = (
-    "Fetching…",
-    "Running…",
-    "Searching…",
-    "Reading…",
-)
 READY_FOOTER_ADVISORY_PATTERNS = (
     "Claude Code has switched from npm to native installer.",
     "Run `claude install`",
@@ -147,9 +131,7 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
                     current_error_present = True
 
         for _, _, stripped_line in activity_region_lines:
-            if any(
-                pattern in stripped_line for pattern in THINKING_PATTERNS
-            ) or SPINNER_LINE_RE.match(stripped_line.strip()):
+            if SPINNER_LINE_RE.match(stripped_line.strip()):
                 active_reasons.append("thinking_line")
                 break
 
@@ -163,12 +145,6 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
             for _, _, stripped_line in activity_region_lines:
                 if stripped_line.strip().startswith("● ") and "Worked for" not in stripped_line:
                     active_reasons.append("active_block")
-                    break
-
-        if footer_interruptable:
-            for _, _, stripped_line in activity_region_lines:
-                if any(pattern in stripped_line for pattern in ACTIVE_TOOL_PATTERNS):
-                    active_reasons.append("tool_activity")
                     break
 
         if footer_interruptable and not active_reasons:

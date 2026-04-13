@@ -80,6 +80,7 @@ DEFAULT_GATEWAY_TUI_STABILITY_THRESHOLD_SECONDS = 1.0
 DEFAULT_GATEWAY_TUI_COMPLETION_STABILITY_SECONDS = 1.0
 DEFAULT_GATEWAY_TUI_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS = 30.0
 DEFAULT_GATEWAY_TUI_STALE_ACTIVE_RECOVERY_SECONDS = 5.0
+DEFAULT_GATEWAY_TUI_FINAL_STABLE_ACTIVE_RECOVERY_SECONDS = 20.0
 
 
 def default_gateway_execution_mode_for_backend(
@@ -178,6 +179,9 @@ class GatewayTuiTrackingTimingConfigV1(_StrictGatewayModel):
         DEFAULT_GATEWAY_TUI_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS
     )
     stale_active_recovery_seconds: float = DEFAULT_GATEWAY_TUI_STALE_ACTIVE_RECOVERY_SECONDS
+    final_stable_active_recovery_seconds: float = (
+        DEFAULT_GATEWAY_TUI_FINAL_STABLE_ACTIVE_RECOVERY_SECONDS
+    )
 
     @field_validator(
         "watch_poll_interval_seconds",
@@ -185,6 +189,7 @@ class GatewayTuiTrackingTimingConfigV1(_StrictGatewayModel):
         "completion_stability_seconds",
         "unknown_to_stalled_timeout_seconds",
         "stale_active_recovery_seconds",
+        "final_stable_active_recovery_seconds",
         mode="before",
     )
     @classmethod
@@ -207,6 +212,7 @@ class GatewayTuiTrackingTimingOverridesV1(_StrictGatewayModel):
     completion_stability_seconds: float | None = None
     unknown_to_stalled_timeout_seconds: float | None = None
     stale_active_recovery_seconds: float | None = None
+    final_stable_active_recovery_seconds: float | None = None
 
     @field_validator(
         "watch_poll_interval_seconds",
@@ -214,6 +220,7 @@ class GatewayTuiTrackingTimingOverridesV1(_StrictGatewayModel):
         "completion_stability_seconds",
         "unknown_to_stalled_timeout_seconds",
         "stale_active_recovery_seconds",
+        "final_stable_active_recovery_seconds",
         mode="before",
     )
     @classmethod
@@ -240,6 +247,7 @@ class GatewayTuiTrackingTimingOverridesV1(_StrictGatewayModel):
                 self.completion_stability_seconds,
                 self.unknown_to_stalled_timeout_seconds,
                 self.stale_active_recovery_seconds,
+                self.final_stable_active_recovery_seconds,
             )
         )
 
@@ -284,6 +292,12 @@ def resolve_gateway_tui_tracking_timing_config(
         ),
         stale_active_recovery_seconds=_resolve_tui_timing_field(
             "stale_active_recovery_seconds",
+            explicit=explicit,
+            desired=desired,
+            defaults=defaults,
+        ),
+        final_stable_active_recovery_seconds=_resolve_tui_timing_field(
+            "final_stable_active_recovery_seconds",
             explicit=explicit,
             desired=desired,
             defaults=defaults,

@@ -101,7 +101,7 @@ Important boundary:
 
 For runtime-owned tmux-backed managed sessions, `houmao-mgr agents gateway attach` now uses the same-session auxiliary-window execution path by default. Use `--background` when you explicitly want the detached-process path instead.
 
-Gateway-owned TUI tracking timings can be tuned at attach time with the positive-second `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, and `--gateway-tui-stale-active-recovery-seconds` flags. Explicit attach or launch-time overrides win over the gateway root's persisted desired timing config, and persisted desired timing config wins over the built-in defaults. Successful attach persists the resolved timing block next to desired host, port, and execution mode for later attach attempts.
+Gateway-owned TUI tracking timings can be tuned at attach time with the positive-second `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, `--gateway-tui-stale-active-recovery-seconds`, and `--gateway-tui-final-stable-active-recovery-seconds` flags. Explicit attach or launch-time overrides win over the gateway root's persisted desired timing config, and persisted desired timing config wins over the built-in defaults. Successful attach persists the resolved timing block next to desired host, port, and execution mode for later attach attempts.
 
 Example:
 
@@ -110,6 +110,7 @@ houmao-mgr agents gateway attach --agent-name local
 houmao-mgr agents gateway status --agent-name local
 houmao-mgr agents gateway attach --background --agent-name local
 houmao-mgr agents gateway attach --agent-name local --gateway-tui-stale-active-recovery-seconds 10
+houmao-mgr agents gateway attach --agent-name local --gateway-tui-final-stable-active-recovery-seconds 30
 ```
 
 Foreground attach rules:

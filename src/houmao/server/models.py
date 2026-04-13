@@ -260,6 +260,7 @@ class HoumaoLifecycleTimingMetadata(_HoumaoModel):
     unknown_to_stalled_timeout_seconds: float
     completion_stability_seconds: float
     stale_active_recovery_seconds: float
+    final_stable_active_recovery_seconds: float
 
 
 class HoumaoLifecycleAuthorityMetadata(_HoumaoModel):

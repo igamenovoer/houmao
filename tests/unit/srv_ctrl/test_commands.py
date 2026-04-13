@@ -368,6 +368,7 @@ def test_agents_gateway_attach_help_mentions_foreground_default() -> None:
     assert "--pair-port" in result.output
     assert "--gateway-tui-watch-poll-interval-seconds FLOAT RANGE" in result.output
     assert "--gateway-tui-stale-active-recovery-seconds FLOAT RANGE" in result.output
+    assert "--gateway-tui-final-stable-active-recovery-seconds FLOAT RANGE" in result.output
     assert "Window `0` remains" in result.output
     assert "foreground by default" in result.output
 
@@ -656,6 +657,8 @@ def test_agents_gateway_attach_forwards_background_flag(
             "0.25",
             "--gateway-tui-stale-active-recovery-seconds",
             "6",
+            "--gateway-tui-final-stable-active-recovery-seconds",
+            "18",
         ],
     )
 
@@ -665,6 +668,7 @@ def test_agents_gateway_attach_forwards_background_flag(
     assert isinstance(timings, GatewayTuiTrackingTimingOverridesV1)
     assert timings.watch_poll_interval_seconds == 0.25
     assert timings.stale_active_recovery_seconds == 6.0
+    assert timings.final_stable_active_recovery_seconds == 18.0
     assert captured["resolved_target"] == {
         "agent_id": "agent-123",
         "agent_name": None,

@@ -163,6 +163,10 @@ def _gateway_tui_tracking_timing_options(function: _FunctionT) -> _FunctionT:
                 "--gateway-tui-stale-active-recovery-seconds",
                 "Override gateway-owned TUI stale-active recovery seconds for this attach.",
             ),
+            (
+                "--gateway-tui-final-stable-active-recovery-seconds",
+                "Override gateway-owned TUI final stable-active recovery seconds for this attach.",
+            ),
         )
     ):
         function = click.option(
@@ -181,6 +185,7 @@ def _gateway_tui_tracking_timing_overrides_or_none(
     gateway_tui_completion_stability_seconds: float | None,
     gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
     gateway_tui_stale_active_recovery_seconds: float | None,
+    gateway_tui_final_stable_active_recovery_seconds: float | None,
 ) -> GatewayTuiTrackingTimingOverridesV1 | None:
     """Build gateway TUI timing overrides only when at least one option is present."""
 
@@ -190,6 +195,7 @@ def _gateway_tui_tracking_timing_overrides_or_none(
         completion_stability_seconds=gateway_tui_completion_stability_seconds,
         unknown_to_stalled_timeout_seconds=gateway_tui_unknown_to_stalled_timeout_seconds,
         stale_active_recovery_seconds=gateway_tui_stale_active_recovery_seconds,
+        final_stable_active_recovery_seconds=gateway_tui_final_stable_active_recovery_seconds,
     )
     return overrides if overrides.has_values() else None
 
@@ -216,6 +222,7 @@ def attach_gateway_command(
     gateway_tui_completion_stability_seconds: float | None,
     gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
     gateway_tui_stale_active_recovery_seconds: float | None,
+    gateway_tui_final_stable_active_recovery_seconds: float | None,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
@@ -245,6 +252,9 @@ def attach_gateway_command(
                 ),
                 gateway_tui_stale_active_recovery_seconds=(
                     gateway_tui_stale_active_recovery_seconds
+                ),
+                gateway_tui_final_stable_active_recovery_seconds=(
+                    gateway_tui_final_stable_active_recovery_seconds
                 ),
             ),
         )
