@@ -1,5 +1,7 @@
 # Quickstart
 
+> **From-source checkout guide.** Commands here use `pixi run houmao-mgr ...` because they assume a source checkout with `pixi install && pixi shell`. If you installed Houmao via `uv tool install houmao`, drop the `pixi run` prefix — every `pixi run houmao-mgr ...` becomes simply `houmao-mgr ...` and the `pixi install` prerequisite does not apply to you.
+
 This guide shows the two supported local entry points:
 
 1. adopt an already-running provider session with `houmao-mgr agents join`
