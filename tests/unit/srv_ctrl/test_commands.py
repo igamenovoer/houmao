@@ -35,6 +35,10 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
 )
+from houmao.mailbox.protocol import (
+    HOUMAO_NO_REPLY_POLICY_VALUE,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+)
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
 from houmao.srv_ctrl.commands.main import cli, main
 from houmao.srv_ctrl.server_startup import (
@@ -536,6 +540,63 @@ def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
     assert "status" in result.output
     assert "register" in result.output
     assert "unregister" in result.output
+
+
+def test_agents_mail_post_help_reports_operator_mailbox_default() -> None:
+    result = CliRunner().invoke(cli, ["agents", "mail", "post", "--help"])
+
+    assert result.exit_code == 0
+    normalized_output = " ".join(result.output.split())
+    assert "[default: operator_mailbox]" in normalized_output
+    assert "none" in result.output
+    assert "operator_mailbox" in result.output
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_policy"),
+    [
+        ([], HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE),
+        (["--reply-policy", "none"], HOUMAO_NO_REPLY_POLICY_VALUE),
+    ],
+)
+def test_agents_mail_post_forwards_reply_policy_default_and_explicit_none(
+    monkeypatch: pytest.MonkeyPatch,
+    extra_args: list[str],
+    expected_policy: str,
+) -> None:
+    recorded: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="agent-1234")
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target",
+        lambda **kwargs: target,
+    )
+
+    def _mail_post(target_arg: object, **kwargs: object) -> dict[str, object]:
+        recorded["target"] = target_arg
+        recorded.update(kwargs)
+        return {"schema_version": 1, "operation": "post", "status": "verified"}
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.mail.mail_post", _mail_post)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "mail",
+            "post",
+            "--agent-name",
+            "agent-test",
+            "--subject",
+            "Operator note",
+            "--body-content",
+            "Hello",
+            *extra_args,
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert recorded["target"] is target
+    assert recorded["reply_policy"] == expected_policy
 
 
 @pytest.mark.parametrize(

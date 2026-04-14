@@ -109,7 +109,7 @@ def send_mail_command(
         [HOUMAO_NO_REPLY_POLICY_VALUE, HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE],
         case_sensitive=False,
     ),
-    default=HOUMAO_NO_REPLY_POLICY_VALUE,
+    default=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
     show_default=True,
     help="Operator-origin reply policy.",
 )

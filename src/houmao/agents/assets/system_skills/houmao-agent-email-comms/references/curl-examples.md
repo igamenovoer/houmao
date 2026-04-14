@@ -35,7 +35,7 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/send" \
 ```bash
 curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/post" \
   -H 'content-type: application/json' \
-  --data '{"schema_version":1,"subject":"...","body_content":"...","reply_policy":"none","attachments":[]}'
+  --data '{"schema_version":1,"subject":"...","body_content":"...","attachments":[]}'
 ```
 
 ## Reply

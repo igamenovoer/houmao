@@ -1668,7 +1668,9 @@ class GatewayMailPostRequestV1(_StrictGatewayModel):
     schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
     subject: str
     body_content: str
-    reply_policy: GatewayMailPostReplyPolicy = Field(default=HOUMAO_NO_REPLY_POLICY_VALUE)
+    reply_policy: GatewayMailPostReplyPolicy = Field(
+        default=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
+    )
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
 
     @field_validator("subject")

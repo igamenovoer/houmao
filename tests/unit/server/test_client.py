@@ -16,7 +16,9 @@ from houmao.passive_server.client import PassiveServerClient
 from houmao.passive_server.models import (
     PassiveHeadlessLaunchRequest,
     PassiveHeadlessLaunchResponse,
+    PassiveHeadlessTurnRequest,
 )
+from houmao.mailbox.protocol import HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
 from houmao.server.client import HoumaoServerClient
 from houmao.server.pair_client import (
     UnsupportedPairAuthorityError,
@@ -673,6 +675,7 @@ def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> N
         subject="operator note",
         body_content="operator body",
     )
+    assert post_request.reply_policy == HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
     reply_request = HoumaoManagedAgentMailReplyRequest(
         message_ref="msg-123",
         body_content="reply",
@@ -982,7 +985,12 @@ def test_passive_server_client_submit_headless_turn_normalizes_response(monkeypa
     assert recorded == {
         "method": "POST",
         "path": "/houmao/agents/HOUMAO%20gpu%2F1/turns",
-        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+        "kwargs": {
+            "json_body": PassiveHeadlessTurnRequest(
+                prompt=request_model.prompt,
+                chat_session=request_model.chat_session,
+            ).model_dump(mode="json")
+        },
     }
 
 

@@ -305,7 +305,7 @@ def operator_origin_reply_policy(headers: Mapping[str, object]) -> OperatorOrigi
 
 def operator_origin_headers(
     *,
-    reply_policy: OperatorOriginReplyPolicy = HOUMAO_NO_REPLY_POLICY_VALUE,
+    reply_policy: OperatorOriginReplyPolicy = HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
 ) -> dict[str, str]:
     """Return canonical provenance headers for operator-origin mailbox delivery."""
 

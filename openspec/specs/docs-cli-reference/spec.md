@@ -762,8 +762,10 @@ That page SHALL keep the documented subcommands (`resolve-live`, `status`, `chec
 That page SHALL explain that:
 
 - ordinary `send` remains mailbox participation as the managed mailbox principal,
-- `post` is the distinct operator-origin one-way mailbox action,
+- `post` is the distinct operator-origin mailbox action,
 - operator-origin `post` uses the reserved sender `HOUMAO-operator@houmao.localhost`,
+- operator-origin `post` defaults to reply-enabled behavior through `HOUMAO-operator@houmao.localhost`,
+- `--reply-policy none` is the explicit no-reply opt-out,
 - operator-origin `post` is supported only for filesystem-backed mailboxes in v1.
 
 #### Scenario: agents-mail page references the unified email-comms skill
@@ -781,8 +783,10 @@ That page SHALL explain that:
 #### Scenario: agents-mail page distinguishes ordinary send from operator-origin post
 
 - **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
-- **THEN** the page explains that `send` composes mail as the managed mailbox principal while `post` delivers one-way operator-origin mail
+- **THEN** the page explains that `send` composes mail as the managed mailbox principal while `post` delivers operator-origin mail
 - **AND THEN** the page identifies `HOUMAO-operator@houmao.localhost` as the reserved sender for `post`
+- **AND THEN** the page states that omitted `--reply-policy` defaults to replies through `HOUMAO-operator@houmao.localhost`
+- **AND THEN** the page states that `--reply-policy none` keeps one operator-origin post no-reply
 - **AND THEN** the page states that `post` is filesystem-only in v1
 
 ### Requirement: CLI reference resync against current Click decorators for stale `agents` and `admin` pages
