@@ -87,6 +87,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
     GatewayJsonObject,
+    GatewayMailNotifierMode,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayPromptControlErrorV1,
@@ -314,6 +315,25 @@ def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
             f"- `POST {base_url}/v1/mail/mark`",
             f"- `POST {base_url}/v1/mail/move`",
             f"- `POST {base_url}/v1/mail/archive`",
+        ]
+    )
+
+
+def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
+    """Return mode-specific prompt guidance for a notifier round."""
+
+    if mode == "unread_only":
+        return "\n".join(
+            [
+                "This `unread_only` notification was triggered by unread, unarchived inbox mail.",
+                "Start by listing unread inbox mail for this round. Read or answered inbox mail "
+                "that remains unarchived will not trigger another notification by itself in this mode.",
+            ]
+        )
+    return "\n".join(
+        [
+            "This `any_inbox` notification was triggered by unarchived inbox mail.",
+            "List open inbox mail for this round, including mail that may already be read or answered.",
         ]
     )
 
@@ -2717,10 +2737,14 @@ class GatewayServiceRuntime:
                 self.m_paths.queue_path,
                 enabled=True,
                 interval_seconds=request_payload.interval_seconds,
+                mode=request_payload.mode,
                 last_notified_digest=None,
                 last_error=None,
             )
-            self._log(f"mail notifier enabled interval_seconds={request_payload.interval_seconds}")
+            self._log(
+                "mail notifier enabled "
+                f"interval_seconds={request_payload.interval_seconds} mode={request_payload.mode}"
+            )
             return build_gateway_mail_notifier_status(
                 record=record,
                 supported=True,
@@ -2983,6 +3007,7 @@ class GatewayServiceRuntime:
                 return
 
             try:
+                read_state = "unread" if record.mode == "unread_only" else "any"
                 unread_messages = _sort_unread_messages(
                     [
                         _UnreadMailboxMessage(
@@ -2995,7 +3020,7 @@ class GatewayServiceRuntime:
                         )
                         for message in adapter.list_messages(
                             box="inbox",
-                            read_state="any",
+                            read_state=read_state,
                             answered_state="any",
                             archived=False,
                             limit=None,
@@ -3037,7 +3062,7 @@ class GatewayServiceRuntime:
                     unread_digest=None,
                     outcome="empty",
                 )
-                self._log("mail notifier poll: no open inbox mail")
+                self._log(f"mail notifier poll: no open inbox mail mode={record.mode}")
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
@@ -3060,7 +3085,7 @@ class GatewayServiceRuntime:
                 self._log(block_detail)
                 return
 
-            prompt = self._build_mail_notifier_prompt()
+            prompt = self._build_mail_notifier_prompt(mode=record.mode)
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
@@ -3079,7 +3104,8 @@ class GatewayServiceRuntime:
                 enqueued_request_id=request_id,
             )
             self._log(
-                f"mail notifier enqueued request_id={request_id} open_mail_count={len(unread_messages)}"
+                f"mail notifier enqueued request_id={request_id} "
+                f"open_mail_count={len(unread_messages)} mode={record.mode}"
             )
 
     def _mail_notifier_digest(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
@@ -3088,14 +3114,17 @@ class GatewayServiceRuntime:
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
-    def _build_mail_notifier_prompt(self) -> str:
+    def _build_mail_notifier_prompt(self, *, mode: GatewayMailNotifierMode) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         mailbox = self._load_mailbox_config()
         base_url = f"http://{self.m_host}:{self.m_port}"
         rendered = _load_mail_notifier_template()
+        mode_guidance = _render_mail_notifier_mode_guidance(mode)
         replacements = {
             "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
+            "{{NOTIFIER_MODE}}": mode,
+            "{{MODE_GUIDANCE}}": mode_guidance,
             "{{GATEWAY_BASE_URL}}": base_url,
             "{{FULL_ENDPOINT_URLS_BLOCK}}": _render_mail_notifier_full_endpoint_urls(base_url),
         }

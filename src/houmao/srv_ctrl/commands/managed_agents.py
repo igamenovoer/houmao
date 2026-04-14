@@ -58,6 +58,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailMoveRequestV1,
     GatewayExecutionOverrideV1,
     GatewayMailAnsweredFilter,
+    GatewayMailNotifierMode,
     GatewayMailPostRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
@@ -1119,10 +1120,11 @@ def gateway_mail_notifier_enable(
     target: ManagedAgentTarget,
     *,
     interval_seconds: int,
+    mode: GatewayMailNotifierMode = "any_inbox",
 ) -> GatewayMailNotifierStatusV1:
     """Enable or update gateway mail-notifier state for one managed agent."""
 
-    request_model = GatewayMailNotifierPutV1(interval_seconds=interval_seconds)
+    request_model = GatewayMailNotifierPutV1(interval_seconds=interval_seconds, mode=mode)
     if target.mode == "server":
         assert target.client is not None
         return pair_request(

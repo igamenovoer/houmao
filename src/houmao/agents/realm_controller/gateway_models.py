@@ -60,6 +60,7 @@ GatewayMailPostReplyPolicy = Literal["none", "operator_mailbox"]
 GatewayMailReadFilter = Literal["any", "read", "unread"]
 GatewayMailAnsweredFilter = Literal["any", "answered", "unanswered"]
 GatewayMailLifecycleOperation = Literal["mark", "move", "archive"]
+GatewayMailNotifierMode = Literal["any_inbox", "unread_only"]
 GatewayJsonScalar: TypeAlias = str | int | float | bool | None
 GatewayJsonValue: TypeAlias = (
     GatewayJsonScalar | list["GatewayJsonValue"] | dict[str, "GatewayJsonValue"]
@@ -79,6 +80,7 @@ GATEWAY_REMINDER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
 GATEWAY_WORKSPACE_SCHEMA_VERSION = 1
+DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE: GatewayMailNotifierMode = "any_inbox"
 DEFAULT_GATEWAY_TUI_WATCH_POLL_INTERVAL_SECONDS = 0.5
 DEFAULT_GATEWAY_TUI_STABILITY_THRESHOLD_SECONDS = 1.0
 DEFAULT_GATEWAY_TUI_COMPLETION_STABILITY_SECONDS = 1.0
@@ -1367,6 +1369,7 @@ class GatewayMailNotifierPutV1(_StrictGatewayModel):
     schema_version: int = Field(default=GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION)
     enabled: Literal[True] = True
     interval_seconds: int
+    mode: GatewayMailNotifierMode = Field(default=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE)
 
     @field_validator("interval_seconds")
     @classmethod
@@ -1392,6 +1395,7 @@ class GatewayMailNotifierStatusV1(_StrictGatewayModel):
     schema_version: int = Field(default=GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION)
     enabled: bool
     interval_seconds: int | None = None
+    mode: GatewayMailNotifierMode = Field(default=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE)
     supported: bool
     support_error: str | None = None
     last_poll_at_utc: str | None = None

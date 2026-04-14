@@ -15,24 +15,26 @@ This is the round-oriented workflow skill. Use `houmao-agent-email-comms` when y
 1. Confirm the current prompt or mailbox context already provides the exact gateway base URL for this round.
 2. If that base URL is missing, stop and report that the notifier round is missing required gateway bootstrap. Do not rediscover it inside this workflow.
 3. Use `GET /v1/mail/status` when you need to confirm mailbox identity or current gateway availability for the round.
-4. Use `POST /v1/mail/list` to list open inbox mail and current mailbox state for the round.
-5. Start from open-mail metadata such as sender identity, subject, timestamps, `message_ref`, `thread_ref`, read state, and answered state.
-6. Check whether any open emails correspond to work you already started in an earlier round but left stalled or interrupted.
-7. When such stalled or interrupted work exists, continue that work in this round before treating unrelated open mail as new work.
-8. Decide which open emails are relevant to process in this round.
-9. Inspect only the selected emails needed to decide and perform the work for this round.
-10. For each selected email, determine up front whether it needs a reply and remember the reply-required `message_ref`.
-11. If the current prompt requests reply hardening, create one lowest-priority one-off gateway reminder for each reply-required email and remember its `reminder_id`.
-12. Complete the requested work for the selected emails.
-13. For selected emails that need a reply, send the reply through `POST /v1/mail/reply` only after the requested work succeeds.
-14. When a reply succeeds through the normal end-of-round path, remove any not-yet-fired reply-hardening reminder for that email.
-15. Archive only the successfully processed selected emails, and only after any required reply for that email succeeds.
-16. Stop after the round and wait for the next notification. Do not proactively poll for more mail on your own.
+4. Read the prompt-provided notifier mode when present. In `any_inbox` mode, list open inbox mail including read or answered unarchived mail; in `unread_only` mode, start from unread unarchived inbox mail.
+5. Use `POST /v1/mail/list` to list the current mailbox state for the round with the read filter implied by that mode.
+6. Start from mail metadata such as sender identity, subject, timestamps, `message_ref`, `thread_ref`, read state, and answered state.
+7. Check whether any open emails correspond to work you already started in an earlier round but left stalled or interrupted.
+8. When such stalled or interrupted work exists, continue that work in this round before treating unrelated open mail as new work.
+9. Decide which open emails are relevant to process in this round.
+10. Inspect only the selected emails needed to decide and perform the work for this round.
+11. For each selected email, determine up front whether it needs a reply and remember the reply-required `message_ref`.
+12. If the current prompt requests reply hardening, create one lowest-priority one-off gateway reminder for each reply-required email and remember its `reminder_id`.
+13. Complete the requested work for the selected emails.
+14. For selected emails that need a reply, send the reply through `POST /v1/mail/reply` only after the requested work succeeds.
+15. When a reply succeeds through the normal end-of-round path, remove any not-yet-fired reply-hardening reminder for that email.
+16. Archive only the successfully processed selected emails, and only after any required reply for that email succeeds.
+17. Stop after the round and wait for the next notification. Do not proactively poll for more mail on your own.
 
 ## Selection Guidance
 
 - Start with metadata-first triage. Do not treat every open inbox email as automatically in scope for the current round.
 - If one or more open emails represent work you were already handling before you stalled or were interrupted, treat those emails as continuation candidates first.
+- In `unread_only` mode, read-but-unarchived inbox mail will not trigger another notifier prompt by itself. Process it only when it is part of the selected context for this round or explicitly requested by the operator.
 - It is acceptable to continue multiple interrupted email-driven tasks in the same round when they are all still relevant and feasible.
 - It is acceptable to defer unrelated open emails for a later round.
 - Track reply-required emails separately from archive updates so required replies are sent after work completion and before archive.

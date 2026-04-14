@@ -556,12 +556,13 @@ def test_send_managed_agent_gateway_control_input_posts_json_body(monkeypatch) -
 
 def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
-    request_model = GatewayMailNotifierPutV1(interval_seconds=60)
+    request_model = GatewayMailNotifierPutV1(interval_seconds=60, mode="unread_only")
     recorded: dict[str, object] = {}
     response_payload = {
         "schema_version": 1,
         "enabled": True,
         "interval_seconds": 60,
+        "mode": "unread_only",
         "supported": True,
         "support_error": None,
         "last_poll_at_utc": None,
@@ -585,6 +586,7 @@ def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) ->
     response = client.put_managed_agent_gateway_mail_notifier("HOUMAO gpu/1", request_model)
 
     assert response.enabled is True
+    assert response.mode == "unread_only"
     assert recorded == {
         "method": "PUT",
         "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
@@ -1123,7 +1125,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
     client = PassiveServerClient("http://127.0.0.1:9891")
     recorded: list[dict[str, object]] = []
     request_model = GatewayControlInputRequestV1(sequence="abc", escape_special_keys=True)
-    notifier_put = GatewayMailNotifierPutV1(interval_seconds=45)
+    notifier_put = GatewayMailNotifierPutV1(interval_seconds=45, mode="unread_only")
     control_payload = {
         "status": "ok",
         "action": "control_input",
@@ -1133,6 +1135,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
         "schema_version": 1,
         "enabled": True,
         "interval_seconds": 45,
+        "mode": "unread_only",
         "supported": True,
         "support_error": None,
         "last_poll_at_utc": None,
@@ -1143,6 +1146,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
         "schema_version": 1,
         "enabled": False,
         "interval_seconds": None,
+        "mode": "unread_only",
         "supported": True,
         "support_error": None,
         "last_poll_at_utc": None,
@@ -1168,7 +1172,9 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
     assert control.detail == "queued"
     assert notifier_status.enabled is True
     assert notifier_enabled.interval_seconds == 45
+    assert notifier_enabled.mode == "unread_only"
     assert notifier_disabled.enabled is False
+    assert notifier_disabled.mode == "unread_only"
     assert recorded == [
         {
             "method": "POST",

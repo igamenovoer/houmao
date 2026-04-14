@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
+    DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
     GATEWAY_PROTOCOL_VERSION,
     BlueprintGatewayDefaults,
     GatewayAttachBackendMetadataCaoV1,
@@ -29,6 +30,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayJsonObject,
     GatewayJsonValue,
     GatewayAdmissionState,
+    GatewayMailNotifierMode,
     GatewayMailNotifierStatusV1,
     GatewayProtocolVersion,
     GatewayStatusV1,
@@ -115,6 +117,7 @@ class GatewayMailNotifierRecord:
 
     enabled: bool
     interval_seconds: int | None
+    mode: GatewayMailNotifierMode
     last_poll_at_utc: str | None
     last_notification_at_utc: str | None
     last_notified_digest: str | None
@@ -874,6 +877,7 @@ def write_gateway_mail_notifier_record(
     *,
     enabled: bool | object = _UNSET,
     interval_seconds: int | None | object = _UNSET,
+    mode: GatewayMailNotifierMode | object = _UNSET,
     last_poll_at_utc: str | None | object = _UNSET,
     last_notification_at_utc: str | None | object = _UNSET,
     last_notified_digest: str | None | object = _UNSET,
@@ -890,6 +894,7 @@ def write_gateway_mail_notifier_record(
                 if interval_seconds is _UNSET
                 else cast(int | None, interval_seconds)
             ),
+            mode=record.mode if mode is _UNSET else cast(GatewayMailNotifierMode, mode),
             last_poll_at_utc=(
                 record.last_poll_at_utc
                 if last_poll_at_utc is _UNSET
@@ -923,6 +928,7 @@ def build_gateway_mail_notifier_status(
     return GatewayMailNotifierStatusV1(
         enabled=record.enabled,
         interval_seconds=record.interval_seconds,
+        mode=record.mode,
         supported=supported,
         support_error=support_error,
         last_poll_at_utc=record.last_poll_at_utc,
@@ -1323,6 +1329,7 @@ def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
             singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
             enabled INTEGER NOT NULL DEFAULT 0,
             interval_seconds INTEGER,
+            mode TEXT NOT NULL DEFAULT 'any_inbox' CHECK (mode IN ('any_inbox', 'unread_only')),
             last_poll_at_utc TEXT,
             last_notification_at_utc TEXT,
             last_notified_digest TEXT,
@@ -1350,21 +1357,37 @@ def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    _ensure_gateway_mail_notifier_mode_column(connection)
     connection.execute(
         """
         INSERT OR IGNORE INTO gateway_mail_notifier (
             singleton,
             enabled,
             interval_seconds,
+            mode,
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
             last_error,
             updated_at_utc
         )
-        VALUES (1, 0, NULL, NULL, NULL, NULL, NULL, ?)
+        VALUES (1, 0, NULL, ?, NULL, NULL, NULL, NULL, ?)
         """,
-        (now_utc_iso(),),
+        (DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE, now_utc_iso()),
+    )
+
+
+def _ensure_gateway_mail_notifier_mode_column(connection: sqlite3.Connection) -> None:
+    """Ensure the singleton notifier table has the current mode column."""
+
+    column_names = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info(gateway_mail_notifier)").fetchall()
+    }
+    if "mode" in column_names:
+        return
+    connection.execute(
+        "ALTER TABLE gateway_mail_notifier ADD COLUMN mode TEXT NOT NULL DEFAULT 'any_inbox'"
     )
 
 
@@ -1433,6 +1456,7 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
         SELECT
             enabled,
             interval_seconds,
+            mode,
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
@@ -1445,6 +1469,7 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
         record = GatewayMailNotifierRecord(
             enabled=False,
             interval_seconds=None,
+            mode=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
             last_poll_at_utc=None,
             last_notification_at_utc=None,
             last_notified_digest=None,
@@ -1455,10 +1480,21 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
     return GatewayMailNotifierRecord(
         enabled=bool(int(row[0])),
         interval_seconds=None if row[1] is None else int(row[1]),
-        last_poll_at_utc=None if row[2] is None else str(row[2]),
-        last_notification_at_utc=None if row[3] is None else str(row[3]),
-        last_notified_digest=None if row[4] is None else str(row[4]),
-        last_error=None if row[5] is None else str(row[5]),
+        mode=_require_gateway_mail_notifier_mode(row[2]),
+        last_poll_at_utc=None if row[3] is None else str(row[3]),
+        last_notification_at_utc=None if row[4] is None else str(row[4]),
+        last_notified_digest=None if row[5] is None else str(row[5]),
+        last_error=None if row[6] is None else str(row[6]),
+    )
+
+
+def _require_gateway_mail_notifier_mode(value: object) -> GatewayMailNotifierMode:
+    """Return a validated gateway notifier mode from storage."""
+
+    if value in {"any_inbox", "unread_only"}:
+        return cast(GatewayMailNotifierMode, value)
+    raise SessionManifestError(
+        "Gateway mail notifier mode must be one of 'any_inbox' or 'unread_only'."
     )
 
 
@@ -1475,16 +1511,18 @@ def _write_gateway_mail_notifier_record(
             singleton,
             enabled,
             interval_seconds,
+            mode,
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
             last_error,
             updated_at_utc
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(singleton) DO UPDATE SET
             enabled = excluded.enabled,
             interval_seconds = excluded.interval_seconds,
+            mode = excluded.mode,
             last_poll_at_utc = excluded.last_poll_at_utc,
             last_notification_at_utc = excluded.last_notification_at_utc,
             last_notified_digest = excluded.last_notified_digest,
@@ -1494,6 +1532,7 @@ def _write_gateway_mail_notifier_record(
         (
             int(record.enabled),
             record.interval_seconds,
+            record.mode,
             record.last_poll_at_utc,
             record.last_notification_at_utc,
             record.last_notified_digest,

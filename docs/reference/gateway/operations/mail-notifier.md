@@ -1,14 +1,14 @@
 # Gateway Mail-Notifier
 
-The gateway mail-notifier is a gateway-owned background polling loop that checks the agent's mailbox for unread messages and injects notification prompts into the gateway request queue.
+The gateway mail-notifier is a gateway-owned background polling loop that checks the agent's mailbox for open inbox work and injects notification prompts into the gateway request queue.
 
 ## What It Does
 
-Use the mail-notifier when a live gateway should wake the agent for unread shared-mailbox work without requiring another process to poll the mailbox.
+Use the mail-notifier when a live gateway should wake the agent for shared-mailbox inbox work without requiring another process to poll the mailbox. The default `any_inbox` mode wakes while any inbox mail remains unarchived. The opt-in `unread_only` mode wakes only for unread unarchived inbox mail.
 
 The notifier is part of the live gateway process:
 
-- it polls unread state through the configured mailbox adapter,
+- it polls eligible inbox state through the configured mailbox adapter,
 - it renders one gateway-owned notification prompt from a packaged template,
 - it enqueues that prompt as an internal `mail_notifier_prompt` request when the gateway is ready.
 
@@ -21,9 +21,9 @@ When the notifier is enabled, the current implementation runs this cycle:
 1. Read the notifier record from gateway storage to confirm that polling is enabled and an interval is configured.
 2. Wait until the next scheduled poll time on the gateway's monotonic clock.
 3. Refresh current gateway status and verify that mailbox support is available from the runtime-owned manifest and mailbox binding.
-4. Ask the mailbox adapter for the full unread set.
-5. If there is no unread mail, record an `empty` audit row and stop this cycle.
-6. If unread mail exists, compute a SHA256 digest from the sorted unread `message_ref` values.
+4. Ask the mailbox adapter for the current eligible inbox set: `read_state=any`, `answered_state=any`, `archived=false` in `any_inbox` mode, or `read_state=unread`, `answered_state=any`, `archived=false` in `unread_only` mode.
+5. If there is no eligible mail, record an `empty` audit row and stop this cycle.
+6. If eligible mail exists, compute a SHA256 digest from the sorted eligible `message_ref` values.
 7. Check whether prompt enqueueing is currently blocked by gateway readiness.
 8. If the gateway is ready, render the notification prompt and enqueue one internal `mail_notifier_prompt` request.
 9. Reschedule the next poll as `now + interval_seconds`.
@@ -32,23 +32,24 @@ The digest is currently used for notifier state or audit visibility only. It is 
 
 ## Current Repeat-Notification Behavior
 
-The current implementation may enqueue repeated notifier prompts for the same unchanged unread snapshot while those messages remain unread.
+The current implementation may enqueue repeated notifier prompts for the same unchanged eligible inbox snapshot while those messages remain unarchived and eligible for the selected mode.
 
 Important source-truth details:
 
-- the notifier computes `unread_digest` from unread `message_ref` values,
+- the notifier computes `unread_digest` from eligible `message_ref` values,
 - the notifier audit trail stores that digest,
 - the current enqueue path does not compare the new digest against a previously notified digest before deciding to enqueue,
 - `last_notified_digest` exists in the notifier record model, but the current cycle writes it as `None` rather than using it to suppress repeated wakeups.
 
 Practical effect:
 
-- unchanged unread self-mail can wake the agent again on later notifier cycles,
-- repeated wakeups stop only when the unread set changes, the messages are marked read or deleted, the notifier is disabled, or the gateway stays unavailable or busy long enough that nothing can be enqueued.
+- unchanged eligible inbox mail can wake the agent again on later notifier cycles,
+- in `any_inbox` mode, repeated wakeups stop when the message is archived, moved out of inbox, deleted, the notifier is disabled, or the gateway stays unavailable or busy long enough that nothing can be enqueued,
+- in `unread_only` mode, marking a message read also removes it from notifier eligibility, so use this mode only when that lower-noise trade-off is intended.
 
 ## Readiness-Gated Enqueueing
 
-Unread mail does not immediately guarantee a prompt. The notifier enqueues only when the gateway is ready to accept prompt work.
+Eligible mail does not immediately guarantee a prompt. The notifier enqueues only when the gateway is ready to accept prompt work.
 
 The current busy checks include:
 
@@ -57,7 +58,7 @@ The current busy checks include:
 - `queue_depth = 0`
 - prompt-readiness for the current dispatch mode
 
-If the managed session is busy or not prompt-ready, the cycle is audited as `busy_skip` and the unread mail remains unread for a later cycle.
+If the managed session is busy or not prompt-ready, the cycle is audited as `busy_skip` and the eligible mail remains in the inbox for a later cycle.
 
 For TUI-backed dispatch, the notifier also checks prompt-readiness reasons from the live TUI surface. For headless dispatch, it checks the active direct-turn or terminal-surface readiness state before enqueueing.
 
@@ -68,7 +69,7 @@ The mail-notifier is managed through `houmao-mgr agents gateway mail-notifier`:
 | Command | Description |
 | --- | --- |
 | `status` | Show whether notifier polling is enabled and report last-check metadata. |
-| `enable --interval-seconds N` | Enable or reconfigure polling with interval `N` seconds. The current request model requires `N > 0`. |
+| `enable --interval-seconds N [--mode any_inbox|unread_only]` | Enable or reconfigure polling with interval `N` seconds and the selected mode. The current request model requires `N > 0`; the mode defaults to `any_inbox`. |
 | `disable` | Disable polling and stop future notifier prompt enqueueing. |
 
 The live gateway rereads notifier state from storage on each cycle, so enable, disable, and interval changes take effect without restarting the gateway.
@@ -81,6 +82,7 @@ The live gateway rereads notifier state from storage on each cycle, so enable, d
 | --- | --- |
 | `enabled` | Whether the notifier currently polls. |
 | `interval_seconds` | Current polling interval in seconds, or `null` when disabled. |
+| `mode` | Effective notifier mode, `any_inbox` or `unread_only`, including when disabled. |
 | `supported` | Whether the current session configuration supports mailbox-backed notifier behavior. |
 | `support_error` | Why mailbox-backed notifier behavior is unsupported, when applicable. |
 | `last_poll_at_utc` | Timestamp of the last completed poll attempt. |
@@ -93,8 +95,8 @@ Notifier audit rows currently use these outcomes in practice:
 
 | Outcome | Meaning |
 | --- | --- |
-| `empty` | The unread set was empty for that poll cycle. |
-| `busy_skip` | Unread mail existed, but the gateway was busy or not prompt-ready. |
+| `empty` | The eligible inbox set was empty for that poll cycle. |
+| `busy_skip` | Eligible inbox mail existed, but the gateway was busy or not prompt-ready. |
 | `enqueued` | The notifier rendered the prompt and enqueued one internal request. |
 | `poll_error` | Mailbox support failed or unread polling raised an error. |
 
@@ -116,10 +118,10 @@ That template includes:
 
 The prompt tells the agent to:
 
-1. list unread mail through the shared gateway mailbox API,
-2. choose the relevant unread email or emails for this round,
+1. use the mode-specific list filter through the shared gateway mailbox API,
+2. choose the relevant email or emails for this round,
 3. complete that work,
-4. mark only the successfully processed selected emails read,
+4. archive only the successfully processed selected emails after any required reply succeeds,
 5. stop and wait for the next notification.
 
 The skill-usage block is derived from the runtime-owned manifest and projected mailbox skill installation for the current tool.

@@ -1,9 +1,13 @@
-You have unread shared-mailbox work to process.
+You have shared-mailbox inbox work to process.
+
+Notifier mode: `{{NOTIFIER_MODE}}`
+
+{{MODE_GUIDANCE}}
 
 {{SKILL_USAGE_BLOCK}}
 
-List unread mail through the shared gateway mailbox API for this round.
-Choose which unread email or emails are relevant to process, complete that work, mark only those successfully processed emails read, then stop and wait for the next notification.
+Use the shared gateway mailbox API for this round.
+Choose which email or emails are relevant to process, complete that work, archive only those successfully processed emails, then stop and wait for the next notification.
 
 Gateway mailbox operations for this round use the exact live gateway base URL:
 `{{GATEWAY_BASE_URL}}`
