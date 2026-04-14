@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-inspect
-description: Use Houmao's supported read-only inspection surfaces to inspect Houmao-managed agents, including liveness, TUI state, mailbox posture, runtime artifacts, logs, and bounded local tmux peeking when needed.
+description: Use Houmao's supported read-only inspection surfaces to inspect Houmao-managed agents, including liveness, TUI state, mailbox posture, runtime artifacts, logs, and tmux inspection once the session name is identified.
 license: MIT
 ---
 
@@ -31,7 +31,7 @@ Supported surfaces for this skill include:
 - `houmao-mgr agents turn status|events|stdout|stderr`
 - managed-agent HTTP routes under `/houmao/agents/*`, including `/state`, `/state/detail`, `/history`, `/gateway`, `/gateway/tui/*`, `/mail/*`, and `/turns/*`
 - runtime-owned artifacts such as `manifest.json`, `gateway/state.json`, `gateway/events.jsonl`, `gateway/logs/gateway.log`, and headless turn artifacts under the session root
-- direct local tmux attach or pane capture only when the caller explicitly needs the live local pane or higher-level inspection surfaces are insufficient
+- direct local tmux pane capture once managed-agent surfaces have identified the exact tmux session or pane target
 
 This packaged skill does not cover:
 
@@ -53,12 +53,13 @@ This packaged skill does not cover:
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 5. Reuse that same chosen launcher for the selected inspection action.
-6. Follow the supported-surface-first evidence ladder:
+6. Follow the identify-first evidence ladder:
    - identify the target through `agents list` or an explicit selector
    - read summary state through `agents state` or `GET /houmao/agents/{agent_ref}/state`
-   - use transport-specific detail through `GET /houmao/agents/{agent_ref}/state/detail`, live gateway status, or live gateway TUI state when needed
+   - use transport-specific detail through `GET /houmao/agents/{agent_ref}/state/detail`, live gateway status, or live gateway TUI state when needed to recover the exact tmux session name or pane target
+   - once the exact tmux session or pane target is identified for a TUI-backed agent, inspect the live pane with local tmux capture before using gateway TUI tracker state or history
    - inspect mailbox posture, logs, or runtime artifacts through the owned read-only surfaces for that domain
-   - use direct local tmux attach or pane capture only when the caller explicitly needs the visible pane or the supported surfaces are insufficient
+   - use direct local tmux attach only when the caller explicitly needs an attached live pane
 7. When the caller is already operating through pair-managed HTTP control, allow the matching `/houmao/agents/*` inspection routes instead of forcing a CLI-only path.
 8. Load exactly one action page:
    - `actions/discover.md`
@@ -91,7 +92,7 @@ This packaged skill does not cover:
 ## Guardrails
 
 - Do not guess the target managed agent, transport kind, or intended inspection lane.
-- Do not start generic inspection from raw tmux attach, raw pane capture, or direct filesystem spelunking when managed-agent summary and detail surfaces already exist.
+- Do not start generic inspection from raw tmux attach, raw pane capture, or direct filesystem spelunking before managed-agent summary and detail surfaces have identified the target and exact tmux session or pane.
 - Do not present prompt, interrupt, gateway mutation, mailbox mutation, or lifecycle mutation as part of this inspection skill.
 - Do not guess a live `gateway.base_url`, session root, or tmux session name when the supported discovery surfaces have not established them.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.

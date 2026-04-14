@@ -60,18 +60,14 @@ When reply hardening is requested:
 Use this prompt template for each hardening reminder. Fill every bracketed field that is known at creation time and keep unknown optional fields explicit as `unknown`.
 
 ```text
-Reply hardening reminder for an unread email that required a reply.
+Reply hardening reminder.
 
-Gateway base URL: <gateway_base_url>
-Original message_ref: <message_ref>
-Original thread_ref: <thread_ref or unknown>
-Original sender: <sender address or display text>
-Original subject: <subject>
-Reply obligation: <what must be answered after processing succeeds>
+Mail: <message_ref>; thread: <thread_ref or unknown>; from: <sender>; subject: <subject>
+Reply to: <reply recipient>
 
-Before sending any reply, use the gateway mailbox API to check whether the reply was already sent. Call POST <gateway_base_url>/v1/mail/check with {"schema_version":1,"unread_only":false,"limit":50}. If any returned message in the same thread shows a later outbound reply from this mailbox that satisfies the reply obligation, stop and do not send a duplicate reply.
+If this mail is still being processed and the work is not done, set this same one-off reminder again through the gateway with 15s and continue processing the email.
 
-If no satisfying reply exists, finish or resume only the work needed to produce the required answer, then call POST <gateway_base_url>/v1/mail/reply with {"schema_version":1,"message_ref":"<message_ref>","body_content":"<reply body>","attachments":[]}. After the reply succeeds, you may mark the original message read only if the required processing work is complete. If the reply cannot be sent, leave the original message unread and report the failure.
+If this mail is already processed, reply to mail <message_ref>.
 ```
 
 For direct gateway creation, use this one-off prompt reminder shape and replace `1001` with a ranking that appends after all current reminders:

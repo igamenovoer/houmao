@@ -38,6 +38,6 @@ Managed-agent HTTP discovery surfaces:
 ## Guardrails
 
 - Do not guess the target managed agent when the selector is missing or ambiguous.
-- Do not skip summary state and jump straight to tmux or runtime files for an ordinary "what is this agent doing?" question.
+- Do not skip summary state and jump straight to tmux or runtime files before the exact target and session identity are known.
 - Do not treat `/history` as a substitute for the transport-specific rich detail surface.
 - Do not keep using stale gateway or mailbox assumptions across turns when current live state matters.
