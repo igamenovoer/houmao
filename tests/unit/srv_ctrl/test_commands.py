@@ -2098,16 +2098,20 @@ def test_agents_launch_reports_project_aware_root_details_in_json(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     expected_overlay_root = (working_directory / ".houmao").resolve()
+    expected_workspace_root = (
+        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    ).resolve()
     assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["workspace_root"] == str(expected_workspace_root)
+    assert payload["memo_file"] == str((expected_workspace_root / "houmao-memo.md").resolve())
+    assert payload["scratch_dir"] == str((expected_workspace_root / "scratch").resolve())
+    assert payload["persist_binding"] == "auto"
+    assert payload["persist_dir"] == str((expected_workspace_root / "persist").resolve())
     assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert (
         payload["runtime_root_detail"]
         == "Selected the active project runtime root from the current project overlay."
-    )
-    assert (
-        payload["jobs_root_detail"] == "Selected the overlay-local jobs root for this invocation."
     )
     assert (
         payload["mailbox_root_detail"]
@@ -2194,8 +2198,15 @@ def test_agents_launch_uses_invocation_project_roots_when_workdir_points_elsewhe
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     expected_overlay_root = (source_repo / ".houmao").resolve()
+    expected_workspace_root = (
+        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    ).resolve()
     assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["workspace_root"] == str(expected_workspace_root)
+    assert payload["memo_file"] == str((expected_workspace_root / "houmao-memo.md").resolve())
+    assert payload["scratch_dir"] == str((expected_workspace_root / "scratch").resolve())
+    assert payload["persist_binding"] == "auto"
+    assert payload["persist_dir"] == str((expected_workspace_root / "persist").resolve())
     assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert payload["project_overlay_bootstrapped"] is True
@@ -2295,8 +2306,15 @@ def test_agents_launch_explicit_preset_path_uses_preset_source_project(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     expected_overlay_root = (source_repo / ".houmao").resolve()
+    expected_workspace_root = (
+        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    ).resolve()
     assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["workspace_root"] == str(expected_workspace_root)
+    assert payload["memo_file"] == str((expected_workspace_root / "houmao-memo.md").resolve())
+    assert payload["scratch_dir"] == str((expected_workspace_root / "scratch").resolve())
+    assert payload["persist_binding"] == "auto"
+    assert payload["persist_dir"] == str((expected_workspace_root / "persist").resolve())
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert captured["target_kwargs"]["agent_def_dir"] == (expected_overlay_root / "agents")
     assert captured["target_kwargs"]["working_directory"] == runtime_workdir
@@ -2341,8 +2359,8 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             managed_agent_id="agent-alice",
             workdir=str(project_root / "profile-workdir"),
             auth_name="alice-creds",
-            memory_dir="/shared/alice-memory",
-            memory_disabled=False,
+            persist_dir="/shared/alice-persist",
+            persist_disabled=False,
             model_name=None,
             reasoning_level=None,
             operator_prompt_mode="unattended",
@@ -2421,10 +2439,10 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
     assert captured["auth"] == "breakglass"
     assert captured["provider"] == "codex"
     assert captured["working_directory"] == runtime_workdir
-    assert captured["memory_dir"] is None
-    assert captured["no_memory_dir"] is False
-    assert captured["launch_profile_memory_dir"] == "/shared/alice-memory"
-    assert captured["launch_profile_memory_disabled"] is False
+    assert captured["persist_dir"] is None
+    assert captured["no_persist_dir"] is False
+    assert captured["launch_profile_persist_dir"] == "/shared/alice-persist"
+    assert captured["launch_profile_persist_disabled"] is False
     assert captured["source_working_directory"] == project_root
     assert captured["source_agent_def_dir"] == source_agent_def_dir
     assert captured["headless"] is True
@@ -2479,8 +2497,8 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
                 managed_agent_id=None,
                 workdir=None,
                 auth_name=None,
-                memory_dir=None,
-                memory_disabled=False,
+                persist_dir=None,
+                persist_disabled=False,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2518,7 +2536,7 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
     assert "conflicts with launch profile" in result.output
 
 
-def test_agents_launch_memory_dir_override_wins_over_profile_disabled(
+def test_agents_launch_persist_dir_override_wins_over_profile_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2546,8 +2564,8 @@ def test_agents_launch_memory_dir_override_wins_over_profile_disabled(
                 managed_agent_id="agent-alice",
                 workdir=None,
                 auth_name=None,
-                memory_dir=None,
-                memory_disabled=True,
+                persist_dir=None,
+                persist_disabled=True,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2595,15 +2613,15 @@ def test_agents_launch_memory_dir_override_wins_over_profile_disabled(
             "alice",
             "--provider",
             "codex",
-            "--memory-dir",
-            str((tmp_path / "shared" / "alice-memory").resolve()),
+            "--persist-dir",
+            str((tmp_path / "shared" / "alice-persist").resolve()),
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["memory_dir"] == (tmp_path / "shared" / "alice-memory").resolve()
-    assert captured["no_memory_dir"] is False
-    assert captured["launch_profile_memory_disabled"] is True
+    assert captured["persist_dir"] == (tmp_path / "shared" / "alice-persist").resolve()
+    assert captured["no_persist_dir"] is False
+    assert captured["launch_profile_persist_disabled"] is True
 
 
 def test_agents_launch_help_mentions_force_mode() -> None:
@@ -2727,8 +2745,8 @@ def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
                 managed_agent_id="agent-alice",
                 workdir=None,
                 auth_name=None,
-                memory_dir=None,
-                memory_disabled=False,
+                persist_dir=None,
+                persist_disabled=False,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2867,6 +2885,9 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
 
     assert result.exit_code == 0
     payloads = _decode_json_stream(result.output)
+    expected_workspace_root = (
+        working_directory / ".houmao" / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    )
     assert payloads == [
         {
             "status": "Managed agent launch complete",
@@ -2876,9 +2897,11 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             "manifest_path": str(controller.manifest_path),
             "runtime_root": str(working_directory / ".houmao" / "runtime"),
             "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
-            "jobs_root": str(working_directory / ".houmao" / "jobs"),
-            "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
-            "memory_dir": None,
+            "workspace_root": str(expected_workspace_root),
+            "memo_file": str(expected_workspace_root / "houmao-memo.md"),
+            "scratch_dir": str(expected_workspace_root / "scratch"),
+            "persist_binding": "auto",
+            "persist_dir": str(expected_workspace_root / "persist"),
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),
@@ -3024,6 +3047,9 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
 
     assert result.exit_code == 0
     payloads = _decode_json_stream(result.output)
+    expected_workspace_root = (
+        working_directory / ".houmao" / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    )
     assert payloads == [
         {
             "status": "Managed agent launch complete",
@@ -3033,9 +3059,11 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
             "manifest_path": str(controller.manifest_path),
             "runtime_root": str(working_directory / ".houmao" / "runtime"),
             "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
-            "jobs_root": str(working_directory / ".houmao" / "jobs"),
-            "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
-            "memory_dir": None,
+            "workspace_root": str(expected_workspace_root),
+            "memo_file": str(expected_workspace_root / "houmao-memo.md"),
+            "scratch_dir": str(expected_workspace_root / "scratch"),
+            "persist_binding": "auto",
+            "persist_dir": str(expected_workspace_root / "persist"),
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),

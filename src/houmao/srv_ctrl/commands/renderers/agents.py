@@ -101,7 +101,10 @@ def render_agent_state_plain(payload: object) -> None:
     if isinstance(mailbox, dict):
         click.echo(f"  mailbox:       {_pv(mailbox.get('status'))}")
 
-    click.echo(f"  memory_dir:    {_pv(data.get('memory_dir'))}")
+    click.echo(f"  workspace:     {_pv(data.get('workspace_root'))}")
+    click.echo(f"  scratch_dir:   {_pv(data.get('scratch_dir'))}")
+    click.echo(f"  persist:       {_pv(data.get('persist_binding'))}")
+    click.echo(f"  persist_dir:   {_pv(data.get('persist_dir'))}")
 
     diags = data.get("diagnostics")
     if isinstance(diags, list) and diags:
@@ -148,7 +151,10 @@ def render_agent_state_fancy(payload: object) -> None:
     if isinstance(mailbox, dict):
         table.add_row("mailbox", _pv(mailbox.get("status")))
 
-    table.add_row("memory_dir", _pv(data.get("memory_dir")))
+    table.add_row("workspace_root", _pv(data.get("workspace_root")))
+    table.add_row("scratch_dir", _pv(data.get("scratch_dir")))
+    table.add_row("persist_binding", _pv(data.get("persist_binding")))
+    table.add_row("persist_dir", _pv(data.get("persist_dir")))
 
     Console().print(table)
 

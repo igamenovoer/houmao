@@ -118,12 +118,6 @@ def cleanup_runtime_group() -> None:
     help="Only remove removable session envelopes older than this threshold.",
 )
 @click.option(
-    "--include-job-dir/--no-include-job-dir",
-    default=False,
-    show_default=True,
-    help="Also remove manifest-persisted job directories for removable sessions.",
-)
-@click.option(
     "--dry-run",
     is_flag=True,
     help="Preview removable session envelopes without deleting them.",
@@ -131,7 +125,6 @@ def cleanup_runtime_group() -> None:
 def cleanup_runtime_sessions_command(
     runtime_root: Path | None,
     older_than_seconds: int,
-    include_job_dir: bool,
     dry_run: bool,
 ) -> None:
     """Clean stopped or malformed runtime session envelopes."""
@@ -140,7 +133,6 @@ def cleanup_runtime_sessions_command(
         cleanup_runtime_sessions(
             runtime_root=runtime_root,
             older_than_seconds=older_than_seconds,
-            include_job_dir=include_job_dir,
             dry_run=dry_run,
         )
     )

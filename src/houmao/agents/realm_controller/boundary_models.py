@@ -20,7 +20,7 @@ from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 OperatorPromptModeV1: TypeAlias = Literal["as_is", "unattended"]
 LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
 RegistryLaunchAuthorityV1: TypeAlias = Literal["runtime", "external"]
-RuntimeMemoryBindingKindV1: TypeAlias = Literal["auto", "exact", "disabled"]
+RuntimePersistBindingKindV1: TypeAlias = Literal["auto", "exact", "disabled"]
 SessionOriginV1: TypeAlias = Literal["joined_tmux"]
 AgentLaunchPostureKindV1: TypeAlias = Literal[
     "runtime_launch_plan",
@@ -307,9 +307,11 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
     """Normalized runtime-owned manifest authority for one tmux-backed session."""
 
     session_id: str | None = None
-    job_dir: str | None = None
-    memory_binding: RuntimeMemoryBindingKindV1 | None = None
-    memory_dir: str | None = None
+    workspace_root: str | None = None
+    memo_file: str | None = None
+    scratch_dir: str | None = None
+    persist_binding: RuntimePersistBindingKindV1 | None = None
+    persist_dir: str | None = None
     agent_def_dir: str | None = None
     agent_pid: int | None = None
     registry_generation_id: str | None = None
@@ -317,9 +319,11 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
 
     @field_validator(
         "session_id",
-        "job_dir",
-        "memory_binding",
-        "memory_dir",
+        "workspace_root",
+        "memo_file",
+        "scratch_dir",
+        "persist_binding",
+        "persist_dir",
         "agent_def_dir",
         "registry_generation_id",
         "registry_launch_authority",
@@ -342,15 +346,23 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_memory_binding(self) -> "SessionManifestRuntimeSectionV1":
-        if self.memory_binding in {"auto", "exact"} and self.memory_dir is None:
-            raise ValueError("memory_dir is required when runtime.memory_binding enables memory")
-        if self.memory_binding == "disabled" and self.memory_dir is not None:
+    def _validate_workspace_binding(self) -> "SessionManifestRuntimeSectionV1":
+        workspace_fields = (self.workspace_root, self.memo_file, self.scratch_dir)
+        if any(value is not None for value in workspace_fields) and not all(
+            value is not None for value in workspace_fields
+        ):
             raise ValueError(
-                "runtime.memory_dir must be omitted when runtime.memory_binding is disabled"
+                "runtime.workspace_root, runtime.memo_file, and runtime.scratch_dir must be "
+                "stored together"
             )
-        if self.memory_binding is None and self.memory_dir is not None:
-            raise ValueError("runtime.memory_binding is required when runtime.memory_dir is set")
+        if self.persist_binding in {"auto", "exact"} and self.persist_dir is None:
+            raise ValueError("persist_dir is required when runtime.persist_binding enables persist")
+        if self.persist_binding == "disabled" and self.persist_dir is not None:
+            raise ValueError(
+                "runtime.persist_dir must be omitted when runtime.persist_binding is disabled"
+            )
+        if self.persist_binding is None and self.persist_dir is not None:
+            raise ValueError("runtime.persist_binding is required when runtime.persist_dir is set")
         return self
 
 
@@ -818,7 +830,6 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     agent_name: str | None = None
     agent_id: str | None = None
     tmux_session_name: str | None = None
-    job_dir: str | None = None
     registry_generation_id: str | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     runtime: SessionManifestRuntimeSectionV1
@@ -844,7 +855,6 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
         "agent_name",
         "agent_id",
         "tmux_session_name",
-        "job_dir",
         "registry_generation_id",
         "registry_launch_authority",
     )
@@ -908,8 +918,6 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             if self.tmux_session_name != self.tmux.session_name:
                 raise ValueError("tmux.session_name must match top-level tmux_session_name")
 
-        if self.job_dir is not None and self.runtime.job_dir != self.job_dir:
-            raise ValueError("runtime.job_dir must match top-level job_dir when both are set")
         if (
             self.registry_generation_id is not None
             and self.runtime.registry_generation_id != self.registry_generation_id

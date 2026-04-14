@@ -428,7 +428,7 @@ def test_project_status_reports_discovered_overlay_from_nested_directory(
     assert payload["effective_agent_def_dir_source"] == "project_config"
     assert payload["project_mailbox_root"] == str((repo_root / ".houmao" / "mailbox").resolve())
     assert payload["project_runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
-    assert payload["project_jobs_root"] == str((repo_root / ".houmao" / "jobs").resolve())
+    assert payload["project_memory_root"] == str((repo_root / ".houmao" / "memory").resolve())
     assert payload["project_easy_root"] == str((repo_root / ".houmao" / "easy").resolve())
     assert payload["would_bootstrap_overlay"] is False
     assert (
@@ -529,7 +529,7 @@ def test_project_status_reports_missing_env_selected_overlay_clearly(
     assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
     assert payload["effective_agent_def_dir_source"] == "project_overlay_env"
     assert payload["project_runtime_root"] == str((overlay_root / "runtime").resolve())
-    assert payload["project_jobs_root"] == str((overlay_root / "jobs").resolve())
+    assert payload["project_memory_root"] == str((overlay_root / "memory").resolve())
     assert payload["project_mailbox_root"] == str((overlay_root / "mailbox").resolve())
     assert payload["project_easy_root"] == str((overlay_root / "easy").resolve())
     assert payload["would_bootstrap_overlay"] is True
@@ -562,7 +562,7 @@ def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert payload["overlay_discovery_mode"] == "ancestor"
     assert payload["project_runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["project_jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["project_memory_root"] == str((expected_overlay_root / "memory").resolve())
     assert payload["project_mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
     assert payload["project_easy_root"] == str((expected_overlay_root / "easy").resolve())
     assert payload["would_bootstrap_overlay"] is True
@@ -3099,7 +3099,7 @@ def test_project_agents_launch_profiles_crud_round_trip(
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     auth_json_path = (tmp_path / "auth.json").resolve()
-    shared_memory_dir = (repo_root.parent / "shared" / "alice-memory").resolve()
+    shared_persist_dir = (repo_root.parent / "shared" / "alice-persist").resolve()
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
     monkeypatch.chdir(repo_root)
 
@@ -3166,8 +3166,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "/repos/alice",
             "--auth",
             "alice-creds",
-            "--memory-dir",
-            "../shared/alice-memory",
+            "--persist-dir",
+            "../shared/alice-persist",
             "--model",
             "gpt-5.4-mini",
             "--reasoning-level",
@@ -3202,8 +3202,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
         "agent_id": "agent-alice",
         "workdir": "/repos/alice",
         "auth": "alice-creds",
-        "memory_binding": "exact",
-        "memory_dir": str(shared_memory_dir),
+        "persist_binding": "exact",
+        "persist_dir": str(shared_persist_dir),
         "model": {"name": "gpt-5.4-mini", "reasoning": {"level": 4}},
         "prompt_mode": "unattended",
         "env": {"PROJECT_CONTEXT": "alice"},
@@ -3304,8 +3304,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
     assert set_result.exit_code == 0, set_result.output
     set_payload = json.loads(set_result.output)
     assert set_payload["defaults"]["auth"] == "reviewer-creds"
-    assert set_payload["defaults"]["memory_binding"] == "exact"
-    assert set_payload["defaults"]["memory_dir"] == str(shared_memory_dir)
+    assert set_payload["defaults"]["persist_binding"] == "exact"
+    assert set_payload["defaults"]["persist_dir"] == str(shared_persist_dir)
     assert set_payload["defaults"]["model"] == {"reasoning": {"level": 4}}
     assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
     assert set_payload["defaults"]["prompt_overlay"]["present"] is True
@@ -3393,7 +3393,7 @@ def test_project_easy_profile_crud_round_trip(
             "/repos/alice",
             "--auth",
             "alice-creds",
-            "--no-memory-dir",
+            "--no-persist-dir",
             "--model",
             "gpt-5.4-mini",
             "--reasoning-level",
@@ -3410,8 +3410,8 @@ def test_project_easy_profile_crud_round_trip(
     assert create_payload["profile_lane"] == "easy-profile"
     assert create_payload["specialist"] == "researcher"
     assert create_payload["defaults"]["agent_name"] == "alice"
-    assert create_payload["defaults"]["memory_binding"] == "disabled"
-    assert create_payload["defaults"]["memory_dir"] is None
+    assert create_payload["defaults"]["persist_binding"] == "disabled"
+    assert create_payload["defaults"]["persist_dir"] is None
     assert create_payload["defaults"]["model"] == {
         "name": "gpt-5.4-mini",
         "reasoning": {"level": 4},
@@ -3928,7 +3928,7 @@ def test_project_easy_profile_set_without_updates_fails_without_mutation(
     assert json.loads(after_result.output) == json.loads(before_result.output)
 
 
-def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
+def test_project_launch_profile_set_can_disable_and_clear_persist_binding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3994,8 +3994,8 @@ def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
                 "alice",
                 "--recipe",
                 "researcher-codex-default",
-                "--memory-dir",
-                str((tmp_path / "shared" / "alice-memory").resolve()),
+                "--persist-dir",
+                str((tmp_path / "shared" / "alice-persist").resolve()),
             ],
         ).exit_code
         == 0
@@ -4010,14 +4010,14 @@ def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
             "set",
             "--name",
             "alice",
-            "--no-memory-dir",
+            "--no-persist-dir",
         ],
     )
 
     assert disabled_result.exit_code == 0, disabled_result.output
     disabled_payload = json.loads(disabled_result.output)
-    assert disabled_payload["defaults"]["memory_binding"] == "disabled"
-    assert disabled_payload["defaults"]["memory_dir"] is None
+    assert disabled_payload["defaults"]["persist_binding"] == "disabled"
+    assert disabled_payload["defaults"]["persist_dir"] is None
 
     cleared_result = runner.invoke(
         cli,
@@ -4028,14 +4028,14 @@ def test_project_launch_profile_set_can_disable_and_clear_memory_binding(
             "set",
             "--name",
             "alice",
-            "--clear-memory-dir",
+            "--clear-persist-dir",
         ],
     )
 
     assert cleared_result.exit_code == 0, cleared_result.output
     cleared_payload = json.loads(cleared_result.output)
-    assert cleared_payload["defaults"]["memory_binding"] == "inherit"
-    assert cleared_payload["defaults"]["memory_dir"] is None
+    assert cleared_payload["defaults"]["persist_binding"] == "inherit"
+    assert cleared_payload["defaults"]["persist_dir"] is None
 
 
 def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
@@ -4114,8 +4114,8 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
                 str(profile_workdir),
                 "--auth",
                 "alice-creds",
-                "--memory-dir",
-                str((tmp_path / "profile-memory").resolve()),
+                "--persist-dir",
+                str((tmp_path / "profile-persist").resolve()),
                 "--model",
                 "gpt-5.4-mini",
                 "--reasoning-level",
@@ -4185,10 +4185,10 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["agent_name"] == "alice"
     assert captured["auth"] == "breakglass"
     assert captured["working_directory"] == runtime_workdir
-    assert captured["memory_dir"] is None
-    assert captured["no_memory_dir"] is False
-    assert captured["launch_profile_memory_dir"] == str((tmp_path / "profile-memory").resolve())
-    assert captured["launch_profile_memory_disabled"] is False
+    assert captured["persist_dir"] is None
+    assert captured["no_persist_dir"] is False
+    assert captured["launch_profile_persist_dir"] == str((tmp_path / "profile-persist").resolve())
+    assert captured["launch_profile_persist_disabled"] is False
     assert captured["provider"] == "codex"
     assert captured["headless"] is False
     assert captured["gateway_auto_attach"] is False
@@ -5449,6 +5449,13 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
         lambda payload, **kwargs: emitted.append(dict(payload)),
     )
 
+    workspace = SimpleNamespace(
+        workspace_root=(tmp_path / "memory" / "agents" / "agent-123").resolve(),
+        memo_file=(tmp_path / "memory" / "agents" / "agent-123" / "houmao-memo.md").resolve(),
+        scratch_dir=(tmp_path / "memory" / "agents" / "agent-123" / "scratch").resolve(),
+        persist_binding="auto",
+        persist_dir=(tmp_path / "memory" / "agents" / "agent-123" / "persist").resolve(),
+    )
     launch_result = SimpleNamespace(
         controller=SimpleNamespace(
             agent_identity="repo-research-1",
@@ -5477,10 +5484,9 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
                 managed_agent_instance_epoch=1,
             ),
         ),
+        workspace=workspace,
         runtime_root=(tmp_path / "runtime").resolve(),
         runtime_root_detail="runtime-root-detail",
-        jobs_root=(tmp_path / "jobs").resolve(),
-        jobs_root_detail="jobs-root-detail",
         mailbox_root=(tmp_path / "mailbox").resolve(),
         mailbox_root_detail="mailbox-root-detail",
         overlay_root=(tmp_path / "overlay").resolve(),
@@ -5505,9 +5511,11 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "manifest_path": str(manifest_path),
             "runtime_root": str((tmp_path / "runtime").resolve()),
             "runtime_root_detail": "runtime-root-detail",
-            "jobs_root": str((tmp_path / "jobs").resolve()),
-            "jobs_root_detail": "jobs-root-detail",
-            "memory_dir": None,
+            "workspace_root": str(workspace.workspace_root),
+            "memo_file": str(workspace.memo_file),
+            "scratch_dir": str(workspace.scratch_dir),
+            "persist_binding": "auto",
+            "persist_dir": str(workspace.persist_dir),
             "mailbox_root": str((tmp_path / "mailbox").resolve()),
             "mailbox_root_detail": "mailbox-root-detail",
             "overlay_root": str((tmp_path / "overlay").resolve()),
@@ -5535,6 +5543,13 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
         lambda payload, **kwargs: emitted.append(dict(payload)),
     )
 
+    workspace = SimpleNamespace(
+        workspace_root=(tmp_path / "memory" / "agents" / "agent-123").resolve(),
+        memo_file=(tmp_path / "memory" / "agents" / "agent-123" / "houmao-memo.md").resolve(),
+        scratch_dir=(tmp_path / "memory" / "agents" / "agent-123" / "scratch").resolve(),
+        persist_binding="auto",
+        persist_dir=(tmp_path / "memory" / "agents" / "agent-123" / "persist").resolve(),
+    )
     launch_result = SimpleNamespace(
         controller=SimpleNamespace(
             agent_identity="repo-research-1",
@@ -5545,10 +5560,9 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
             gateway_port=None,
             gateway_auto_attach_error="bind failure",
         ),
+        workspace=workspace,
         runtime_root=(tmp_path / "runtime").resolve(),
         runtime_root_detail="runtime-root-detail",
-        jobs_root=(tmp_path / "jobs").resolve(),
-        jobs_root_detail="jobs-root-detail",
         mailbox_root=(tmp_path / "mailbox").resolve(),
         mailbox_root_detail="mailbox-root-detail",
         overlay_root=(tmp_path / "overlay").resolve(),
@@ -5575,9 +5589,11 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
             "manifest_path": str(manifest_path),
             "runtime_root": str((tmp_path / "runtime").resolve()),
             "runtime_root_detail": "runtime-root-detail",
-            "jobs_root": str((tmp_path / "jobs").resolve()),
-            "jobs_root_detail": "jobs-root-detail",
-            "memory_dir": None,
+            "workspace_root": str(workspace.workspace_root),
+            "memo_file": str(workspace.memo_file),
+            "scratch_dir": str(workspace.scratch_dir),
+            "persist_binding": "auto",
+            "persist_dir": str(workspace.persist_dir),
             "mailbox_root": str((tmp_path / "mailbox").resolve()),
             "mailbox_root_detail": "mailbox-root-detail",
             "overlay_root": str((tmp_path / "overlay").resolve()),
@@ -5899,8 +5915,8 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
             managed_agent_name="profile-agent",
             auth_name=None,
             workdir=None,
-            memory_dir=None,
-            memory_disabled=False,
+            persist_dir=None,
+            persist_disabled=False,
             managed_header_section_policy={"mail-ack": "enabled"},
         ),
     )
@@ -6183,7 +6199,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
         },
         "runtime": {
             "agent_def_dir": str((repo_root / ".houmao" / "agents").resolve()),
-            "memory_dir": str((tmp_path / "memory" / "agents" / "repo-research-1").resolve()),
+            "persist_dir": str((tmp_path / "memory" / "agents" / "repo-research-1").resolve()),
         },
     }
 
@@ -6211,7 +6227,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert list_payload["instances"][0]["specialist"] == "researcher"
     assert list_payload["instances"][0]["easy_profile"] == "alice"
     assert list_payload["instances"][0]["tool"] == "codex"
-    assert list_payload["instances"][0]["memory_dir"] == str(
+    assert list_payload["instances"][0]["persist_dir"] == str(
         (tmp_path / "memory" / "agents" / "repo-research-1").resolve()
     )
     assert list_payload["instances"][0]["mailbox"] == {
@@ -6233,7 +6249,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
     assert get_payload["easy_profile"] == "alice"
     assert get_payload["agent_id"] == "agent-123"
     assert get_payload["manifest_path"] == str(manifest_path)
-    assert get_payload["memory_dir"] == str(
+    assert get_payload["persist_dir"] == str(
         (tmp_path / "memory" / "agents" / "repo-research-1").resolve()
     )
     assert get_payload["mailbox"] == {

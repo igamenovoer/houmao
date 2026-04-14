@@ -58,15 +58,15 @@ def get_project_launch_profile_command(name: str) -> None:
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
 @click.option(
-    "--memory-dir",
+    "--persist-dir",
     type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
     default=None,
-    help="Optional exact default durable memory directory for launches from this profile.",
+    help="Optional exact default durable persist lane for launches from this profile.",
 )
 @click.option(
-    "--no-memory-dir",
+    "--no-persist-dir",
     is_flag=True,
-    help="Persist disabled memory binding for launches from this profile.",
+    help="Persist disabled durable lane binding for launches from this profile.",
 )
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
@@ -147,8 +147,8 @@ def add_project_launch_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -190,9 +190,9 @@ def add_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
-        memory_dir=memory_dir,
-        no_memory_dir=no_memory_dir,
-        clear_memory_dir=False,
+        persist_dir=persist_dir,
+        no_persist_dir=no_persist_dir,
+        clear_persist_dir=False,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -243,20 +243,20 @@ def add_project_launch_profile_command(
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
 @click.option("--clear-auth", is_flag=True, help="Clear the stored auth override.")
 @click.option(
-    "--memory-dir",
+    "--persist-dir",
     type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
     default=None,
-    help="Optional exact durable memory directory override for launches from this profile.",
+    help="Optional exact durable persist lane override for launches from this profile.",
 )
 @click.option(
-    "--no-memory-dir",
+    "--no-persist-dir",
     is_flag=True,
-    help="Persist disabled memory binding for launches from this profile.",
+    help="Persist disabled durable lane binding for launches from this profile.",
 )
 @click.option(
-    "--clear-memory-dir",
+    "--clear-persist-dir",
     is_flag=True,
-    help="Clear the stored memory binding back to no profile preference.",
+    help="Clear the stored durable lane binding back to no profile preference.",
 )
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option("--clear-model", is_flag=True, help="Clear the stored launch-owned model.")
@@ -369,9 +369,9 @@ def set_project_launch_profile_command(
     clear_workdir: bool,
     auth: str | None,
     clear_auth: bool,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
-    clear_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
+    clear_persist_dir: bool,
     model: str | None,
     clear_model: bool,
     reasoning_level: int | None,
@@ -421,9 +421,9 @@ def set_project_launch_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
-        memory_dir=memory_dir,
-        no_memory_dir=no_memory_dir,
-        clear_memory_dir=clear_memory_dir,
+        persist_dir=persist_dir,
+        no_persist_dir=no_persist_dir,
+        clear_persist_dir=clear_persist_dir,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,

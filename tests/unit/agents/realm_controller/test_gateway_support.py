@@ -5596,8 +5596,7 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
             in fake_client.submitted_prompts[1][1]
         )
         assert (
-            "- `POST http://127.0.0.1:43123/v1/mail/archive`"
-            in fake_client.submitted_prompts[1][1]
+            "- `POST http://127.0.0.1:43123/v1/mail/archive`" in fake_client.submitted_prompts[1][1]
         )
     finally:
         runtime.shutdown()

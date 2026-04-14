@@ -20,6 +20,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderPutV1,
     GatewayReminderV1,
     GatewayStatusV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
 )
 from houmao.cao.models import CaoSuccessResponse
 from houmao.server.client import HoumaoServerClient
@@ -163,6 +173,71 @@ class PairAuthorityClientProtocol(Protocol):
 
     def detach_managed_agent_gateway(self, agent_ref: str) -> GatewayStatusV1:
         """Detach a managed-agent gateway."""
+
+    def get_managed_agent_gateway_workspace(self, agent_ref: str) -> GatewayWorkspaceSummaryV1:
+        """Return managed-agent workspace summary through a live gateway."""
+
+    def get_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Return managed-agent workspace memo through a live gateway."""
+
+    def put_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Replace managed-agent workspace memo through a live gateway."""
+
+    def append_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Append managed-agent workspace memo through a live gateway."""
+
+    def list_managed_agent_gateway_workspace_tree(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """List a managed-agent workspace lane through a live gateway."""
+
+    def read_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Read a managed-agent workspace lane file through a live gateway."""
+
+    def write_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Write a managed-agent workspace lane file through a live gateway."""
+
+    def append_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Append a managed-agent workspace lane file through a live gateway."""
+
+    def delete_managed_agent_gateway_workspace_path(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Delete a managed-agent workspace lane path through a live gateway."""
+
+    def clear_managed_agent_gateway_workspace_lane(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Clear a managed-agent workspace lane through a live gateway."""
 
     def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
         """Return raw gateway-owned TUI state for one managed agent."""

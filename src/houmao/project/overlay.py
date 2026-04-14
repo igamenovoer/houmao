@@ -145,6 +145,7 @@ class ProjectAwareLocalRoots:
     runtime_root: Path
     jobs_root: Path
     mailbox_root: Path
+    memory_root: Path
     easy_root: Path
     bootstrap_result: ProjectInitResult | None = None
 
@@ -392,6 +393,11 @@ def resolve_project_aware_local_roots(
             project_overlay.mailbox_root
             if project_overlay is not None
             else overlay_root / PROJECT_MAILBOX_DIRNAME
+        ).resolve(),
+        memory_root=(
+            project_overlay.memory_root
+            if project_overlay is not None
+            else overlay_root / PROJECT_MEMORY_DIRNAME
         ).resolve(),
         easy_root=(
             project_overlay.easy_root

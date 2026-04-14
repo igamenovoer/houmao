@@ -2826,7 +2826,6 @@ def _local_tui_state_response_from_state(
 
     diagnostics = _tracked_errors(tracked_state=tracked_state)
     turn_phase = tracked_state.turn.phase
-    memory_dir = getattr(controller, "memory_dir", None)
     return HoumaoManagedAgentStateResponse(
         tracked_agent_id=tracked_state.tracked_session.tracked_session_id,
         identity=_managed_identity_from_local_tui_state(
@@ -2851,7 +2850,7 @@ def _local_tui_state_response_from_state(
         diagnostics=diagnostics,
         mailbox=_local_mailbox_summary(controller),
         gateway=_local_gateway_summary(controller),
-        memory_dir=str(memory_dir) if memory_dir is not None else None,
+        **_controller_workspace_state_fields(controller=controller),
     )
 
 
@@ -2921,6 +2920,26 @@ def _tracked_errors(*, tracked_state: HoumaoTerminalStateResponse) -> list[Houma
     return diagnostics
 
 
+def _controller_workspace_state_fields(
+    *,
+    controller: RuntimeSessionController,
+) -> dict[str, str | None]:
+    """Return workspace fields for one managed-agent state response."""
+
+    workspace_root = getattr(controller, "workspace_root", None)
+    memo_file = getattr(controller, "memo_file", None)
+    scratch_dir = getattr(controller, "scratch_dir", None)
+    persist_dir = getattr(controller, "persist_dir", None)
+    persist_binding = getattr(controller, "persist_binding", None)
+    return {
+        "workspace_root": str(workspace_root) if workspace_root is not None else None,
+        "memo_file": str(memo_file) if memo_file is not None else None,
+        "scratch_dir": str(scratch_dir) if scratch_dir is not None else None,
+        "persist_binding": str(persist_binding) if persist_binding is not None else None,
+        "persist_dir": str(persist_dir) if persist_dir is not None else None,
+    }
+
+
 def _local_headless_state_response(
     *,
     controller: RuntimeSessionController,
@@ -2931,7 +2950,6 @@ def _local_headless_state_response(
     latest_turn = _latest_local_headless_turn(controller=controller)
     gateway_summary = _local_gateway_summary(controller)
     mailbox_summary = _local_mailbox_summary(controller)
-    memory_dir = getattr(controller, "memory_dir", None)
     if latest_turn is None:
         turn_view = HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None)
         last_turn = HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None)
@@ -2956,7 +2974,7 @@ def _local_headless_state_response(
         diagnostics=[],
         mailbox=mailbox_summary,
         gateway=gateway_summary,
-        memory_dir=str(memory_dir) if memory_dir is not None else None,
+        **_controller_workspace_state_fields(controller=controller),
     )
 
 

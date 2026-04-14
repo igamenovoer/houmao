@@ -999,7 +999,7 @@
           "default": null,
           "title": "Session Id"
         },
-        "job_dir": {
+        "workspace_root": {
           "anyOf": [
             {
               "type": "string"
@@ -1009,9 +1009,33 @@
             }
           ],
           "default": null,
-          "title": "Job Dir"
+          "title": "Workspace Root"
         },
-        "memory_binding": {
+        "memo_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memo File"
+        },
+        "scratch_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scratch Dir"
+        },
+        "persist_binding": {
           "anyOf": [
             {
               "enum": [
@@ -1026,9 +1050,9 @@
             }
           ],
           "default": null,
-          "title": "Memory Binding"
+          "title": "Persist Binding"
         },
-        "memory_dir": {
+        "persist_dir": {
           "anyOf": [
             {
               "type": "string"
@@ -1038,7 +1062,7 @@
             }
           ],
           "default": null,
-          "title": "Memory Dir"
+          "title": "Persist Dir"
         },
         "agent_def_dir": {
           "anyOf": [
@@ -1203,18 +1227,6 @@
       ],
       "default": null,
       "title": "Tmux Session Name"
-    },
-    "job_dir": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Job Dir"
     },
     "registry_generation_id": {
       "anyOf": [

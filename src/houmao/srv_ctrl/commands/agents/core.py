@@ -38,7 +38,7 @@ from houmao.agents.mailbox_runtime_support import (
     replaceable_mailbox_cleanup_paths,
     resolved_mailbox_config_from_payload,
 )
-from houmao.agents.memory_dir import resolve_effective_memory_binding
+from houmao.agents.agent_workspace import AgentWorkspacePaths, resolve_agent_workspace
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.native_launch_resolver import (
     infer_launch_source_directory_from_agent_def_dir,
@@ -97,6 +97,7 @@ from .gateway import (
 from .mail import mail_group
 from .mailbox import mailbox_group
 from .turn import turn_group
+from .workspace import workspace_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
     managed_agent_selector_options,
@@ -107,7 +108,6 @@ from ..common import (
 )
 from ..output import emit
 from ..project_aware_wording import (
-    describe_local_jobs_root_selection,
     describe_mailbox_root_selection,
     describe_overlay_bootstrap,
     describe_overlay_root_selection_source,
@@ -158,12 +158,10 @@ class LocalManagedAgentLaunchResult:
     """Resolved local launch controller plus project-aware root detail fields."""
 
     controller: Any
-    memory_dir: Path | None
+    workspace: AgentWorkspacePaths
     runtime_root: Path
-    jobs_root: Path
     mailbox_root: Path
     runtime_root_detail: str
-    jobs_root_detail: str
     mailbox_root_detail: str
     overlay_root: Path
     overlay_root_detail: str
@@ -184,21 +182,7 @@ class _ManagedForceTakeoverContext:
     home_path: Path
     runtime_root: Path
     session_root: Path | None
-    job_dir: Path | None
     mailbox_cleanup_paths: tuple[Path, ...]
-
-
-def _resolve_job_dir_from_manifest_payload(payload: object) -> Path | None:
-    """Return one optional runtime-owned job dir from session-manifest payload state."""
-
-    if payload is None:
-        return None
-    value = getattr(payload, "job_dir", None)
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise RuntimeError("Session manifest stores invalid `job_dir` metadata.")
-    return Path(value).expanduser().resolve()
 
 
 def _load_brain_home_identity_from_manifest(
@@ -256,7 +240,6 @@ def _prepare_managed_force_takeover_context(
     handle = load_session_manifest(manifest_path)
     payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
     session_root = runtime_owned_session_root_from_manifest_path(handle.path)
-    job_dir = _resolve_job_dir_from_manifest_payload(payload)
     resolved_mailbox = resolved_mailbox_config_from_payload(
         payload.launch_plan.mailbox,
         manifest_path=handle.path,
@@ -298,7 +281,6 @@ def _prepare_managed_force_takeover_context(
         home_path=predecessor_home_path,
         runtime_root=predecessor_runtime_root,
         session_root=session_root,
-        job_dir=job_dir,
         mailbox_cleanup_paths=replaceable_mailbox_cleanup_paths(resolved_mailbox),
     )
 
@@ -349,7 +331,6 @@ def _perform_managed_force_takeover(context: _ManagedForceTakeoverContext) -> No
     for cleanup_path in _dedupe_force_takeover_paths(
         (
             context.session_root,
-            context.job_dir,
             *context.mailbox_cleanup_paths,
         )
     ):
@@ -447,16 +428,16 @@ def _normalize_model_name_or_click(value: str | None) -> str | None:
     return stripped
 
 
-def _resolve_memory_dir_option_or_click(
+def _resolve_persist_dir_option_or_click(
     *,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
 ) -> Path | None:
-    """Resolve one optional exact memory-directory override."""
+    """Resolve one optional exact persist-lane override."""
 
-    if memory_dir is not None and no_memory_dir:
-        raise click.ClickException("`--memory-dir` and `--no-memory-dir` are mutually exclusive.")
-    return memory_dir.expanduser().resolve() if memory_dir is not None else None
+    if persist_dir is not None and no_persist_dir:
+        raise click.ClickException("`--persist-dir` and `--no-persist-dir` are mutually exclusive.")
+    return persist_dir.expanduser().resolve() if persist_dir is not None else None
 
 
 def _resolve_operator_prompt_mode_or_click(
@@ -500,10 +481,10 @@ def launch_managed_agent_locally(
     headless: bool,
     provider: str,
     working_directory: Path,
-    memory_dir: Path | None = None,
-    no_memory_dir: bool = False,
-    launch_profile_memory_dir: str | None = None,
-    launch_profile_memory_disabled: bool = False,
+    persist_dir: Path | None = None,
+    no_persist_dir: bool = False,
+    launch_profile_persist_dir: str | None = None,
+    launch_profile_persist_disabled: bool = False,
     source_working_directory: Path | None = None,
     source_agent_def_dir: Path | None = None,
     source_env: Mapping[str, str] | None = None,
@@ -585,7 +566,6 @@ def launch_managed_agent_locally(
         )
 
         resolved_runtime_root = project_roots.runtime_root
-        resolved_jobs_root = project_roots.jobs_root
         resolved_mailbox_root = (
             mailbox_root.resolve() if mailbox_root is not None else project_roots.mailbox_root
         )
@@ -612,13 +592,13 @@ def launch_managed_agent_locally(
             requested_agent_name=agent_name,
             requested_agent_id=agent_id,
         )
-        resolved_memory_binding = resolve_effective_memory_binding(
+        workspace = resolve_agent_workspace(
             overlay_root=project_roots.overlay_root,
             agent_id=managed_launch_identity.agent_id,
-            explicit_memory_dir=memory_dir,
-            disable_memory_dir=no_memory_dir,
-            stored_memory_dir=launch_profile_memory_dir,
-            stored_memory_disabled=launch_profile_memory_disabled,
+            explicit_persist_dir=persist_dir,
+            disable_persist_dir=no_persist_dir,
+            stored_persist_dir=launch_profile_persist_dir,
+            stored_persist_disabled=launch_profile_persist_disabled,
         )
         takeover_context = _prepare_managed_force_takeover_context(
             managed_launch_identity=managed_launch_identity,
@@ -680,8 +660,7 @@ def launch_managed_agent_locally(
             brain_manifest_path=build_result.manifest_path.resolve(),
             role_name=target.role_name,
             runtime_root=resolved_runtime_root,
-            jobs_root=resolved_jobs_root,
-            memory_binding=resolved_memory_binding,
+            workspace_paths=workspace,
             backend=resolved_backend,
             working_directory=resolved_working_directory,
             agent_name=agent_name,
@@ -733,12 +712,10 @@ def launch_managed_agent_locally(
 
     return LocalManagedAgentLaunchResult(
         controller=controller,
-        memory_dir=getattr(controller, "memory_dir", None),
+        workspace=workspace,
         runtime_root=resolved_runtime_root,
-        jobs_root=resolved_jobs_root,
         mailbox_root=resolved_mailbox_root,
         runtime_root_detail=describe_runtime_root_selection(explicit_root=None),
-        jobs_root_detail=describe_local_jobs_root_selection(),
         mailbox_root_detail=describe_mailbox_root_selection(explicit_root=mailbox_root),
         overlay_root=project_roots.overlay_root,
         overlay_root_detail=describe_overlay_root_selection_source(
@@ -762,7 +739,7 @@ def emit_local_launch_completion(
     """Print one successful local launch result and hand off to tmux when appropriate."""
 
     controller = launch_result.controller
-    memory_dir = getattr(launch_result, "memory_dir", None)
+    workspace = launch_result.workspace
     payload = {
         "status": "Managed agent launch complete",
         "agent_name": controller.agent_identity or agent_name,
@@ -771,9 +748,11 @@ def emit_local_launch_completion(
         "manifest_path": str(controller.manifest_path),
         "runtime_root": str(launch_result.runtime_root),
         "runtime_root_detail": launch_result.runtime_root_detail,
-        "jobs_root": str(launch_result.jobs_root),
-        "jobs_root_detail": launch_result.jobs_root_detail,
-        "memory_dir": str(memory_dir) if memory_dir is not None else None,
+        "workspace_root": str(workspace.workspace_root),
+        "memo_file": str(workspace.memo_file),
+        "scratch_dir": str(workspace.scratch_dir),
+        "persist_binding": workspace.persist_binding,
+        "persist_dir": str(workspace.persist_dir) if workspace.persist_dir is not None else None,
         "mailbox_root": str(launch_result.mailbox_root),
         "mailbox_root_detail": launch_result.mailbox_root_detail,
         "overlay_root": str(launch_result.overlay_root),
@@ -874,15 +853,15 @@ def agents_group() -> None:
     help="Optional runtime working directory override; defaults to the invocation cwd.",
 )
 @click.option(
-    "--memory-dir",
+    "--persist-dir",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=False),
     default=None,
-    help="Optional exact durable memory directory override for this managed launch.",
+    help="Optional exact durable persist-lane directory override for this managed launch.",
 )
 @click.option(
-    "--no-memory-dir",
+    "--no-persist-dir",
     is_flag=True,
-    help="Disable durable memory-directory binding for this managed launch.",
+    help="Disable durable persist-lane binding for this managed launch.",
 )
 @click.option(
     "--headless-display-style",
@@ -920,8 +899,8 @@ def launch_agents_command(
     managed_header: bool | None,
     managed_header_section: tuple[str, ...],
     workdir: Path | None,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     provider: str | None,
@@ -941,9 +920,9 @@ def launch_agents_command(
     resolved_auth = auth
     resolved_provider = provider
     resolved_working_directory = (workdir or source_working_directory).resolve()
-    resolved_memory_dir = _resolve_memory_dir_option_or_click(
-        memory_dir=memory_dir,
-        no_memory_dir=no_memory_dir,
+    resolved_persist_dir = _resolve_persist_dir_option_or_click(
+        persist_dir=persist_dir,
+        no_persist_dir=no_persist_dir,
     )
     resolved_source_working_directory = source_working_directory
     resolved_source_agent_def_dir: Path | None = None
@@ -954,8 +933,8 @@ def launch_agents_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
-    launch_profile_memory_dir: str | None = None
-    launch_profile_memory_disabled = False
+    launch_profile_persist_dir: str | None = None
+    launch_profile_persist_disabled = False
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_managed_header_section_policy: (
         dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None
@@ -1016,9 +995,9 @@ def launch_agents_command(
             source=f"launch profile `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
-        launch_profile_memory_dir = getattr(resolved_profile.entry, "memory_dir", None)
-        launch_profile_memory_disabled = bool(
-            getattr(resolved_profile.entry, "memory_disabled", False)
+        launch_profile_persist_dir = getattr(resolved_profile.entry, "persist_dir", None)
+        launch_profile_persist_disabled = bool(
+            getattr(resolved_profile.entry, "persist_disabled", False)
         )
         launch_profile_model_config = normalize_model_config(
             name=resolved_profile.entry.model_name,
@@ -1085,10 +1064,10 @@ def launch_agents_command(
         headless=resolved_headless,
         provider=resolved_provider,
         working_directory=resolved_working_directory,
-        memory_dir=resolved_memory_dir,
-        no_memory_dir=no_memory_dir,
-        launch_profile_memory_dir=launch_profile_memory_dir,
-        launch_profile_memory_disabled=launch_profile_memory_disabled,
+        persist_dir=resolved_persist_dir,
+        no_persist_dir=no_persist_dir,
+        launch_profile_persist_dir=launch_profile_persist_dir,
+        launch_profile_persist_disabled=launch_profile_persist_disabled,
         source_working_directory=resolved_source_working_directory,
         source_agent_def_dir=resolved_source_agent_def_dir,
         headless_display_style=headless_display_style,
@@ -1145,15 +1124,15 @@ def launch_agents_command(
     help="Optional working directory override; defaults from tmux window `0`, pane `0`.",
 )
 @click.option(
-    "--memory-dir",
+    "--persist-dir",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=False),
     default=None,
-    help="Optional exact durable memory directory override for the adopted session.",
+    help="Optional exact durable persist-lane directory override for the adopted session.",
 )
 @click.option(
-    "--no-memory-dir",
+    "--no-persist-dir",
     is_flag=True,
-    help="Disable durable memory-directory binding for the adopted session.",
+    help="Disable durable persist-lane binding for the adopted session.",
 )
 @click.option(
     "--resume-id",
@@ -1173,8 +1152,8 @@ def join_agents_command(
     launch_args: tuple[str, ...],
     launch_env: tuple[str, ...],
     workdir: Path | None,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
     resume_id: str | None,
     no_install_houmao_skills: bool,
 ) -> None:
@@ -1190,9 +1169,9 @@ def join_agents_command(
         raise click.ClickException("Headless join requires `--provider`.")
     if headless and not launch_args:
         raise click.ClickException("Headless join requires at least one `--launch-args` value.")
-    resolved_memory_dir = _resolve_memory_dir_option_or_click(
-        memory_dir=memory_dir,
-        no_memory_dir=no_memory_dir,
+    resolved_persist_dir = _resolve_persist_dir_option_or_click(
+        persist_dir=persist_dir,
+        no_persist_dir=no_persist_dir,
     )
 
     tmux_session_name = _require_current_tmux_session_name()
@@ -1222,8 +1201,8 @@ def join_agents_command(
             runtime_root=None,
             agent_name=agent_name,
             agent_id=agent_id,
-            memory_dir=resolved_memory_dir,
-            no_memory_dir=no_memory_dir,
+            persist_dir=resolved_persist_dir,
+            no_persist_dir=no_persist_dir,
             provider=effective_provider,
             headless=headless,
             tmux_session_name=tmux_session_name,
@@ -1399,6 +1378,7 @@ agents_group.add_command(cleanup_group)
 agents_group.add_command(mail_group)
 agents_group.add_command(mailbox_group)
 agents_group.add_command(turn_group)
+agents_group.add_command(workspace_group)
 
 
 def _parse_join_launch_env(values: tuple[str, ...]) -> tuple[JoinedLaunchEnvBinding, ...]:
@@ -1557,9 +1537,11 @@ def _emit_join_result(
             "manifest_path": str(result.manifest_path),
             "runtime_root": str(result.runtime_root),
             "runtime_root_detail": result.runtime_root_detail,
-            "jobs_root": str(result.jobs_root),
-            "jobs_root_detail": result.jobs_root_detail,
-            "memory_dir": str(result.memory_dir) if result.memory_dir is not None else None,
+            "workspace_root": str(result.workspace_root),
+            "memo_file": str(result.memo_file),
+            "scratch_dir": str(result.scratch_dir),
+            "persist_binding": result.persist_binding,
+            "persist_dir": str(result.persist_dir) if result.persist_dir is not None else None,
             "overlay_root": str(result.overlay_root),
             "overlay_root_detail": result.overlay_root_detail,
             "project_overlay_bootstrapped": result.project_overlay_bootstrapped,

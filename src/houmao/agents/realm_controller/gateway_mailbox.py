@@ -772,7 +772,9 @@ class FilesystemGatewayMailboxAdapter:
             raise GatewayMailboxError(
                 f"filesystem mailbox message `{message_id}` is in `{message_box}`, not `{box}`"
             )
-        message = self._load_message_document(message_id=message_id, canonical_path=Path(str(row[0])))
+        message = self._load_message_document(
+            message_id=message_id, canonical_path=Path(str(row[0]))
+        )
         return self._message_to_model(
             message=message,
             read=bool(row[1]),

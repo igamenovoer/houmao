@@ -26,6 +26,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
 )
 from houmao.cao.models import CaoSuccessResponse
 from houmao.version import get_version
@@ -420,6 +430,96 @@ def create_app(
     @app.post("/houmao/agents/{agent_ref}/gateway/detach")
     def detach_managed_agent_gateway(agent_ref: str) -> GatewayStatusV1:
         return resolved_service.detach_managed_agent_gateway(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/workspace")
+    def get_managed_agent_gateway_workspace(agent_ref: str) -> GatewayWorkspaceSummaryV1:
+        return resolved_service.get_managed_agent_gateway_workspace(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/workspace/memo")
+    def get_managed_agent_gateway_workspace_memo(
+        agent_ref: str,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        return resolved_service.get_managed_agent_gateway_workspace_memo(agent_ref)
+
+    @app.put("/houmao/agents/{agent_ref}/gateway/workspace/memo")
+    def put_managed_agent_gateway_workspace_memo(
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        return resolved_service.put_managed_agent_gateway_workspace_memo(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/memo/append")
+    def append_managed_agent_gateway_workspace_memo(
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        return resolved_service.append_managed_agent_gateway_workspace_memo(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/tree")
+    def list_managed_agent_gateway_workspace_tree(
+        agent_ref: str,
+        request_model: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        return resolved_service.list_managed_agent_gateway_workspace_tree(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/read")
+    def read_managed_agent_gateway_workspace_file(
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        return resolved_service.read_managed_agent_gateway_workspace_file(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/write")
+    def write_managed_agent_gateway_workspace_file(
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        return resolved_service.write_managed_agent_gateway_workspace_file(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/append")
+    def append_managed_agent_gateway_workspace_file(
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        return resolved_service.append_managed_agent_gateway_workspace_file(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/delete")
+    def delete_managed_agent_gateway_workspace_path(
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        return resolved_service.delete_managed_agent_gateway_workspace_path(
+            agent_ref,
+            request_model,
+        )
+
+    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/clear")
+    def clear_managed_agent_gateway_workspace_lane(
+        agent_ref: str,
+        request_model: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        return resolved_service.clear_managed_agent_gateway_workspace_lane(
+            agent_ref,
+            request_model,
+        )
 
     @app.get("/houmao/agents/{agent_ref}/gateway/tui/state")
     def get_managed_agent_gateway_tui_state(agent_ref: str) -> HoumaoTerminalStateResponse:

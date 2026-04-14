@@ -245,7 +245,9 @@ def reply_mail_command(
 
 
 @mail_group.command(name="mark")
-@click.option("--message-ref", "message_refs", multiple=True, required=True, help="Message reference.")
+@click.option(
+    "--message-ref", "message_refs", multiple=True, required=True, help="Message reference."
+)
 @click.option("--read/--unread", default=None, help="Set read state.")
 @click.option("--answered/--unanswered", default=None, help="Set answered state.")
 @click.option("--archived/--unarchived", default=None, help="Set archived state.")
@@ -263,7 +265,9 @@ def mark_mail_command(
     """Mark selected mailbox messages for a managed agent."""
 
     if read is answered is archived is None:
-        raise click.ClickException("At least one of --read/--unread, --answered/--unanswered, or --archived/--unarchived is required.")
+        raise click.ClickException(
+            "At least one of --read/--unread, --answered/--unanswered, or --archived/--unarchived is required."
+        )
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit(
@@ -278,7 +282,9 @@ def mark_mail_command(
 
 
 @mail_group.command(name="move")
-@click.option("--message-ref", "message_refs", multiple=True, required=True, help="Message reference.")
+@click.option(
+    "--message-ref", "message_refs", multiple=True, required=True, help="Message reference."
+)
 @click.option("--destination-box", required=True, help="Destination mailbox box/subdirectory.")
 @pair_port_option()
 @managed_agent_selector_options
@@ -296,7 +302,9 @@ def move_mail_command(
 
 
 @mail_group.command(name="archive")
-@click.option("--message-ref", "message_refs", multiple=True, required=True, help="Message reference.")
+@click.option(
+    "--message-ref", "message_refs", multiple=True, required=True, help="Message reference."
+)
 @pair_port_option()
 @managed_agent_selector_options
 def archive_mail_command(

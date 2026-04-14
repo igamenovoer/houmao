@@ -604,9 +604,20 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
-    memory_dir: str | None = None
+    workspace_root: str | None = None
+    memo_file: str | None = None
+    scratch_dir: str | None = None
+    persist_binding: str | None = None
+    persist_dir: str | None = None
 
-    @field_validator("tracked_agent_id", "memory_dir")
+    @field_validator(
+        "tracked_agent_id",
+        "workspace_root",
+        "memo_file",
+        "scratch_dir",
+        "persist_binding",
+        "persist_dir",
+    )
     @classmethod
     def _tracked_agent_id_not_blank(cls, value: str | None) -> str | None:
         """Require optional string identifiers to be non-empty when present."""

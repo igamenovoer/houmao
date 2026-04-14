@@ -15,12 +15,23 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, NoReturn, Protocol, cast
+from typing import Callable, Literal, NoReturn, Protocol, TypeVar, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
+from houmao.agents.agent_workspace import (
+    AgentWorkspacePaths,
+    clear_workspace_lane as clear_workspace_lane_contents,
+    delete_workspace_path,
+    lane_root,
+    list_workspace_tree,
+    read_memo,
+    read_workspace_file,
+    write_memo,
+    write_workspace_file,
+)
 from houmao.agents.mailbox_runtime_support import (
     mailbox_processing_skill_name,
     mailbox_processing_skill_reference,
@@ -102,6 +113,17 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingConfigV1,
     GatewayTuiTrackingTimingOverridesV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeEntryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
     resolve_gateway_tui_tracking_timing_config,
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
@@ -161,6 +183,7 @@ _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
 _GatewayRequestTerminalState = Literal["completed", "failed"]
+_WorkspaceResponseT = TypeVar("_WorkspaceResponseT")
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
@@ -1024,6 +1047,169 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
+
+    def workspace(self) -> GatewayWorkspaceSummaryV1:
+        """Return the managed-agent workspace summary."""
+
+        paths = self._workspace_paths()
+        return GatewayWorkspaceSummaryV1(
+            workspace_root=str(paths.workspace_root),
+            memo_file=str(paths.memo_file),
+            scratch_dir=str(paths.scratch_dir),
+            persist_binding=paths.persist_binding,
+            persist_dir=str(paths.persist_dir) if paths.persist_dir is not None else None,
+        )
+
+    def read_workspace_memo(self) -> GatewayWorkspaceMemoResponseV1:
+        """Return the fixed managed-agent workspace memo."""
+
+        paths = self._workspace_paths()
+        return GatewayWorkspaceMemoResponseV1(
+            memo_file=str(paths.memo_file),
+            content=read_memo(paths),
+        )
+
+    def write_workspace_memo(
+        self,
+        request_payload: GatewayWorkspaceMemoWriteRequestV1,
+        *,
+        append: bool = False,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Write or append the fixed managed-agent workspace memo."""
+
+        paths = self._workspace_paths()
+        write_memo(paths, request_payload.content, append=append)
+        return GatewayWorkspaceMemoResponseV1(
+            memo_file=str(paths.memo_file),
+            content=read_memo(paths),
+        )
+
+    def list_workspace_lane(
+        self,
+        request_payload: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """Return a contained tree listing for one workspace lane."""
+
+        paths = self._workspace_paths()
+        entries = [
+            GatewayWorkspaceTreeEntryV1(
+                path=entry.path,
+                kind=entry.kind,
+                size_bytes=entry.size_bytes,
+            )
+            for entry in list_workspace_tree(
+                paths,
+                lane=request_payload.lane,
+                relative_path=request_payload.path,
+            )
+        ]
+        return GatewayWorkspaceTreeResponseV1(
+            lane=request_payload.lane,
+            root=str(lane_root(paths, request_payload.lane)),
+            path=request_payload.path,
+            entries=entries,
+        )
+
+    def read_workspace_lane_file(
+        self,
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Read a contained file from one workspace lane."""
+
+        paths = self._workspace_paths()
+        return GatewayWorkspaceFileResponseV1(
+            lane=request_payload.lane,
+            path=request_payload.path,
+            content=read_workspace_file(
+                paths,
+                lane=request_payload.lane,
+                relative_path=request_payload.path,
+            ),
+        )
+
+    def write_workspace_lane_file(
+        self,
+        request_payload: GatewayWorkspaceFileWriteRequestV1,
+        *,
+        append: bool = False,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Write or append a contained file in one workspace lane."""
+
+        paths = self._workspace_paths()
+        write_workspace_file(
+            paths,
+            lane=request_payload.lane,
+            relative_path=request_payload.path,
+            content=request_payload.content,
+            append=append,
+        )
+        return GatewayWorkspaceActionResponseV1(
+            action="append_file" if append else "write_file",
+            lane=request_payload.lane,
+            path=request_payload.path,
+            detail="Workspace file appended." if append else "Workspace file written.",
+        )
+
+    def delete_workspace_lane_path(
+        self,
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Delete a contained file or directory in one workspace lane."""
+
+        paths = self._workspace_paths()
+        delete_workspace_path(
+            paths,
+            lane=request_payload.lane,
+            relative_path=request_payload.path,
+        )
+        return GatewayWorkspaceActionResponseV1(
+            action="delete_path",
+            lane=request_payload.lane,
+            path=request_payload.path,
+            detail="Workspace path deleted.",
+        )
+
+    def clear_workspace_lane(
+        self,
+        request_payload: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Clear one workspace lane while preserving the lane directory."""
+
+        paths = self._workspace_paths()
+        clear_workspace_lane_contents(paths, lane=request_payload.lane)
+        return GatewayWorkspaceActionResponseV1(
+            action="clear_lane",
+            lane=request_payload.lane,
+            detail="Workspace lane cleared.",
+        )
+
+    def _workspace_paths(self) -> AgentWorkspacePaths:
+        """Load manifest-backed workspace paths for this gateway runtime."""
+
+        manifest_path = self.m_attach_contract.manifest_path
+        if manifest_path is None:
+            raise ValueError("Gateway attach contract does not expose a manifest path.")
+        handle = load_session_manifest(Path(manifest_path).expanduser().resolve())
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        runtime = payload.runtime
+        if (
+            runtime.workspace_root is None
+            or runtime.memo_file is None
+            or runtime.scratch_dir is None
+            or runtime.persist_binding is None
+        ):
+            raise ValueError("Session manifest does not expose managed workspace metadata.")
+        return AgentWorkspacePaths(
+            workspace_root=Path(runtime.workspace_root).expanduser().resolve(),
+            memo_file=Path(runtime.memo_file).expanduser().resolve(),
+            scratch_dir=Path(runtime.scratch_dir).expanduser().resolve(),
+            persist_binding=runtime.persist_binding,
+            persist_dir=(
+                Path(runtime.persist_dir).expanduser().resolve()
+                if runtime.persist_dir is not None
+                else None
+            ),
+        )
 
     def get_tui_state(self) -> HoumaoTerminalStateResponse:
         """Return gateway-owned live tracked TUI state."""
@@ -2297,12 +2483,16 @@ class GatewayServiceRuntime:
                 messages=messages,
             )
 
-    def peek_mail(self, request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+    def peek_mail(
+        self, request_payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox peek request."""
 
         return self._mail_message_request(operation="peek", request_payload=request_payload)
 
-    def read_mail(self, request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+    def read_mail(
+        self, request_payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox read request."""
 
         return self._mail_message_request(operation="read", request_payload=request_payload)
@@ -2467,7 +2657,9 @@ class GatewayServiceRuntime:
         self,
         *,
         operation: Literal["mark", "move", "archive"],
-        request_payload: GatewayMailMarkRequestV1 | GatewayMailMoveRequestV1 | GatewayMailArchiveRequestV1,
+        request_payload: GatewayMailMarkRequestV1
+        | GatewayMailMoveRequestV1
+        | GatewayMailArchiveRequestV1,
     ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox lifecycle mutation request."""
 
@@ -3769,6 +3961,96 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Serve the structured gateway status snapshot."""
 
         return runtime.status()
+
+    def _workspace_call(callback: Callable[[], _WorkspaceResponseT]) -> _WorkspaceResponseT:
+        """Translate workspace service failures into HTTP status codes."""
+
+        try:
+            return callback()
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/workspace", response_model=GatewayWorkspaceSummaryV1)
+    def _workspace() -> GatewayWorkspaceSummaryV1:
+        """Serve the managed workspace summary."""
+
+        return _workspace_call(runtime.workspace)
+
+    @app.get("/v1/workspace/memo", response_model=GatewayWorkspaceMemoResponseV1)
+    def _workspace_memo() -> GatewayWorkspaceMemoResponseV1:
+        """Serve the fixed managed workspace memo."""
+
+        return _workspace_call(runtime.read_workspace_memo)
+
+    @app.put("/v1/workspace/memo", response_model=GatewayWorkspaceMemoResponseV1)
+    def _workspace_memo_put(
+        request_payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Replace the fixed managed workspace memo."""
+
+        return _workspace_call(lambda: runtime.write_workspace_memo(request_payload))
+
+    @app.post("/v1/workspace/memo/append", response_model=GatewayWorkspaceMemoResponseV1)
+    def _workspace_memo_append(
+        request_payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Append to the fixed managed workspace memo."""
+
+        return _workspace_call(lambda: runtime.write_workspace_memo(request_payload, append=True))
+
+    @app.post("/v1/workspace/lane/tree", response_model=GatewayWorkspaceTreeResponseV1)
+    def _workspace_lane_tree(
+        request_payload: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """Serve one workspace lane tree listing."""
+
+        return _workspace_call(lambda: runtime.list_workspace_lane(request_payload))
+
+    @app.post("/v1/workspace/lane/read", response_model=GatewayWorkspaceFileResponseV1)
+    def _workspace_lane_read(
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Read one contained workspace lane file."""
+
+        return _workspace_call(lambda: runtime.read_workspace_lane_file(request_payload))
+
+    @app.post("/v1/workspace/lane/write", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_write(
+        request_payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Write one contained workspace lane file."""
+
+        return _workspace_call(lambda: runtime.write_workspace_lane_file(request_payload))
+
+    @app.post("/v1/workspace/lane/append", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_append(
+        request_payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Append to one contained workspace lane file."""
+
+        return _workspace_call(
+            lambda: runtime.write_workspace_lane_file(request_payload, append=True)
+        )
+
+    @app.post("/v1/workspace/lane/delete", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_delete(
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Delete one contained workspace lane path."""
+
+        return _workspace_call(lambda: runtime.delete_workspace_lane_path(request_payload))
+
+    @app.post("/v1/workspace/lane/clear", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_clear(
+        request_payload: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Clear one workspace lane."""
+
+        return _workspace_call(lambda: runtime.clear_workspace_lane(request_payload))
 
     @app.get("/v1/control/tui/state", response_model=HoumaoTerminalStateResponse)
     def _tui_state() -> HoumaoTerminalStateResponse:

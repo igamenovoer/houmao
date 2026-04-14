@@ -138,8 +138,8 @@ def launch_profile_defaults_payload(
         payload["workdir"] = entry.workdir
     if entry.auth_name is not None:
         payload["auth"] = entry.auth_name
-    payload["memory_binding"] = entry.memory_binding
-    payload["memory_dir"] = entry.memory_dir
+    payload["persist_binding"] = entry.persist_binding
+    payload["persist_dir"] = entry.persist_dir
     if entry.model_name is not None or entry.reasoning_level is not None:
         model_payload: dict[str, Any] = {}
         if entry.model_name is not None:

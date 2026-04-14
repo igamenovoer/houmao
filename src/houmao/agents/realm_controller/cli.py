@@ -599,9 +599,21 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     tmux_session_name = getattr(controller, "tmux_session_name", None)
     if tmux_session_name is not None:
         payload["tmux_session_name"] = tmux_session_name
-    job_dir = getattr(controller, "job_dir", None)
-    if job_dir is not None:
-        payload["job_dir"] = str(job_dir)
+    workspace_root = getattr(controller, "workspace_root", None)
+    if workspace_root is not None:
+        payload["workspace_root"] = str(workspace_root)
+    memo_file = getattr(controller, "memo_file", None)
+    if memo_file is not None:
+        payload["memo_file"] = str(memo_file)
+    scratch_dir = getattr(controller, "scratch_dir", None)
+    if scratch_dir is not None:
+        payload["scratch_dir"] = str(scratch_dir)
+    persist_binding = getattr(controller, "persist_binding", None)
+    if persist_binding is not None:
+        payload["persist_binding"] = persist_binding
+    persist_dir = getattr(controller, "persist_dir", None)
+    if persist_dir is not None:
+        payload["persist_dir"] = str(persist_dir)
     parsing_mode = getattr(controller, "parsing_mode", None)
     if parsing_mode is not None:
         payload["parsing_mode"] = parsing_mode

@@ -742,7 +742,9 @@ class StalwartJmapClient:
             "preview": _optional_string(raw_email, "preview"),
             "body": _extract_text_body(raw_email),
             "attachments": _coerce_attachment_list(raw_email.get("attachments")),
-            "mailboxIds": raw_email.get("mailboxIds") if isinstance(raw_email.get("mailboxIds"), dict) else {},
+            "mailboxIds": raw_email.get("mailboxIds")
+            if isinstance(raw_email.get("mailboxIds"), dict)
+            else {},
             "read": "$seen" in keywords,
             "answered": "$answered" in keywords,
             "archived": box_name == "archive",

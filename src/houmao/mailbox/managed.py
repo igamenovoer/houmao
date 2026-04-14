@@ -5422,10 +5422,19 @@ def _insert_recovered_mailbox_state_records(
         prior_state = snapshot.mailbox_state.get((registration_id, message.message_id))
         if prior_state is None:
             is_recipient = registration_id in delivered_recipient_ids
-            state_values = (not is_recipient, False, False, False, False, "inbox" if is_recipient else "sent")
+            state_values = (
+                not is_recipient,
+                False,
+                False,
+                False,
+                False,
+                "inbox" if is_recipient else "sent",
+            )
             defaulted_state_count += 1
         else:
-            read_state, answered_state, starred_state, archived_state, deleted_state, box_name = prior_state
+            read_state, answered_state, starred_state, archived_state, deleted_state, box_name = (
+                prior_state
+            )
             state_values = (
                 bool(read_state),
                 bool(answered_state),

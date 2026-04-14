@@ -16,9 +16,9 @@ import tomllib
 from typing import TYPE_CHECKING, Any, Iterator, cast
 from uuid import uuid4
 
-from houmao.agents.memory_dir import (
-    resolve_stored_memory_binding,
-    stored_memory_binding_kind,
+from houmao.agents.agent_workspace import (
+    resolve_stored_persist_binding,
+    stored_persist_binding_kind,
 )
 from houmao.agents.model_selection import parse_reasoning_level
 from houmao.agents.managed_prompt_header import (
@@ -32,7 +32,7 @@ from houmao.agents.managed_prompt_header import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 8
+CATALOG_SCHEMA_VERSION = 9
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -137,8 +137,8 @@ class LaunchProfileCatalogEntry:
     auth_profile_id: int | None
     auth_name: str | None
     auth_bundle_ref: str | None
-    memory_dir: str | None
-    memory_disabled: bool
+    persist_dir: str | None
+    persist_disabled: bool
     model_name: str | None
     reasoning_level: int | None
     operator_prompt_mode: str | None
@@ -154,12 +154,12 @@ class LaunchProfileCatalogEntry:
     metadata_path: Path | None = None
 
     @property
-    def memory_binding(self) -> str:
-        """Return the stored memory-binding intent for this launch profile."""
+    def persist_binding(self) -> str:
+        """Return the stored persist-lane intent for this launch profile."""
 
-        return stored_memory_binding_kind(
-            memory_dir=self.memory_dir,
-            memory_disabled=self.memory_disabled,
+        return stored_persist_binding_kind(
+            persist_dir=self.persist_dir,
+            persist_disabled=self.persist_disabled,
         )
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
@@ -826,8 +826,8 @@ class ProjectCatalog:
                     launch_profiles.auth_profile_id,
                     auth_profiles.display_name AS auth_name,
                     auth_profiles.bundle_ref AS auth_bundle_ref,
-                    launch_profiles.memory_dir,
-                    launch_profiles.memory_disabled,
+                    launch_profiles.persist_dir,
+                    launch_profiles.persist_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -867,8 +867,8 @@ class ProjectCatalog:
                     launch_profiles.auth_profile_id,
                     auth_profiles.display_name AS auth_name,
                     auth_profiles.bundle_ref AS auth_bundle_ref,
-                    launch_profiles.memory_dir,
-                    launch_profiles.memory_disabled,
+                    launch_profiles.persist_dir,
+                    launch_profiles.persist_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -906,8 +906,8 @@ class ProjectCatalog:
         workdir: str | None,
         auth_tool: str | None,
         auth_name: str | None,
-        memory_dir: str | None,
-        memory_disabled: bool,
+        persist_dir: str | None,
+        persist_disabled: bool,
         operator_prompt_mode: str | None,
         env_mapping: dict[str, str] | None,
         mailbox_mapping: dict[str, Any] | None,
@@ -941,9 +941,9 @@ class ProjectCatalog:
         resolved_model_name = (
             model_name.strip() if model_name is not None and model_name.strip() else None
         )
-        resolved_memory_binding = resolve_stored_memory_binding(
-            memory_dir=memory_dir,
-            memory_disabled=memory_disabled,
+        resolved_persist_binding = resolve_stored_persist_binding(
+            persist_dir=persist_dir,
+            persist_disabled=persist_disabled,
         )
         resolved_reasoning_level = (
             parse_reasoning_level(reasoning_level, source="launch_profiles.reasoning_level")
@@ -994,8 +994,8 @@ class ProjectCatalog:
                     managed_agent_id,
                     workdir,
                     auth_profile_id,
-                    memory_dir,
-                    memory_disabled,
+                    persist_dir,
+                    persist_disabled,
                     model_name,
                     reasoning_level,
                     operator_prompt_mode,
@@ -1017,8 +1017,8 @@ class ProjectCatalog:
                     managed_agent_id = excluded.managed_agent_id,
                     workdir = excluded.workdir,
                     auth_profile_id = excluded.auth_profile_id,
-                    memory_dir = excluded.memory_dir,
-                    memory_disabled = excluded.memory_disabled,
+                    persist_dir = excluded.persist_dir,
+                    persist_disabled = excluded.persist_disabled,
                     model_name = excluded.model_name,
                     reasoning_level = excluded.reasoning_level,
                     operator_prompt_mode = excluded.operator_prompt_mode,
@@ -1041,11 +1041,11 @@ class ProjectCatalog:
                     workdir,
                     auth_profile_id,
                     (
-                        str(resolved_memory_binding.directory)
-                        if resolved_memory_binding.directory is not None
+                        str(resolved_persist_binding.directory)
+                        if resolved_persist_binding.directory is not None
                         else None
                     ),
-                    1 if resolved_memory_binding.kind == "disabled" else 0,
+                    1 if resolved_persist_binding.kind == "disabled" else 0,
                     resolved_model_name,
                     resolved_reasoning_level,
                     operator_prompt_mode,
@@ -1288,7 +1288,7 @@ class ProjectCatalog:
             ("auth_profiles", "bundle_ref"),
             ("launch_profiles", "auth_profile_id"),
         )
-        if current_version in {0, 7} and all(
+        if current_version in {0, 7, 8} and all(
             _table_has_column(connection, table_name=table_name, column_name=column_name)
             for table_name, column_name in required_columns
         ):
@@ -1302,6 +1302,30 @@ class ProjectCatalog:
                     ALTER TABLE launch_profiles
                     ADD COLUMN managed_header_section_policy TEXT NOT NULL DEFAULT '{}'
                     """
+                )
+            if _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="memory_dir",
+            ) and not _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="persist_dir",
+            ):
+                connection.execute(
+                    "ALTER TABLE launch_profiles RENAME COLUMN memory_dir TO persist_dir"
+                )
+            if _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="memory_disabled",
+            ) and not _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="persist_disabled",
+            ):
+                connection.execute(
+                    "ALTER TABLE launch_profiles RENAME COLUMN memory_disabled TO persist_disabled"
                 )
             return
         raise ValueError(
@@ -1828,8 +1852,8 @@ class ProjectCatalog:
             else None,
             workdir=str(row["workdir"]) if row["workdir"] is not None else None,
             auth_name=str(row["auth_name"]) if row["auth_name"] is not None else None,
-            memory_dir=str(row["memory_dir"]) if row["memory_dir"] is not None else None,
-            memory_disabled=bool(row["memory_disabled"]),
+            persist_dir=str(row["persist_dir"]) if row["persist_dir"] is not None else None,
+            persist_disabled=bool(row["persist_disabled"]),
             model_name=str(row["model_name"]) if row["model_name"] is not None else None,
             reasoning_level=(
                 parse_reasoning_level(
@@ -1980,8 +2004,8 @@ def _table_schema_sql() -> str:
         managed_agent_id TEXT,
         workdir TEXT,
         auth_profile_id INTEGER REFERENCES auth_profiles(id) ON DELETE RESTRICT,
-        memory_dir TEXT,
-        memory_disabled INTEGER NOT NULL DEFAULT 0,
+        persist_dir TEXT,
+        persist_disabled INTEGER NOT NULL DEFAULT 0,
         model_name TEXT,
         reasoning_level INTEGER,
         operator_prompt_mode TEXT,
@@ -2069,8 +2093,8 @@ def _view_sql() -> str:
         launch_profiles.managed_agent_id AS managed_agent_id,
         launch_profiles.workdir AS workdir,
         auth_profiles.display_name AS auth_name,
-        launch_profiles.memory_dir AS memory_dir,
-        launch_profiles.memory_disabled AS memory_disabled,
+        launch_profiles.persist_dir AS persist_dir,
+        launch_profiles.persist_disabled AS persist_disabled,
         launch_profiles.model_name AS model_name,
         launch_profiles.reasoning_level AS reasoning_level,
         launch_profiles.operator_prompt_mode AS operator_prompt_mode,
@@ -2219,8 +2243,8 @@ def _render_launch_profile_yaml(
         defaults["workdir"] = entry.workdir
     if entry.auth_name is not None:
         defaults["auth"] = entry.auth_name
-    defaults["memory_binding"] = entry.memory_binding
-    defaults["memory_dir"] = entry.memory_dir
+    defaults["persist_binding"] = entry.persist_binding
+    defaults["persist_dir"] = entry.persist_dir
     if entry.model_name is not None or entry.reasoning_level is not None:
         defaults["model"] = {}
         if entry.model_name is not None:

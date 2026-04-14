@@ -133,8 +133,11 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
                 "working_directory": str(tmp_path),
                 "tmux_session_name": "HOUMAO-claude",
             },
-            memory_binding="exact",
-            memory_dir=(tmp_path / "memory" / "agent-a").resolve(),
+            workspace_root=(tmp_path / "memory" / "agents" / "agent-a").resolve(),
+            memo_file=(tmp_path / "memory" / "agents" / "agent-a" / "houmao-memo.md").resolve(),
+            scratch_dir=(tmp_path / "memory" / "agents" / "agent-a" / "scratch").resolve(),
+            persist_binding="exact",
+            persist_dir=(tmp_path / "memory" / "agent-a").resolve(),
         )
     )
 
@@ -150,8 +153,17 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.payload["tmux_session_name"] == "HOUMAO-claude"
     assert loaded.payload["registry_launch_authority"] == "runtime"
     assert loaded.payload["runtime"]["session_id"] == "sess-1"
-    assert loaded.payload["runtime"]["memory_binding"] == "exact"
-    assert loaded.payload["runtime"]["memory_dir"] == str(
+    assert loaded.payload["runtime"]["workspace_root"] == str(
+        (tmp_path / "memory" / "agents" / "agent-a").resolve()
+    )
+    assert loaded.payload["runtime"]["memo_file"] == str(
+        (tmp_path / "memory" / "agents" / "agent-a" / "houmao-memo.md").resolve()
+    )
+    assert loaded.payload["runtime"]["scratch_dir"] == str(
+        (tmp_path / "memory" / "agents" / "agent-a" / "scratch").resolve()
+    )
+    assert loaded.payload["runtime"]["persist_binding"] == "exact"
+    assert loaded.payload["runtime"]["persist_dir"] == str(
         (tmp_path / "memory" / "agent-a").resolve()
     )
     assert loaded.payload["runtime"]["agent_pid"] is None
