@@ -346,7 +346,7 @@ houmao-mgr agents gateway tui note-prompt [OPTIONS]
 
 ### `mail-notifier`
 
-Gateway mail-notifier lifecycle and inspection commands. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for new messages and injects notification prompts through the gateway's request queue.
+Gateway mail-notifier lifecycle and inspection commands. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for open inbox work and injects notification prompts through the gateway's request queue.
 
 ```
 houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
@@ -360,7 +360,7 @@ houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
 
 #### `mail-notifier status`
 
-Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, and last-check metadata.
+Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, effective mode, and last-check metadata.
 
 ```
 houmao-mgr agents gateway mail-notifier status [OPTIONS]
@@ -376,7 +376,7 @@ houmao-mgr agents gateway mail-notifier status [OPTIONS]
 
 #### `mail-notifier enable`
 
-Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts when unread messages are detected.
+Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts for mail that matches the selected mode. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail. The opt-in `unread_only` mode notifies only for unread unarchived inbox mail.
 
 ```
 houmao-mgr agents gateway mail-notifier enable [OPTIONS]
@@ -384,7 +384,8 @@ houmao-mgr agents gateway mail-notifier enable [OPTIONS]
 
 | Option | Description |
 |---|---|
-| `--interval-seconds INTEGER` | Unread-mail polling interval in seconds. Must be >= 1. **Required.** |
+| `--interval-seconds INTEGER` | Mailbox polling interval in seconds. Must be >= 1. **Required.** |
+| `--mode [any_inbox\|unread_only]` | Notification mode. Defaults to `any_inbox`. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier enable. |

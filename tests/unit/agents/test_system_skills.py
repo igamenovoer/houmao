@@ -854,6 +854,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
     gateway_lifecycle_action = gateway_lifecycle_action_path.read_text(encoding="utf-8")
     gateway_reminders_action = gateway_reminders_action_path.read_text(encoding="utf-8")
+    gateway_mail_notifier_action = gateway_mail_notifier_action_path.read_text(encoding="utf-8")
     gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
     self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
     self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
@@ -1128,6 +1129,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert gateway_services_action_path.is_file()
     assert gateway_reminders_action_path.is_file()
     assert gateway_mail_notifier_action_path.is_file()
+    assert "`any_inbox`: default" in gateway_mail_notifier_action
+    assert "`unread_only`: notify only while unread inbox mail remains unarchived" in (
+        gateway_mail_notifier_action
+    )
+    assert "Processed mail should be archived" in gateway_mail_notifier_action
     assert gateway_scope_reference_path.is_file()
     assert gateway_http_reference_path.is_file()
     assert self_notification_pattern_path.is_file()
@@ -1325,7 +1331,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "`broadcast-stop`" in pairwise_loop_stop
     assert "participant-wide direct intervention" in pairwise_loop_hard_kill
     assert "disable gateway mail-notifier polling" in pairwise_loop_hard_kill
-    assert "mark every unread `message_ref` read" in pairwise_loop_hard_kill
+    assert "archive every open `message_ref`" in pairwise_loop_hard_kill
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter

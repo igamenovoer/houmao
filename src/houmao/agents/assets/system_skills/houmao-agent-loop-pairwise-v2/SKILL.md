@@ -106,7 +106,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Read [operating/pause.md](operating/pause.md) when the user wants to intentionally stall one running pairwise loop by suspending its wakeup mechanisms.
 - Read [operating/resume.md](operating/resume.md) when the user wants to restore one paused pairwise loop without creating a new run.
 - Read [operating/stop.md](operating/stop.md) when the user wants to stop one active run, with `interrupt-first` as the default stop posture unless graceful stop was requested explicitly.
-- Read [operating/hard-kill.md](operating/hard-kill.md) when the user wants emergency participant-wide interruption plus reminder or notifier shutdown and mailbox unread draining for one accepted run.
+- Read [operating/hard-kill.md](operating/hard-kill.md) when the user wants emergency participant-wide interruption plus reminder or notifier shutdown and open inbox mail draining for one accepted run.
 
 ## Prestart Page
 
@@ -129,7 +129,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 
 - Route `start`, `ping`, `pause`, `resume`, `stop`, and participant interrupts within `hard-kill` requests to `houmao-agent-messaging`.
 - Route default `initialize` mail-notifier enablement plus `hard-kill` reminder or mail-notifier shutdown to `houmao-agent-gateway`.
-- Route default `initialize` email delivery, in-loop pairwise edge request/result/receipt mail, mailbox follow-up semantics referenced by the plan, and `hard-kill` unread draining to `houmao-agent-email-comms`.
+- Route default `initialize` email delivery, in-loop pairwise edge request/result/receipt mail, mailbox follow-up semantics referenced by the plan, and `hard-kill` open-mail archiving to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr` or the owned mailbox surfaces that expose `HOUMAO-operator@houmao.localhost`.
 - Route `peek` requests, overdue downstream peeking, and other read-only state inspection to `houmao-agent-inspect`.
 - Route authoring-time and initialization structural preflight to `houmao-mgr internals graph high ...` as the first-class helper surface when a NetworkX node-link graph and packet JSON document are available: use `analyze` for topology checks, `slice` for plan-time descendant or subtree inspection, `packet-expectations` for root and child packet expectations, and `validate-packets` before initialization enters `ready` when routing packets are part of the plan.

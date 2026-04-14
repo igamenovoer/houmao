@@ -482,6 +482,13 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
     assert "enable" in result.output
     assert "disable" in result.output
 
+    enable_result = CliRunner().invoke(
+        cli,
+        ["agents", "gateway", "mail-notifier", "enable", "--help"],
+    )
+    assert enable_result.exit_code == 0
+    assert "--mode [any_inbox|unread_only]" in enable_result.output
+
 
 def test_agents_gateway_reminders_help_mentions_subcommands() -> None:
     result = CliRunner().invoke(cli, ["agents", "gateway", "reminders", "--help"])
@@ -1327,7 +1334,7 @@ def test_agents_gateway_rejects_pair_port_with_target_tmux_session() -> None:
     ) in result.output
 
 
-def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
+def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_and_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -1342,9 +1349,11 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
-        lambda resolved_target, *, interval_seconds: (
-            captured.update({"target": resolved_target, "interval_seconds": interval_seconds})
-            or {"enabled": True, "interval_seconds": interval_seconds}
+        lambda resolved_target, *, interval_seconds, mode: (
+            captured.update(
+                {"target": resolved_target, "interval_seconds": interval_seconds, "mode": mode}
+            )
+            or {"enabled": True, "interval_seconds": interval_seconds, "mode": mode}
         ),
     )
 
@@ -1358,6 +1367,8 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
             "--current-session",
             "--interval-seconds",
             "60",
+            "--mode",
+            "unread_only",
         ],
     )
 
@@ -1365,7 +1376,32 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
     assert captured["session_name"] is None
     assert captured["target"] is target
     assert captured["interval_seconds"] == 60
-    assert json.loads(result.output) == {"enabled": True, "interval_seconds": 60}
+    assert captured["mode"] == "unread_only"
+    assert json.loads(result.output) == {
+        "enabled": True,
+        "interval_seconds": 60,
+        "mode": "unread_only",
+    }
+
+
+def test_agents_gateway_mail_notifier_enable_rejects_invalid_mode() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "mail-notifier",
+            "enable",
+            "--current-session",
+            "--interval-seconds",
+            "60",
+            "--mode",
+            "bad_mode",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--mode'" in result.output
 
 
 def test_agents_gateway_reminders_create_with_explicit_selector_builds_payload(

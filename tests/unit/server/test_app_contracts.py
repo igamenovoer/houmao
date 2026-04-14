@@ -620,6 +620,7 @@ class _AppServiceDouble:
         return GatewayMailNotifierStatusV1(
             enabled=False,
             interval_seconds=None,
+            mode="any_inbox",
             supported=True,
             support_error=None,
             last_poll_at_utc=None,
@@ -636,6 +637,7 @@ class _AppServiceDouble:
         return GatewayMailNotifierStatusV1(
             enabled=True,
             interval_seconds=request_model.interval_seconds,
+            mode=request_model.mode,
             supported=True,
             support_error=None,
             last_poll_at_utc=None,
@@ -651,6 +653,7 @@ class _AppServiceDouble:
         return GatewayMailNotifierStatusV1(
             enabled=False,
             interval_seconds=None,
+            mode="any_inbox",
             supported=True,
             support_error=None,
             last_poll_at_utc=None,
@@ -1433,11 +1436,13 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert gateway_control_response.action == "control_input"
     notifier_status = gateway_notifier_get_route.endpoint(agent_ref="claude-headless-1")
     assert notifier_status.enabled is False
+    assert notifier_status.mode == "any_inbox"
     notifier_enabled = gateway_notifier_put_route.endpoint(
         agent_ref="claude-headless-1",
-        request_model=GatewayMailNotifierPutV1(interval_seconds=60),
+        request_model=GatewayMailNotifierPutV1(interval_seconds=60, mode="unread_only"),
     )
     assert notifier_enabled.enabled is True
+    assert notifier_enabled.mode == "unread_only"
     assert gateway_notifier_delete_route.endpoint(agent_ref="claude-headless-1").enabled is False
     assert (
         gateway_reminders_list_route.endpoint(agent_ref="claude-headless-1").effective_reminder_id

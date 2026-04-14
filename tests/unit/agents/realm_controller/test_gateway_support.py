@@ -4489,6 +4489,7 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
         status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
         assert status.enabled is True
         assert status.supported is True
+        assert status.mode == "any_inbox"
 
         _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
         _wait_until(
@@ -4962,6 +4963,7 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
         status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
         assert status.enabled is True
         assert status.supported is True
+        assert status.mode == "any_inbox"
 
         _wait_until(lambda: len(fake_client.submitted_prompts) >= 2, timeout_seconds=5.0)
 
@@ -4970,9 +4972,11 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
         assert message_id not in first_prompt
         assert message_id not in repeated_prompt
         assert (
-            "List unread mail through the shared gateway mailbox API for this round."
+            "List open inbox mail for this round, including mail that may already be read or answered."
             in first_prompt
         )
+        assert "Notifier mode: `any_inbox`" in first_prompt
+        assert "mark only those successfully processed emails read" not in first_prompt
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in first_prompt
     finally:
         runtime.shutdown()
@@ -4988,6 +4992,7 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
         _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
         status = runtime.get_mail_notifier()
         assert status.enabled is True
+        assert status.mode == "any_inbox"
         assert status.last_notification_at_utc is not None
     finally:
         runtime.shutdown()
@@ -5003,6 +5008,81 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
     assert enqueued_rows[-1].unread_count == 1
     assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
     assert enqueued_rows[-1].enqueued_request_id is not None
+
+
+def test_gateway_mail_notifier_unread_only_skips_read_unarchived_mail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    read_message_id = _deliver_unread_mailbox_message(
+        tmp_path,
+        message_id="msg-20260316T091000Z-11111111111111111111111111111111",
+    )
+    update_mailbox_state(
+        tmp_path / "mailbox",
+        StateUpdateRequest(
+            address="HOUMAO-gpu@agents.localhost",
+            message_id=read_message_id,
+            read=True,
+            answered=True,
+        ),
+    )
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        status = runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(interval_seconds=1, mode="unread_only")
+        )
+        assert status.enabled is True
+        assert status.mode == "unread_only"
+
+        _wait_until(
+            lambda: any(
+                row.outcome == "empty" and row.unread_count == 0
+                for row in read_gateway_notifier_audit_records(paths.queue_path)
+            ),
+            timeout_seconds=5.0,
+        )
+        assert fake_client.submitted_prompts == []
+
+        unread_message_id = _deliver_unread_mailbox_message(
+            tmp_path,
+            message_id="msg-20260316T091100Z-22222222222222222222222222222222",
+            created_at_utc="2026-03-16T09:11:00Z",
+        )
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
+        prompt = fake_client.submitted_prompts[0][1]
+        assert "Notifier mode: `unread_only`" in prompt
+        assert "Start by listing unread inbox mail for this round." in prompt
+        assert "will not trigger another notification by itself" in prompt
+        assert "mark only those successfully processed emails read" not in prompt
+    finally:
+        runtime.shutdown()
+
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    assert enqueued_rows
+    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{unread_message_id}"
 
 
 def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_and_repeats(
@@ -5080,7 +5160,7 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
         first_prompt = fake_session.prompt_calls[0][0]
         assert message_id not in first_prompt
         assert (
-            "List unread mail through the shared gateway mailbox API for this round."
+            "List open inbox mail for this round, including mail that may already be read or answered."
             in first_prompt
         )
 
@@ -5094,7 +5174,7 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
         repeated_prompt = fake_session.prompt_calls[-1][0]
         assert message_id not in repeated_prompt
         assert (
-            "List unread mail through the shared gateway mailbox API for this round."
+            "List open inbox mail for this round, including mail that may already be read or answered."
             in repeated_prompt
         )
     finally:
@@ -5205,7 +5285,7 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
             if (
                 "--approval-mode=yolo" in launch_plan.args
                 and "--sandbox=false" in launch_plan.args
-                and "List unread mail through the shared gateway mailbox API for this round."
+                and "List open inbox mail for this round, including mail that may already be read or answered."
                 in prompt
             ):
                 output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5253,7 +5333,10 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
 
     assert fake_session.prompt_calls
     prompt = fake_session.prompt_calls[0][0]
-    assert "List unread mail through the shared gateway mailbox API for this round." in prompt
+    assert (
+        "List open inbox mail for this round, including mail that may already be read or answered."
+        in prompt
+    )
     assert "In Gemini this Houmao skill is installed natively." in prompt
     assert "Invoke `houmao-process-emails-via-gateway` by name for this round." in prompt
     assert (
@@ -5320,12 +5403,15 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert second_message_id not in prompt
         assert "Unread email summaries in the current snapshot:" not in prompt
         assert prompt.index(
-            "List unread mail through the shared gateway mailbox API for this round."
+            "List open inbox mail for this round, including mail that may already be read or answered."
         ) < prompt.index(
             "Gateway mailbox operations for this round use the exact live gateway base URL:"
         )
-        assert "List unread mail through the shared gateway mailbox API for this round." in prompt
-        assert "Choose which unread email or emails are relevant to process" in prompt
+        assert (
+            "List open inbox mail for this round, including mail that may already be read or answered."
+            in prompt
+        )
+        assert "Choose which email or emails are relevant to process" in prompt
         assert "thread_ref: filesystem:" not in prompt
         assert "from: HOUMAO-sender@agents.localhost" not in prompt
         assert "subject: Gateway unread reminder one" not in prompt
@@ -5733,7 +5819,7 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
         assert len(fake_client.submitted_prompts) == 2
         assert message_id not in fake_client.submitted_prompts[1][1]
         assert (
-            "List unread mail through the shared gateway mailbox API for this round."
+            "List open inbox mail for this round, including mail that may already be read or answered."
             in fake_client.submitted_prompts[1][1]
         )
     finally:
