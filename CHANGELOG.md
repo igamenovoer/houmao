@@ -4,6 +4,19 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc1] - 2026-04-14
+
+### Added
+
+- **Agent workspace commands**: `houmao-mgr agents workspace` command family gives every managed agent an operator-addressable workspace root with `path`, `memo show/set`, `tree`, `read`, `write`, `append`, `delete`, and `clear` sub-commands. Per-agent workspaces resolve to `<project-root>/.houmao/memory/agents/<agent-id>/` by default and expose `scratch/` and `persist/` lanes. The same workspace controls are available on `agents join`, `agents launch`, `project easy instance launch`, and stored launch profiles.
+- **Mail-notifier notification mode**: gateway mail-notifier gains a `notification_mode` setting — `any_inbox` (default, existing behavior: wake while any unarchived inbox mail remains) and `unread_only` (wake only for unread unarchived inbox mail). Configurable at attach time and stored in gateway state.
+- **Mailbox answered-archive lifecycle**: answered messages are now moved to an `answered/` archive lane in the filesystem mailbox, keeping the active inbox clean without deleting processed messages.
+
+### Changed
+
+- **Unified workspace directory layout**: `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, `HOUMAO_AGENT_SCRATCH_DIR`, and `HOUMAO_AGENT_PERSIST_DIR` replace the retired `HOUMAO_JOB_DIR` and `HOUMAO_MEMORY_DIR` env vars. The `memory/` subdirectory now appears in the `.houmao/` project overlay layout.
+- **Docs and README updated**: `docs/index.md` gains a brief intro and audience-oriented "where to start" table; `docs/getting-started/quickstart.md` notes that it targets from-source checkouts; `README.md` reflects the workspace layout and `agents workspace` capabilities; `DEVELOPMENT-SETUP.md` filename typo fixed.
+
 ## [0.6.6] - 2026-04-14
 
 ### Changed
