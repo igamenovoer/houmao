@@ -4,6 +4,14 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.6.6] - 2026-04-14
+
+### Changed
+
+- **Operator-origin reply policy defaults to `operator_mailbox`**: `houmao-mgr agents mail post`, the gateway `POST /v1/mail/post` route, and the low-level `operator_origin_headers()` helper now default to `reply_policy=operator_mailbox` so replies route back to the reserved operator mailbox. Use `reply_policy=none` explicitly when a one-way operator note is intended.
+- **Reply hardening in email processing skill**: `houmao-process-emails-via-gateway` now includes reply-hardening guidance with one-off gateway reminders that guard required replies against stalls or interrupts, including a prompt template and guardrails for duplicate-reply prevention.
+- **Touring skill advanced-usage branch**: `houmao-touring` gains an `advanced-usage` branch for pairwise agent-loop creation guidance, routing users to `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2` with explicit skill-selection boundaries.
+
 ## [0.6.5] - 2026-04-13
 
 ### Added
@@ -248,6 +256,7 @@ Release superseded by 0.6.4 (missing changelog update).
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.6.6]: https://github.com/igamenovoer/houmao/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/igamenovoer/houmao/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/igamenovoer/houmao/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/igamenovoer/houmao/compare/v0.6.2...v0.6.3
