@@ -429,7 +429,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert (
         mailbox_root / "houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
     ).is_file()
-    assert (mailbox_root / "houmao-agent-email-comms/actions/check.md").is_file()
+    assert (mailbox_root / "houmao-agent-email-comms/actions/list.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/actions/reply.md").is_file()
     assert (mailbox_root / "houmao-agent-email-comms/references/curl-examples.md").is_file()
     assert (
@@ -509,7 +509,7 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_claude_top_leve
     assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/SKILL.md").is_file()
     assert (skills_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/actions/check.md").is_file()
+    assert (skills_root / "houmao-agent-email-comms/actions/list.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
     assert not (skills_root / "mailbox").exists()

@@ -5,7 +5,7 @@ This guide shows the two supported local entry points:
 1. adopt an already-running provider session with `houmao-mgr agents join`
 2. build and launch from a repo-local `.houmao/` overlay created by `houmao-mgr project init`
 
-For maintained local-state command families such as `brains build`, `agents launch`, `mailbox`, `admin cleanup runtime`, and `server start`, Houmao now resolves runtime, jobs, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/jobs`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
+For maintained local-state command families such as `brains build`, `agents launch`, `mailbox`, `admin cleanup runtime`, and `server start`, Houmao now resolves runtime, memory/workspace, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/memory`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
 
 Ambient overlay selection defaults to nearest-ancestor `.houmao/houmao-config.toml` discovery within the current Git boundary. Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want commands run from a subdirectory to ignore a parent overlay and consider only `<cwd>/.houmao`. `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` remains the stronger explicit overlay-root override.
 
@@ -165,7 +165,7 @@ Key options:
 
 Because the local project overlay was initialized first, `brains build` discovers `.houmao/houmao-config.toml`, resolves the project-local catalog, and materializes `.houmao/agents/` automatically when the compatibility projection is needed.
 
-Without `--runtime-root`, maintained build and launch flows now place generated homes and manifests under `.houmao/runtime`, and managed-session job dirs under `.houmao/jobs/<session-id>/`, for the same active overlay.
+Without `--runtime-root`, maintained build and launch flows now place generated homes and manifests under `.houmao/runtime`, and managed-agent workspaces under `.houmao/memory/agents/<agent-id>/`, for the same active overlay.
 
 If the selected recipe omits `launch.prompt_mode`, current builders resolve that omission to the unattended default. Set `launch.prompt_mode: as_is` explicitly when you want provider startup posture left unchanged.
 
@@ -188,7 +188,7 @@ The bare selector plus provider resolves:
 - `researcher` + `claude_code`
 - to `.houmao/agents/presets/researcher-claude-default.yaml`
 
-You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`. `--workdir` only changes the launched agent cwd; the current project remains the launch source for overlay, runtime, jobs, mailbox, and bare-selector recipe resolution.
+You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`. `--workdir` only changes the launched agent cwd; the current project remains the launch source for overlay, runtime, managed-agent workspace, mailbox, and bare-selector recipe resolution.
 
 If you have already authored a reusable explicit launch profile through `houmao-mgr project agents launch-profiles add ...`, the alternative launch form is:
 
@@ -212,7 +212,7 @@ pixi run houmao-mgr project easy instance launch \
 
 That keeps the easy surface split cleanly: `specialist` manages reusable project-local config, while `instance` manages runtime lifecycle.
 
-For easy launch, `--workdir` only changes the launched agent cwd. The selected project overlay and specialist still supply the compatibility recipe source plus overlay-local runtime, jobs, and mailbox defaults. The same managed-header rules apply here: easy profiles may store whole-header and section policy, `project easy instance launch` accepts one-shot `--managed-header`, `--no-managed-header`, or `--managed-header-section SECTION=enabled|disabled`, and omitted policy falls back to the default enabled behavior.
+For easy launch, `--workdir` only changes the launched agent cwd. The selected project overlay and specialist still supply the compatibility recipe source plus overlay-local runtime, managed-agent workspace, and mailbox defaults. The same managed-header rules apply here: easy profiles may store whole-header and section policy, `project easy instance launch` accepts one-shot `--managed-header`, `--no-managed-header`, or `--managed-header-section SECTION=enabled|disabled`, and omitted policy falls back to the default enabled behavior.
 
 `project easy instance launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
 

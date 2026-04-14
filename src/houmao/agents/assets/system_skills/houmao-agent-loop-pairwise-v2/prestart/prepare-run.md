@@ -41,6 +41,7 @@ Use `require_ack` only when the authored plan or user explicitly asks for acknow
    - include only that participant's own role, resources, delegation authority, obligations, forbidden actions, and optional timeout-watch policy
    - advise the participant to use email/mailbox for job communication by default, including in-loop pairwise edge requests, receipts, and results
    - include the participant's exact routing packet or exact routing packet reference when routing packets are part of the plan
+   - instruct the participant to write the initialization content they receive into `houmao-memo.md` via `HOUMAO_AGENT_MEMO_FILE`, including delegation rules, task-handling rules, obligations, and forbidden actions
    - do not assume the participant already knows which upstream participant may later contact it
 9. Match operator-origin reply policy to the acknowledgement posture:
    - `fire_and_proceed` -> `reply_policy=none`
@@ -84,6 +85,7 @@ Each initialization mail should make these items easy to find for the targeted r
 - mailbox, reminder, receipt, or result obligations
 - default job communication channel: email/mailbox for pairwise edge requests, receipts, and results
 - forbidden actions
+- instruction to copy the participant initialization memo content, delegation rules, task-handling rules, obligations, and forbidden actions into `houmao-memo.md` through `HOUMAO_AGENT_MEMO_FILE`
 - reply instructions when acknowledgement is required
 
 ## Initialize Contract

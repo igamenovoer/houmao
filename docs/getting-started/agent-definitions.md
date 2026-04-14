@@ -35,7 +35,7 @@ Commands that need an agent-definition root resolve it with this precedence:
 
 `HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path. If it points at an overlay that already contains `houmao-config.toml`, that selected overlay becomes the discovery anchor. If it points at an overlay directory without config yet, project-aware fallback paths come from `<overlay-root>/agents` until you initialize it. When `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` is unset, Houmao uses `ancestor`. When it is set to `cwd_only`, ambient discovery ignores parent overlays and falls back to `<cwd>/.houmao/agents` if no cwd-local overlay config exists.
 
-Maintained project-aware local-state commands reuse that same active overlay for other defaults too: runtime state lands under `<active-overlay>/runtime`, managed-session jobs land under `<active-overlay>/jobs/<session-id>/`, and filesystem mailbox state lands under `<active-overlay>/mailbox` unless an explicit CLI or env override wins first.
+Maintained project-aware local-state commands reuse that same active overlay for other defaults too: runtime state lands under `<active-overlay>/runtime`, managed-agent workspaces land under `<active-overlay>/memory/agents/<agent-id>/`, and filesystem mailbox state lands under `<active-overlay>/mailbox` unless an explicit CLI or env override wins first.
 
 ## Directory Layout
 
@@ -153,7 +153,7 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 | `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata, not created by default |
 | `.houmao/mailbox/` | ❌ No | Optional project-local mailbox root |
 
-Generated runtime homes, manifests, mailbox state, and jobs are also local-only operator state. When maintained build and launch flows place runtime artifacts under `.houmao/runtime`, mailbox state under `.houmao/mailbox`, and scratch jobs under `.houmao/jobs/`, those subtrees remain overlay-local runtime state rather than tracked project source.
+Generated runtime homes, manifests, mailbox state, and managed-agent workspaces are also local-only operator state. When maintained build and launch flows place runtime artifacts under `.houmao/runtime`, mailbox state under `.houmao/mailbox`, and workspace scratch/persist lanes under `.houmao/memory/agents/<agent-id>/`, those subtrees remain overlay-local runtime state rather than tracked project source.
 
 ## How The Pieces Connect
 

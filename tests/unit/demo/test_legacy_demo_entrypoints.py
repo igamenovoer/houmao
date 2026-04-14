@@ -26,9 +26,7 @@ def test_legacy_demo_entrypoints_fail_fast(
 
     captured = capsys.readouterr()
     assert f"Archived demo `{demo_name}` is not runnable." in captured.err
-    assert (
-        "deprecated project-local mailbox-skill mirror and skill-path prompting contract"
-        in captured.err
-    )
+    assert "deprecated project-local mailbox-skill mirror" in captured.err
+    assert "skill-path prompting contract" in captured.err
     assert "scripts/demo/single-agent-mail-wakeup/" in captured.err
     assert "scripts/demo/single-agent-gateway-wakeup-headless/" in captured.err

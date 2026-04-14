@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from houmao.agents.realm_controller import cli
 from houmao.agents.realm_controller.models import SessionControlResult
 from houmao.project.overlay import (
@@ -15,7 +17,25 @@ from houmao.project.overlay import (
 )
 
 
-def test_start_session_rejects_retired_raw_cao_backend(capsys) -> None:
+def _isolate_agent_def_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Point ambient agent-def resolution at a fresh project overlay."""
+
+    overlay_root = (tmp_path / "overlay").resolve()
+    bootstrap_project_overlay_at_root(overlay_root)
+    monkeypatch.delenv("HOUMAO_AGENT_DEF_DIR", raising=False)
+    monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
+
+
+def test_start_session_rejects_retired_raw_cao_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    _isolate_agent_def_resolution(monkeypatch, tmp_path)
+
     exit_code = cli.main(
         [
             "start-session",
@@ -37,9 +57,11 @@ def test_start_session_rejects_retired_raw_cao_backend(capsys) -> None:
 
 
 def test_start_session_rejects_retired_raw_cao_backend_before_runtime_start(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     capsys,
+    tmp_path: Path,
 ) -> None:
+    _isolate_agent_def_resolution(monkeypatch, tmp_path)
     captured_calls: list[dict[str, object]] = []
 
     def _fake_start_runtime_session(**kwargs: object) -> object:
@@ -70,7 +92,11 @@ def test_start_session_rejects_retired_raw_cao_backend_before_runtime_start(
     assert "retired" in capsys.readouterr().err
 
 
-def test_start_session_forwards_mailbox_overrides(monkeypatch, tmp_path: Path) -> None:
+def test_start_session_forwards_mailbox_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _isolate_agent_def_resolution(monkeypatch, tmp_path)
     manifest_path = tmp_path / "session.json"
     manifest_path.write_text("{}", encoding="utf-8")
     captured_kwargs: dict[str, object] = {}
@@ -245,17 +271,17 @@ def test_mail_command_forwards_cao_parsing_mode_override(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.cli.prepare_mail_prompt",
-        lambda **kwargs: {"request_id": "req-123", "operation": "check"},
+        lambda **kwargs: {"request_id": "req-123", "operation": "list"},
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.cli.run_mail_prompt",
-        lambda **kwargs: {"ok": True, "operation": "check", "request_id": "req-123"},
+        lambda **kwargs: {"ok": True, "operation": "list", "request_id": "req-123"},
     )
 
     exit_code = cli.main(
         [
             "mail",
-            "check",
+            "list",
             "--agent-identity",
             "HOUMAO-gpu",
             "--cao-parsing-mode",

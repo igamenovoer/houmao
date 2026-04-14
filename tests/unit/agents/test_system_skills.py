@@ -1233,8 +1233,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ask the user for that value" in pairwise_edge_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in pairwise_edge_loop_pattern
     assert "Subject: [edge-result] edge_loop=<edge_loop_id>" in pairwise_edge_loop_pattern
-    assert "HOUMAO_JOB_DIR" in relay_loop_pattern
-    assert "Do not use `HOUMAO_MEMORY_DIR` as the default home" in relay_loop_pattern
+    assert "HOUMAO_AGENT_SCRATCH_DIR" in relay_loop_pattern
+    assert "Do not use `HOUMAO_AGENT_PERSIST_DIR` as the default home" in relay_loop_pattern
     assert "ask the user for that parameter" in relay_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
     assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
@@ -1325,7 +1325,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "`broadcast-stop`" in pairwise_loop_stop
     assert "participant-wide direct intervention" in pairwise_loop_hard_kill
     assert "disable gateway mail-notifier polling" in pairwise_loop_hard_kill
-    assert "mark every unread `message_ref` read" in pairwise_loop_hard_kill
+    assert "archive every open `message_ref`" in pairwise_loop_hard_kill
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter

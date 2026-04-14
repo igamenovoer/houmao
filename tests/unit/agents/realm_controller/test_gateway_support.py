@@ -2740,6 +2740,141 @@ def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
     return paths.gateway_root
 
 
+def _seed_workspace_gateway_root(tmp_path: Path, *, persist_enabled: bool = True) -> Path:
+    """Seed one gateway root whose manifest exposes workspace metadata."""
+
+    manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
+    workspace_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-workspace").resolve()
+    persist_dir = (workspace_root / "persist").resolve() if persist_enabled else None
+    scratch_dir = (workspace_root / "scratch").resolve()
+    memo_file = (workspace_root / "houmao-memo.md").resolve()
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    memo_file.touch()
+    if persist_dir is not None:
+        persist_dir.mkdir(parents=True, exist_ok=True)
+
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_headless_plan(tmp_path),
+            role_name="role",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_name="HOUMAO-workspace",
+            agent_id="agent-workspace",
+            tmux_session_name="HOUMAO-workspace",
+            session_id="claude-headless-1",
+            agent_def_dir=(tmp_path / "agents").resolve(),
+            workspace_root=workspace_root,
+            memo_file=memo_file,
+            scratch_dir=scratch_dir,
+            persist_binding="auto" if persist_enabled else "disabled",
+            persist_dir=persist_dir,
+            backend_state={"session_id": "claude-session-1"},
+        )
+    )
+    write_session_manifest(manifest_path, payload)
+    paths = ensure_gateway_capability(
+        GatewayCapabilityPublication(
+            manifest_path=manifest_path,
+            backend="claude_headless",
+            tool="claude",
+            session_id="claude-headless-1",
+            tmux_session_name="HOUMAO-workspace",
+            working_directory=tmp_path,
+            backend_state={"session_id": "claude-session-1"},
+            agent_def_dir=tmp_path / "agents",
+        )
+    )
+    return paths.gateway_root
+
+
+def test_gateway_workspace_routes_round_trip_memo_and_lane_operations(tmp_path: Path) -> None:
+    gateway_root = _seed_workspace_gateway_root(tmp_path)
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    summary = client.get("/v1/workspace")
+    assert summary.status_code == 200
+    summary_payload = summary.json()
+    assert summary_payload["workspace_root"].endswith(".houmao/memory/agents/agent-workspace")
+    assert summary_payload["persist_binding"] == "auto"
+
+    memo_put = client.put("/v1/workspace/memo", json={"content": "memo"})
+    assert memo_put.status_code == 200
+    assert memo_put.json()["content"] == "memo"
+    memo_append = client.post("/v1/workspace/memo/append", json={"content": "\nmore"})
+    assert memo_append.status_code == 200
+    assert memo_append.json()["content"] == "memo\nmore"
+
+    write_response = client.post(
+        "/v1/workspace/lane/write",
+        json={"lane": "scratch", "path": "notes/todo.txt", "content": "one"},
+    )
+    assert write_response.status_code == 200
+    append_response = client.post(
+        "/v1/workspace/lane/append",
+        json={"lane": "scratch", "path": "notes/todo.txt", "content": "\ntwo"},
+    )
+    assert append_response.status_code == 200
+
+    read_response = client.post(
+        "/v1/workspace/lane/read",
+        json={"lane": "scratch", "path": "notes/todo.txt"},
+    )
+    assert read_response.status_code == 200
+    assert read_response.json()["content"] == "one\ntwo"
+
+    tree_response = client.post(
+        "/v1/workspace/lane/tree",
+        json={"lane": "scratch", "path": "."},
+    )
+    assert tree_response.status_code == 200
+    assert [entry["path"] for entry in tree_response.json()["entries"]] == [
+        "notes",
+        "notes/todo.txt",
+    ]
+
+    delete_response = client.post(
+        "/v1/workspace/lane/delete",
+        json={"lane": "scratch", "path": "notes/todo.txt"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["action"] == "delete_path"
+
+    client.post(
+        "/v1/workspace/lane/write",
+        json={"lane": "scratch", "path": "tmp/file.txt", "content": "x"},
+    )
+    clear_response = client.post("/v1/workspace/lane/clear", json={"lane": "scratch"})
+    assert clear_response.status_code == 200
+    scratch_dir = Path(summary_payload["scratch_dir"])
+    assert scratch_dir.is_dir()
+    assert list(scratch_dir.iterdir()) == []
+
+
+def test_gateway_workspace_routes_reject_disabled_persist_lane(tmp_path: Path) -> None:
+    gateway_root = _seed_workspace_gateway_root(tmp_path, persist_enabled=False)
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/v1/workspace/lane/write",
+        json={"lane": "persist", "path": "notes.txt", "content": "nope"},
+    )
+
+    assert response.status_code == 400
+    assert "persist lane is disabled" in response.json()["detail"]
+    assert not (tmp_path / ".houmao" / "memory" / "agents" / "agent-workspace" / "persist").exists()
+
+
 class _FakeGatewayHeadlessSession:
     def __init__(
         self,

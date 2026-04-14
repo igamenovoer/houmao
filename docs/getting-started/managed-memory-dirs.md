@@ -1,12 +1,14 @@
-# Managed Memory Dirs
+# Managed Agent Workspaces
 
-Managed memory dirs give a tmux-backed managed agent one durable filesystem location for notes, downloaded source material, experiment logs, extracted knowledge, or any other long-lived working state that should survive restarts.
+Managed agent workspaces give every tmux-backed managed agent one operator-addressable workspace root with three stable parts:
 
-This is separate from the per-session scratch `job_dir`. `job_dir` is runtime-owned scratch under `.houmao/jobs/`; a memory dir is durable operator-owned or agent-owned state that Houmao discovers and publishes, but does not structure internally.
+- `houmao-memo.md`: a fixed memo file at the workspace root for durable initialization notes, standing instructions, and operator-visible context.
+- `scratch/`: a scratch lane for mutable short-lived working state.
+- `persist/`: a persist lane for durable agent-owned or operator-selected state when persistence is enabled.
 
 ## Default Behavior
 
-When memory is enabled in the default `auto` mode and the launch runs inside a project overlay, Houmao resolves:
+When persistence is enabled in the default `auto` mode and the launch runs inside a project overlay, Houmao resolves:
 
 ```text
 <project-root>/.houmao/memory/agents/<agent-id>/
@@ -16,44 +18,52 @@ For example, managed agent `researcher` in `/repo` gets:
 
 ```text
 /repo/.houmao/memory/agents/researcher/
+  houmao-memo.md
+  scratch/
+  persist/
 ```
 
-Houmao creates that directory if needed, persists the resolved absolute path in the runtime manifest, and publishes it into the live tmux session as `HOUMAO_MEMORY_DIR`.
+Houmao creates the workspace root, memo file, and scratch lane for every managed agent. It creates the persist lane only when persistence is enabled. The runtime manifest stores `workspace_root`, `memo_file`, `scratch_dir`, `persist_binding`, and optional `persist_dir`.
 
-## Three Outcomes
+## Environment Variables
 
-Each managed session resolves to exactly one of these outcomes:
+Live tmux sessions receive:
 
-- `auto`: Use the conservative default per-agent directory under `.houmao/memory/agents/<agent-id>/`.
-- `exact`: Use one explicit absolute directory from `--memory-dir <path>`.
-- `disabled`: Bind no memory directory for this session with `--no-memory-dir`.
+- `HOUMAO_AGENT_STATE_DIR`: the workspace root.
+- `HOUMAO_AGENT_MEMO_FILE`: the fixed memo file path.
+- `HOUMAO_AGENT_SCRATCH_DIR`: the scratch lane.
+- `HOUMAO_AGENT_PERSIST_DIR`: the persist lane when persistence is enabled.
 
-When memory is disabled, Houmao does not create a directory and does not publish `HOUMAO_MEMORY_DIR`.
+The old `HOUMAO_JOB_DIR` and `HOUMAO_MEMORY_DIR` variables are not part of the current managed-agent workspace contract.
 
-## Typical Uses
+## Persist Outcomes
 
-- Keep a durable per-agent research notebook that survives relaunch.
-- Point multiple agents at one shared directory when you intentionally want shared context.
-- Disable memory completely for disposable agents that should only use `job_dir`.
+Each managed session resolves to exactly one persist outcome:
+
+- `auto`: use the default per-agent `persist/` lane under `.houmao/memory/agents/<agent-id>/`.
+- `exact`: use one explicit absolute persist directory from `--persist-dir <path>`.
+- `disabled`: bind no persist directory for this session with `--no-persist-dir`.
+
+When persistence is disabled, Houmao still creates the workspace root, memo file, and scratch lane, but it does not create or publish a persist lane.
 
 ## Launch Examples
 
-Default auto memory:
+Default auto persist lane:
 
 ```bash
 houmao-mgr agents launch --agents researcher
 ```
 
-Explicit shared directory:
+Explicit shared persist directory:
 
 ```bash
-houmao-mgr agents launch --agents researcher --memory-dir /shared/agent-memory/research
+houmao-mgr agents launch --agents researcher --persist-dir /shared/agent-memory/research
 ```
 
-No memory dir:
+No persist lane:
 
 ```bash
-houmao-mgr agents launch --agents researcher --no-memory-dir
+houmao-mgr agents launch --agents researcher --no-persist-dir
 ```
 
 The same controls also exist on:
@@ -63,37 +73,33 @@ The same controls also exist on:
 - `houmao-mgr project easy profile create`
 - `houmao-mgr project agents launch-profiles add`
 
-Launch profiles and easy profiles can store memory-dir intent so later launches reuse it by default.
+Launch profiles and easy profiles can store persist intent so later launches reuse it by default.
 
-## What Houmao Owns
+## Workspace Commands
 
-Houmao owns:
+Use `houmao-mgr agents workspace` to inspect and operate the workspace:
 
-- path resolution,
-- creation of the resolved directory when memory is enabled,
-- manifest persistence of the resolved result,
-- publishing `HOUMAO_MEMORY_DIR` into the live tmux session,
-- inspection output such as `houmao-mgr agents state`.
+```bash
+houmao-mgr agents workspace path --agent-name researcher
+houmao-mgr agents workspace memo show --agent-name researcher
+houmao-mgr agents workspace memo set --agent-name researcher --content-file ./init-notes.md
+houmao-mgr agents workspace tree --agent-name researcher --lane scratch
+houmao-mgr agents workspace read --agent-name researcher --lane scratch --path notes/todo.txt
+houmao-mgr agents workspace write --agent-name researcher --lane scratch --path notes/todo.txt --content "next step"
+houmao-mgr agents workspace append --agent-name researcher --lane scratch --path notes/todo.txt --content "\nfollow-up"
+houmao-mgr agents workspace delete --agent-name researcher --lane scratch --path notes/todo.txt
+houmao-mgr agents workspace clear --agent-name researcher --lane scratch --dry-run
+```
 
-## What Houmao Does Not Own
+Lane operations accept only relative paths and reject traversal outside the selected lane. Persist-lane operations fail when persistence is disabled.
 
-Houmao does not define:
+## Ownership
 
-- required subdirectories,
-- Markdown file naming,
-- metadata sidecars,
-- index files,
-- cleanup semantics for the contents.
+Houmao owns path resolution, lane creation, fixed memo creation without overwriting existing content, manifest persistence, environment publication, inspection output, and lane-scoped workspace commands.
 
-That means agents should inspect the directory they receive and work with whatever structure already exists there. If operators want one shared layout or one custom taxonomy, they can create it directly in the memory dir.
+Houmao does not define arbitrary file taxonomies inside `scratch/` or `persist/`. Agents and operators may create their own files there, but durable notes that must be easy to find should go in `houmao-memo.md` or the persist lane.
 
-Stop and cleanup flows do not delete the memory dir just because the managed session stopped.
-
-## Inspecting The Resolved Path
-
-Use `houmao-mgr agents state` or the easy-instance inspection surfaces to see the resolved `memory_dir`.
-
-Inside the running session, use `HOUMAO_MEMORY_DIR` when it is present. If it is absent, the session was launched without a memory dir.
+Stop and session cleanup flows do not delete the persist lane just because the managed session stopped. To remove scratch contents explicitly, use `houmao-mgr agents workspace clear --lane scratch`.
 
 ## See Also
 

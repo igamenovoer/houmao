@@ -1240,7 +1240,17 @@ def _write_manifest(
             tmux_session_name="join-sess",
             session_id="joined-session",
             agent_def_dir=(tmp_path / "agent-def").resolve(),
-            job_dir=(tmp_path / ".houmao" / "jobs" / "joined-session").resolve(),
+            workspace_root=(tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve(),
+            memo_file=(
+                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "houmao-memo.md"
+            ).resolve(),
+            scratch_dir=(
+                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "scratch"
+            ).resolve(),
+            persist_binding="auto",
+            persist_dir=(
+                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "persist"
+            ).resolve(),
         )
     )
     assert payload["tmux"] is not None
@@ -1974,6 +1984,11 @@ def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
         runtime_artifacts_module,
         "set_tmux_session_environment",
         lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "unset_tmux_session_environment",
+        lambda *, session_name, variable_names: None,
     )
     monkeypatch.setattr(
         runtime_artifacts_module,

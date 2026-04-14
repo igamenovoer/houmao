@@ -131,8 +131,8 @@ class _FakeHeadlessSession:
     def configure_stop_force_cleanup(self, *, force_cleanup: bool) -> None:
         self.m_force_cleanup = force_cleanup
 
-    def send_prompt(self, prompt: str) -> list[object]:
-        del prompt
+    def send_prompt(self, prompt: str, **kwargs: object) -> list[object]:
+        del prompt, kwargs
         self.m_state = replace(self.m_state, turn_index=self.m_state.turn_index + 1)
         return []
 
@@ -615,8 +615,15 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         host_override: str | None,
         port_override: int | None,
         execution_mode_override: str | None,
+        tui_tracking_timing_overrides: object | None = None,
     ) -> GatewayControlResult:
-        del controller, host_override, port_override, execution_mode_override
+        del (
+            controller,
+            host_override,
+            port_override,
+            execution_mode_override,
+            tui_tracking_timing_overrides,
+        )
         write_gateway_current_instance(
             paths.current_instance_path,
             GatewayCurrentInstanceV1(
