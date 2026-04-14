@@ -73,135 +73,6 @@ If the manifest exposes durable mailbox capability but the resulting mailbox bin
 - **THEN** the gateway rejects notifier enablement explicitly
 - **AND THEN** notifier status reports that the session is not yet actionable for notifier work
 
-### Requirement: Gateway mail notifier polls gateway-owned mailbox state and only schedules notifications when the agent is idle
-The gateway mail notifier SHALL inspect unread-mail state through the gateway-owned shared mailbox facade for the managed session rather than by reading filesystem mailbox-local SQLite directly.
-
-For this change, that notifier polling contract SHALL be limited to the mailbox functions supported by both the filesystem transport and the `stalwart` transport, using unread `check` behavior plus normalized message references and metadata.
-
-When unread mail is present, the notifier SHALL enqueue a gateway-owned internal notification request only if:
-
-- request admission is open,
-- no gateway request is actively executing,
-- queue depth is zero,
-- the attached managed prompt surface is currently ready to accept a new prompt through the strongest live readiness signal available for that backend.
-
-For TUI-backed sessions, readiness SHALL require more than tmux-session connectivity. The gateway SHALL require a live prompt-ready posture equivalent to idle-and-ready-for-input state before enqueueing a notifier reminder.
-
-When those conditions are not satisfied, the notifier SHALL skip that interval and retry on a later poll rather than enqueueing a stale reminder behind unrelated work.
-
-The notifier SHALL execute notifications through the gateway's durable internal request path rather than by bypassing the queue with direct terminal injection.
-
-When the notifier enqueues a reminder prompt, that prompt SHALL describe unread mailbox work in transport-neutral shared-mailbox terms and SHALL NOT label the unread set as "filesystem mailbox messages" for a `stalwart` session.
-
-#### Scenario: Idle and prompt-ready gateway schedules one internal mail notification request
-- **WHEN** the notifier poll finds unread messages through the gateway-owned shared mailbox facade
-- **AND WHEN** gateway request admission is open, active execution is idle, queue depth is zero, and the managed prompt surface is ready for a new prompt
-- **THEN** the gateway inserts one internal mail notification request into its durable execution path
-- **AND THEN** the reminder reaches the managed agent through the same serialized execution model used for other gateway-managed work
-
-#### Scenario: Filesystem-backed notifier poll uses the shared gateway mailbox facade
-- **WHEN** the notifier polls unread mail for a filesystem mailbox-enabled session
-- **THEN** the gateway determines unread state through the shared mailbox facade rather than direct mailbox-local SQLite reads
-- **AND THEN** the rest of the notifier scheduling rules remain unchanged
-
-#### Scenario: Stalwart-backed notifier poll uses the same shared gateway mailbox facade
-- **WHEN** the notifier polls unread mail for a `stalwart` mailbox-enabled session
-- **THEN** the gateway determines unread state through the same shared mailbox facade used by the filesystem transport
-- **AND THEN** notifier wake-up behavior does not require a transport-specific unread polling path
-
-#### Scenario: Stalwart-backed notifier reminder stays transport-neutral
-- **WHEN** the notifier enqueues a reminder for unread mail discovered through a `stalwart` mailbox binding
-- **THEN** the reminder prompt describes shared mailbox work without labeling the unread messages as filesystem-specific
-- **AND THEN** the reminder still points the managed agent at the runtime-owned mailbox skill flow
-
-#### Scenario: TUI-backed session does not enqueue notifier work until the prompt surface is truly ready
-- **WHEN** the notifier poll finds unread messages for a TUI-backed session
-- **AND WHEN** the tmux session is still live but the provider UI is not idle and ready for input
-- **THEN** the notifier does not enqueue a new reminder for that poll cycle
-- **AND THEN** the unread messages remain eligible for a later notifier poll after the TUI returns to prompt-ready posture
-
-#### Scenario: Busy gateway defers mail notification
-- **WHEN** the notifier poll finds unread messages but the gateway is already running or queueing work
-- **THEN** the notifier does not enqueue a new reminder for that interval
-- **AND THEN** the unread messages remain eligible for a later notifier poll when the gateway becomes idle again
-
-### Requirement: Gateway notifier wake-up prompts summarize unread shared-mailbox work through a template-driven gateway-first contract
-When the gateway mail notifier enqueues an internal reminder for unread mail, that reminder SHALL announce that unread shared-mailbox work exists for the current session rather than embedding notifier-rendered unread email summary entries.
-
-That reminder SHALL be rendered from a packaged Markdown template asset rather than assembled entirely from hardcoded Python string literals.
-
-The runtime renderer SHALL fill that template through deterministic string replacement over runtime-generated values and pre-rendered blocks. The implementation SHALL NOT require a general-purpose template engine.
-
-The rendered prompt SHALL present two ordered sections:
-
-1. a wake-up and workflow section for the current mailbox-processing round, and
-2. a gateway-operations section for the current live shared mailbox facade.
-
-The first section SHALL appear before the gateway-operations section.
-
-The first section SHALL explicitly instruct the agent to use the installed runtime-owned `houmao-process-emails-via-gateway` skill to process unread mailbox work for the current round.
-
-When the prompt intends to trigger a Houmao-owned skill, it SHALL include the keyword `houmao` explicitly in the instruction text rather than relying on an implicit or shortened skill name.
-
-For joined sessions adopted through `houmao-mgr agents join`, that installed-skill assumption SHALL apply only when the join workflow performed the default Houmao-owned mailbox skill projection. When join used an explicit opt-out, the notifier prompt SHALL NOT claim that the Houmao-owned mailbox skills are installed.
-
-The first section SHALL tell the agent that unread shared-mailbox work exists and that the agent is responsible for listing unread mail through the shared gateway mailbox API for the current round.
-
-The first section SHALL instruct the agent to choose which unread email or emails are relevant to process in the current round, to complete that work, to mark only successfully processed emails read, and to stop after the round rather than proactively polling for more mail.
-
-The notifier prompt SHALL NOT include notifier-rendered unread email summary entries, copied message body content, `body_preview`, or `body_text`.
-
-The prompt SHALL provide the exact current `gateway.base_url` for the current round directly rather than directing the agent to rediscover it through a manager-owned resolver command.
-
-The later gateway-operations section SHALL emphasize the exact current `gateway.base_url` for that turn.
-
-When the shared gateway mailbox facade is available, that later section SHALL list the full current mailbox endpoint URLs derived from that exact base URL for:
-
-- `GET <gateway.base_url>/v1/mail/status`,
-- `POST <gateway.base_url>/v1/mail/check`,
-- `POST <gateway.base_url>/v1/mail/send`,
-- `POST <gateway.base_url>/v1/mail/reply`,
-- `POST <gateway.base_url>/v1/mail/state`.
-
-The prompt MAY reference `houmao-agent-email-comms` as the lower-level operational skill for ordinary mailbox actions in the round, but it SHALL center `houmao-process-emails-via-gateway` as the action-taking workflow for the current round.
-
-Repeated reminders for unchanged unread mail SHALL continue to announce unread work and provide the current gateway bootstrap contract rather than switching to notifier-owned per-message or per-reminder state.
-
-#### Scenario: Template-driven notifier prompt bootstraps one gateway mailbox round without embedded unread summaries
-- **WHEN** the notifier enqueues a wake-up prompt for unread mail on a mailbox-enabled session with a live shared mailbox facade
-- **THEN** the prompt is rendered from a packaged Markdown template
-- **AND THEN** it tells the agent to use the installed runtime-owned `houmao-process-emails-via-gateway` skill for that notification round
-- **AND THEN** it provides the exact live gateway base URL and full mailbox endpoint URLs for the current round
-- **AND THEN** it does not embed unread email summary entries in the prompt
-
-#### Scenario: Joined-session notifier prompt does not claim installed Houmao skills after join opt-out
-- **WHEN** a mailbox-enabled session was adopted through `houmao-mgr agents join` with the explicit opt-out for Houmao mailbox skill installation
-- **AND WHEN** the notifier later enqueues a wake-up prompt for that joined session
-- **THEN** the prompt does not tell the agent to use Houmao-owned mailbox skills as already-installed assets for that session
-- **AND THEN** the prompt still states that unread mailbox work exists and provides the supported gateway mailbox operation contract for the round
-
-#### Scenario: Prompt tells the agent to list unread mail through the gateway itself
-- **WHEN** the notifier enqueues a wake-up prompt for a mailbox-enabled session with unread mail
-- **THEN** the prompt tells the agent that unread shared-mailbox work exists
-- **AND THEN** it directs the agent to list unread mail through the shared gateway mailbox API for the current round
-- **AND THEN** the notifier prompt does not precompute or embed unread message summaries for that round
-
-#### Scenario: Prompt lists full current gateway endpoint URLs including mailbox status
-- **WHEN** the notifier enqueues a wake-up prompt for a session with an attached live gateway
-- **THEN** the later operations section lists the full current mailbox endpoint URLs for `/v1/mail/status`, `/v1/mail/check`, `/v1/mail/send`, `/v1/mail/reply`, and `/v1/mail/state`
-- **AND THEN** the agent does not need to guess another localhost port or reconstruct the endpoint from unrelated process state
-
-#### Scenario: Prompt bounds the agent to one processing round
-- **WHEN** the notifier enqueues a wake-up prompt for unread mailbox work
-- **THEN** the prompt tells the agent to choose which unread email or emails to process in the current round
-- **AND THEN** it directs the agent to mark messages read only after the corresponding work succeeds
-- **AND THEN** it tells the agent to stop after that round and wait for the next notification instead of proactively polling for more mail
-
-#### Scenario: Repeated reminder preserves gateway bootstrap behavior without per-message prompt state
-- **WHEN** unread mail remains unchanged across multiple prompt-ready notifier cycles
-- **THEN** each reminder continues to announce unread mailbox work and provide the current gateway bootstrap contract
-- **AND THEN** the notifier does not replace that behavior with notifier-owned per-message nomination or reminder-history state
-
 ### Requirement: Gateway notifier prompts use native mailbox-skill invocation and never surface skill-document paths
 When a gateway notifier wake-up prompt tells an agent to use installed Houmao mailbox skills, that prompt SHALL use tool-native mailbox-skill invocation guidance or explicit Houmao skill names and SHALL NOT instruct the agent to open `SKILL.md` paths from the copied project or from any visible skill directory.
 
@@ -269,4 +140,112 @@ The gateway sidecar SHALL remain the source of truth for notifier configuration,
 - **WHEN** a caller disables notifier behavior through the direct gateway `/v1/mail-notifier` surface
 - **THEN** a later read through the server-owned managed-agent gateway route reports notifier as disabled
 - **AND THEN** both surfaces continue reflecting the same gateway-owned notifier truth
+
+### Requirement: Gateway mail notifier polls open inbox work
+The gateway mail notifier SHALL inspect open inbox work through the gateway-owned shared mailbox facade for the managed session rather than using unread-only `check` behavior.
+
+For this change, open inbox work SHALL mean messages in the current principal's inbox that are not archived or otherwise closed. Messages MAY be read or answered and still remain open inbox work.
+
+When open inbox work is present, the notifier SHALL preserve the existing readiness and queue-admission gates before enqueueing a reminder prompt.
+
+The notifier SHALL record audit inputs in open-work terms, including open-work count and an open-work set identity or equivalent summary, rather than unread-count-only terms.
+
+#### Scenario: Answered inbox mail remains notifier-eligible
+- **WHEN** a notifier poll finds an inbox message that is `read=true`, `answered=true`, and `archived=false`
+- **AND WHEN** the managed session is eligible for a notifier prompt
+- **THEN** the notifier treats that message as open inbox work
+- **AND THEN** it may enqueue a reminder prompt through the gateway's durable internal request path
+
+#### Scenario: Archived mail is not notifier-eligible
+- **WHEN** a notifier poll finds a message only in the archive box
+- **THEN** the notifier does not treat that message as open inbox work
+- **AND THEN** it does not enqueue a prompt solely because that archived message exists
+
+### Requirement: Gateway notifier wake-up prompts instruct archive-after-processing workflow
+When the gateway mail notifier enqueues an internal reminder for open inbox work, the prompt SHALL announce that open shared-mailbox work exists for the current session.
+
+The prompt SHALL direct the agent to use the installed runtime-owned `houmao-process-emails-via-gateway` skill for the current round, list mailbox work through the shared gateway mailbox API, process selected relevant mail, archive only successfully processed mail, and stop after the round.
+
+The prompt SHALL distinguish safe triage from mutating reads by listing the current gateway mailbox lifecycle endpoints for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
+
+The prompt SHALL NOT tell the agent that `mark-read` is the completion action.
+
+#### Scenario: Prompt names archive as completion
+- **WHEN** the notifier enqueues a wake-up prompt for open inbox work
+- **THEN** the prompt tells the agent to archive successfully processed mail
+- **AND THEN** it does not tell the agent to mark messages read as the completion signal
+
+#### Scenario: Prompt advertises peek and read separately
+- **WHEN** the notifier prompt provides the current mailbox gateway operation contract
+- **THEN** it lists separate routes or action names for peeking and reading mail
+- **AND THEN** it communicates that peeking does not mark mail read
+
+### Requirement: Gateway mail notifier supports notification modes
+The gateway mail notifier SHALL support a durable notification mode with values `any_inbox` and `unread_only`.
+
+When callers enable or reconfigure the notifier without specifying a mode, the gateway SHALL use `any_inbox`.
+
+The notifier status payload SHALL report the effective mode for both enabled and disabled notifier states.
+
+The notifier poll SHALL always select from the current principal's inbox and SHALL exclude archived or otherwise closed mail. The mode SHALL determine only the read-state filter:
+
+- `any_inbox` SHALL poll with `read_state=any` so read or answered unarchived inbox mail remains notifier-eligible.
+- `unread_only` SHALL poll with `read_state=unread` so only unread unarchived inbox mail is notifier-eligible.
+
+The notifier SHALL preserve the existing gateway readiness, prompt-readiness, busy-skip, and internal request-queue admission gates in both modes.
+
+#### Scenario: Omitted mode enables any-inbox notification
+- **WHEN** a caller sends `PUT /v1/mail-notifier` with `enabled=true` and `interval_seconds=60` but no `mode`
+- **THEN** the gateway stores the notifier as enabled with mode `any_inbox`
+- **AND THEN** subsequent `GET /v1/mail-notifier` responses report `mode=any_inbox`
+
+#### Scenario: Any-inbox mode notifies for read answered inbox mail
+- **WHEN** the notifier mode is `any_inbox`
+- **AND WHEN** a notifier poll finds an inbox message with `read=true`, `answered=true`, and `archived=false`
+- **AND WHEN** the gateway is eligible to enqueue a notifier prompt
+- **THEN** the notifier treats that message as notification-eligible
+- **AND THEN** it may enqueue one internal mail notification request through the gateway queue
+
+#### Scenario: Unread-only mode ignores read inbox mail
+- **WHEN** the notifier mode is `unread_only`
+- **AND WHEN** a notifier poll finds an inbox message with `read=true` and `archived=false`
+- **THEN** the notifier does not treat that message as notification-eligible solely because it remains in the inbox
+- **AND THEN** it does not enqueue a prompt solely because of that read message
+
+#### Scenario: Unread-only mode notifies for unread inbox mail
+- **WHEN** the notifier mode is `unread_only`
+- **AND WHEN** a notifier poll finds an inbox message with `read=false` and `archived=false`
+- **AND WHEN** the gateway is eligible to enqueue a notifier prompt
+- **THEN** the notifier treats that message as notification-eligible
+- **AND THEN** it may enqueue one internal mail notification request through the gateway queue
+
+#### Scenario: Archived mail is not notifier-eligible in either mode
+- **WHEN** the notifier mode is `any_inbox` or `unread_only`
+- **AND WHEN** a notifier poll finds a message only in the archive box
+- **THEN** the notifier does not treat that message as notification-eligible
+- **AND THEN** it does not enqueue a prompt solely because that archived message exists
+
+### Requirement: Gateway notifier prompt is mode-aware and preserves archive completion
+When the gateway mail notifier enqueues an internal prompt, the prompt SHALL describe the effective notification mode in mailbox workflow terms.
+
+For mode `any_inbox`, the prompt SHALL announce that open inbox mail exists and direct the agent to list open inbox mail for the current round.
+
+For mode `unread_only`, the prompt SHALL announce that unread inbox mail triggered the notification and direct the agent to start from unread inbox mail for the current round.
+
+In both modes, the prompt SHALL direct the agent to archive successfully processed mail and SHALL NOT present reading or marking read as the completion action.
+
+#### Scenario: Any-inbox prompt names open inbox work
+- **WHEN** the notifier enqueues a prompt in mode `any_inbox`
+- **THEN** the prompt tells the agent that open inbox mail exists
+- **AND THEN** it tells the agent to archive successfully processed mail
+
+#### Scenario: Unread-only prompt names unread inbox trigger
+- **WHEN** the notifier enqueues a prompt in mode `unread_only`
+- **THEN** the prompt tells the agent that unread inbox mail triggered the notification
+- **AND THEN** it still tells the agent to archive successfully processed mail
+
+#### Scenario: Prompt does not restore mark-read completion
+- **WHEN** the notifier enqueues a prompt in either mode
+- **THEN** the prompt does not tell the agent that reading or marking read completes the work
+- **AND THEN** the prompt keeps archive as the completion action for successfully processed mail
 

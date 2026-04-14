@@ -12,6 +12,7 @@ from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
+    GatewayMailNotifierMode,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayStatusV1,
@@ -288,12 +289,14 @@ def _mail_notifier_status(
     *,
     enabled: bool,
     interval_seconds: int | None,
+    mode: GatewayMailNotifierMode = "any_inbox",
 ) -> GatewayMailNotifierStatusV1:
     """Return a valid notifier status for passive gateway tests."""
 
     return GatewayMailNotifierStatusV1(
         enabled=enabled,
         interval_seconds=interval_seconds,
+        mode=mode,
         supported=True,
         support_error=None,
         last_poll_at_utc=None,
@@ -527,13 +530,19 @@ class TestGatewayMailNotifier:
     def test_enable_success_returns_status(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
         _populate_index(svc, [_agent_with_gateway()])
-        expected = _mail_notifier_status(enabled=True, interval_seconds=30)
-        with patch.object(GatewayClient, "put_mail_notifier", return_value=expected):
+        expected = _mail_notifier_status(
+            enabled=True,
+            interval_seconds=30,
+            mode="unread_only",
+        )
+        with patch.object(GatewayClient, "put_mail_notifier", return_value=expected) as put:
             result = svc.gateway_mail_notifier_enable(
                 "abc123",
-                GatewayMailNotifierPutV1(interval_seconds=30),
+                GatewayMailNotifierPutV1(interval_seconds=30, mode="unread_only"),
             )
         assert result == expected
+        assert result.mode == "unread_only"
+        assert put.call_args.args[0].mode == "unread_only"
 
     def test_disable_success_returns_status(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)

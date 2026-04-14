@@ -1,8 +1,12 @@
 # Houmao Docs
 
-Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agents as real tmux-backed processes.
+Houmao is a framework and CLI toolkit for building and running teams of CLI-based AI agents (`claude`, `codex`, `gemini`) as real tmux-backed processes — each with its own isolated disk state, native TUI, and gateway sidecar. This site covers the full reference, getting-started guides, and developer internals for installed users, with additional material for contributors.
 
-> **New here?** Start with the [project README](https://github.com/igamenovoer/houmao#readme) for installation, quick-start workflows (`agents join`, easy specialists, recipe launch), and runnable demos. This site covers the full reference, developer guides, and subsystem internals.
+| Who you are | Where to start |
+|---|---|
+| **Installed user** (`uv tool install houmao`) | Run `houmao-mgr system-skills install --tool claude`, start your agent, invoke the `houmao-touring` skill — or read [Easy Specialists](getting-started/easy-specialists.md) for the manual path |
+| **From-source developer** (`pixi install && pixi shell`) | [Quickstart](getting-started/quickstart.md) — covers `agents join` and project-overlay build/launch with `pixi run` |
+| **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
 ## Getting Started
 
@@ -11,7 +15,7 @@ Houmao is a framework and CLI toolkit for orchestrating teams of CLI-based agent
 - [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional easy profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
-- [Managed Memory Dirs](getting-started/managed-memory-dirs.md): Durable per-agent memory roots, explicit shared paths, and `--no-memory-dir`.
+- [Managed Agent Workspaces](getting-started/managed-memory-dirs.md): Per-agent workspace roots, memo files, scratch/persist lanes, and `--no-persist-dir`.
 - [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of every packaged Houmao-owned system skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 - [Loop Authoring Guide](getting-started/loop-authoring.md): Choose between the three loop skills, understand the pairwise-v2 routing-packet prestart model, and discover the graph tooling that supports plan authoring.
 

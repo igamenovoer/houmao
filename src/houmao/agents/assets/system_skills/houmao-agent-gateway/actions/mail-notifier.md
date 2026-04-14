@@ -1,6 +1,6 @@
 # Manage Gateway Mail-Notifier
 
-Use this action when the live gateway should poll the attached agent's mailbox and submit reminder prompts for unread messages.
+Use this action when the live gateway should poll the attached agent's mailbox and submit reminder prompts for open inbox mail.
 
 ## Workflow
 
@@ -9,10 +9,10 @@ Use this action when the live gateway should poll the attached agent's mailbox a
 3. If the task still lacks a required target or interval, ask the user in Markdown before proceeding.
 4. Run `agents gateway status` first when current context does not already confirm that a live gateway is attached.
 5. Use `status` to inspect whether notifier polling is enabled and whether the current mailbox binding supports it.
-6. Use `enable --interval-seconds <n>` to start or reconfigure polling.
+6. Use `enable --interval-seconds <n>` to start or reconfigure polling. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail; use `--mode unread_only` only when the caller explicitly wants lower-noise unread-only wakeups.
 7. Use `disable` to stop notifier polling.
 8. When the caller is already operating through the pair-managed HTTP API, use `/houmao/agents/{agent_ref}/gateway/mail-notifier` instead of direct gateway `/v1/mail-notifier`.
-9. Report whether the notifier is enabled now, the current interval, and any support or last-error fields that matter.
+9. Report whether the notifier is enabled now, the current interval, mode, and any support or last-error fields that matter.
 
 ## Command Shapes
 
@@ -21,8 +21,14 @@ CLI notifier control:
 ```text
 <chosen houmao-mgr launcher> agents gateway mail-notifier status --agent-name <name>
 <chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60
+<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60 --mode unread_only
 <chosen houmao-mgr launcher> agents gateway mail-notifier disable --agent-name <name>
 ```
+
+Mode values:
+
+- `any_inbox`: default. Notify while any inbox mail remains unarchived, regardless of read or answered state.
+- `unread_only`: notify only while unread inbox mail remains unarchived. Read-but-unarchived work will not trigger another notifier prompt by itself in this mode.
 
 Pair-managed notifier routes:
 
@@ -40,5 +46,6 @@ Direct live gateway routes:
 
 - Do not treat the notifier as durable work recovery; it is live gateway background behavior.
 - Do not enable the notifier without a valid attached mailbox configuration.
+- Do not describe `unread_only` as a completion signal. Processed mail should be archived so `any_inbox` mode stops notifying for it.
 - Do not describe `mail-notifier` as the same thing as `/v1/reminders`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
 - Do not invent `houmao-mgr agents mail-notifier ...` commands outside the `agents gateway` family.

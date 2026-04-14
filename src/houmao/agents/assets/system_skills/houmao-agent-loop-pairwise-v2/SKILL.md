@@ -43,7 +43,7 @@ The canonical operator-facing lifecycle actions are `plan`, `initialize`, `start
 - `pause`: suspend the run's wakeup mechanisms so the loop intentionally stalls.
 - `resume`: restore the paused wakeup mechanisms for the same run.
 - `stop`: send the canonical termination request to the designated master.
-- `hard-kill`: directly interrupt every currently known participant, disable mail-notifier polling, remove live reminders, and mark every unread message read even when that mail is unrelated to the run.
+- `hard-kill`: directly interrupt every currently known participant, disable mail-notifier polling, remove live reminders, and archive every open inbox message even when that mail is unrelated to the run.
 
 If participant-wide advisory stop mail is ever needed, document it separately as `broadcast-stop`; do not treat it as a synonym for canonical `stop`.
 
@@ -106,7 +106,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Read [operating/pause.md](operating/pause.md) when the user wants to intentionally stall one running pairwise loop by suspending its wakeup mechanisms.
 - Read [operating/resume.md](operating/resume.md) when the user wants to restore one paused pairwise loop without creating a new run.
 - Read [operating/stop.md](operating/stop.md) when the user wants to stop one active run, with `interrupt-first` as the default stop posture unless graceful stop was requested explicitly.
-- Read [operating/hard-kill.md](operating/hard-kill.md) when the user wants emergency participant-wide interruption plus reminder or notifier shutdown and mailbox unread draining for one accepted run.
+- Read [operating/hard-kill.md](operating/hard-kill.md) when the user wants emergency participant-wide interruption plus reminder or notifier shutdown and open inbox mail draining for one accepted run.
 
 ## Prestart Page
 
@@ -129,7 +129,7 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 
 - Route `start`, `ping`, `pause`, `resume`, `stop`, and participant interrupts within `hard-kill` requests to `houmao-agent-messaging`.
 - Route default `initialize` mail-notifier enablement plus `hard-kill` reminder or mail-notifier shutdown to `houmao-agent-gateway`.
-- Route default `initialize` email delivery, in-loop pairwise edge request/result/receipt mail, mailbox follow-up semantics referenced by the plan, and `hard-kill` unread draining to `houmao-agent-email-comms`.
+- Route default `initialize` email delivery, in-loop pairwise edge request/result/receipt mail, mailbox follow-up semantics referenced by the plan, and `hard-kill` open-mail archiving to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr` or the owned mailbox surfaces that expose `HOUMAO-operator@houmao.localhost`.
 - Route `peek` requests, overdue downstream peeking, and other read-only state inspection to `houmao-agent-inspect`.
 - Route authoring-time and initialization structural preflight to `houmao-mgr internals graph high ...` as the first-class helper surface when a NetworkX node-link graph and packet JSON document are available: use `analyze` for topology checks, `slice` for plan-time descendant or subtree inspection, `packet-expectations` for root and child packet expectations, and `validate-packets` before initialization enters `ready` when routing packets are part of the plan.
@@ -161,4 +161,4 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not push multi-edge topology, recursive child-control planning, rendered graph semantics, lifecycle preparation, or run-control actions down into `houmao-adv-usage-pattern`; those remain in this skill.
 - Do not replace the existing elemental pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern` for each immediate driver-worker edge.
 - Do not leave mail-notifier polling or live reminders active after a `hard-kill`.
-- Do not limit `hard-kill` mailbox cleanup to loop-related mail; it intentionally marks every unread message read for the named participants.
+- Do not limit `hard-kill` mailbox cleanup to loop-related mail; it intentionally archives every open inbox message for the named participants.

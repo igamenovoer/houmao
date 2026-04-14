@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
@@ -22,8 +23,14 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayHeadlessControlStateV1,
     GatewayMailActionResponseV1,
-    GatewayMailCheckRequestV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListRequestV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayMailPostRequestV1,
@@ -40,6 +47,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
 )
 from houmao.agents.realm_controller.registry_storage import (
     remove_live_agent_record,
@@ -92,6 +109,8 @@ from houmao.server.models import (
 )
 
 log = logging.getLogger(__name__)
+
+_GatewayProxyT = TypeVar("_GatewayProxyT")
 
 
 class PassiveServerService:
@@ -228,6 +247,118 @@ class PassiveServerService:
             return client.status()
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
+
+    def gateway_workspace(
+        self,
+        agent_ref: str,
+    ) -> GatewayWorkspaceSummaryV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/workspace` to the agent's gateway."""
+
+        return self._gateway_proxy(agent_ref, lambda client: client.workspace())
+
+    def gateway_workspace_memo(
+        self,
+        agent_ref: str,
+    ) -> GatewayWorkspaceMemoResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/workspace/memo` to the agent's gateway."""
+
+        return self._gateway_proxy(agent_ref, lambda client: client.read_workspace_memo())
+
+    def gateway_workspace_memo_put(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `PUT /v1/workspace/memo` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.write_workspace_memo(payload),
+        )
+
+    def gateway_workspace_memo_append(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/workspace/memo/append` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.append_workspace_memo(payload),
+        )
+
+    def gateway_workspace_tree(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/workspace/lane/tree` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.list_workspace_tree(payload),
+        )
+
+    def gateway_workspace_file_read(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/workspace/lane/read` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.read_workspace_file(payload),
+        )
+
+    def gateway_workspace_file_write(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/workspace/lane/write` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.write_workspace_file(payload),
+        )
+
+    def gateway_workspace_file_append(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/workspace/lane/append` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.append_workspace_file(payload),
+        )
+
+    def gateway_workspace_path_delete(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/workspace/lane/delete` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.delete_workspace_path(payload),
+        )
+
+    def gateway_workspace_lane_clear(
+        self,
+        agent_ref: str,
+        payload: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/workspace/lane/clear` to the agent's gateway."""
+
+        return self._gateway_proxy(
+            agent_ref,
+            lambda client: client.clear_workspace_lane(payload),
+        )
 
     def gateway_tui_state(
         self,
@@ -532,10 +663,10 @@ class PassiveServerService:
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
 
-    def gateway_mail_check(
-        self, agent_ref: str, payload: GatewayMailCheckRequestV1
-    ) -> GatewayMailCheckResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy ``POST /v1/mail/check`` to the agent's gateway."""
+    def gateway_mail_list(
+        self, agent_ref: str, payload: GatewayMailListRequestV1
+    ) -> GatewayMailListResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/list`` to the agent's gateway."""
 
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
@@ -544,7 +675,39 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.check_mail(payload)
+            return client.list_mail(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_mail_peek(
+        self, agent_ref: str, payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/peek`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.peek_mail(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_mail_read(
+        self, agent_ref: str, payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/read`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.read_mail(payload)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
@@ -593,6 +756,54 @@ class PassiveServerService:
             return (502, {"detail": "No gateway attached to agent"})
         try:
             return client.reply_mail(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_mail_mark(
+        self, agent_ref: str, payload: GatewayMailMarkRequestV1
+    ) -> GatewayMailLifecycleResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/mark`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.mark_mail(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_mail_move(
+        self, agent_ref: str, payload: GatewayMailMoveRequestV1
+    ) -> GatewayMailLifecycleResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/move`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.move_mail(payload)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def gateway_mail_archive(
+        self, agent_ref: str, payload: GatewayMailArchiveRequestV1
+    ) -> GatewayMailLifecycleResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy ``POST /v1/mail/archive`` to the agent's gateway."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.archive_mail(payload)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
@@ -1080,6 +1291,24 @@ class PassiveServerService:
         except json.JSONDecodeError:
             detail = exc.detail
         return (exc.status_code or 502, {"detail": detail})
+
+    def _gateway_proxy(
+        self,
+        agent_ref: str,
+        callback: Callable[[GatewayClient], _GatewayProxyT],
+    ) -> _GatewayProxyT | tuple[int, dict[str, Any]]:
+        """Invoke one gateway client call for a resolved passive-server agent."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return callback(client)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
 
     def _write_current_instance(self) -> None:
         """Persist the current-instance payload to disk."""

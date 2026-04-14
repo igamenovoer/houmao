@@ -429,38 +429,6 @@ Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the termi
 - **THEN** the gateway rejects that call explicitly
 - **AND THEN** it does not pretend that the requested reminder still exists
 
-### Requirement: Shared gateway mailbox facade supports explicit read-state updates by opaque message reference
-For mailbox-enabled sessions whose live gateway listener is bound to loopback, the shared gateway mailbox facade SHALL expose `POST /v1/mail/state` alongside the existing shared mailbox routes.
-
-That shared mailbox state-update route SHALL accept exactly one opaque `message_ref` target and the explicit read-state mutation field it supports in this change.
-
-For this change, the shared mailbox state-update contract SHALL support explicit single-message `read` mutation for one message addressed to the current session principal, callers SHALL express that mutation as `read=true`, and the route SHALL reject broader mailbox-state fields such as `starred`, `archived`, or `deleted`.
-
-The gateway SHALL resolve that request through the same manifest-backed mailbox adapter boundary used by the other `/v1/mail/*` routes rather than by inventing a second transport-local state path inside the gateway service layer.
-
-The shared mailbox state-update route SHALL remain loopback-only under the same listener-availability rules as the rest of the shared `/v1/mail/*` surface.
-
-The shared mailbox state-update route SHALL NOT consume the single terminal-mutation slot used by `POST /v1/requests`.
-
-The shared mailbox state-update route SHALL return a structured acknowledgment of the resulting read state for that `message_ref` rather than a full delivered-message envelope.
-
-Before returning that acknowledgment, the gateway SHALL validate that the normalized transport state evidence used to derive the response includes an explicit boolean read or unread signal, and it SHALL fail explicitly rather than inferring `read=true` from a missing field.
-
-#### Scenario: Filesystem-backed session marks one processed message read through the shared facade
-- **WHEN** a caller invokes `POST /v1/mail/state` for a loopback-bound filesystem mailbox session with a valid opaque `message_ref` and `read=true`
-- **THEN** the gateway applies that read-state update for the current session principal through the filesystem mailbox adapter
-- **AND THEN** the canonical message content remains immutable while recipient-local read state changes
-
-#### Scenario: Stalwart-backed session marks one processed message read through the shared facade
-- **WHEN** a caller invokes `POST /v1/mail/state` for a loopback-bound `stalwart` mailbox session with a valid opaque `message_ref` and `read=true`
-- **THEN** the gateway applies that read-state update through the Stalwart-backed mailbox adapter
-- **AND THEN** the caller does not need to understand transport-owned message identifiers to complete that update
-
-#### Scenario: Malformed transport normalization does not produce an inferred read acknowledgment
-- **WHEN** a mailbox adapter returns state-update normalization without an explicit boolean read or unread signal after `POST /v1/mail/state`
-- **THEN** the gateway rejects that state update explicitly
-- **AND THEN** it does not acknowledge the message as read by inferring success from the missing field
-
 ### Requirement: Gateway status separates gateway health, upstream-agent state, recovery, admission, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent connectivity, recovery state, request-admission state, and terminal-surface readiness.
 
@@ -1406,3 +1374,124 @@ The gateway reset-context wait and poll constants SHALL remain unaffected by thi
 - **WHEN** a gateway is attached with gateway TUI tracking timing overrides
 - **THEN** those overrides affect continuous TUI tracking, stale-active recovery, and final stable-active recovery
 - **AND THEN** they do not change the gateway reset-context wait or reset-context polling constants
+
+### Requirement: Gateway operator-origin post defaults to operator mailbox replies
+`POST /v1/mail/post` SHALL default omitted `reply_policy` fields to `operator_mailbox`.
+
+The gateway mailbox post request model SHALL continue to accept explicit `reply_policy` values of `none` and `operator_mailbox`.
+
+When `reply_policy` is omitted or set to `operator_mailbox`, the created operator-origin message SHALL record reply-enabled policy metadata and route replies to `HOUMAO-operator@houmao.localhost`.
+
+When `reply_policy` is explicitly set to `none`, the created operator-origin message SHALL remain no-reply and later replies against that message SHALL fail explicitly.
+
+Pair-managed mail-post proxy request models that inherit the live gateway mailbox post model SHALL preserve this same omitted-field default.
+
+#### Scenario: Direct gateway post omitted policy creates a reply-enabled message
+- **WHEN** a caller posts to `/v1/mail/post` with subject and body but without `reply_policy`
+- **THEN** the gateway creates an operator-origin message with reply policy `operator_mailbox`
+- **AND THEN** a later `/v1/mail/reply` against that message is accepted and routed to `HOUMAO-operator@houmao.localhost`
+
+#### Scenario: Direct gateway explicit no-reply policy is honored
+- **WHEN** a caller posts to `/v1/mail/post` with `reply_policy` set to `none`
+- **THEN** the gateway creates an operator-origin message with no-reply policy metadata
+- **AND THEN** a later `/v1/mail/reply` against that message fails explicitly
+
+#### Scenario: Pair-managed proxy preserves gateway post default
+- **WHEN** a pair-managed caller posts operator-origin mail without `reply_policy`
+- **THEN** the pair-managed proxy forwards a request that resolves to the gateway's `operator_mailbox` default
+- **AND THEN** the resulting message has the same reply-enabled behavior as direct `/v1/mail/post`
+
+### Requirement: Shared gateway mailbox facade exposes lifecycle routes
+For mailbox-enabled sessions whose live gateway listener is bound to loopback, the shared gateway mailbox facade SHALL expose lifecycle routes for:
+
+- `GET /v1/mail/status`,
+- `POST /v1/mail/list`,
+- `POST /v1/mail/peek`,
+- `POST /v1/mail/read`,
+- `POST /v1/mail/send`,
+- `POST /v1/mail/post`,
+- `POST /v1/mail/reply`,
+- `POST /v1/mail/mark`,
+- `POST /v1/mail/move`,
+- `POST /v1/mail/archive`.
+
+`POST /v1/mail/list` SHALL accept a mailbox box selector and return metadata suitable for triage without marking listed messages read.
+
+`POST /v1/mail/peek` SHALL return one selected message without changing read state.
+
+`POST /v1/mail/read` SHALL return one selected message and mark it read for the current mailbox principal.
+
+`POST /v1/mail/mark` SHALL allow explicit manual marking of supported recipient-local state fields, including `read` and `answered`.
+
+`POST /v1/mail/move` SHALL move selected messages among supported mailbox boxes.
+
+`POST /v1/mail/archive` SHALL remain as a shortcut for moving selected messages to the archive box and marking them archived.
+
+The gateway SHALL continue to use the manifest-backed mailbox adapter boundary for all shared mailbox lifecycle routes and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
+
+#### Scenario: Peek does not mutate read state through the gateway
+- **WHEN** a caller invokes `POST /v1/mail/peek` with a valid opaque `message_ref`
+- **THEN** the gateway returns the message body and metadata through the shared mailbox facade
+- **AND THEN** the recipient-local read state for that message does not change
+
+#### Scenario: Read mutates read state through the gateway
+- **WHEN** a caller invokes `POST /v1/mail/read` with a valid opaque `message_ref`
+- **THEN** the gateway returns the message body and metadata through the shared mailbox facade
+- **AND THEN** the recipient-local read state for that message is `true`
+
+#### Scenario: Archive shortcut remains available
+- **WHEN** a caller invokes `POST /v1/mail/archive` with selected opaque message refs
+- **THEN** the gateway moves those messages into the archive box through the shared mailbox adapter
+- **AND THEN** the response reports those messages as archived and no longer open inbox work
+
+### Requirement: Gateway reply marks the parent message answered
+When `POST /v1/mail/reply` succeeds, the gateway SHALL ask the shared mailbox adapter to mark the replied message `answered=true` and `read=true` for the current mailbox principal.
+
+That automatic reply state update SHALL NOT archive the replied message.
+
+#### Scenario: Gateway reply acknowledges without closing the mail
+- **WHEN** a caller sends a reply through `POST /v1/mail/reply`
+- **THEN** the gateway response reflects that the parent message is answered for the current principal
+- **AND THEN** the parent message remains open inbox work until an archive or move operation closes it
+
+### Requirement: Gateway exposes lane-scoped managed workspace endpoints
+The live gateway SHALL expose HTTP endpoints for managed workspace inspection and lane-scoped file operations.
+
+The gateway workspace surface SHALL include:
+- a workspace summary endpoint that reports workspace root, scratch directory, persist binding, and persist directory when enabled,
+- memo read, replace, and append endpoints for the fixed `houmao-memo.md` file,
+- a lane tree endpoint,
+- lane file read, write, append, delete endpoints,
+- a lane clear endpoint.
+
+The gateway SHALL support only `scratch` and `persist` lane identifiers on this surface.
+
+#### Scenario: Gateway workspace summary reports available lanes
+- **WHEN** a live gateway is attached to managed agent `researcher`
+- **THEN** `GET /v1/workspace` returns the workspace root
+- **AND THEN** it returns the memo file path
+- **AND THEN** it returns the scratch directory
+- **AND THEN** it returns the persist directory when persistence is enabled
+
+#### Scenario: Gateway rejects unsupported lane
+- **WHEN** a live gateway receives a workspace request for lane `runtime`
+- **THEN** the request fails before touching the filesystem
+- **AND THEN** the response identifies the lane as unsupported
+
+### Requirement: Gateway workspace endpoints enforce path containment
+Gateway workspace file operations SHALL accept relative paths only and SHALL verify that each resolved target remains within the selected workspace lane.
+
+Gateway workspace file operations SHALL reject absolute paths, parent traversal, and symlink escapes.
+
+Gateway memo operations SHALL operate only on the resolved fixed memo file and SHALL NOT accept arbitrary root-level target paths.
+
+#### Scenario: Gateway rejects symlink escape
+- **WHEN** a scratch lane contains a symlink whose target resolves outside the scratch lane
+- **AND WHEN** a gateway workspace read request addresses that symlink
+- **THEN** the gateway rejects the request
+- **AND THEN** it does not read the target outside the scratch lane
+
+#### Scenario: Gateway memo append uses fixed memo target
+- **WHEN** a gateway memo append request is accepted for managed agent `researcher`
+- **THEN** the gateway appends to the manifest-backed memo file path
+- **AND THEN** the request cannot redirect the append to another workspace-root file

@@ -26,8 +26,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayExecutionModelReasoningV1,
     GatewayExecutionOverrideV1,
     GatewayMailActionResponseV1,
+    GatewayMailLifecycleResponseV1,
     GatewayMailNotifierStatusV1,
-    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayMailboxMessageV1,
     GatewayMailboxParticipantV1,
@@ -76,8 +76,8 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_tui_state,
     interrupt_managed_agent,
     list_managed_agents,
+    mail_archive,
     mail_send,
-    mail_mark_read,
     mail_resolve_live,
     mail_status,
     mailbox_status,
@@ -840,7 +840,7 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
     assert payload["message"]["message_ref"] == "filesystem:msg-1"
 
 
-def test_mail_mark_read_local_headless_uses_verified_manager_direct_result(
+def test_mail_archive_local_headless_uses_verified_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = ManagedAgentTarget(
@@ -849,28 +849,44 @@ def test_mail_mark_read_local_headless_uses_verified_manager_direct_result(
         identity=_managed_identity(transport="headless"),
         controller=SimpleNamespace(),
     )
-    response = GatewayMailStateResponseV1(
+    response = GatewayMailLifecycleResponseV1(
+        operation="archive",
         transport="filesystem",
         principal_id="HOUMAO-alpha",
         address="HOUMAO-alpha@agents.localhost",
-        message_ref="filesystem:msg-1",
-        read=True,
+        message_count=1,
+        messages=[
+            GatewayMailboxMessageV1(
+                message_ref="filesystem:msg-1",
+                thread_ref="filesystem:thread-1",
+                created_at_utc="2026-03-24T16:00:00+00:00",
+                subject="hello",
+                read=True,
+                answered=True,
+                archived=True,
+                box="archive",
+                unread=False,
+                sender=GatewayMailboxParticipantV1(address="HOUMAO-alpha@agents.localhost"),
+                to=[GatewayMailboxParticipantV1(address="beta@agents.localhost")],
+            )
+        ],
     )
     monkeypatch.setattr(
         managed_agents_module,
-        "_local_manager_mail_mark_read",
+        "_local_manager_mail_archive",
         lambda controller, **kwargs: response,
     )
 
-    payload = mail_mark_read(target, message_ref="filesystem:msg-1")
+    payload = mail_archive(target, message_refs=["filesystem:msg-1"])
 
     assert payload["authoritative"] is True
     assert payload["status"] == "verified"
     assert payload["execution_path"] == "manager_direct"
-    assert payload["read"] is True
+    assert payload["operation"] == "archive"
+    assert payload["messages"][0]["archived"] is True
 
 
-def test_mail_mark_read_local_tui_without_gateway_returns_submission_only_result(
+def test_mail_archive_local_tui_uses_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = ManagedAgentTarget(
@@ -879,28 +895,26 @@ def test_mail_mark_read_local_tui_without_gateway_returns_submission_only_result
         identity=_managed_identity(transport="tui"),
         controller=SimpleNamespace(),
     )
-    expected = {
-        "schema_version": 1,
-        "operation": "mark-read",
-        "authoritative": False,
-        "status": "submitted",
-        "execution_path": "tui_submission",
-        "request_id": "mailreq-3",
-    }
-    monkeypatch.setattr(
-        managed_agents_module,
-        "_live_gateway_client_for_controller",
-        lambda _controller: None,
+    response = GatewayMailLifecycleResponseV1(
+        operation="archive",
+        transport="filesystem",
+        principal_id="HOUMAO-alpha",
+        address="HOUMAO-alpha@agents.localhost",
+        message_count=0,
+        messages=[],
     )
     monkeypatch.setattr(
         managed_agents_module,
-        "_run_local_mail_prompt",
-        lambda **kwargs: expected,
+        "_local_manager_mail_archive",
+        lambda controller, **kwargs: response,
     )
 
-    payload = mail_mark_read(target, message_ref="filesystem:msg-1")
+    payload = mail_archive(target, message_refs=["filesystem:msg-1"])
 
-    assert payload == expected
+    assert payload["authoritative"] is True
+    assert payload["status"] == "verified"
+    assert payload["execution_path"] == "manager_direct"
+    assert payload["operation"] == "archive"
 
 
 def test_mail_resolve_live_local_returns_normalized_payload(
@@ -1226,7 +1240,17 @@ def _write_manifest(
             tmux_session_name="join-sess",
             session_id="joined-session",
             agent_def_dir=(tmp_path / "agent-def").resolve(),
-            job_dir=(tmp_path / ".houmao" / "jobs" / "joined-session").resolve(),
+            workspace_root=(tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve(),
+            memo_file=(
+                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "houmao-memo.md"
+            ).resolve(),
+            scratch_dir=(
+                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "scratch"
+            ).resolve(),
+            persist_binding="auto",
+            persist_dir=(
+                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "persist"
+            ).resolve(),
         )
     )
     assert payload["tmux"] is not None
@@ -1445,11 +1469,16 @@ class _FakePassivePairClient:
         request_model: object,
     ) -> GatewayMailNotifierStatusV1:
         self.gateway_notifier_put_calls.append(
-            (agent_ref, getattr(request_model, "interval_seconds"))
+            (
+                agent_ref,
+                getattr(request_model, "interval_seconds"),
+                getattr(request_model, "mode"),
+            )
         )
         return GatewayMailNotifierStatusV1(
             enabled=True,
             interval_seconds=getattr(request_model, "interval_seconds"),
+            mode=getattr(request_model, "mode"),
             supported=True,
             support_error=None,
             last_poll_at_utc=None,
@@ -1647,14 +1676,15 @@ def test_gateway_mail_notifier_commands_use_passive_pair_client() -> None:
     )
 
     status = gateway_mail_notifier_status(target)
-    enabled = gateway_mail_notifier_enable(target, interval_seconds=60)
+    enabled = gateway_mail_notifier_enable(target, interval_seconds=60, mode="unread_only")
     disabled = gateway_mail_notifier_disable(target)
 
     assert status.enabled is False
     assert enabled.interval_seconds == 60
+    assert enabled.mode == "unread_only"
     assert disabled.enabled is False
     assert client.gateway_notifier_get_calls == ["published-alpha"]
-    assert client.gateway_notifier_put_calls == [("published-alpha", 60)]
+    assert client.gateway_notifier_put_calls == [("published-alpha", 60, "unread_only")]
     assert client.gateway_notifier_delete_calls == ["published-alpha"]
 
 
@@ -1674,6 +1704,7 @@ def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_po
         put_mail_notifier=lambda request_model: GatewayMailNotifierStatusV1(
             enabled=True,
             interval_seconds=request_model.interval_seconds,
+            mode=request_model.mode,
             supported=True,
             support_error=None,
             last_poll_at_utc=None,
@@ -1708,12 +1739,13 @@ def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_po
     )
 
     status = gateway_mail_notifier_status(target)
-    enabled = gateway_mail_notifier_enable(target, interval_seconds=60)
+    enabled = gateway_mail_notifier_enable(target, interval_seconds=60, mode="unread_only")
     disabled = gateway_mail_notifier_disable(target)
 
     assert status.supported is True
     assert enabled.enabled is True
     assert enabled.interval_seconds == 60
+    assert enabled.mode == "unread_only"
     assert disabled.enabled is False
 
 
@@ -1960,6 +1992,11 @@ def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
         runtime_artifacts_module,
         "set_tmux_session_environment",
         lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "unset_tmux_session_environment",
+        lambda *, session_name, variable_names: None,
     )
     monkeypatch.setattr(
         runtime_artifacts_module,

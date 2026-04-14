@@ -44,6 +44,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     build_offline_gateway_status,
@@ -146,13 +156,17 @@ from houmao.server.models import (
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailActionResponse,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailLifecycleResponse,
+    HoumaoManagedAgentMailListRequest,
+    HoumaoManagedAgentMailListResponse,
+    HoumaoManagedAgentMailMarkRequest,
+    HoumaoManagedAgentMailMessageRequest,
+    HoumaoManagedAgentMailMessageResponse,
+    HoumaoManagedAgentMailMoveRequest,
     HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
-    HoumaoManagedAgentMailStateRequest,
-    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentMailboxSummaryView,
     HoumaoManagedAgentRequestAcceptedResponse,
@@ -1210,6 +1224,101 @@ class HoumaoServerService:
             Path(cast(str, gateway_context["session_root"]))
         )
 
+    def get_managed_agent_gateway_workspace(self, agent_ref: str) -> GatewayWorkspaceSummaryV1:
+        """Return live gateway workspace summary for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(client.workspace)
+
+    def get_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Return live gateway workspace memo for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(client.read_workspace_memo)
+
+    def put_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Replace live gateway workspace memo for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.write_workspace_memo(request_model))
+
+    def append_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Append to live gateway workspace memo for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.append_workspace_memo(request_model))
+
+    def list_managed_agent_gateway_workspace_tree(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """Return live gateway workspace lane tree for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.list_workspace_tree(request_model))
+
+    def read_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Read a live gateway workspace lane file for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.read_workspace_file(request_model))
+
+    def write_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Write a live gateway workspace lane file for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.write_workspace_file(request_model))
+
+    def append_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Append a live gateway workspace lane file for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.append_workspace_file(request_model))
+
+    def delete_managed_agent_gateway_workspace_path(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Delete a live gateway workspace lane path for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.delete_workspace_path(request_model))
+
+    def clear_managed_agent_gateway_workspace_lane(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Clear a live gateway workspace lane for one managed agent."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.clear_workspace_lane(request_model))
+
     def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
         """Return raw gateway-owned TUI state for one managed agent."""
 
@@ -1426,16 +1535,42 @@ class HoumaoServerService:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return resolution.payload()
 
-    def check_managed_agent_mail(
+    def list_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailCheckRequest,
-    ) -> HoumaoManagedAgentMailCheckResponse:
-        """Check pair-owned mailbox contents for one managed agent."""
+        request_model: HoumaoManagedAgentMailListRequest,
+    ) -> HoumaoManagedAgentMailListResponse:
+        """List pair-owned mailbox contents for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.check_mail(request_model))
-        return HoumaoManagedAgentMailCheckResponse.model_validate(response.model_dump(mode="json"))
+        response = self._invoke_live_gateway(lambda: client.list_mail(request_model))
+        return HoumaoManagedAgentMailListResponse.model_validate(response.model_dump(mode="json"))
+
+    def peek_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Peek at one pair-owned mailbox message for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.peek_mail(request_model))
+        return HoumaoManagedAgentMailMessageResponse.model_validate(
+            response.model_dump(mode="json")
+        )
+
+    def read_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Read one pair-owned mailbox message for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.read_mail(request_model))
+        return HoumaoManagedAgentMailMessageResponse.model_validate(
+            response.model_dump(mode="json")
+        )
 
     def send_managed_agent_mail(
         self,
@@ -1470,16 +1605,44 @@ class HoumaoServerService:
         response = self._invoke_live_gateway(lambda: client.reply_mail(request_model))
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
-    def update_managed_agent_mail_state(
+    def mark_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailStateRequest,
-    ) -> HoumaoManagedAgentMailStateResponse:
-        """Update pair-owned mailbox state for one managed agent."""
+        request_model: HoumaoManagedAgentMailMarkRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Mark pair-owned mailbox state for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.update_mail_state(request_model))
-        return HoumaoManagedAgentMailStateResponse.model_validate(response.model_dump(mode="json"))
+        response = self._invoke_live_gateway(lambda: client.mark_mail(request_model))
+        return HoumaoManagedAgentMailLifecycleResponse.model_validate(
+            response.model_dump(mode="json")
+        )
+
+    def move_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMoveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Move pair-owned mailbox messages for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.move_mail(request_model))
+        return HoumaoManagedAgentMailLifecycleResponse.model_validate(
+            response.model_dump(mode="json")
+        )
+
+    def archive_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailArchiveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Archive pair-owned mailbox messages for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.archive_mail(request_model))
+        return HoumaoManagedAgentMailLifecycleResponse.model_validate(
+            response.model_dump(mode="json")
+        )
 
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Poll one known tracked terminal immediately and return the updated state."""

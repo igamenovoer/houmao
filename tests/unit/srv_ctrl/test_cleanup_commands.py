@@ -63,8 +63,8 @@ def _write_runtime_manifest(
     runtime_root: Path | None = None,
     tmux_session_name: str = "join-sess",
     session_id: str = "session-1",
-    memory_binding: str | None = None,
-    memory_dir: Path | None = None,
+    persist_binding: str | None = None,
+    persist_dir: Path | None = None,
 ) -> Path:
     resolved_runtime_root = (runtime_root or (tmp_path / "runtime")).resolve()
     session_root = (resolved_runtime_root / "sessions" / "codex_headless" / session_id).resolve()
@@ -75,8 +75,8 @@ def _write_runtime_manifest(
     brain_manifest_path.write_text('{"schema_version": 2, "runtime": {}, "credentials": {}}\n')
     agent_def_dir = (tmp_path / "agent-def").resolve()
     agent_def_dir.mkdir(parents=True, exist_ok=True)
-    job_dir = (tmp_path / ".houmao" / "jobs" / session_id).resolve()
-    job_dir.mkdir(parents=True, exist_ok=True)
+    workspace_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve()
+    workspace_root.mkdir(parents=True, exist_ok=True)
     payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=_launch_plan(tmp_path, runtime_root=resolved_runtime_root),
@@ -93,9 +93,11 @@ def _write_runtime_manifest(
             tmux_session_name=tmux_session_name,
             session_id=session_id,
             agent_def_dir=agent_def_dir,
-            job_dir=job_dir,
-            memory_binding=memory_binding,
-            memory_dir=memory_dir,
+            workspace_root=workspace_root,
+            memo_file=(workspace_root / "houmao-memo.md").resolve(),
+            scratch_dir=(workspace_root / "scratch").resolve(),
+            persist_binding=persist_binding,
+            persist_dir=persist_dir,
         )
     )
     write_session_manifest(manifest_path, payload)
@@ -396,7 +398,7 @@ def test_managed_session_cleanup_uses_registry_session_root_when_manifest_pointe
     assert target.parse_error is not None
 
 
-def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_and_job_dir(
+def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_without_job_dir(
     tmp_path: Path,
 ) -> None:
     manifest_path = _write_runtime_manifest(tmp_path)
@@ -405,26 +407,25 @@ def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_and_job
         agent_name=None,
         manifest_path=manifest_path,
         session_root=None,
-        include_job_dir=True,
         dry_run=True,
     )
 
     planned_paths = {action["path"] for action in payload["planned_actions"]}
     assert str(manifest_path.parent.resolve()) in planned_paths
-    assert str((tmp_path / ".houmao" / "jobs" / "session-1").resolve()) in planned_paths
+    assert not any(action["artifact_kind"] == "job_dir" for action in payload["planned_actions"])
     assert payload["resolution"]["authority"] == "manifest_path"
 
 
-def test_managed_session_cleanup_preserves_memory_dir(
+def test_managed_session_cleanup_preserves_persist_dir(
     tmp_path: Path,
 ) -> None:
-    memory_dir = (tmp_path / "shared-memory" / "agent-a").resolve()
-    memory_dir.mkdir(parents=True, exist_ok=True)
-    (memory_dir / "notes.md").write_text("durable\n", encoding="utf-8")
+    persist_dir = (tmp_path / "shared-persist" / "agent-a").resolve()
+    persist_dir.mkdir(parents=True, exist_ok=True)
+    (persist_dir / "notes.md").write_text("durable\n", encoding="utf-8")
     manifest_path = _write_runtime_manifest(
         tmp_path,
-        memory_binding="exact",
-        memory_dir=memory_dir,
+        persist_binding="exact",
+        persist_dir=persist_dir,
     )
 
     payload = runtime_cleanup.cleanup_managed_session(
@@ -432,12 +433,11 @@ def test_managed_session_cleanup_preserves_memory_dir(
         agent_name=None,
         manifest_path=manifest_path,
         session_root=None,
-        include_job_dir=True,
         dry_run=False,
     )
 
-    assert memory_dir.exists()
-    assert (memory_dir / "notes.md").is_file()
+    assert persist_dir.exists()
+    assert (persist_dir / "notes.md").is_file()
     affected_paths = {
         action["path"]
         for action in (
@@ -447,10 +447,10 @@ def test_managed_session_cleanup_preserves_memory_dir(
             + payload["preserved_actions"]
         )
     }
-    assert str(memory_dir) not in affected_paths
+    assert str(persist_dir) not in affected_paths
 
 
-def test_managed_session_cleanup_missing_manifest_removes_session_root_and_skips_job_dir(
+def test_managed_session_cleanup_missing_manifest_removes_session_root_and_ignores_job_dir(
     tmp_path: Path,
 ) -> None:
     manifest_path = _write_runtime_manifest(tmp_path)
@@ -463,22 +463,16 @@ def test_managed_session_cleanup_missing_manifest_removes_session_root_and_skips
         agent_name=None,
         manifest_path=None,
         session_root=session_root,
-        include_job_dir=True,
         dry_run=False,
     )
 
     assert not session_root.exists()
-    assert job_dir.exists()
+    assert not job_dir.exists()
     assert {action["artifact_kind"] for action in payload["applied_actions"]} == {"session_root"}
-    assert any(
-        action["artifact_kind"] == "job_dir"
-        and action["reason"]
-        == "job_dir cleanup was skipped because manifest metadata is unavailable"
-        for action in payload["preserved_actions"]
-    )
+    assert not any(action["artifact_kind"] == "job_dir" for action in payload["preserved_actions"])
 
 
-def test_managed_session_cleanup_malformed_manifest_removes_session_root_and_skips_job_dir(
+def test_managed_session_cleanup_malformed_manifest_removes_session_root_and_ignores_job_dir(
     tmp_path: Path,
 ) -> None:
     manifest_path = _write_runtime_manifest(tmp_path)
@@ -490,17 +484,11 @@ def test_managed_session_cleanup_malformed_manifest_removes_session_root_and_ski
         agent_name=None,
         manifest_path=None,
         session_root=session_root,
-        include_job_dir=True,
         dry_run=True,
     )
 
     assert {action["artifact_kind"] for action in payload["planned_actions"]} == {"session_root"}
-    assert any(
-        action["artifact_kind"] == "job_dir"
-        and action["reason"]
-        == "job_dir cleanup was skipped because manifest metadata is unavailable"
-        for action in payload["preserved_actions"]
-    )
+    assert not any(action["artifact_kind"] == "job_dir" for action in payload["preserved_actions"])
 
 
 def test_managed_session_cleanup_blocks_live_session_removal(
@@ -519,13 +507,12 @@ def test_managed_session_cleanup_blocks_live_session_removal(
         agent_name=None,
         manifest_path=manifest_path,
         session_root=None,
-        include_job_dir=True,
         dry_run=False,
     )
 
     assert payload["applied_actions"] == []
     blocked_kinds = {action["artifact_kind"] for action in payload["blocked_actions"]}
-    assert blocked_kinds == {"session_root", "job_dir"}
+    assert blocked_kinds == {"session_root"}
 
 
 def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_registry_evidence(
@@ -552,7 +539,6 @@ def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_r
         agent_name=None,
         manifest_path=None,
         session_root=session_root,
-        include_job_dir=False,
         dry_run=False,
     )
 

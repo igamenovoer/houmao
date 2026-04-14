@@ -144,25 +144,6 @@ Per-recipient mailbox state SHALL include at minimum unread or read state and MA
 - **THEN** one recipient can mark the message read while another leaves it unread
 - **AND THEN** the system preserves those mailbox states independently per recipient
 
-### Requirement: Shared mailbox read-state updates target opaque message references
-The shared mailbox operation contract exposed through runtime-owned and gateway-owned mailbox surfaces SHALL include `check`, `send`, `reply`, and explicit per-recipient read-state update by opaque `message_ref`.
-
-Callers SHALL treat that `message_ref` as the entire targeting contract and SHALL NOT derive transport-local message identifiers from embedded prefixes, encodings, or storage details.
-
-For this change, the shared read-state update contract SHALL support setting `read=true` for one processed message after successful mailbox handling and SHALL NOT expand to broader mailbox-state flag editing.
-
-Applying a shared read-state update SHALL mutate recipient-local mailbox state without rewriting immutable canonical message content.
-
-#### Scenario: Filesystem shared read-state update uses opaque target
-- **WHEN** a caller marks one filesystem-backed message read through a shared mailbox surface using `message_ref`
-- **THEN** the mailbox system resolves that opaque target without requiring the caller to supply the underlying filesystem `message_id`
-- **AND THEN** the recipient-local read state changes while the canonical message document remains unchanged
-
-#### Scenario: Stalwart shared read-state update uses the same opaque target shape
-- **WHEN** a caller marks one `stalwart`-backed message read through a shared mailbox surface using `message_ref`
-- **THEN** the caller uses the same opaque shared targeting contract as the filesystem transport
-- **AND THEN** transport-owned identifiers remain hidden behind that shared mailbox operation contract
-
 ### Requirement: Recipients can consume mailbox work asynchronously
 The system SHALL make newly delivered messages discoverable through recipient-specific unread mailbox state so agents and humans can participate asynchronously.
 
@@ -194,3 +175,66 @@ This requirement changes the default address-derivation policy only. Explicit ma
 - **WHEN** an ordinary managed-agent mailbox binding or default-address derivation would produce `HOUMAO-alpha@houmao.localhost`
 - **THEN** the system rejects that ordinary participant address as reserved for Houmao-owned system principals
 - **AND THEN** only Houmao-owned reserved principals may use the `HOUMAO-*` mailbox local-part namespace
+
+### Requirement: Shared mailbox lifecycle state separates read, answered, and archived semantics
+The shared mailbox protocol SHALL distinguish message visibility from task completion.
+
+Per-recipient mailbox state exposed through runtime-owned and gateway-owned mailbox surfaces SHALL include at minimum:
+
+- `read`, meaning the recipient consumed the message body through a mutating read workflow or explicitly marked it read,
+- `answered`, meaning the recipient replied to or acknowledged the message,
+- `archived`, meaning the recipient moved the message out of the open inbox workflow into archive,
+- the current mailbox box or boxes for that recipient.
+
+The shared protocol SHALL NOT treat `read=true` or `answered=true` as completion. A message remains open work while it is in the recipient inbox and is not archived or otherwise closed.
+
+#### Scenario: Acknowledged mail remains open until archived
+- **WHEN** an agent replies to a mailbox message with an acknowledgement before completing the requested work
+- **THEN** the parent message is marked `answered=true`
+- **AND THEN** the parent message remains open inbox work until the agent archives it
+
+#### Scenario: Reading mail does not close it
+- **WHEN** a recipient reads a mailbox message body
+- **THEN** the recipient-local state records `read=true`
+- **AND THEN** the message remains open inbox work unless it has also been archived or moved out of the inbox workflow
+
+### Requirement: Shared mailbox operations support list, peek, read, mark, move, and archive
+The shared mailbox operation contract exposed through runtime-owned and gateway-owned mailbox surfaces SHALL include transport-neutral operations for:
+
+- listing messages from a named mailbox box,
+- peeking a message body without mutating read state,
+- reading a message body while marking it read,
+- manually marking supported recipient-local state fields,
+- moving messages among supported mailbox boxes,
+- archiving selected messages as a shortcut for moving them to the archive box.
+
+All operations that target existing messages SHALL use opaque plain-string `message_ref` values. Callers SHALL treat the entire value as opaque and SHALL NOT derive behavior from transport-specific prefixes, paths, encodings, or storage identifiers.
+
+The shared archive operation SHALL accept one or more opaque message references, SHALL move those messages to the recipient archive box, SHALL mark them archived, and SHALL mark them read by default. It SHALL NOT mark them answered unless a separate reply or mark operation did so.
+
+#### Scenario: Peek returns content without marking read
+- **WHEN** a caller peeks a mailbox message through the shared mailbox operation contract
+- **THEN** the operation returns the selected message body and metadata
+- **AND THEN** recipient-local `read` state for that message does not change
+
+#### Scenario: Read returns content and marks read
+- **WHEN** a caller reads a mailbox message through the shared mailbox operation contract
+- **THEN** the operation returns the selected message body and metadata
+- **AND THEN** recipient-local `read` state for that message is set to `true`
+
+#### Scenario: Archive closes selected inbox work
+- **WHEN** a caller archives selected inbox messages by opaque `message_ref`
+- **THEN** the messages are moved to the recipient archive box
+- **AND THEN** recipient-local state records those messages as archived and no longer open inbox work
+
+### Requirement: Replies automatically mark the replied message answered
+When a recipient successfully sends a reply to a mailbox message through the shared mailbox operation contract, the system SHALL mark the replied message `answered=true` for that recipient.
+
+The reply transition SHALL also mark the replied message read for that recipient. It SHALL NOT archive the replied message.
+
+This requirement applies to substantive replies and acknowledgement replies alike.
+
+#### Scenario: Reply marks parent answered without archiving it
+- **WHEN** an agent replies to an existing mailbox message
+- **THEN** the replied message is marked `answered=true` and `read=true` for that agent
+- **AND THEN** the replied message remains in its current box until an explicit move or archive operation succeeds

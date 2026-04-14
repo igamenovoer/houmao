@@ -35,6 +35,10 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
 )
+from houmao.mailbox.protocol import (
+    HOUMAO_NO_REPLY_POLICY_VALUE,
+    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+)
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
 from houmao.srv_ctrl.commands.main import cli, main
 from houmao.srv_ctrl.server_startup import (
@@ -478,6 +482,13 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
     assert "enable" in result.output
     assert "disable" in result.output
 
+    enable_result = CliRunner().invoke(
+        cli,
+        ["agents", "gateway", "mail-notifier", "enable", "--help"],
+    )
+    assert enable_result.exit_code == 0
+    assert "--mode [any_inbox|unread_only]" in enable_result.output
+
 
 def test_agents_gateway_reminders_help_mentions_subcommands() -> None:
     result = CliRunner().invoke(cli, ["agents", "gateway", "reminders", "--help"])
@@ -536,6 +547,63 @@ def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
     assert "status" in result.output
     assert "register" in result.output
     assert "unregister" in result.output
+
+
+def test_agents_mail_post_help_reports_operator_mailbox_default() -> None:
+    result = CliRunner().invoke(cli, ["agents", "mail", "post", "--help"])
+
+    assert result.exit_code == 0
+    normalized_output = " ".join(result.output.split())
+    assert "[default: operator_mailbox]" in normalized_output
+    assert "none" in result.output
+    assert "operator_mailbox" in result.output
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_policy"),
+    [
+        ([], HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE),
+        (["--reply-policy", "none"], HOUMAO_NO_REPLY_POLICY_VALUE),
+    ],
+)
+def test_agents_mail_post_forwards_reply_policy_default_and_explicit_none(
+    monkeypatch: pytest.MonkeyPatch,
+    extra_args: list[str],
+    expected_policy: str,
+) -> None:
+    recorded: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="agent-1234")
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target",
+        lambda **kwargs: target,
+    )
+
+    def _mail_post(target_arg: object, **kwargs: object) -> dict[str, object]:
+        recorded["target"] = target_arg
+        recorded.update(kwargs)
+        return {"schema_version": 1, "operation": "post", "status": "verified"}
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.mail.mail_post", _mail_post)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "mail",
+            "post",
+            "--agent-name",
+            "agent-test",
+            "--subject",
+            "Operator note",
+            "--body-content",
+            "Hello",
+            *extra_args,
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert recorded["target"] is target
+    assert recorded["reply_policy"] == expected_policy
 
 
 @pytest.mark.parametrize(
@@ -1266,7 +1334,7 @@ def test_agents_gateway_rejects_pair_port_with_target_tmux_session() -> None:
     ) in result.output
 
 
-def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
+def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_and_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -1281,9 +1349,11 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
-        lambda resolved_target, *, interval_seconds: (
-            captured.update({"target": resolved_target, "interval_seconds": interval_seconds})
-            or {"enabled": True, "interval_seconds": interval_seconds}
+        lambda resolved_target, *, interval_seconds, mode: (
+            captured.update(
+                {"target": resolved_target, "interval_seconds": interval_seconds, "mode": mode}
+            )
+            or {"enabled": True, "interval_seconds": interval_seconds, "mode": mode}
         ),
     )
 
@@ -1297,6 +1367,8 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
             "--current-session",
             "--interval-seconds",
             "60",
+            "--mode",
+            "unread_only",
         ],
     )
 
@@ -1304,7 +1376,32 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval(
     assert captured["session_name"] is None
     assert captured["target"] is target
     assert captured["interval_seconds"] == 60
-    assert json.loads(result.output) == {"enabled": True, "interval_seconds": 60}
+    assert captured["mode"] == "unread_only"
+    assert json.loads(result.output) == {
+        "enabled": True,
+        "interval_seconds": 60,
+        "mode": "unread_only",
+    }
+
+
+def test_agents_gateway_mail_notifier_enable_rejects_invalid_mode() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "gateway",
+            "mail-notifier",
+            "enable",
+            "--current-session",
+            "--interval-seconds",
+            "60",
+            "--mode",
+            "bad_mode",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--mode'" in result.output
 
 
 def test_agents_gateway_reminders_create_with_explicit_selector_builds_payload(
@@ -2037,16 +2134,20 @@ def test_agents_launch_reports_project_aware_root_details_in_json(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     expected_overlay_root = (working_directory / ".houmao").resolve()
+    expected_workspace_root = (
+        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    ).resolve()
     assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["workspace_root"] == str(expected_workspace_root)
+    assert payload["memo_file"] == str((expected_workspace_root / "houmao-memo.md").resolve())
+    assert payload["scratch_dir"] == str((expected_workspace_root / "scratch").resolve())
+    assert payload["persist_binding"] == "auto"
+    assert payload["persist_dir"] == str((expected_workspace_root / "persist").resolve())
     assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert (
         payload["runtime_root_detail"]
         == "Selected the active project runtime root from the current project overlay."
-    )
-    assert (
-        payload["jobs_root_detail"] == "Selected the overlay-local jobs root for this invocation."
     )
     assert (
         payload["mailbox_root_detail"]
@@ -2133,8 +2234,15 @@ def test_agents_launch_uses_invocation_project_roots_when_workdir_points_elsewhe
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     expected_overlay_root = (source_repo / ".houmao").resolve()
+    expected_workspace_root = (
+        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    ).resolve()
     assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["workspace_root"] == str(expected_workspace_root)
+    assert payload["memo_file"] == str((expected_workspace_root / "houmao-memo.md").resolve())
+    assert payload["scratch_dir"] == str((expected_workspace_root / "scratch").resolve())
+    assert payload["persist_binding"] == "auto"
+    assert payload["persist_dir"] == str((expected_workspace_root / "persist").resolve())
     assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert payload["project_overlay_bootstrapped"] is True
@@ -2234,8 +2342,15 @@ def test_agents_launch_explicit_preset_path_uses_preset_source_project(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     expected_overlay_root = (source_repo / ".houmao").resolve()
+    expected_workspace_root = (
+        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    ).resolve()
     assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["jobs_root"] == str((expected_overlay_root / "jobs").resolve())
+    assert payload["workspace_root"] == str(expected_workspace_root)
+    assert payload["memo_file"] == str((expected_workspace_root / "houmao-memo.md").resolve())
+    assert payload["scratch_dir"] == str((expected_workspace_root / "scratch").resolve())
+    assert payload["persist_binding"] == "auto"
+    assert payload["persist_dir"] == str((expected_workspace_root / "persist").resolve())
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert captured["target_kwargs"]["agent_def_dir"] == (expected_overlay_root / "agents")
     assert captured["target_kwargs"]["working_directory"] == runtime_workdir
@@ -2280,8 +2395,8 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             managed_agent_id="agent-alice",
             workdir=str(project_root / "profile-workdir"),
             auth_name="alice-creds",
-            memory_dir="/shared/alice-memory",
-            memory_disabled=False,
+            persist_dir="/shared/alice-persist",
+            persist_disabled=False,
             model_name=None,
             reasoning_level=None,
             operator_prompt_mode="unattended",
@@ -2360,10 +2475,10 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
     assert captured["auth"] == "breakglass"
     assert captured["provider"] == "codex"
     assert captured["working_directory"] == runtime_workdir
-    assert captured["memory_dir"] is None
-    assert captured["no_memory_dir"] is False
-    assert captured["launch_profile_memory_dir"] == "/shared/alice-memory"
-    assert captured["launch_profile_memory_disabled"] is False
+    assert captured["persist_dir"] is None
+    assert captured["no_persist_dir"] is False
+    assert captured["launch_profile_persist_dir"] == "/shared/alice-persist"
+    assert captured["launch_profile_persist_disabled"] is False
     assert captured["source_working_directory"] == project_root
     assert captured["source_agent_def_dir"] == source_agent_def_dir
     assert captured["headless"] is True
@@ -2418,8 +2533,8 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
                 managed_agent_id=None,
                 workdir=None,
                 auth_name=None,
-                memory_dir=None,
-                memory_disabled=False,
+                persist_dir=None,
+                persist_disabled=False,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2457,7 +2572,7 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
     assert "conflicts with launch profile" in result.output
 
 
-def test_agents_launch_memory_dir_override_wins_over_profile_disabled(
+def test_agents_launch_persist_dir_override_wins_over_profile_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2485,8 +2600,8 @@ def test_agents_launch_memory_dir_override_wins_over_profile_disabled(
                 managed_agent_id="agent-alice",
                 workdir=None,
                 auth_name=None,
-                memory_dir=None,
-                memory_disabled=True,
+                persist_dir=None,
+                persist_disabled=True,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2534,15 +2649,15 @@ def test_agents_launch_memory_dir_override_wins_over_profile_disabled(
             "alice",
             "--provider",
             "codex",
-            "--memory-dir",
-            str((tmp_path / "shared" / "alice-memory").resolve()),
+            "--persist-dir",
+            str((tmp_path / "shared" / "alice-persist").resolve()),
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["memory_dir"] == (tmp_path / "shared" / "alice-memory").resolve()
-    assert captured["no_memory_dir"] is False
-    assert captured["launch_profile_memory_disabled"] is True
+    assert captured["persist_dir"] == (tmp_path / "shared" / "alice-persist").resolve()
+    assert captured["no_persist_dir"] is False
+    assert captured["launch_profile_persist_disabled"] is True
 
 
 def test_agents_launch_help_mentions_force_mode() -> None:
@@ -2666,8 +2781,8 @@ def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
                 managed_agent_id="agent-alice",
                 workdir=None,
                 auth_name=None,
-                memory_dir=None,
-                memory_disabled=False,
+                persist_dir=None,
+                persist_disabled=False,
                 model_name=None,
                 reasoning_level=None,
                 operator_prompt_mode=None,
@@ -2806,6 +2921,9 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
 
     assert result.exit_code == 0
     payloads = _decode_json_stream(result.output)
+    expected_workspace_root = (
+        working_directory / ".houmao" / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    )
     assert payloads == [
         {
             "status": "Managed agent launch complete",
@@ -2815,9 +2933,11 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             "manifest_path": str(controller.manifest_path),
             "runtime_root": str(working_directory / ".houmao" / "runtime"),
             "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
-            "jobs_root": str(working_directory / ".houmao" / "jobs"),
-            "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
-            "memory_dir": None,
+            "workspace_root": str(expected_workspace_root),
+            "memo_file": str(expected_workspace_root / "houmao-memo.md"),
+            "scratch_dir": str(expected_workspace_root / "scratch"),
+            "persist_binding": "auto",
+            "persist_dir": str(expected_workspace_root / "persist"),
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),
@@ -2963,6 +3083,9 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
 
     assert result.exit_code == 0
     payloads = _decode_json_stream(result.output)
+    expected_workspace_root = (
+        working_directory / ".houmao" / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
+    )
     assert payloads == [
         {
             "status": "Managed agent launch complete",
@@ -2972,9 +3095,11 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
             "manifest_path": str(controller.manifest_path),
             "runtime_root": str(working_directory / ".houmao" / "runtime"),
             "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
-            "jobs_root": str(working_directory / ".houmao" / "jobs"),
-            "jobs_root_detail": "Selected the overlay-local jobs root for this invocation.",
-            "memory_dir": None,
+            "workspace_root": str(expected_workspace_root),
+            "memo_file": str(expected_workspace_root / "houmao-memo.md"),
+            "scratch_dir": str(expected_workspace_root / "scratch"),
+            "persist_binding": "auto",
+            "persist_dir": str(expected_workspace_root / "persist"),
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),

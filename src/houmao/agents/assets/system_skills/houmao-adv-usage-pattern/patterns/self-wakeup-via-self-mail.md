@@ -10,7 +10,7 @@ Choose self-mail when:
 
 - the reminder backlog must survive gateway shutdown or restart,
 - it is acceptable for later rounds to see the self-reminder together with newly arrived unread mail,
-- the agent may legitimately decide to work on some newly arrived external mail first when it next re-enters through unread-mail triage.
+- the agent may legitimately decide to work on some newly arrived external mail first when it next re-enters through open-mail triage.
 
 Do not choose this mode by default merely because a later reminder is needed. If durable recovery is not explicitly required, prefer live gateway reminders.
 
@@ -33,16 +33,15 @@ For multi-step work, prefer keeping the detailed step list in one local todo fil
 
 1. Confirm the current mailbox identity and live gateway posture when the prompt does not already provide them.
 2. For multi-step tasks, first write or refresh the detailed local todo list or working notes that the later round should continue from.
-3. Use `houmao-agent-email-comms` to send one or more messages to the agent's own mailbox address. Prefer one self-mail item that points back to the local todo list or working notes rather than one message per small step. Each unread self-mail item should usually represent one reminder, one continuation prompt, or one planned major step.
+3. Use `houmao-agent-email-comms` to send one or more messages to the agent's own mailbox address. Prefer one self-mail item that points back to the local todo list or working notes rather than one message per small step. Each open self-mail item should usually represent one reminder, one continuation prompt, or one planned major step.
 4. Give every self-reminder an informative, recognizable subject prefix so later rounds can quickly distinguish internal wake-up reminders from ordinary inbound mail sent by external agents or operators.
 5. Use `houmao-agent-gateway` to keep gateway mail-notifier polling enabled.
 6. Stop and wait for the next notifier-driven round.
 7. When the next gateway notification arrives, use `houmao-process-emails-via-gateway` for that round.
-8. In each later round, inspect the unread set, choose the self-mail item or items relevant to that round, reopen the referenced local todo list or working notes when applicable, and complete that work.
-9. Treat those self-reminders as part of ordinary unread-mail triage: if newly arrived external mail is more important now, it is acceptable to handle that first and leave the self-reminder unread for a later round.
-10. After one self-mail item is fully complete, prefer deleting or otherwise removing that completed reminder from the mailbox backlog rather than leaving it behind as read mail.
-11. If the currently supported mailbox surface for this session does not expose deletion and only exposes read-state mutation, use `mark-read` only as a fallback for a completed self-mail item and avoid letting large numbers of finished reminders accumulate.
-12. Leave unfinished or deferred self-mail unread so later rounds can pick it up.
+8. In each later round, inspect the open inbox set, choose the self-mail item or items relevant to that round, reopen the referenced local todo list or working notes when applicable, and complete that work.
+9. Treat those self-reminders as part of ordinary open-mail triage: if newly arrived external mail is more important now, it is acceptable to handle that first and leave the self-reminder unarchived for a later round.
+10. After one self-mail item is fully complete, archive that completed reminder so it leaves the open mailbox backlog.
+11. Leave unfinished or deferred self-mail unarchived so later rounds can pick it up.
 
 ## Self-Mail Template
 
@@ -73,9 +72,9 @@ Use a stable marker such as `[self-wakeup]`, `[self-reminder]`, or another clear
 
 ## Skill Boundary
 
-- Use `houmao-agent-email-comms` for mailbox `status`, `check`, `read`, `send`, `reply`, and `mark-read`.
+- Use `houmao-agent-email-comms` for mailbox `status`, `list`, `peek`, `read`, `send`, `reply`, and `archive`.
 - Use `houmao-agent-gateway` for gateway attach or discovery, gateway mail-notifier control, and optional direct reminders. Let that skill choose attach posture; for tmux-backed managed sessions its lifecycle guidance is foreground-first and treats background gateway execution as explicit user intent.
-- Use `houmao-process-emails-via-gateway` when the notifier round actually arrives and you need the round-oriented unread-mail workflow.
+- Use `houmao-process-emails-via-gateway` when the notifier round actually arrives and you need the round-oriented open-mail workflow.
 
 ## Durability Boundary
 
@@ -94,7 +93,7 @@ Use a stable marker such as `[self-wakeup]`, `[self-reminder]`, or another clear
 - Do not describe this mode as the best choice for "ignore other new mail and work on this first"; that is the live gateway reminder mode.
 - Do not imply that background gateway execution is the default setup for this pattern.
 - Prefer deleting completed self-reminders when the available supported mailbox surface allows it.
-- If deletion is not available on the current supported mailbox surface, mark a completed self-reminder read only as a fallback and plan to prune completed reminders later instead of letting them pile up.
-- Do not mark deferred, failed, or only partially completed self-mail items read.
+- If deletion is not available on the current supported mailbox surface, archive a completed self-reminder.
+- Do not archive deferred, failed, or only partially completed self-mail items.
 - Do not treat the advanced pattern as a replacement for ordinary one-step mailbox or gateway actions.
 - Do not confuse mailbox backlog with gateway liveness: unread mail persists as the intent backlog, while notifier and reminders are live attached-gateway behavior.

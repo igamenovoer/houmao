@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change passive-server-gateway-proxy. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Passive server provides a gateway status proxy endpoint
 The passive server SHALL expose `GET /houmao/agents/{agent_ref}/gateway` that resolves the agent, creates a `GatewayClient` from the registry record's gateway coordinates, and forwards the response from `GET /v1/status`.
 
@@ -326,3 +324,46 @@ When the `GatewayClient` call fails with a connection or HTTP error, all proxy e
 - **AND WHEN** a caller sends any gateway proxy request to `/houmao/agents/alpha/gateway`
 - **THEN** the response status code is 409
 - **AND THEN** the response body contains the ambiguous agent IDs
+
+### Requirement: Passive server proxies managed workspace gateway endpoints
+The passive server SHALL expose pair-server routes that proxy live gateway workspace endpoints for one resolved managed agent.
+
+The proxy routes SHALL mirror the gateway workspace summary, memo read, memo replace, memo append, lane tree, lane file read, lane file write, lane append, lane delete, and lane clear operations under the managed-agent gateway route family.
+
+The proxy SHALL preserve the gateway's lane validation, containment errors, disabled-persist errors, and unavailable-gateway errors in structured responses.
+
+#### Scenario: Pair server proxies workspace summary
+- **WHEN** an operator requests `/houmao/agents/researcher/gateway/workspace`
+- **AND WHEN** the passive server resolves `researcher` to a live gateway
+- **THEN** the passive server returns the gateway workspace summary response
+
+#### Scenario: Pair server preserves disabled persist error
+- **WHEN** managed agent `researcher` has persistence disabled
+- **AND WHEN** an operator requests a persist-lane file through the pair-server gateway proxy
+- **THEN** the passive server returns the gateway's disabled-persist error
+- **AND THEN** the passive server does not create a persist directory
+
+#### Scenario: Pair server proxies memo append
+- **WHEN** an operator appends initialization rules through the pair-server gateway workspace memo route
+- **AND WHEN** the passive server resolves the agent to a live gateway
+- **THEN** the passive server forwards the append to the gateway memo endpoint
+- **AND THEN** the gateway writes to the fixed `houmao-memo.md` file
+
+### Requirement: Gateway mail-notifier proxy preserves notification mode
+Managed-agent gateway mail-notifier proxy routes SHALL preserve the notifier mode field from the shared gateway notifier request and status models.
+
+When a caller enables the notifier through `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`, the proxy SHALL forward the request body to the live gateway without reinterpreting or dropping `mode`.
+
+When a caller reads notifier status through `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`, the proxy SHALL return the live gateway's `mode` field as part of the `GatewayMailNotifierStatusV1` payload.
+
+#### Scenario: Proxy enable forwards explicit mode
+- **WHEN** the discovery index contains agent `abc123` with a live gateway
+- **AND WHEN** a caller sends `PUT /houmao/agents/abc123/gateway/mail-notifier` with `mode=unread_only`
+- **THEN** the proxy forwards `mode=unread_only` to the live gateway
+- **AND THEN** the response body preserves the live gateway's notifier status payload
+
+#### Scenario: Proxy status returns notifier mode
+- **WHEN** the discovery index contains agent `abc123` with a live gateway whose notifier status reports `mode=any_inbox`
+- **AND WHEN** a caller sends `GET /houmao/agents/abc123/gateway/mail-notifier`
+- **THEN** the response body reports `mode=any_inbox`
+- **AND THEN** the proxy does not synthesize or omit the mode field

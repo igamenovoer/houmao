@@ -37,6 +37,10 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
             {"session_name": session_name, **env_vars}
         ),
     )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.runtime_artifacts.unset_tmux_session_environment",
+        lambda *, session_name, variable_names: None,
+    )
 
     manifest_path, session_root, canonical_agent_name, agent_id = materialize_delegated_launch(
         runtime_root=tmp_path,

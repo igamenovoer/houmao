@@ -41,7 +41,7 @@ This packaged skill does not cover:
 - `houmao-mgr project easy specialist create|list|get|remove`
 - `houmao-mgr project easy instance launch|list|get|stop`
 - generic managed-agent inspection of liveness, mailbox posture, runtime artifacts, logs, or direct tmux backing
-- ordinary mailbox `status|check|read|send|reply|mark-read` operations
+- ordinary mailbox `status|list|peek|read|send|reply|archive` operations
 - mailbox transport-specific filesystem or Stalwart internals
 - gateway attach or detach lifecycle work
 - direct filesystem editing under runtime or mailbox paths
@@ -64,7 +64,7 @@ This packaged skill does not cover:
 8. Before ordinary prompt or mailbox handoff work, resolve current live gateway capability unless the current prompt or recent chat context already provides that fact explicitly:
    - use `houmao-mgr agents gateway status` or `GET /houmao/agents/{agent_ref}/gateway` for prompt-lane gateway decisions
    - use `houmao-mgr agents mail resolve-live` or `GET /houmao/agents/{agent_ref}/mail/resolve-live` for mailbox bindings and the exact live `gateway.base_url`
-   - when mailbox work is required, use that discovery result to hand off to `houmao-agent-email-comms` for ordinary mailbox actions or `houmao-process-emails-via-gateway` for one unread-email round
+   - when mailbox work is required, use that discovery result to hand off to `houmao-agent-email-comms` for ordinary mailbox actions or `houmao-process-emails-via-gateway` for one open-mail round
 9. Use direct gateway `/v1/...` HTTP only when the task genuinely needs gateway-only control behavior and the exact live `gateway.base_url` is already available from current context or supported discovery.
 10. Load exactly one action page:
    - `actions/discover.md`

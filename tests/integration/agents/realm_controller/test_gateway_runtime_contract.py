@@ -40,8 +40,8 @@ from houmao.agents.realm_controller.gateway_storage import (
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     GatewayDesiredConfigV1,
+    GatewayMailMessageRequestV1,
     GatewayMailNotifierPutV1,
-    GatewayMailStateRequestV1,
     GatewayReminderCreateBatchV1,
     GatewayReminderDefinitionV1,
     GatewayReminderSendKeysV1,
@@ -1638,12 +1638,12 @@ def test_gateway_http_reminder_routes_are_ephemeral_and_do_not_expand_request_ki
             _best_effort_cleanup_gateway(manifest_path)
 
 
-def test_gateway_http_mail_state_route_marks_message_read_through_live_gateway(
+def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    """Live gateway `/v1/mail/state` should mark one filesystem message read."""
+    """Live gateway `/v1/mail/read` should mark one filesystem message read."""
 
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
@@ -1720,16 +1720,16 @@ def test_gateway_http_mail_state_route_marks_message_read_through_live_gateway(
                 )
             )
 
-            state_response = client.update_mail_state(
-                GatewayMailStateRequestV1(
+            state_response = client.read_mail(
+                GatewayMailMessageRequestV1(
                     message_ref=f"filesystem:{message_id}",
-                    read=True,
                 )
             )
 
             assert state_response.transport == "filesystem"
-            assert state_response.message_ref == f"filesystem:{message_id}"
-            assert state_response.read is True
+            assert state_response.operation == "read"
+            assert state_response.message.message_ref == f"filesystem:{message_id}"
+            assert state_response.message.read is True
 
             local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
                 mailbox_root,

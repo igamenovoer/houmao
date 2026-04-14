@@ -185,7 +185,6 @@ def cleanup_managed_session(
     agent_name: str | None,
     manifest_path: Path | None,
     session_root: Path | None,
-    include_job_dir: bool,
     dry_run: bool,
 ) -> dict[str, object]:
     """Clean one resolved stopped managed-session envelope."""
@@ -213,21 +212,6 @@ def cleanup_managed_session(
         details=session_details,
     )
 
-    job_dir = _payload_job_dir(target.payload) if target.payload is not None else None
-    job_dir_action = (
-        CleanupAction(
-            artifact_kind="job_dir",
-            path=job_dir,
-            proposed_action="remove",
-            reason="job_dir was persisted in the stopped session manifest",
-            details=session_details,
-        )
-        if include_job_dir
-        and job_dir is not None
-        and not _path_is_within(job_dir, target.session_root)
-        else None
-    )
-
     if live:
         blocked_actions.append(
             CleanupAction(
@@ -238,16 +222,6 @@ def cleanup_managed_session(
                 details={"tmux_session_name": session_name},
             )
         )
-        if job_dir_action is not None:
-            blocked_actions.append(
-                CleanupAction(
-                    artifact_kind="job_dir",
-                    path=job_dir_action.path,
-                    proposed_action="remove",
-                    reason="managed session is still live on the local host",
-                    details={"tmux_session_name": session_name},
-                )
-            )
     else:
         _apply_cleanup_action(
             action=session_action,
@@ -256,35 +230,6 @@ def cleanup_managed_session(
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
         )
-        if include_job_dir:
-            if job_dir_action is not None and job_dir_action.path.exists():
-                _apply_cleanup_action(
-                    action=job_dir_action,
-                    dry_run=dry_run,
-                    planned_actions=planned_actions,
-                    applied_actions=applied_actions,
-                    blocked_actions=blocked_actions,
-                )
-            elif job_dir is not None:
-                preserved_actions.append(
-                    CleanupAction(
-                        artifact_kind="job_dir",
-                        path=job_dir,
-                        proposed_action="preserve",
-                        reason="job_dir does not exist",
-                        details=session_details,
-                    )
-                )
-            elif target.payload is None:
-                preserved_actions.append(
-                    CleanupAction(
-                        artifact_kind="job_dir",
-                        path=target.manifest_path,
-                        proposed_action="preserve",
-                        reason="job_dir cleanup was skipped because manifest metadata is unavailable",
-                        details=session_details,
-                    )
-                )
 
     return build_cleanup_payload(
         dry_run=dry_run,
@@ -292,7 +237,6 @@ def cleanup_managed_session(
             "kind": "managed_session_cleanup",
             "manifest_path": str(target.manifest_path),
             "session_root": str(target.session_root),
-            "include_job_dir": include_job_dir,
         },
         resolution=target.resolution,
         planned_actions=planned_actions,
@@ -437,7 +381,6 @@ def cleanup_runtime_sessions(
     *,
     runtime_root: Path | None,
     older_than_seconds: int,
-    include_job_dir: bool,
     dry_run: bool,
     now: datetime | None = None,
 ) -> dict[str, object]:
@@ -474,26 +417,6 @@ def cleanup_runtime_sessions(
                 applied_actions=applied_actions,
                 blocked_actions=blocked_actions,
             )
-            job_dir = _payload_job_dir(envelope.payload) if envelope.payload is not None else None
-            if (
-                include_job_dir
-                and job_dir is not None
-                and job_dir.exists()
-                and not _path_is_within(job_dir, envelope.session_root)
-            ):
-                _apply_cleanup_action(
-                    action=CleanupAction(
-                        artifact_kind="job_dir",
-                        path=job_dir,
-                        proposed_action="remove",
-                        reason="job_dir belongs to a removable runtime session envelope",
-                        details=session_details,
-                    ),
-                    dry_run=dry_run,
-                    planned_actions=planned_actions,
-                    applied_actions=applied_actions,
-                    blocked_actions=blocked_actions,
-                )
             continue
 
         artifact_kind = "session_root" if not envelope.live else "live_session_root"
@@ -513,7 +436,6 @@ def cleanup_runtime_sessions(
             "kind": "runtime_sessions_cleanup",
             "runtime_root": str(resolved_runtime_root),
             "older_than_seconds": older_than_seconds,
-            "include_job_dir": include_job_dir,
         },
         resolution=_runtime_root_resolution_payload(runtime_root),
         planned_actions=planned_actions,
@@ -1306,16 +1228,6 @@ def _payload_is_live(payload: SessionManifestPayloadV4) -> bool:
     if session_name is None or not session_name.strip():
         return False
     return tmux_session_exists(session_name=session_name)
-
-
-def _payload_job_dir(payload: SessionManifestPayloadV4) -> Path | None:
-    """Return the optional manifest-persisted job directory."""
-
-    if payload.runtime.job_dir is not None:
-        return Path(payload.runtime.job_dir).resolve()
-    if payload.job_dir is not None:
-        return Path(payload.job_dir).resolve()
-    return None
 
 
 def _path_is_old_enough(

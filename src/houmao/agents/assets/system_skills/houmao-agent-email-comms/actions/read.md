@@ -1,15 +1,31 @@
 # Decide What To Read
 
-This shared gateway surface does not require a separate read route for ordinary mailbox work.
+Use `POST /v1/mail/peek` to inspect one selected message without marking it read. Use `POST /v1/mail/read` only when you intentionally want to inspect the message and mark it read.
 
-Use `POST /v1/mail/check` to inspect the current unread queue, then choose which `message_ref` to act on next.
+Use `POST /v1/mail/list` to inspect the current inbox queue, then choose which `message_ref` to act on next.
 
 Treat `message_ref` and `thread_ref` as opaque identifiers.
 
-When multiple unread messages exist:
+Peek example:
 
-- use the unread metadata returned by `check`,
+```bash
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/peek" \
+  -H 'content-type: application/json' \
+  --data '{"schema_version":1,"message_ref":"<opaque message_ref>"}'
+```
+
+Read example:
+
+```bash
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/read" \
+  -H 'content-type: application/json' \
+  --data '{"schema_version":1,"message_ref":"<opaque message_ref>"}'
+```
+
+When multiple open messages exist:
+
+- use the metadata returned by `list`,
 - choose the message or messages to inspect,
-- re-check if the unread snapshot may have changed before taking more actions.
+- re-list if the inbox snapshot may have changed before taking more actions.
 
-When no live gateway facade is available, use `houmao-mgr agents mail check` as the snapshot surface for the same selection task.
+When no live gateway facade is available, use `houmao-mgr agents mail peek` or `houmao-mgr agents mail read` for the selected message.

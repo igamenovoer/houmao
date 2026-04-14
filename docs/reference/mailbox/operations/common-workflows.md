@@ -107,7 +107,6 @@ Use `agents mail post` when the operator wants to deliver an operator-origin not
 pixi run houmao-mgr agents mail post \
   --agent-name research \
   --subject "Resume after sync" \
-  --reply-policy operator_mailbox \
   --body-content "Continue from the latest mailbox checkpoint."
 ```
 
@@ -117,9 +116,9 @@ Operator-origin guidance:
 - The canonical sender is always `HOUMAO-operator@houmao.localhost`.
 - Managed-agent defaults use `<agentname>@houmao.localhost`, while `HOUMAO-*` locals under `houmao.localhost` are reserved for Houmao-owned system mailboxes.
 - `post` requires authoritative mailbox execution and never falls back to TUI prompt submission.
-- `reply_policy=none` is the default and replies to those operator-origin messages are rejected explicitly.
-- `reply_policy=operator_mailbox` routes replies to that operator-origin thread back to `HOUMAO-operator@houmao.localhost`.
-- This receive-side behavior is reply-only for opted-in operator-origin messages, not a general free-send contract for the reserved system mailbox.
+- `reply_policy=operator_mailbox` is the default and routes replies to that operator-origin thread back to `HOUMAO-operator@houmao.localhost`.
+- `reply_policy=none` is the explicit no-reply opt-out and replies to those operator-origin messages are rejected explicitly.
+- This receive-side behavior is reply-only for reply-enabled operator-origin messages, not a general free-send contract for the reserved system mailbox.
 
 ## Reply And Mark Read
 
@@ -145,7 +144,7 @@ Reply and mark-read guidance:
 - Treat `message_ref` as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
 - When a live gateway facade is attached, use the shared gateway routines for `check`, `reply`, and `POST /v1/mail/state`.
 - When the manager-owned fallback path is in use, `houmao-mgr agents mail mark-read` is the supported explicit read-acknowledgement command.
-- Replies to operator-origin parent messages succeed only when the parent was posted with `reply_policy=operator_mailbox`.
+- Replies to operator-origin parent messages succeed when the parent was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts.
 - If `mark-read` returns `authoritative: false`, verify through `agents mail check`, filesystem inspection, or transport-native mailbox state before assuming the message was marked read.
 
 ## When `rules/` Inspection Is Mandatory

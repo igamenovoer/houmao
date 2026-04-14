@@ -6,11 +6,15 @@ Use this surface when `houmao-mgr agents mail resolve-live` returns `gateway: nu
 
 ```text
 houmao-mgr agents mail status
-houmao-mgr agents mail check
+houmao-mgr agents mail list
+houmao-mgr agents mail peek --message-ref <opaque message_ref>
+houmao-mgr agents mail read --message-ref <opaque message_ref>
 houmao-mgr agents mail send ...
 houmao-mgr agents mail post ...
 houmao-mgr agents mail reply --message-ref <opaque message_ref> ...
-houmao-mgr agents mail mark-read --message-ref <opaque message_ref>
+houmao-mgr agents mail mark --message-ref <opaque message_ref> --answered
+houmao-mgr agents mail move --message-ref <opaque message_ref> --destination-box archive
+houmao-mgr agents mail archive --message-ref <opaque message_ref>
 ```
 
 Use only the structured fields returned by `houmao-mgr agents mail resolve-live` for mailbox identity, transport, and fallback inputs.

@@ -1,6 +1,6 @@
 # Agents And Runtime
 
-This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, overlay-local job directories, and optional durable managed memory directories.
+This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, and per-agent workspace directories.
 
 ## Runtime Root Overview
 
@@ -41,11 +41,12 @@ Representative default layout:
   memory/
     agents/
       <agent-id>/
-  jobs/
-    <session-id>/
+        houmao-memo.md
+        scratch/
+        persist/
 ```
 
-Use [Roots And Ownership](roots-and-ownership.md) for how the effective runtime root and local jobs root are chosen. If no project overlay exists yet and a maintained local-state command needs one, Houmao bootstraps the same layout under `<cwd>/.houmao/`.
+Use [Roots And Ownership](roots-and-ownership.md) for how the effective runtime root, mailbox root, and project memory root are chosen. If no project overlay exists yet and a maintained local-state command needs one, Houmao bootstraps the same layout under `<cwd>/.houmao/`.
 
 ## Build-Time Artifacts
 
@@ -121,7 +122,7 @@ Pair-managed `houmao_server_rest` notes:
 
 Joined-session notes:
 
-- `houmao-mgr agents join` writes the same `<session-root>/manifest.json`, placeholder `agent_def/`, placeholder `brain_manifest.json`, session-local `gateway/` subtree, and overlay-local `job_dir` envelope that native launches expect.
+- `houmao-mgr agents join` writes the same `<session-root>/manifest.json`, placeholder `agent_def/`, placeholder `brain_manifest.json`, session-local `gateway/` subtree, and per-agent workspace metadata that native launches expect.
 - For joined sessions, `manifest.json` becomes the source of truth for secret-free relaunch posture through `agent_launch_authority`, including `session_origin=joined_tmux`, explicit `posture_kind`, structured `launch_args`, and structured Docker-style `launch_env`.
 - Joined headless resume posture is also persisted in `manifest.json`: omitted `--resume-id` stores `resume_selection_kind=none`, `--resume-id last` stores `resume_selection_kind=last`, and an exact selector stores `resume_selection_kind=exact` plus the exact value.
 - The placeholder `brain_manifest.json` exists only to satisfy path and artifact invariants. Joined runtime control and relaunch do not treat it as behavioral truth.
@@ -139,21 +140,26 @@ For Stalwart-backed sessions, the runtime deliberately splits mailbox capability
 
 The manifest is the operator-facing durable record. The secret-bearing files are runtime-owned implementation artifacts that matter for handling and cleanup, but their JSON contents are not the primary compatibility contract.
 
-## Overlay-Local Job Directories
+## Agent Workspace Directories
 
-Runtime-managed sessions also derive a per-session overlay-local job directory outside the runtime root:
+Tmux-backed managed sessions create one workspace root per managed agent under the active overlay by default:
 
 ```text
-<active-overlay>/jobs/<session-id>/
+<active-overlay>/memory/agents/<agent-id>/
 ```
 
 | Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
 | --- | --- | --- | --- | --- | --- |
-| `<active-overlay>/jobs/<session-id>/` or relocated equivalent | start/resume runtime flow | the launched session and tool-side work | Per-session scratch and job-local outputs for the selected maintained command context | Stable path family | Usually the safest directory family to treat as scratch |
+| `<active-overlay>/memory/agents/<agent-id>/` | start/join runtime flow | Houmao for memo/lane creation, then the managed agent and operator | Workspace root for one managed agent | Stable path family | Do not delete while the agent is active; stop/session cleanup does not remove durable persist contents |
+| `<workspace-root>/houmao-memo.md` | start/join runtime flow | operator and agent | Fixed memo file for initialization notes, durable instructions, and operator-visible context | Stable path | Created if missing without overwriting existing content |
+| `<workspace-root>/scratch/` | start/join runtime flow | managed agent and operator | Scratch lane for short-lived working state and mutable bookkeeping | Stable path family | Clear explicitly with `houmao-mgr agents workspace clear --lane scratch` |
+| `<workspace-root>/persist/` or one explicit operator-selected absolute path | managed launch/join resolution when persistence is enabled | managed agent and operator | Durable notebook/archive lane for arbitrary source material, logs, downloads, notes, and extracted knowledge | Stable path family, contents intentionally opaque | Stop/session cleanup does not delete this lane |
 
-The runtime persists this resolved path in the session manifest as `job_dir` and publishes it into the launched session environment as `HOUMAO_JOB_DIR`.
+The runtime persists the resolved workspace in `manifest.json` under `runtime.workspace_root`, `runtime.memo_file`, `runtime.scratch_dir`, `runtime.persist_binding`, and optional `runtime.persist_dir`.
 
-If the maintained command context already has an active project overlay, this scratch path family lands under the same hidden `.houmao/` overlay as `.houmao/houmao-config.toml` and `.houmao/agents/`. The overlap is only about path anchoring; `jobs/` remains scratch/runtime state rather than project source.
+The live tmux session publishes `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, `HOUMAO_AGENT_SCRATCH_DIR`, and, when persistence is enabled, `HOUMAO_AGENT_PERSIST_DIR`.
+
+If the operator chooses `--no-persist-dir` or the selected launch profile stores disabled persistence, Houmao still creates the workspace root, memo file, and scratch lane, but creates no persist lane and omits `HOUMAO_AGENT_PERSIST_DIR`.
 
 ## Contract Boundaries
 
@@ -165,32 +171,14 @@ If the maintained command context already has an active project overlay, this sc
 - `gateway/attach.json` is internal bootstrap state, not part of the supported external attach contract.
 - `gateway/gateway_manifest.json` is derived outward-facing bookkeeping, not the authoritative input for attach or relaunch behavior.
 - The gateway subtree belongs to the same logical runtime-managed session, but not every file under it has the same stability promise.
-- The overlay-local `job_dir` is intentionally separate from the durable runtime root so operators can redirect it to a scratch filesystem without relocating the runtime root itself.
-
-## Overlay-Local Managed Memory Directories
-
-Tmux-backed managed sessions may also bind one optional durable memory directory. When memory is enabled in the default `auto` mode, Houmao resolves it under the active overlay:
-
-```text
-<active-overlay>/memory/agents/<agent-id>/
-```
-
-| Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
-| --- | --- | --- | --- | --- | --- |
-| `<active-overlay>/memory/agents/<agent-id>/` or one explicit operator-selected absolute path | managed launch/join resolution when memory is enabled | the managed agent and the operator | Durable notebook/archive area for arbitrary source material, logs, downloads, notes, and extracted knowledge | Stable discovery contract only; internal contents are intentionally opaque to Houmao | Stop and cleanup flows do not delete this directory or validate its internal layout |
-
-The runtime persists the resolved result in `manifest.json` under `runtime.memory_binding` plus `runtime.memory_dir` and publishes `HOUMAO_MEMORY_DIR=<absolute-path>` into the live tmux session environment only when memory is enabled.
-
-If the operator chooses `--no-memory-dir` or the selected launch profile stores disabled memory binding, Houmao creates no memory directory and omits `HOUMAO_MEMORY_DIR`.
-
-Important boundary: Houmao owns path selection, manifest/env publication, and inspection visibility. Houmao does not define required subdirectories, file names, Markdown conventions, or metadata sidecars inside the memory directory.
+Important boundary: Houmao owns path selection, fixed memo creation, lane creation, manifest/env publication, inspection visibility, and lane-scoped workspace operations. Houmao does not define arbitrary file taxonomies or metadata sidecars inside the scratch or persist lanes.
 
 ## Related References
 
 - [Session Lifecycle](../run-phase/session-lifecycle.md): Behavior, targeting, and recovery semantics layered on top of these files.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol and queue behavior for the nested `gateway/` subtree.
 - [Stalwart Setup And First Session](../mailbox/operations/stalwart-setup-and-first-session.md): Operator-facing mailbox path for the `stalwart` transport.
-- [Managed Memory Dirs](../../getting-started/managed-memory-dirs.md): Operator-facing guide for default paths, explicit sharing, and disabled memory binding.
+- [Managed Agent Workspaces](../../getting-started/managed-memory-dirs.md): Operator-facing guide for default paths, memo usage, scratch/persist lanes, and launch-time persist controls.
 - [Operator Preparation](operator-preparation.md): Writable-path, ignore-rule, and cleanup guidance for these path families.
 
 ## Source References

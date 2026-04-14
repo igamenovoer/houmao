@@ -25,6 +25,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayMailNotifierMode,
     GatewayReminderCreateBatchV1,
     GatewayReminderDefinitionV1,
     GatewayReminderListV1,
@@ -628,7 +629,15 @@ def status_gateway_mail_notifier_command(
     "--interval-seconds",
     required=True,
     type=click.IntRange(min=1),
-    help="Unread-mail polling interval in seconds.",
+    help="Mailbox polling interval in seconds.",
+)
+@click.option(
+    "--mode",
+    "notifier_mode",
+    default="any_inbox",
+    show_default=True,
+    type=click.Choice(["any_inbox", "unread_only"]),
+    help="Mailbox notification mode.",
 )
 @_current_session_option
 @_target_tmux_session_option
@@ -638,6 +647,7 @@ def status_gateway_mail_notifier_command(
 @managed_agent_selector_options
 def enable_gateway_mail_notifier_command(
     interval_seconds: int,
+    notifier_mode: GatewayMailNotifierMode,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
@@ -654,7 +664,13 @@ def enable_gateway_mail_notifier_command(
         target_tmux_session=target_tmux_session,
         operation_name="mail-notifier enable",
     )
-    emit(gateway_mail_notifier_enable(target, interval_seconds=interval_seconds))
+    emit(
+        gateway_mail_notifier_enable(
+            target,
+            interval_seconds=interval_seconds,
+            mode=notifier_mode,
+        )
+    )
 
 
 @mail_notifier_gateway_group.command(name="disable")

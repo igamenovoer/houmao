@@ -1,7 +1,6 @@
 ## Purpose
 Define the repository's mailbox reference documentation structure, coverage, and quality bar so readers can find accurate contracts, operations guidance, and internal architecture details under a dedicated mailbox subtree.
 ## Requirements
-
 ### Requirement: Mailbox reference documentation is organized under a dedicated subtree
 The repository SHALL publish the mailbox reference documentation under `docs/reference/mailbox/` with an `index.md` entrypoint instead of concentrating the full mailbox reference in one standalone page.
 
@@ -112,7 +111,8 @@ The mailbox operation documentation SHALL explain how to work with the mailbox s
 At minimum, that operational guidance SHALL cover:
 
 - the local serverless workflow of `houmao-mgr mailbox init`, `houmao-mgr agents launch` or `join`, `houmao-mgr agents mailbox register`, and `houmao-mgr agents mail`,
-- mailbox read, send, reply, and explicit mark-read workflows,
+- mailbox list, peek, read, send, post, reply, mark, move, and archive workflows,
+- the mailbox lifecycle distinction between read, answered, archived, and open inbox work,
 - the discoverable mailbox skill surface used by runtime-owned mailbox work in current sessions,
 - address-routed registration lifecycle modes,
 - repair or recovery expectations for mailbox roots,
@@ -125,7 +125,7 @@ The mailbox operation documentation SHALL NOT require mailbox-specific shell exp
 
 #### Scenario: Operational guidance covers runtime mailbox workflows
 - **WHEN** an operator or developer needs to use the mailbox system in practice
-- **THEN** the mailbox operations pages explain mailbox enablement, bootstrap expectations, the discoverable mailbox skill surface, and common read, send, reply, and mark-read workflows
+- **THEN** the mailbox operations pages explain mailbox enablement, bootstrap expectations, the discoverable mailbox skill surface, and common list, peek, read, send, reply, mark, move, and archive workflows
 - **AND THEN** those pages explain the supported gateway-first, `houmao-mgr agents mail` fallback workflow clearly enough for a new reader to follow safely
 - **AND THEN** important workflows are accompanied by embedded Mermaid sequence diagrams
 
@@ -142,8 +142,68 @@ The mailbox operation documentation SHALL NOT require mailbox-specific shell exp
 #### Scenario: Operational guidance explains verification for non-authoritative fallback
 - **WHEN** a reader follows a mailbox workflow that uses `houmao-mgr agents mail ...`
 - **AND WHEN** that command can return `authoritative: false`
-- **THEN** the mailbox operations docs explain how to verify the requested outcome through manager-owned `status` or `check`, filesystem mailbox inspection, or transport-native mailbox state
+- **THEN** the mailbox operations docs explain how to verify the requested outcome through manager-owned status or mailbox list/read state, filesystem mailbox inspection, or transport-native mailbox state
 - **AND THEN** the docs do not treat submission-only fallback as self-verifying mailbox success
+
+#### Scenario: Reader understands archive as completion
+- **WHEN** a reader follows mailbox workflow documentation for processed mail
+- **THEN** the docs describe archive as the normal completion action
+- **AND THEN** they do not describe read state alone as closing the requested work
+
+### Requirement: Mailbox reference documentation explains the delivered-message clear workflow
+The mailbox reference documentation SHALL document the supported delivered-message clear workflow for filesystem mailbox roots.
+
+At minimum, the documentation SHALL explain:
+
+- `houmao-mgr mailbox clear-messages` for an arbitrary resolved mailbox root,
+- `houmao-mgr project mailbox clear-messages` for the selected project overlay mailbox root,
+- that `clear-messages` removes delivered message content and derived message state while preserving mailbox account registrations,
+- that `mailbox cleanup` remains registration cleanup and does not delete canonical messages,
+- that external `path_ref` attachment targets are not deleted by message clearing,
+- that the command supports dry-run preview and explicit destructive confirmation.
+
+#### Scenario: Reader can choose between cleanup and clear-messages
+- **WHEN** an operator reads the mailbox reference docs while trying to remove all delivered emails from a mailbox root
+- **THEN** the docs identify `clear-messages` as the maintained command for delivered-message reset
+- **AND THEN** the docs state that `cleanup` is not the command for deleting canonical mail
+
+#### Scenario: Reader sees account preservation and attachment boundaries
+- **WHEN** an operator reads the message-clear documentation
+- **THEN** the docs explain that mailbox account registrations remain registered after message clearing
+- **AND THEN** the docs explain that external `path_ref` attachment targets are not deleted
+
+### Requirement: Mailbox reference documentation explains the export archive workflow
+The mailbox reference documentation SHALL document the supported filesystem mailbox export workflow.
+
+At minimum, the documentation SHALL explain:
+
+- `houmao-mgr mailbox export` for an arbitrary resolved filesystem mailbox root,
+- `houmao-mgr project mailbox export` for the selected project overlay mailbox root,
+- explicit account scope with `--all-accounts` or repeated `--address`,
+- `--output-dir`,
+- default symlink materialization,
+- optional `--symlink-mode preserve`,
+- that default exports contain no symlinks,
+- the archive's `manifest.json` role,
+- the high-level archive directory structure,
+- managed-copy attachment copying,
+- external `path_ref` attachment manifest-only behavior,
+- why the maintained export command is preferred over raw recursive mailbox-root copying.
+
+#### Scenario: Reader learns the maintained export commands
+- **WHEN** a reader opens mailbox reference docs to archive filesystem mailbox state
+- **THEN** the docs identify `houmao-mgr mailbox export` and `houmao-mgr project mailbox export` as the maintained command surfaces
+- **AND THEN** the docs show how to choose all-account or selected-address export scope
+
+#### Scenario: Reader understands default symlink materialization
+- **WHEN** a reader needs an archive that can be moved to a filesystem without symlink support
+- **THEN** the docs explain that default mailbox export materializes symlinks
+- **AND THEN** the docs explain that `--symlink-mode preserve` is the explicit opt-in path for supported archive-internal symlinks
+
+#### Scenario: Reader understands attachment boundaries
+- **WHEN** a reader exports mailbox messages that reference attachments
+- **THEN** the docs explain that managed-copy attachments under the mailbox root are copied
+- **AND THEN** the docs explain that external `path_ref` targets are recorded in the manifest rather than copied by default
 
 ### Requirement: Mailbox internal documentation explains runtime integration and mutable-state architecture
 The mailbox internal documentation SHALL explain how the runtime integrates mailbox support and how the filesystem transport divides immutable content from mutable state.
@@ -247,13 +307,16 @@ At minimum, that documentation SHALL explain:
 - the reservation of `HOUMAO-*` mailbox local parts for Houmao-owned system principals,
 - the reserved operator sender `HOUMAO-operator@houmao.localhost`,
 - the distinct operator-origin `post` workflow versus ordinary mailbox `send`,
-- the one-way no-reply semantics for operator-origin messages,
+- the reply-enabled default for operator-origin messages through `HOUMAO-operator@houmao.localhost`,
+- `reply_policy=none` as the explicit no-reply opt-out for one-way operator-origin notes,
 - the explicit v1 boundary that operator-origin mail is filesystem-only and unsupported for `stalwart`.
 
 #### Scenario: Reader can distinguish ordinary send from operator-origin post
 - **WHEN** a reader uses the mailbox reference to understand how an operator leaves a note for a managed agent
 - **THEN** the docs explain the difference between ordinary mailbox `send` and operator-origin mailbox `post`
-- **AND THEN** the docs identify `HOUMAO-operator@houmao.localhost` as the reserved system sender for that one-way workflow
+- **AND THEN** the docs identify `HOUMAO-operator@houmao.localhost` as the reserved system sender for that workflow
+- **AND THEN** the docs explain that operator-origin posts default to reply-enabled behavior through the reserved operator mailbox
+- **AND THEN** the docs identify `reply_policy=none` as the explicit no-reply opt-out
 
 #### Scenario: Reader sees the filesystem-only boundary for operator-origin mail
 - **WHEN** a reader consults the mailbox reference for transport support of operator-origin mail

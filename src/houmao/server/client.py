@@ -22,6 +22,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
 )
 from houmao.cao.rest_client import (
     DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
@@ -55,13 +65,17 @@ from .models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailActionResponse,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailLifecycleResponse,
+    HoumaoManagedAgentMailListRequest,
+    HoumaoManagedAgentMailListResponse,
+    HoumaoManagedAgentMailMarkRequest,
+    HoumaoManagedAgentMailMessageRequest,
+    HoumaoManagedAgentMailMessageResponse,
+    HoumaoManagedAgentMailMoveRequest,
     HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
-    HoumaoManagedAgentMailStateRequest,
-    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -395,6 +409,149 @@ class HoumaoServerClient(CaoRestClient):
             GatewayStatusV1,
         )
 
+    def get_managed_agent_gateway_workspace(self, agent_ref: str) -> GatewayWorkspaceSummaryV1:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/workspace`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/workspace",
+            GatewayWorkspaceSummaryV1,
+        )
+
+    def get_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/workspace/memo`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/workspace/memo",
+            GatewayWorkspaceMemoResponseV1,
+        )
+
+    def put_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Call `PUT /houmao/agents/{agent_ref}/gateway/workspace/memo`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "PUT",
+            f"/houmao/agents/{escaped}/gateway/workspace/memo",
+            GatewayWorkspaceMemoResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def append_managed_agent_gateway_workspace_memo(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/memo/append`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/workspace/memo/append",
+            GatewayWorkspaceMemoResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def list_managed_agent_gateway_workspace_tree(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/tree`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/workspace/lane/tree",
+            GatewayWorkspaceTreeResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def read_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/read`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/workspace/lane/read",
+            GatewayWorkspaceFileResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def write_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/write`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/workspace/lane/write",
+            GatewayWorkspaceActionResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def append_managed_agent_gateway_workspace_file(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/append`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/workspace/lane/append",
+            GatewayWorkspaceActionResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def delete_managed_agent_gateway_workspace_path(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/delete`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/workspace/lane/delete",
+            GatewayWorkspaceActionResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def clear_managed_agent_gateway_workspace_lane(
+        self,
+        agent_ref: str,
+        request_model: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/clear`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/workspace/lane/clear",
+            GatewayWorkspaceActionResponseV1,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
     def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
         """Call `GET /houmao/agents/{agent_ref}/gateway/tui/state`."""
 
@@ -673,18 +830,48 @@ class HoumaoServerClient(CaoRestClient):
             )
         return payload
 
-    def check_managed_agent_mail(
+    def list_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailCheckRequest,
-    ) -> HoumaoManagedAgentMailCheckResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/check`."""
+        request_model: HoumaoManagedAgentMailListRequest,
+    ) -> HoumaoManagedAgentMailListResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/list`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/check",
-            HoumaoManagedAgentMailCheckResponse,
+            f"/houmao/agents/{escaped}/mail/list",
+            HoumaoManagedAgentMailListResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def peek_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/peek`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/peek",
+            HoumaoManagedAgentMailMessageResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def read_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/read`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/read",
+            HoumaoManagedAgentMailMessageResponse,
             json_body=request_model.model_dump(mode="json"),
         )
 
@@ -733,18 +920,48 @@ class HoumaoServerClient(CaoRestClient):
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def update_managed_agent_mail_state(
+    def mark_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailStateRequest,
-    ) -> HoumaoManagedAgentMailStateResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/state`."""
+        request_model: HoumaoManagedAgentMailMarkRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/mark`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/state",
-            HoumaoManagedAgentMailStateResponse,
+            f"/houmao/agents/{escaped}/mail/mark",
+            HoumaoManagedAgentMailLifecycleResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def move_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMoveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/move`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/move",
+            HoumaoManagedAgentMailLifecycleResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def archive_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailArchiveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/archive`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/archive",
+            HoumaoManagedAgentMailLifecycleResponse,
             json_body=request_model.model_dump(mode="json"),
         )
 

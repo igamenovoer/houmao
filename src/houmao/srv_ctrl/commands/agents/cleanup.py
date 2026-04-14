@@ -44,26 +44,19 @@ def cleanup_group() -> None:
 
 @cleanup_group.command(name="session")
 @click.option(
-    "--include-job-dir/--no-include-job-dir",
-    default=False,
-    show_default=True,
-    help="Also remove the manifest-persisted `job_dir` when the session is removable.",
-)
-@click.option(
     "--dry-run",
     is_flag=True,
     help="Preview removable artifacts without deleting them.",
 )
 @_cleanup_target_options
 def cleanup_session_command(
-    include_job_dir: bool,
     dry_run: bool,
     agent_id: str | None,
     agent_name: str | None,
     manifest_path: Path | None,
     session_root: Path | None,
 ) -> None:
-    """Clean one stopped managed-session envelope and optional job dir."""
+    """Clean one stopped managed-session envelope."""
 
     _run_and_emit_cleanup(
         lambda: cleanup_managed_session(
@@ -71,7 +64,6 @@ def cleanup_session_command(
             agent_name=agent_name,
             manifest_path=manifest_path,
             session_root=session_root,
-            include_job_dir=include_job_dir,
             dry_run=dry_run,
         )
     )

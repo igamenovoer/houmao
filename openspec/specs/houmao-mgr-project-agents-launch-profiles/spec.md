@@ -111,36 +111,6 @@ The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT sil
 - **THEN** the stored explicit launch profile returns to managed-header policy `inherit`
 - **AND THEN** later launches from `alice` fall back to the system default unless a stronger one-shot override is supplied
 
-### Requirement: `project agents launch-profiles` manages explicit memory-directory defaults
-`houmao-mgr project agents launch-profiles add` SHALL accept optional `--memory-dir <path>` and `--no-memory-dir` to store reusable memory-directory configuration on an explicit launch profile.
-
-`houmao-mgr project agents launch-profiles set` SHALL accept optional `--memory-dir <path>`, `--no-memory-dir`, and `--clear-memory-dir` for the same stored field.
-
-`--memory-dir`, `--no-memory-dir`, and `--clear-memory-dir` SHALL be mutually exclusive on `launch-profiles set`.
-
-`--memory-dir` and `--no-memory-dir` SHALL be mutually exclusive on `launch-profiles add`.
-
-When an exact memory directory is stored on this surface, the stored value SHALL be the resolved absolute path.
-
-`launch-profiles get --name <profile>` SHALL report whether the profile stores an exact memory directory, stores disabled memory binding, or stores no memory preference.
-
-#### Scenario: Add stores one exact memory directory as an absolute path
-- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe cuda-coder-codex-default --memory-dir ../shared/alice-memory`
-- **THEN** the created explicit launch profile stores the resolved absolute path for `../shared/alice-memory`
-- **AND THEN** later `launch-profiles get --name alice` reports that stored absolute memory directory
-
-#### Scenario: Set stores explicit disabled memory binding
-- **WHEN** explicit launch profile `alice` already exists
-- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --no-memory-dir`
-- **THEN** the stored explicit launch profile records disabled memory binding
-- **AND THEN** later `launch-profiles get --name alice` reports that disabled state
-
-#### Scenario: Set can clear stored memory configuration back to no profile preference
-- **WHEN** explicit launch profile `alice` already stores one exact memory directory
-- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --clear-memory-dir`
-- **THEN** the stored explicit launch profile no longer records profile-owned memory configuration
-- **AND THEN** later launches from `alice` fall back to the launch surface's system default behavior unless a stronger override is supplied
-
 ### Requirement: Launch-profile auth overrides track auth profile identity across auth rename
 Stored explicit launch-profile auth overrides SHALL resolve through auth profile identity rather than using auth display-name text as the authoritative relationship key.
 
@@ -248,4 +218,24 @@ Whole-header policy SHALL remain controlled by existing `--managed-header`, `--n
 - **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name mailer --recipe reviewer --managed-header-section mail-ack=enabled`
 - **THEN** launch profile `mailer` stores mail acknowledgement section policy `enabled`
 - **AND THEN** future launches from `mailer` include the mail acknowledgement section when the whole managed header resolves to enabled
+
+### Requirement: `project agents launch-profiles` manages explicit persist-lane defaults
+`houmao-mgr project agents launch-profiles add` SHALL accept optional `--persist-dir <path>` and `--no-persist-dir` to store reusable persist-lane configuration on an explicit launch profile.
+
+`houmao-mgr project agents launch-profiles set` SHALL accept optional `--persist-dir <path>`, `--no-persist-dir`, and `--clear-persist-dir` for the same stored field.
+
+`--persist-dir`, `--no-persist-dir`, and `--clear-persist-dir` SHALL be mutually exclusive on `launch-profiles set`.
+
+`--persist-dir` and `--no-persist-dir` SHALL be mutually exclusive on `launch-profiles add`.
+
+#### Scenario: Add stores one exact persist directory
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name alice --recipe cuda-coder-codex-default --persist-dir ../shared/alice-persist`
+- **THEN** the created launch profile stores that resolved persist directory
+- **AND THEN** launch-profile inspection reports the stored persist directory
+
+#### Scenario: Set stores disabled persistence
+- **WHEN** launch profile `alice` exists
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name alice --no-persist-dir`
+- **THEN** the launch profile stores disabled persist binding
+- **AND THEN** launch-profile inspection reports persistence as disabled
 

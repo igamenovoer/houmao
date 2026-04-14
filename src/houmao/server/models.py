@@ -27,13 +27,17 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHealthState,
     GatewayHost,
     GatewayMailActionResponseV1,
-    GatewayMailCheckRequestV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListRequestV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
-    GatewayMailStateRequestV1,
-    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
@@ -600,9 +604,20 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
-    memory_dir: str | None = None
+    workspace_root: str | None = None
+    memo_file: str | None = None
+    scratch_dir: str | None = None
+    persist_binding: str | None = None
+    persist_dir: str | None = None
 
-    @field_validator("tracked_agent_id", "memory_dir")
+    @field_validator(
+        "tracked_agent_id",
+        "workspace_root",
+        "memo_file",
+        "scratch_dir",
+        "persist_binding",
+        "persist_dir",
+    )
     @classmethod
     def _tracked_agent_id_not_blank(cls, value: str | None) -> str | None:
         """Require optional string identifiers to be non-empty when present."""
@@ -868,12 +883,32 @@ class HoumaoManagedAgentMailStatusResponse(GatewayMailStatusV1):
     """Pair-owned managed-agent mail status payload."""
 
 
-class HoumaoManagedAgentMailCheckRequest(GatewayMailCheckRequestV1):
-    """Pair-owned managed-agent mail-check request payload."""
+class HoumaoManagedAgentMailListRequest(GatewayMailListRequestV1):
+    """Pair-owned managed-agent mail-list request payload."""
 
 
-class HoumaoManagedAgentMailCheckResponse(GatewayMailCheckResponseV1):
-    """Pair-owned managed-agent mail-check response payload."""
+class HoumaoManagedAgentMailListResponse(GatewayMailListResponseV1):
+    """Pair-owned managed-agent mail-list response payload."""
+
+
+class HoumaoManagedAgentMailMessageRequest(GatewayMailMessageRequestV1):
+    """Pair-owned managed-agent mail-message request payload."""
+
+
+class HoumaoManagedAgentMailMessageResponse(GatewayMailMessageResponseV1):
+    """Pair-owned managed-agent mail-message response payload."""
+
+
+class HoumaoManagedAgentMailMarkRequest(GatewayMailMarkRequestV1):
+    """Pair-owned managed-agent mail-mark request payload."""
+
+
+class HoumaoManagedAgentMailMoveRequest(GatewayMailMoveRequestV1):
+    """Pair-owned managed-agent mail-move request payload."""
+
+
+class HoumaoManagedAgentMailArchiveRequest(GatewayMailArchiveRequestV1):
+    """Pair-owned managed-agent mail-archive request payload."""
 
 
 class HoumaoManagedAgentMailSendRequest(GatewayMailSendRequestV1):
@@ -888,16 +923,12 @@ class HoumaoManagedAgentMailReplyRequest(GatewayMailReplyRequestV1):
     """Pair-owned managed-agent mail-reply request payload."""
 
 
-class HoumaoManagedAgentMailStateRequest(GatewayMailStateRequestV1):
-    """Pair-owned managed-agent mail-state request payload."""
-
-
 class HoumaoManagedAgentMailActionResponse(GatewayMailActionResponseV1):
     """Pair-owned managed-agent mail action response payload."""
 
 
-class HoumaoManagedAgentMailStateResponse(GatewayMailStateResponseV1):
-    """Pair-owned managed-agent mail-state response payload."""
+class HoumaoManagedAgentMailLifecycleResponse(GatewayMailLifecycleResponseV1):
+    """Pair-owned managed-agent mail lifecycle response payload."""
 
 
 class HoumaoHeadlessLaunchMailboxOptions(_HoumaoModel):

@@ -27,12 +27,13 @@ This packaged skill covers a branching guided tour for:
 - ordinary mailbox send or read entry
 - gateway mail-notifier follow-up when a live gateway and mailbox are both ready
 - reminders
+- advanced pairwise agent-loop creation guidance
 - managed-agent inspection, stop, relaunch, and cleanup follow-up
 
 This packaged skill does not cover:
 
 - ordinary direct-operation requests that the user did not ask to route through the tour
-- low-level command ownership for project, mailbox, specialist, messaging, gateway, or lifecycle actions
+- low-level command ownership for project, mailbox, specialist, messaging, gateway, loop-planning, or lifecycle actions
 - ad hoc filesystem editing under `.houmao/`, runtime, or mailbox paths
 - destructive cleanup as an automatic side effect of stop
 
@@ -56,6 +57,7 @@ This packaged skill does not cover:
    - `branches/setup-project-and-mailbox.md`
    - `branches/author-and-launch.md`
    - `branches/live-operations.md`
+   - `branches/advanced-usage.md`
    - `branches/lifecycle-follow-up.md`
 6. Route execution to the maintained Houmao-owned skill that owns the selected branch.
 7. After that branch completes, summarize the new current state and offer the next likely branches again.
@@ -66,6 +68,7 @@ This packaged skill does not cover:
 - Read [branches/setup-project-and-mailbox.md](branches/setup-project-and-mailbox.md) when the user wants project overlay setup or optional project-local mailbox setup.
 - Read [branches/author-and-launch.md](branches/author-and-launch.md) when the user wants to create specialists or profiles, or launch another agent.
 - Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, inspect live state or screen posture, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
+- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants tour-level guidance for advanced pairwise agent-loop creation through `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2`.
 - Read [branches/lifecycle-follow-up.md](branches/lifecycle-follow-up.md) when the user wants to inspect, stop, relaunch, or clean up managed-agent sessions.
 
 ## References
@@ -80,7 +83,10 @@ This packaged skill does not cover:
 - Route generic managed-agent inspection, live screen watching, mailbox-posture inspection, and runtime artifact inspection to `houmao-agent-inspect`.
 - Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
-- Route ordinary mailbox send, read, reply, or mark-read follow-up to `houmao-agent-email-comms`.
+- Route ordinary mailbox send, read, reply, or archive follow-up to `houmao-agent-email-comms`.
+- Route advanced stable pairwise loop creation to `houmao-agent-loop-pairwise` only after the user selects or explicitly invokes that skill.
+- Route advanced enriched pairwise loop creation to `houmao-agent-loop-pairwise-v2` only after the user selects or explicitly invokes that skill.
+- Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.
 - Route stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
 
 ## Guardrails
@@ -91,4 +97,6 @@ This packaged skill does not cover:
 - Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project easy ...`.
 - Do not collapse stop, relaunch, and cleanup into one vague “manage agent” action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
+- Do not silently auto-route generic pairwise loop planning or pairwise run-control requests into `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2`; ask the user to select or explicitly invoke the desired pairwise skill.
+- Do not restate composed pairwise topology, run-control details, or elemental pairwise edge-loop protocol inline; keep those on the selected pairwise loop skill and `houmao-adv-usage-pattern`.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.

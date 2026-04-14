@@ -85,7 +85,7 @@ pixi run houmao-mgr agents mail resolve-live --agent-name research
 
 For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, late mailbox registration updates the durable session mailbox binding without requiring relaunch solely for mailbox attachment. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and validate the resulting mailbox binding. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. That helper returns structured mailbox fields plus optional `gateway.base_url` data when an attached mailbox gateway is live.
 
-Project-aware job dirs remain separate from mailbox state. When maintained launch flows use `<active-overlay>/jobs/<session-id>/`, that `.houmao/` subtree is still scratch/runtime state rather than mailbox authority, even though it shares the same hidden overlay as project-local agent-definition sources.
+Project-aware agent workspaces remain separate from mailbox state. Managed agents use `<active-overlay>/memory/agents/<agent-id>/` for `houmao-memo.md`, `scratch/`, and optional `persist/`; that `.houmao/` subtree is workspace state rather than mailbox authority, even though it shares the same hidden overlay as project-local agent-definition sources.
 
 ```mermaid
 sequenceDiagram
@@ -169,7 +169,6 @@ Use `agents mail post` when the operator needs to drop an operator-origin note i
 pixi run houmao-mgr agents mail post \
   --agent-name research \
   --subject "Resume after sync" \
-  --reply-policy operator_mailbox \
   --body-content "Continue from the latest mailbox checkpoint."
 ```
 
@@ -180,9 +179,9 @@ Important details:
 - Newly derived managed-agent mailbox addresses use `<agentname>@houmao.localhost`.
 - `HOUMAO-*` local parts under `houmao.localhost` are reserved for Houmao system mailboxes.
 - `post` never falls back to live TUI submission because the operator-origin sender must stay authoritative.
-- `reply_policy=none` is the default and keeps the note one-way.
-- `reply_policy=operator_mailbox` allows replies to that specific operator-origin message back to `HOUMAO-operator@houmao.localhost`.
-- The reserved system mailbox is not a general-purpose free-send address; the receive-side contract here is reply-only for opted-in operator-origin threads.
+- `reply_policy=operator_mailbox` is the default and allows replies to that specific operator-origin message back to `HOUMAO-operator@houmao.localhost`.
+- `reply_policy=none` is the explicit no-reply opt-out for one-way operator-origin notes.
+- The reserved system mailbox is not a general-purpose free-send address; the receive-side contract here is reply-only for reply-enabled operator-origin threads.
 
 ## Reply To Mail
 
@@ -199,7 +198,7 @@ Important details:
 - Exactly one of `--body-file` or `--body-content` must be supplied.
 - Attachments are allowed on replies too.
 - Replies target the shared opaque `message_ref` contract; do not derive behavior from transport-prefixed values embedded inside the ref.
-- When the parent message is operator-origin, reply succeeds only if that message was posted with `reply_policy=operator_mailbox`.
+- When the parent message is operator-origin, reply succeeds if that message was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts.
 - Operator-origin reply enablement is filesystem-only in v1 because `post` itself is filesystem-only.
 
 ## Mark Mail Read

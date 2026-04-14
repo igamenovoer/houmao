@@ -19,7 +19,7 @@ Representative Houmao-owned roots for maintained local-state command flows:
 ```text
 <active-overlay>/
   runtime/
-  jobs/
+  memory/
   mailbox/                  # documented separately
 
 ~/.houmao/
@@ -53,10 +53,10 @@ Representative launcher-owned layout:
 
 ## Read By Goal
 
-For maintained local-state command surfaces, `runtime/`, `jobs/`, and `mailbox/` now default from one active project overlay. The shared `~/.houmao/` anchor remains the default home for registry state and the explicit legacy-root target for operators who intentionally override runtime or mailbox placement.
+For maintained local-state command surfaces, `runtime/`, managed-agent workspace state under `memory/`, and `mailbox/` now default from one active project overlay. The shared `~/.houmao/` anchor remains the default home for registry state and the explicit legacy-root target for operators who intentionally override runtime or mailbox placement.
 
 - [Roots And Ownership](roots-and-ownership.md): Default roots, override precedence, ownership categories, and the mailbox boundary.
-- [Agents And Runtime](agents-and-runtime.md): Generated homes, generated manifests, runtime session roots, nested gateway files, and overlay-local job directories.
+- [Agents And Runtime](agents-and-runtime.md): Generated homes, generated manifests, runtime session roots, nested gateway files, and per-agent workspace directories.
 - [Legacy CAO Server](cao-server.md): Historical reference for the retired standalone CAO launcher layout.
 - [Houmao Server](houmao-server.md): Server-owned listener roots, registration bridges, and memory-primary live tracking.
 - [Shared Registry](shared-registry.md): Registry root placement, `live_agents/<agent-id>/record.json`, and the registry’s pointer-oriented scope.

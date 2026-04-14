@@ -12,11 +12,11 @@ For shared gateway mailbox actions in ordinary mailbox work, stay on this skill'
 - Otherwise resolve current mailbox bindings through `houmao-mgr agents mail resolve-live` before mailbox work.
 - Treat that resolver output as the manager-owned discovery contract for this turn.
 - When the resolver returns a `gateway` object, use this skill's shared `/v1/mail/*` action pages for the ordinary mailbox operation you need.
-- When the resolver returns `gateway: null`, use `houmao-mgr agents mail check|send|reply|mark-read` as the supported fallback surface.
-- Ordinary mailbox work in this change means `status`, `check`, `send`, `reply`, and marking one processed message read. `post` is explicitly unsupported for `stalwart` in v1.
+- When the resolver returns `gateway: null`, use `houmao-mgr agents mail list|peek|read|send|reply|mark|move|archive` as the supported fallback surface.
+- Ordinary mailbox work in this change means `status`, `list`, `peek`, `read`, `send`, `reply`, manual `mark`/`move`, and archiving processed mail. `post` is explicitly unsupported for `stalwart` in v1.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive raw Stalwart object identifiers or transport-local structure from the visible prefix.
-- After you successfully process one message, mark that same `message_ref` read through `POST /v1/mail/state` when gateway HTTP is in use or `houmao-mgr agents mail mark-read --message-ref ...` when it is not.
-- If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents mail check`, `houmao-mgr agents mail status`, or transport-native mailbox state before assuming the mutation completed.
+- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or `houmao-mgr agents mail archive --message-ref ...` when it is not.
+- If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents mail list`, `houmao-mgr agents mail status`, or transport-native mailbox state before assuming the mutation completed.
 
 ## Stalwart-Specific Guidance
 

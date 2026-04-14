@@ -103,7 +103,7 @@ Each session writes a manifest to its session root (`<runtime-root>/sessions/<ba
 - Gateway state and attachment information.
 - Runtime artifacts and metadata.
 
-The session root serves as the persistent root for all session-related state, including the session manifest, gateway state files, and any runtime artifacts produced during the session. The session root is distinct from the brain runtime home (which holds projected configs and skills) and from any workspace-local job directory.
+The session root serves as the persistent root for all session-related state, including the session manifest, gateway state files, and any runtime artifacts produced during the session. The session root is distinct from the brain runtime home (which holds projected configs and skills) and from the per-agent workspace root under `<active-overlay>/memory/agents/<agent-id>/`.
 
 ## InteractiveSession protocol
 

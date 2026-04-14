@@ -15,12 +15,23 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, NoReturn, Protocol, cast
+from typing import Callable, Literal, NoReturn, Protocol, TypeVar, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
+from houmao.agents.agent_workspace import (
+    AgentWorkspacePaths,
+    clear_workspace_lane as clear_workspace_lane_contents,
+    delete_workspace_path,
+    lane_root,
+    list_workspace_tree,
+    read_memo,
+    read_workspace_file,
+    write_memo,
+    write_workspace_file,
+)
 from houmao.agents.mailbox_runtime_support import (
     mailbox_processing_skill_name,
     mailbox_processing_skill_reference,
@@ -63,15 +74,20 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessStartupDefaultV1,
     GatewayHost,
     GatewayMailActionResponseV1,
-    GatewayMailCheckRequestV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListRequestV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
-    GatewayMailStateRequestV1,
-    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayJsonObject,
+    GatewayMailNotifierMode,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayPromptControlErrorV1,
@@ -98,6 +114,17 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingConfigV1,
     GatewayTuiTrackingTimingOverridesV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeEntryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
     resolve_gateway_tui_tracking_timing_config,
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
@@ -157,6 +184,7 @@ _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
 _GatewayRequestTerminalState = Literal["completed", "failed"]
+_WorkspaceResponseT = TypeVar("_WorkspaceResponseT")
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
@@ -188,7 +216,7 @@ class _QueuedGatewayRequestRecord:
 
 @dataclass(frozen=True)
 class _UnreadMailboxMessage:
-    """Unread mailbox message summary used for notifier prompts."""
+    """Open mailbox message summary used for notifier prompts."""
 
     message_ref: str
     thread_ref: str | None
@@ -278,11 +306,34 @@ def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
     return "\n".join(
         [
             f"- `GET {base_url}/v1/mail/status`",
-            f"- `POST {base_url}/v1/mail/check`",
+            f"- `POST {base_url}/v1/mail/list`",
+            f"- `POST {base_url}/v1/mail/peek`",
+            f"- `POST {base_url}/v1/mail/read`",
             f"- `POST {base_url}/v1/mail/send`",
             f"- `POST {base_url}/v1/mail/post`",
             f"- `POST {base_url}/v1/mail/reply`",
-            f"- `POST {base_url}/v1/mail/state`",
+            f"- `POST {base_url}/v1/mail/mark`",
+            f"- `POST {base_url}/v1/mail/move`",
+            f"- `POST {base_url}/v1/mail/archive`",
+        ]
+    )
+
+
+def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
+    """Return mode-specific prompt guidance for a notifier round."""
+
+    if mode == "unread_only":
+        return "\n".join(
+            [
+                "This `unread_only` notification was triggered by unread, unarchived inbox mail.",
+                "Start by listing unread inbox mail for this round. Read or answered inbox mail "
+                "that remains unarchived will not trigger another notification by itself in this mode.",
+            ]
+        )
+    return "\n".join(
+        [
+            "This `any_inbox` notification was triggered by unarchived inbox mail.",
+            "List open inbox mail for this round, including mail that may already be read or answered.",
         ]
     )
 
@@ -1016,6 +1067,169 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
+
+    def workspace(self) -> GatewayWorkspaceSummaryV1:
+        """Return the managed-agent workspace summary."""
+
+        paths = self._workspace_paths()
+        return GatewayWorkspaceSummaryV1(
+            workspace_root=str(paths.workspace_root),
+            memo_file=str(paths.memo_file),
+            scratch_dir=str(paths.scratch_dir),
+            persist_binding=paths.persist_binding,
+            persist_dir=str(paths.persist_dir) if paths.persist_dir is not None else None,
+        )
+
+    def read_workspace_memo(self) -> GatewayWorkspaceMemoResponseV1:
+        """Return the fixed managed-agent workspace memo."""
+
+        paths = self._workspace_paths()
+        return GatewayWorkspaceMemoResponseV1(
+            memo_file=str(paths.memo_file),
+            content=read_memo(paths),
+        )
+
+    def write_workspace_memo(
+        self,
+        request_payload: GatewayWorkspaceMemoWriteRequestV1,
+        *,
+        append: bool = False,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Write or append the fixed managed-agent workspace memo."""
+
+        paths = self._workspace_paths()
+        write_memo(paths, request_payload.content, append=append)
+        return GatewayWorkspaceMemoResponseV1(
+            memo_file=str(paths.memo_file),
+            content=read_memo(paths),
+        )
+
+    def list_workspace_lane(
+        self,
+        request_payload: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """Return a contained tree listing for one workspace lane."""
+
+        paths = self._workspace_paths()
+        entries = [
+            GatewayWorkspaceTreeEntryV1(
+                path=entry.path,
+                kind=entry.kind,
+                size_bytes=entry.size_bytes,
+            )
+            for entry in list_workspace_tree(
+                paths,
+                lane=request_payload.lane,
+                relative_path=request_payload.path,
+            )
+        ]
+        return GatewayWorkspaceTreeResponseV1(
+            lane=request_payload.lane,
+            root=str(lane_root(paths, request_payload.lane)),
+            path=request_payload.path,
+            entries=entries,
+        )
+
+    def read_workspace_lane_file(
+        self,
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Read a contained file from one workspace lane."""
+
+        paths = self._workspace_paths()
+        return GatewayWorkspaceFileResponseV1(
+            lane=request_payload.lane,
+            path=request_payload.path,
+            content=read_workspace_file(
+                paths,
+                lane=request_payload.lane,
+                relative_path=request_payload.path,
+            ),
+        )
+
+    def write_workspace_lane_file(
+        self,
+        request_payload: GatewayWorkspaceFileWriteRequestV1,
+        *,
+        append: bool = False,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Write or append a contained file in one workspace lane."""
+
+        paths = self._workspace_paths()
+        write_workspace_file(
+            paths,
+            lane=request_payload.lane,
+            relative_path=request_payload.path,
+            content=request_payload.content,
+            append=append,
+        )
+        return GatewayWorkspaceActionResponseV1(
+            action="append_file" if append else "write_file",
+            lane=request_payload.lane,
+            path=request_payload.path,
+            detail="Workspace file appended." if append else "Workspace file written.",
+        )
+
+    def delete_workspace_lane_path(
+        self,
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Delete a contained file or directory in one workspace lane."""
+
+        paths = self._workspace_paths()
+        delete_workspace_path(
+            paths,
+            lane=request_payload.lane,
+            relative_path=request_payload.path,
+        )
+        return GatewayWorkspaceActionResponseV1(
+            action="delete_path",
+            lane=request_payload.lane,
+            path=request_payload.path,
+            detail="Workspace path deleted.",
+        )
+
+    def clear_workspace_lane(
+        self,
+        request_payload: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Clear one workspace lane while preserving the lane directory."""
+
+        paths = self._workspace_paths()
+        clear_workspace_lane_contents(paths, lane=request_payload.lane)
+        return GatewayWorkspaceActionResponseV1(
+            action="clear_lane",
+            lane=request_payload.lane,
+            detail="Workspace lane cleared.",
+        )
+
+    def _workspace_paths(self) -> AgentWorkspacePaths:
+        """Load manifest-backed workspace paths for this gateway runtime."""
+
+        manifest_path = self.m_attach_contract.manifest_path
+        if manifest_path is None:
+            raise ValueError("Gateway attach contract does not expose a manifest path.")
+        handle = load_session_manifest(Path(manifest_path).expanduser().resolve())
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        runtime = payload.runtime
+        if (
+            runtime.workspace_root is None
+            or runtime.memo_file is None
+            or runtime.scratch_dir is None
+            or runtime.persist_binding is None
+        ):
+            raise ValueError("Session manifest does not expose managed workspace metadata.")
+        return AgentWorkspacePaths(
+            workspace_root=Path(runtime.workspace_root).expanduser().resolve(),
+            memo_file=Path(runtime.memo_file).expanduser().resolve(),
+            scratch_dir=Path(runtime.scratch_dir).expanduser().resolve(),
+            persist_binding=runtime.persist_binding,
+            persist_dir=(
+                Path(runtime.persist_dir).expanduser().resolve()
+                if runtime.persist_dir is not None
+                else None
+            ),
+        )
 
     def get_tui_state(self) -> HoumaoTerminalStateResponse:
         """Return gateway-owned live tracked TUI state."""
@@ -2254,8 +2468,8 @@ class GatewayServiceRuntime:
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    def check_mail(self, request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
-        """Run one shared mailbox check request."""
+    def list_mail(self, request_payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+        """Run one shared mailbox list request."""
 
         with self.m_lock:
             self._require_loopback_mail_surface()
@@ -2264,23 +2478,79 @@ class GatewayServiceRuntime:
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             try:
-                messages = adapter.check(
-                    unread_only=request_payload.unread_only,
+                messages = adapter.list_messages(
+                    box=request_payload.box,
+                    read_state=request_payload.read_state,
+                    answered_state=request_payload.answered_state,
+                    archived=request_payload.archived,
                     limit=request_payload.limit,
                     since=request_payload.since,
+                    include_body=request_payload.include_body,
                 )
             except GatewayMailboxError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             status = adapter.status()
             unread_count = sum(1 for message in messages if message.unread is True)
-            return GatewayMailCheckResponseV1(
+            open_count = sum(1 for message in messages if message.archived is not True)
+            return GatewayMailListResponseV1(
                 transport=status.transport,
                 principal_id=status.principal_id,
                 address=status.address,
-                unread_only=request_payload.unread_only,
+                box=request_payload.box,
                 message_count=len(messages),
+                open_count=open_count,
                 unread_count=unread_count,
                 messages=messages,
+            )
+
+    def peek_mail(
+        self, request_payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox peek request."""
+
+        return self._mail_message_request(operation="peek", request_payload=request_payload)
+
+    def read_mail(
+        self, request_payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox read request."""
+
+        return self._mail_message_request(operation="read", request_payload=request_payload)
+
+    def _mail_message_request(
+        self,
+        *,
+        operation: Literal["peek", "read"],
+        request_payload: GatewayMailMessageRequestV1,
+    ) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox message retrieval request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                if operation == "peek":
+                    message = adapter.peek(
+                        message_ref=request_payload.message_ref,
+                        box=request_payload.box,
+                    )
+                else:
+                    message = adapter.read(
+                        message_ref=request_payload.message_ref,
+                        box=request_payload.box,
+                    )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailMessageResponseV1(
+                operation=operation,
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message=message,
             )
 
     def send_mail(self, request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
@@ -2370,11 +2640,48 @@ class GatewayServiceRuntime:
                 message=message,
             )
 
-    def update_mail_state(
+    def mark_mail(
         self,
-        request_payload: GatewayMailStateRequestV1,
-    ) -> GatewayMailStateResponseV1:
-        """Run one shared mailbox read-state update request."""
+        request_payload: GatewayMailMarkRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox mark request."""
+
+        return self._mail_lifecycle_request(
+            operation="mark",
+            request_payload=request_payload,
+        )
+
+    def move_mail(
+        self,
+        request_payload: GatewayMailMoveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox move request."""
+
+        return self._mail_lifecycle_request(
+            operation="move",
+            request_payload=request_payload,
+        )
+
+    def archive_mail(
+        self,
+        request_payload: GatewayMailArchiveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox archive request."""
+
+        return self._mail_lifecycle_request(
+            operation="archive",
+            request_payload=request_payload,
+        )
+
+    def _mail_lifecycle_request(
+        self,
+        *,
+        operation: Literal["mark", "move", "archive"],
+        request_payload: GatewayMailMarkRequestV1
+        | GatewayMailMoveRequestV1
+        | GatewayMailArchiveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox lifecycle mutation request."""
 
         with self.m_lock:
             self._require_loopback_mail_surface()
@@ -2383,12 +2690,31 @@ class GatewayServiceRuntime:
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             try:
-                return adapter.update_read_state(
-                    message_ref=request_payload.message_ref,
-                    read=request_payload.read,
-                )
+                if isinstance(request_payload, GatewayMailMarkRequestV1):
+                    messages = adapter.mark(
+                        message_refs=request_payload.message_refs,
+                        read=request_payload.read,
+                        answered=request_payload.answered,
+                        archived=request_payload.archived,
+                    )
+                elif isinstance(request_payload, GatewayMailMoveRequestV1):
+                    messages = adapter.move(
+                        message_refs=request_payload.message_refs,
+                        destination_box=request_payload.destination_box,
+                    )
+                else:
+                    messages = adapter.archive(message_refs=request_payload.message_refs)
             except GatewayMailboxError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailLifecycleResponseV1(
+                operation=operation,
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message_count=len(messages),
+                messages=messages,
+            )
 
     def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
         """Return the current notifier configuration and runtime status."""
@@ -2411,10 +2737,14 @@ class GatewayServiceRuntime:
                 self.m_paths.queue_path,
                 enabled=True,
                 interval_seconds=request_payload.interval_seconds,
+                mode=request_payload.mode,
                 last_notified_digest=None,
                 last_error=None,
             )
-            self._log(f"mail notifier enabled interval_seconds={request_payload.interval_seconds}")
+            self._log(
+                "mail notifier enabled "
+                f"interval_seconds={request_payload.interval_seconds} mode={request_payload.mode}"
+            )
             return build_gateway_mail_notifier_status(
                 record=record,
                 supported=True,
@@ -2531,7 +2861,7 @@ class GatewayServiceRuntime:
             return "\n".join(
                 [
                     "Houmao mailbox skills are not installed for this session.",
-                    "List unread mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
+                    "List open inbox mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
                 ]
             )
 
@@ -2613,7 +2943,7 @@ class GatewayServiceRuntime:
             )
 
     def _notifier_loop(self) -> None:
-        """Poll mailbox-local unread state when the notifier is enabled."""
+        """Poll mailbox-local open inbox work when the notifier is enabled."""
 
         next_poll_monotonic: float | None = None
         scheduled_interval_seconds: int | None = None
@@ -2677,6 +3007,7 @@ class GatewayServiceRuntime:
                 return
 
             try:
+                read_state = "unread" if record.mode == "unread_only" else "any"
                 unread_messages = _sort_unread_messages(
                     [
                         _UnreadMailboxMessage(
@@ -2687,7 +3018,15 @@ class GatewayServiceRuntime:
                             sender_display_name=message.sender.display_name,
                             subject=message.subject,
                         )
-                        for message in adapter.check(unread_only=True, limit=None, since=None)
+                        for message in adapter.list_messages(
+                            box="inbox",
+                            read_state=read_state,
+                            answered_state="any",
+                            archived=False,
+                            limit=None,
+                            since=None,
+                            include_body=False,
+                        )
                     ]
                 )
             except GatewayMailboxError as exc:
@@ -2723,7 +3062,7 @@ class GatewayServiceRuntime:
                     unread_digest=None,
                     outcome="empty",
                 )
-                self._log("mail notifier poll: no unread mail")
+                self._log(f"mail notifier poll: no open inbox mail mode={record.mode}")
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
@@ -2746,7 +3085,7 @@ class GatewayServiceRuntime:
                 self._log(block_detail)
                 return
 
-            prompt = self._build_mail_notifier_prompt()
+            prompt = self._build_mail_notifier_prompt(mode=record.mode)
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
@@ -2765,23 +3104,27 @@ class GatewayServiceRuntime:
                 enqueued_request_id=request_id,
             )
             self._log(
-                f"mail notifier enqueued request_id={request_id} unread_count={len(unread_messages)}"
+                f"mail notifier enqueued request_id={request_id} "
+                f"open_mail_count={len(unread_messages)} mode={record.mode}"
             )
 
     def _mail_notifier_digest(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
-        """Build a stable digest for one unread-mail snapshot."""
+        """Build a stable digest for one open-mail snapshot."""
 
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
-    def _build_mail_notifier_prompt(self) -> str:
+    def _build_mail_notifier_prompt(self, *, mode: GatewayMailNotifierMode) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         mailbox = self._load_mailbox_config()
         base_url = f"http://{self.m_host}:{self.m_port}"
         rendered = _load_mail_notifier_template()
+        mode_guidance = _render_mail_notifier_mode_guidance(mode)
         replacements = {
             "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
+            "{{NOTIFIER_MODE}}": mode,
+            "{{MODE_GUIDANCE}}": mode_guidance,
             "{{GATEWAY_BASE_URL}}": base_url,
             "{{FULL_ENDPOINT_URLS_BLOCK}}": _render_mail_notifier_full_endpoint_urls(base_url),
         }
@@ -3648,6 +3991,96 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.status()
 
+    def _workspace_call(callback: Callable[[], _WorkspaceResponseT]) -> _WorkspaceResponseT:
+        """Translate workspace service failures into HTTP status codes."""
+
+        try:
+            return callback()
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/workspace", response_model=GatewayWorkspaceSummaryV1)
+    def _workspace() -> GatewayWorkspaceSummaryV1:
+        """Serve the managed workspace summary."""
+
+        return _workspace_call(runtime.workspace)
+
+    @app.get("/v1/workspace/memo", response_model=GatewayWorkspaceMemoResponseV1)
+    def _workspace_memo() -> GatewayWorkspaceMemoResponseV1:
+        """Serve the fixed managed workspace memo."""
+
+        return _workspace_call(runtime.read_workspace_memo)
+
+    @app.put("/v1/workspace/memo", response_model=GatewayWorkspaceMemoResponseV1)
+    def _workspace_memo_put(
+        request_payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Replace the fixed managed workspace memo."""
+
+        return _workspace_call(lambda: runtime.write_workspace_memo(request_payload))
+
+    @app.post("/v1/workspace/memo/append", response_model=GatewayWorkspaceMemoResponseV1)
+    def _workspace_memo_append(
+        request_payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Append to the fixed managed workspace memo."""
+
+        return _workspace_call(lambda: runtime.write_workspace_memo(request_payload, append=True))
+
+    @app.post("/v1/workspace/lane/tree", response_model=GatewayWorkspaceTreeResponseV1)
+    def _workspace_lane_tree(
+        request_payload: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """Serve one workspace lane tree listing."""
+
+        return _workspace_call(lambda: runtime.list_workspace_lane(request_payload))
+
+    @app.post("/v1/workspace/lane/read", response_model=GatewayWorkspaceFileResponseV1)
+    def _workspace_lane_read(
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Read one contained workspace lane file."""
+
+        return _workspace_call(lambda: runtime.read_workspace_lane_file(request_payload))
+
+    @app.post("/v1/workspace/lane/write", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_write(
+        request_payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Write one contained workspace lane file."""
+
+        return _workspace_call(lambda: runtime.write_workspace_lane_file(request_payload))
+
+    @app.post("/v1/workspace/lane/append", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_append(
+        request_payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Append to one contained workspace lane file."""
+
+        return _workspace_call(
+            lambda: runtime.write_workspace_lane_file(request_payload, append=True)
+        )
+
+    @app.post("/v1/workspace/lane/delete", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_delete(
+        request_payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Delete one contained workspace lane path."""
+
+        return _workspace_call(lambda: runtime.delete_workspace_lane_path(request_payload))
+
+    @app.post("/v1/workspace/lane/clear", response_model=GatewayWorkspaceActionResponseV1)
+    def _workspace_lane_clear(
+        request_payload: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Clear one workspace lane."""
+
+        return _workspace_call(lambda: runtime.clear_workspace_lane(request_payload))
+
     @app.get("/v1/control/tui/state", response_model=HoumaoTerminalStateResponse)
     def _tui_state() -> HoumaoTerminalStateResponse:
         """Serve gateway-owned tracked TUI state."""
@@ -3748,11 +4181,23 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.get_mail_status()
 
-    @app.post("/v1/mail/check", response_model=GatewayMailCheckResponseV1)
-    def _mail_check(request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
-        """Run one shared mailbox check request."""
+    @app.post("/v1/mail/list", response_model=GatewayMailListResponseV1)
+    def _mail_list(request_payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+        """Run one shared mailbox list request."""
 
-        return runtime.check_mail(request_payload)
+        return runtime.list_mail(request_payload)
+
+    @app.post("/v1/mail/peek", response_model=GatewayMailMessageResponseV1)
+    def _mail_peek(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox peek request."""
+
+        return runtime.peek_mail(request_payload)
+
+    @app.post("/v1/mail/read", response_model=GatewayMailMessageResponseV1)
+    def _mail_read(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox read request."""
+
+        return runtime.read_mail(request_payload)
 
     @app.post("/v1/mail/send", response_model=GatewayMailActionResponseV1)
     def _mail_send(request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
@@ -3772,11 +4217,25 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.reply_mail(request_payload)
 
-    @app.post("/v1/mail/state", response_model=GatewayMailStateResponseV1)
-    def _mail_state(request_payload: GatewayMailStateRequestV1) -> GatewayMailStateResponseV1:
-        """Run one shared mailbox state update request."""
+    @app.post("/v1/mail/mark", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_mark(request_payload: GatewayMailMarkRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox mark request."""
 
-        return runtime.update_mail_state(request_payload)
+        return runtime.mark_mail(request_payload)
+
+    @app.post("/v1/mail/move", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_move(request_payload: GatewayMailMoveRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox move request."""
+
+        return runtime.move_mail(request_payload)
+
+    @app.post("/v1/mail/archive", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_archive(
+        request_payload: GatewayMailArchiveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox archive request."""
+
+        return runtime.archive_mail(request_payload)
 
     @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
     def _get_mail_notifier() -> GatewayMailNotifierStatusV1:

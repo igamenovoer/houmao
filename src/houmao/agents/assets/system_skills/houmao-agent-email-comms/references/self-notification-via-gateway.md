@@ -10,4 +10,4 @@ Use the self-mail mode page when a mailbox-enabled managed agent with a live gat
 
 - [../../houmao-adv-usage-pattern/patterns/self-wakeup-via-self-mail.md](../../houmao-adv-usage-pattern/patterns/self-wakeup-via-self-mail.md)
 
-Within that pattern, keep using `houmao-agent-email-comms` only for the ordinary mailbox operations themselves such as `status`, `check`, `send`, `reply`, and `mark-read`.
+Within that pattern, keep using `houmao-agent-email-comms` only for the ordinary mailbox operations themselves such as `status`, `list`, `peek`, `read`, `send`, `reply`, and `archive`.

@@ -124,9 +124,11 @@ _REGISTRATION_SCHEMA_STATEMENTS = (
         registration_id TEXT NOT NULL,
         message_id TEXT NOT NULL,
         is_read INTEGER NOT NULL DEFAULT 0,
+        is_answered INTEGER NOT NULL DEFAULT 0,
         is_starred INTEGER NOT NULL DEFAULT 0,
         is_archived INTEGER NOT NULL DEFAULT 0,
         is_deleted INTEGER NOT NULL DEFAULT 0,
+        box_name TEXT NOT NULL DEFAULT 'inbox',
         PRIMARY KEY (registration_id, message_id),
         FOREIGN KEY (registration_id)
             REFERENCES mailbox_registrations(registration_id)
@@ -156,9 +158,11 @@ _LOCAL_STATE_SCHEMA_STATEMENTS = (
         created_at_utc TEXT NOT NULL,
         subject TEXT NOT NULL,
         is_read INTEGER NOT NULL DEFAULT 0,
+        is_answered INTEGER NOT NULL DEFAULT 0,
         is_starred INTEGER NOT NULL DEFAULT 0,
         is_archived INTEGER NOT NULL DEFAULT 0,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        box_name TEXT NOT NULL DEFAULT 'inbox'
     )
     """,
     """

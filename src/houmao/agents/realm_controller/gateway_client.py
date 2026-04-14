@@ -21,15 +21,19 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayJsonObject,
     GatewayJsonValue,
     GatewayMailActionResponseV1,
-    GatewayMailCheckRequestV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListRequestV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
-    GatewayMailStateRequestV1,
-    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
@@ -41,6 +45,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderPutV1,
     GatewayReminderV1,
     GatewayStatusV1,
+    GatewayWorkspaceActionResponseV1,
+    GatewayWorkspaceFileResponseV1,
+    GatewayWorkspaceFileWriteRequestV1,
+    GatewayWorkspaceLanePathRequestV1,
+    GatewayWorkspaceLaneRequestV1,
+    GatewayWorkspaceMemoResponseV1,
+    GatewayWorkspaceMemoWriteRequestV1,
+    GatewayWorkspaceSummaryV1,
+    GatewayWorkspaceTreeRequestV1,
+    GatewayWorkspaceTreeResponseV1,
 )
 from houmao.server.models import (
     HoumaoTerminalSnapshotHistoryResponse,
@@ -93,18 +107,152 @@ class GatewayClient:
 
         return self._request_model("GET", "/v1/status", GatewayStatusV1)
 
+    def workspace(self) -> GatewayWorkspaceSummaryV1:
+        """Call `GET /v1/workspace`."""
+
+        return self._request_model("GET", "/v1/workspace", GatewayWorkspaceSummaryV1)
+
+    def read_workspace_memo(self) -> GatewayWorkspaceMemoResponseV1:
+        """Call `GET /v1/workspace/memo`."""
+
+        return self._request_model("GET", "/v1/workspace/memo", GatewayWorkspaceMemoResponseV1)
+
+    def write_workspace_memo(
+        self,
+        payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Call `PUT /v1/workspace/memo`."""
+
+        return self._request_model(
+            "PUT",
+            "/v1/workspace/memo",
+            GatewayWorkspaceMemoResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def append_workspace_memo(
+        self,
+        payload: GatewayWorkspaceMemoWriteRequestV1,
+    ) -> GatewayWorkspaceMemoResponseV1:
+        """Call `POST /v1/workspace/memo/append`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/workspace/memo/append",
+            GatewayWorkspaceMemoResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def list_workspace_tree(
+        self,
+        payload: GatewayWorkspaceTreeRequestV1,
+    ) -> GatewayWorkspaceTreeResponseV1:
+        """Call `POST /v1/workspace/lane/tree`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/workspace/lane/tree",
+            GatewayWorkspaceTreeResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def read_workspace_file(
+        self,
+        payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceFileResponseV1:
+        """Call `POST /v1/workspace/lane/read`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/workspace/lane/read",
+            GatewayWorkspaceFileResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def write_workspace_file(
+        self,
+        payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /v1/workspace/lane/write`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/workspace/lane/write",
+            GatewayWorkspaceActionResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def append_workspace_file(
+        self,
+        payload: GatewayWorkspaceFileWriteRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /v1/workspace/lane/append`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/workspace/lane/append",
+            GatewayWorkspaceActionResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def delete_workspace_path(
+        self,
+        payload: GatewayWorkspaceLanePathRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /v1/workspace/lane/delete`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/workspace/lane/delete",
+            GatewayWorkspaceActionResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def clear_workspace_lane(
+        self,
+        payload: GatewayWorkspaceLaneRequestV1,
+    ) -> GatewayWorkspaceActionResponseV1:
+        """Call `POST /v1/workspace/lane/clear`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/workspace/lane/clear",
+            GatewayWorkspaceActionResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
     def mail_status(self) -> GatewayMailStatusV1:
         """Call `GET /v1/mail/status`."""
 
         return self._request_model("GET", "/v1/mail/status", GatewayMailStatusV1)
 
-    def check_mail(self, payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
-        """Call `POST /v1/mail/check`."""
+    def list_mail(self, payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+        """Call `POST /v1/mail/list`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/check",
-            GatewayMailCheckResponseV1,
+            "/v1/mail/list",
+            GatewayMailListResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def peek_mail(self, payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Call `POST /v1/mail/peek`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/peek",
+            GatewayMailMessageResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def read_mail(self, payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Call `POST /v1/mail/read`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/read",
+            GatewayMailMessageResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
@@ -138,13 +286,33 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
-    def update_mail_state(self, payload: GatewayMailStateRequestV1) -> GatewayMailStateResponseV1:
-        """Call `POST /v1/mail/state`."""
+    def mark_mail(self, payload: GatewayMailMarkRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Call `POST /v1/mail/mark`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/state",
-            GatewayMailStateResponseV1,
+            "/v1/mail/mark",
+            GatewayMailLifecycleResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def move_mail(self, payload: GatewayMailMoveRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Call `POST /v1/mail/move`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/move",
+            GatewayMailLifecycleResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def archive_mail(self, payload: GatewayMailArchiveRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Call `POST /v1/mail/archive`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/archive",
+            GatewayMailLifecycleResponseV1,
             body=payload.model_dump(mode="json"),
         )
 

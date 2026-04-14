@@ -37,46 +37,42 @@ The default per-user shared Houmao root that remains global SHALL be:
 For maintained local project-aware command flows, the default overlay-owned roots SHALL be:
 - runtime root: `<active-overlay>/runtime`
 - mailbox root: `<active-overlay>/mailbox`
-- jobs root base: `<active-overlay>/jobs`
+- agent workspace root family: `<active-overlay>/memory/agents/<agent-id>/`
 - easy root: `<active-overlay>/easy`
 
-For each started session in project-aware local command flows, the default per-agent job dir SHALL be derived as:
-- `<active-overlay>/jobs/<session-id>/`
+For each tmux-backed managed agent, the default workspace lanes SHALL be derived as:
+- memo file: `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`
+- scratch lane: `<active-overlay>/memory/agents/<agent-id>/scratch/`
+- persist lane: `<active-overlay>/memory/agents/<agent-id>/persist/` when persistence is enabled
 
-The system SHALL continue to support stronger override surfaces for those locations:
-- explicit CLI/config override where supported,
-- existing env-var overrides such as `HOUMAO_GLOBAL_REGISTRY_DIR`, `HOUMAO_GLOBAL_RUNTIME_DIR`, `HOUMAO_GLOBAL_MAILBOX_DIR`, and `HOUMAO_LOCAL_JOBS_DIR`.
+The system SHALL NOT derive current managed-agent scratch state from `<active-overlay>/jobs/<session-id>/`.
+
+The system SHALL continue to support stronger override surfaces for global registry, runtime, mailbox, and exact persist locations where supported.
 
 When both an explicit CLI/config override and an env-var override exist for the same effective location, the explicit override SHALL win.
 When no explicit override exists but a supported env-var override is set, the env-var override SHALL win.
 When neither explicit override nor env-var override is supplied for a maintained local project-aware flow, the system SHALL use the overlay-derived defaults above.
-For this change, the overlay-owned `runtime/`, `jobs/`, `mailbox/`, and `easy/` paths SHALL remain convention-derived subpaths of the active overlay rather than new configurable `houmao-config.toml` path keys.
 
-#### Scenario: Project-aware local roots resolve under the active overlay
+#### Scenario: Project-aware local roots resolve workspace lanes under the active overlay
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** a maintained local Houmao launch or build flow starts without stronger root overrides
+- **AND WHEN** a maintained local Houmao launch flow starts managed agent id `researcher-id` without stronger root overrides
 - **THEN** the effective runtime root is `/repo/.houmao/runtime`
 - **AND THEN** the effective mailbox root is `/repo/.houmao/mailbox`
-- **AND THEN** the effective job-dir base is `/repo/.houmao/jobs`
+- **AND THEN** the effective memo file is `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
+- **AND THEN** the effective scratch lane is `/repo/.houmao/memory/agents/researcher-id/scratch`
+- **AND THEN** the effective persist lane is `/repo/.houmao/memory/agents/researcher-id/persist` when persistence is enabled
 
 #### Scenario: Shared registry remains under the user home by default
 - **WHEN** an operator runs maintained local Houmao commands in project context without a registry override
 - **THEN** the effective shared registry root remains under `~/.houmao/registry`
 - **AND THEN** the command does not relocate the registry under the active project overlay by default
 
-#### Scenario: Jobs root env override still relocates per-session job dirs
-- **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** `HOUMAO_LOCAL_JOBS_DIR` is set to `/tmp/houmao-jobs`
-- **AND WHEN** no stronger explicit jobs-root override exists
-- **THEN** the effective job dir for a started session is derived under `/tmp/houmao-jobs/<session-id>/`
-- **AND THEN** the overlay-local jobs default is not used for that session
-
 #### Scenario: Custom project agent-definition path does not change the fixed overlay-owned runtime family
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
 - **AND WHEN** `/repo/.houmao/houmao-config.toml` sets `paths.agent_def_dir = "custom-agents"`
-- **AND WHEN** a maintained local Houmao launch or build flow starts without stronger root overrides
+- **AND WHEN** a maintained local Houmao launch flow starts managed agent id `researcher-id` without stronger root overrides
 - **THEN** the effective runtime root remains `/repo/.houmao/runtime`
-- **AND THEN** the effective mailbox root, jobs root base, and easy root remain `/repo/.houmao/mailbox`, `/repo/.houmao/jobs`, and `/repo/.houmao/easy`
+- **AND THEN** the effective mailbox root, workspace root family, and easy root remain `/repo/.houmao/mailbox`, `/repo/.houmao/memory/agents/researcher-id`, and `/repo/.houmao/easy`
 
 ### Requirement: Houmao-owned directory layout does not require family-based agent bucketing
 The system SHALL NOT require Houmao-owned directory hierarchy to encode agent grouping through tool names, family names, or other taxonomy buckets in order to associate runtime-owned state with one agent.
@@ -117,33 +113,27 @@ At minimum:
 - the registry root SHALL contain discovery-oriented metadata only,
 - the runtime root SHALL contain durable Houmao-managed runtime and launcher state,
 - the mailbox root SHALL contain shared mailbox transport state,
-- the per-agent job dir SHALL contain session-local logs, outputs, temporary files, and destructive scratch work for one started session.
+- the per-agent workspace memo file SHALL contain live-agent instruction and loop initialization state,
+- the per-agent workspace scratch lane SHALL contain temporary files, transient outputs, retry ledgers, and destructive scratch work,
+- the per-agent workspace persist lane SHALL contain durable agent memory when persistence is enabled.
 
 Mutable runtime session state, launcher-managed CAO home state, task-specific logs or outputs, and mailbox contents MUST NOT be relocated into the shared registry root as part of this directory model.
 
-Mailbox state MUST remain independently relocatable and MUST NOT be implicitly nested under the runtime root or a per-agent job dir just because those other zones exist.
+Mailbox state MUST remain independently relocatable and MUST NOT be implicitly nested under the runtime root or a per-agent workspace lane just because those other zones exist.
 
 #### Scenario: Registry root is not used as mutable CAO or runtime storage
 - **WHEN** the system publishes live-agent discovery metadata and also starts a launcher-managed CAO service
 - **THEN** the shared registry contains only registry-owned discovery records
 - **AND THEN** launcher-managed CAO home state and durable runtime session state are stored outside the registry root
 
-#### Scenario: Job dir does not replace shared mailbox or durable runtime state
-- **WHEN** a started session writes session-local scratch files while also using mailbox support and runtime-managed manifest persistence
-- **THEN** scratch files and temporary outputs live under that session's per-agent job dir
+#### Scenario: Scratch lane does not replace shared mailbox or durable runtime state
+- **WHEN** a started session writes scratch files while also using mailbox support and runtime-managed manifest persistence
+- **THEN** scratch files and temporary outputs live under that agent's scratch lane
 - **AND THEN** mailbox content and durable runtime session state remain in their own independent zones
 
-### Requirement: Workspace-local scratch behavior is manual-cleanup and documentation-guided in this change
-For this change, the system SHALL treat default project-aware job dirs as manually managed scratch space rather than auto-cleaned runtime state.
-
-The default project-aware job-dir family SHALL live under the active overlay as `<active-overlay>/jobs/`.
-
-The system SHALL NOT require auto-generated nested `.gitignore` files under `<active-overlay>/jobs/` as part of this change.
-
-Reference docs for this change SHALL describe overlay-local `jobs/` as local scratch/runtime state that remains operator-managed for cleanup even though it now lives under the active project overlay by default.
-
-#### Scenario: Stop-session leaves the overlay-local job dir in place
-- **WHEN** a developer stops a session that used the default project-aware job dir under `<active-overlay>/jobs/<session-id>/`
-- **THEN** the runtime leaves that job dir in place in this version
-- **AND THEN** cleanup of that scratch directory remains a manual operator action
+#### Scenario: Memo file stays separate from scratch and persist lanes
+- **WHEN** a loop initialization records live-agent rules for managed agent `researcher`
+- **THEN** the rules live in `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
+- **AND THEN** temporary outputs remain in the scratch lane
+- **AND THEN** durable archive notes remain in the persist lane when persistence is enabled
 

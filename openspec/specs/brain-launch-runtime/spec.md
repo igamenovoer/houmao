@@ -785,38 +785,6 @@ When runtime-controlled logic needs to recover the true canonical agent name or 
 - **THEN** it reads persisted manifest metadata or shared-registry publication to recover canonical agent name and authoritative `agent_id`
 - **AND THEN** it does not assume the tmux session name itself equals the canonical agent name
 
-### Requirement: Runtime creates and reuses a per-agent job dir for each started session
-For maintained local launch flows operating in project context, the runtime SHALL derive the default per-agent job dir from the active project overlay as:
-
-- `<active-overlay>/jobs/<session-id>/`
-
-When an explicit jobs-root override exists, that explicit override SHALL win.
-When `HOUMAO_LOCAL_JOBS_DIR` is set and no stronger explicit jobs-root override exists, that env-var override SHALL win.
-Maintained local launch boundaries SHALL resolve the effective jobs root before session startup and pass an explicit jobs-root or already resolved job dir into that startup path rather than relying on the caller's working directory as the implicit jobs anchor.
-
-The runtime SHALL persist the resolved job dir in the session manifest and publish it to the launched session environment as `HOUMAO_JOB_DIR`.
-
-#### Scenario: Project-context session derives its job dir under the overlay
-- **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** the runtime starts a session with generated session id `session-20260314-120000Z-abcd1234`
-- **AND WHEN** no stronger jobs-root override exists
-- **THEN** the effective job dir is `/repo/.houmao/jobs/session-20260314-120000Z-abcd1234/`
-- **AND THEN** the session manifest records that resolved path as `job_dir`
-
-#### Scenario: Jobs env override still relocates the per-session job dir
-- **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** `HOUMAO_LOCAL_JOBS_DIR=/tmp/houmao-jobs`
-- **AND WHEN** the runtime starts a session with generated session id `session-20260314-120000Z-abcd1234`
-- **THEN** the effective job dir is `/tmp/houmao-jobs/session-20260314-120000Z-abcd1234/`
-- **AND THEN** the overlay-local jobs default is not used for that session
-
-#### Scenario: Project-aware launch resolves jobs placement before session startup
-- **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** an operator starts a maintained local launch flow from working directory `/repo/subdir`
-- **AND WHEN** no stronger jobs-root override exists
-- **THEN** the launch boundary passes `/repo/.houmao/jobs` or the fully resolved `/repo/.houmao/jobs/<session-id>/` into session startup
-- **AND THEN** the session does not derive its default job dir from `/repo/subdir/.houmao/jobs`
-
 ### Requirement: Runtime-generated manifests/configs are schema-validated
 The system SHALL schema-validate all runtime-generated structured manifest/config artifacts on write and on read/load.
 
@@ -2842,53 +2810,52 @@ For older manifests that do not persist `houmao_system_prompt_layout`, relaunch 
 - **THEN** relaunch still succeeds using the maintained fallback prompt-resolution behavior
 - **AND THEN** the runtime does not require retroactive layout metadata in order to relaunch that session
 
-### Requirement: Managed runtime launch, join, and relaunch preserve resolved memory binding
-For tmux-backed managed sessions, the runtime SHALL resolve the session's effective memory binding before publishing the session as live.
+### Requirement: Runtime resolves managed workspace lanes before session publication
+For tmux-backed managed sessions, the runtime SHALL resolve workspace root, memo file, scratch lane, persist binding, and optional persist lane before publishing the session as live.
 
-That resolved memory binding SHALL be preserved for:
+That resolved workspace state SHALL be preserved for native managed launch, managed join of an existing tmux-backed session, and managed relaunch of an existing runtime-owned tmux-backed session.
 
-- native managed launch,
-- managed join of an existing tmux-backed session,
-- managed relaunch of an existing runtime-owned tmux-backed session.
+When workspace state resolves in the default mode, the runtime SHALL derive the workspace root from the selected active overlay and authoritative `agent-id` rather than from `session-id` or runtime workdir.
 
-When a session resolves memory in `auto` mode, the runtime SHALL derive the default path from the selected active overlay and authoritative `agent-id` rather than from `session-id` or runtime workdir.
+#### Scenario: Native managed launch persists the overlay-local workspace
+- **WHEN** a native tmux-backed managed launch selects overlay `/repo/.houmao` for agent id `researcher-id`
+- **THEN** the runtime resolves workspace root `/repo/.houmao/memory/agents/researcher-id/`
+- **AND THEN** it resolves memo file `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
+- **AND THEN** it resolves scratch lane `/repo/.houmao/memory/agents/researcher-id/scratch/`
+- **AND THEN** it persists that resolved workspace state before publishing the live session
 
-When a runtime-owned managed session is relaunched, the relaunch flow SHALL reuse the manifest-persisted resolved memory binding for that managed agent unless a stronger supported relaunch override is introduced by a later change.
+#### Scenario: Managed join persists workspace lanes for the adopted session
+- **WHEN** an operator joins an existing tmux-backed session for agent id `reviewer-id`
+- **AND WHEN** the active overlay is `/repo/.houmao`
+- **THEN** the join runtime persists workspace root `/repo/.houmao/memory/agents/reviewer-id/`
+- **AND THEN** the join runtime persists memo file `/repo/.houmao/memory/agents/reviewer-id/houmao-memo.md`
+- **AND THEN** later managed inspection and control use that persisted workspace state rather than recomputing a different default
 
-#### Scenario: Native managed launch persists the overlay-local auto memory binding
-- **WHEN** a native tmux-backed managed launch selects overlay `/repo/.houmao` for agent `researcher`
-- **AND WHEN** that launch does not receive `--memory-dir` or `--no-memory-dir`
-- **THEN** the runtime resolves memory binding to `/repo/.houmao/memory/agents/researcher/`
-- **AND THEN** it persists that resolved binding before publishing the live session
-
-#### Scenario: Managed join persists one explicit memory binding for the adopted session
-- **WHEN** an operator joins an existing tmux-backed session with `--memory-dir /shared/reviewer`
-- **THEN** the join runtime persists `/shared/reviewer` as the adopted session's resolved memory binding
-- **AND THEN** later managed inspection and control use that persisted binding rather than recomputing a different default
-
-#### Scenario: Relaunch preserves the previously resolved memory binding
-- **WHEN** managed agent `researcher` already has manifest-persisted resolved memory directory `/repo/.houmao/memory/agents/researcher/`
+#### Scenario: Relaunch preserves the previously resolved workspace
+- **WHEN** managed agent `researcher` already has manifest-persisted workspace root `/repo/.houmao/memory/agents/researcher-id/`
 - **AND WHEN** an operator relaunches that managed agent through the supported relaunch surface
-- **THEN** the relaunched session reuses `/repo/.houmao/memory/agents/researcher/` as its resolved memory binding
-- **AND THEN** relaunch does not derive a different default memory directory from the new session id
+- **THEN** the relaunched session reuses the manifest-persisted workspace root, memo file, and lanes
+- **AND THEN** relaunch does not derive a scratch directory from the new session id
 
-### Requirement: Managed runtime publishes resolved memory binding through manifest-backed state and environment
-For tmux-backed managed sessions, the runtime SHALL persist the resolved memory binding as session-owned runtime metadata.
+### Requirement: Runtime publishes workspace lanes through manifest-backed state and environment
+For tmux-backed managed sessions, the runtime SHALL persist workspace root, memo file, scratch lane, persist binding, and optional persist lane as session-owned runtime metadata.
 
-When memory is enabled, that runtime metadata SHALL store the resolved absolute directory path.
+The runtime SHALL publish `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_SCRATCH_DIR` into the live session environment before provider startup completes.
 
-When memory is disabled, that runtime metadata SHALL store that disabled result without inventing a placeholder path.
+When persistence is enabled, the runtime SHALL publish `HOUMAO_AGENT_PERSIST_DIR` into the live session environment.
 
-When memory is enabled, the runtime SHALL publish `HOUMAO_MEMORY_DIR` into the live tmux session environment before provider startup completes.
+When persistence is disabled, the runtime SHALL omit `HOUMAO_AGENT_PERSIST_DIR`.
 
-When memory is disabled, the runtime SHALL omit `HOUMAO_MEMORY_DIR` from the live tmux session environment.
+#### Scenario: Runtime manifest records workspace lanes
+- **WHEN** a tmux-backed managed runtime resolves workspace root `/repo/.houmao/memory/agents/researcher-id/`
+- **THEN** the session-owned runtime metadata stores that workspace root as an absolute path
+- **AND THEN** it stores the memo file as an absolute path
+- **AND THEN** it stores the scratch lane as an absolute path
+- **AND THEN** it stores the persist binding and persist path when persistence is enabled
 
-#### Scenario: Enabled managed runtime publishes the resolved memory directory
-- **WHEN** a tmux-backed managed runtime resolves memory directory `/repo/.houmao/memory/agents/researcher/`
-- **THEN** the session-owned runtime metadata stores `/repo/.houmao/memory/agents/researcher/` as an absolute path
-- **AND THEN** the live tmux session environment contains `HOUMAO_MEMORY_DIR=/repo/.houmao/memory/agents/researcher/`
-
-#### Scenario: Disabled managed runtime omits the memory env var
-- **WHEN** a tmux-backed managed runtime resolves memory binding as disabled
-- **THEN** the session-owned runtime metadata records that disabled state
-- **AND THEN** the live tmux session environment does not contain `HOUMAO_MEMORY_DIR`
+#### Scenario: Runtime environment publishes new workspace variables
+- **WHEN** a tmux-backed managed runtime resolves scratch lane `/repo/.houmao/memory/agents/researcher-id/scratch/`
+- **THEN** the live tmux session environment contains `HOUMAO_AGENT_STATE_DIR`
+- **AND THEN** the live tmux session environment contains `HOUMAO_AGENT_MEMO_FILE`
+- **AND THEN** the live tmux session environment contains `HOUMAO_AGENT_SCRATCH_DIR`
+- **AND THEN** the live tmux session environment does not contain `HOUMAO_JOB_DIR`

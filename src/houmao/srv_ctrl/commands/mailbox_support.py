@@ -24,11 +24,16 @@ from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
     MailboxCleanupRecord,
     MailboxCleanupResult,
+    MailboxExportRequest,
+    MailboxExportResult,
+    MailboxMessageClearResult,
     ManagedMailboxOperationError,
     RegisterMailboxRequest,
     RepairRequest,
+    clear_mailbox_messages,
     cleanup_mailbox_registrations,
     deregister_mailbox,
+    export_mailbox_archive,
     register_mailbox,
     repair_mailbox_index,
 )
@@ -205,6 +210,53 @@ def cleanup_mailbox_root(
         inactive_older_than_seconds=inactive_older_than_seconds,
         stashed_older_than_seconds=stashed_older_than_seconds,
     )
+
+
+def clear_mailbox_messages_at_root(
+    *,
+    mailbox_root: Path,
+    dry_run: bool,
+) -> dict[str, object]:
+    """Clear delivered messages from one mailbox root without deleting accounts."""
+
+    result = clear_mailbox_messages(
+        mailbox_root.resolve(),
+        dry_run=dry_run,
+    )
+    return _mailbox_message_clear_payload(result=result)
+
+
+def export_mailbox_root(
+    *,
+    mailbox_root: Path,
+    output_dir: Path,
+    all_accounts: bool,
+    addresses: tuple[str, ...],
+    symlink_mode: str,
+) -> dict[str, object]:
+    """Export selected mailbox state from one root into an archive directory."""
+
+    if all_accounts and addresses:
+        raise click.ClickException(
+            "Choose either `--all-accounts` or one or more `--address` values, not both."
+        )
+    if not all_accounts and not addresses:
+        raise click.ClickException(
+            "Choose `--all-accounts` or one or more `--address` values for mailbox export."
+        )
+    try:
+        request = MailboxExportRequest.from_payload(
+            {
+                "output_dir": str(output_dir),
+                "all_accounts": all_accounts,
+                "addresses": list(addresses),
+                "symlink_mode": symlink_mode,
+            }
+        )
+        result = export_mailbox_archive(mailbox_root.resolve(), request)
+    except ManagedMailboxOperationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return _mailbox_export_payload(result=result)
 
 
 def list_mailbox_accounts(*, mailbox_root: Path) -> dict[str, object]:
@@ -596,6 +648,65 @@ def _mailbox_cleanup_payload(
     )
 
 
+def _mailbox_message_clear_payload(
+    *,
+    result: MailboxMessageClearResult,
+) -> dict[str, object]:
+    """Return the structured CLI payload for delivered-message clearing."""
+
+    planned_actions: list[CleanupAction] = []
+    applied_actions: list[CleanupAction] = []
+    blocked_actions: list[CleanupAction] = []
+    preserved_actions: list[CleanupAction] = []
+
+    for record in result.planned:
+        planned_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.removed:
+        applied_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.blocked:
+        blocked_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.preserved:
+        preserved_actions.append(_cleanup_action_from_mailbox_record(record))
+
+    return build_cleanup_payload(
+        dry_run=result.dry_run,
+        scope={
+            "kind": "mailbox_message_clear",
+            "mailbox_root": str(result.mailbox_root),
+        },
+        resolution={"authority": "mailbox_root"},
+        planned_actions=planned_actions,
+        applied_actions=applied_actions,
+        blocked_actions=blocked_actions,
+        preserved_actions=preserved_actions,
+    )
+
+
+def _mailbox_export_payload(
+    *,
+    result: MailboxExportResult,
+) -> dict[str, object]:
+    """Return the structured CLI payload for mailbox archive export."""
+
+    return {
+        "schema_version": 1,
+        "mailbox_root": str(result.mailbox_root),
+        "output_dir": str(result.output_dir),
+        "symlink_mode": result.symlink_mode,
+        "all_accounts": result.all_accounts,
+        "selected_addresses": list(result.selected_addresses),
+        "account_count": result.account_count,
+        "message_count": result.message_count,
+        "attachment_count": result.attachment_count,
+        "manifest_path": str(result.manifest_path),
+        "copied_artifacts": [record.to_payload() for record in result.copied],
+        "materialized_artifacts": [record.to_payload() for record in result.materialized],
+        "preserved_symlinks": [record.to_payload() for record in result.preserved_symlinks],
+        "skipped_artifacts": [record.to_payload() for record in result.skipped],
+        "blocked_artifacts": [record.to_payload() for record in result.blocked],
+    }
+
+
 def _cleanup_action_from_mailbox_record(record: MailboxCleanupRecord) -> CleanupAction:
     """Translate one mailbox cleanup record into the shared cleanup payload shape."""
 
@@ -606,6 +717,10 @@ def _cleanup_action_from_mailbox_record(record: MailboxCleanupRecord) -> Cleanup
         details["registration_id"] = record.registration_id
     if record.registration_status is not None:
         details["registration_status"] = record.registration_status
+    if record.message_id is not None:
+        details["message_id"] = record.message_id
+    if record.attachment_id is not None:
+        details["attachment_id"] = record.attachment_id
     return CleanupAction(
         artifact_kind=record.artifact_kind,
         path=record.path,

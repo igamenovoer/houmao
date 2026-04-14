@@ -14,12 +14,28 @@ Then use curl:
 curl -sS "$GATEWAY_BASE_URL/v1/mail/status"
 ```
 
-## Check unread
+## List unread
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/check" \
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/list" \
   -H 'content-type: application/json' \
-  --data '{"schema_version":1,"unread_only":true,"limit":10}'
+  --data '{"schema_version":1,"box":"inbox","read_state":"unread","answered_state":"any","archived":false,"limit":10}'
+```
+
+## Peek
+
+```bash
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/peek" \
+  -H 'content-type: application/json' \
+  --data '{"schema_version":1,"message_ref":"<opaque message_ref>"}'
+```
+
+## Read
+
+```bash
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/read" \
+  -H 'content-type: application/json' \
+  --data '{"schema_version":1,"message_ref":"<opaque message_ref>"}'
 ```
 
 ## Send
@@ -35,7 +51,7 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/send" \
 ```bash
 curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/post" \
   -H 'content-type: application/json' \
-  --data '{"schema_version":1,"subject":"...","body_content":"...","reply_policy":"none","attachments":[]}'
+  --data '{"schema_version":1,"subject":"...","body_content":"...","attachments":[]}'
 ```
 
 ## Reply
@@ -46,10 +62,10 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/reply" \
   --data '{"schema_version":1,"message_ref":"<opaque message_ref>","body_content":"...","attachments":[]}'
 ```
 
-## Mark read
+## Archive processed mail
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/state" \
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/archive" \
   -H 'content-type: application/json' \
-  --data '{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}'
+  --data '{"schema_version":1,"message_refs":["<opaque message_ref>"]}'
 ```

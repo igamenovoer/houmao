@@ -32,8 +32,19 @@ from .backends.shadow_parser_core import DialogProjection
 from .errors import BackendExecutionError, MailboxCommandError, MailboxResultParseError
 from .models import LaunchPlan, SessionEvent
 
-MailOperation = Literal["check", "send", "reply", "mark-read"]
-MailCommandOperation = Literal["status", "check", "send", "post", "reply", "mark-read"]
+MailOperation = Literal["list", "send", "reply", "mark", "move", "archive"]
+MailCommandOperation = Literal[
+    "status",
+    "list",
+    "peek",
+    "read",
+    "send",
+    "post",
+    "reply",
+    "mark",
+    "move",
+    "archive",
+]
 MailExecutionPath = Literal["manager_direct", "gateway_backed", "tui_submission"]
 MailSubmissionStatus = Literal["submitted", "rejected", "busy", "interrupted", "tui_error"]
 
@@ -324,7 +335,7 @@ def _mail_prompt_instruction_lines(
             "Use only the structured fields returned by that helper. Do not guess sender "
             "identity or mailbox endpoints, and do not scrape tmux state directly."
         ),
-        "Only mark messages read after the message has actually been processed successfully.",
+        "Archive messages after the message has actually been processed successfully.",
     ]
     if prefer_live_gateway:
         lines.append(
@@ -337,7 +348,7 @@ def _mail_prompt_instruction_lines(
                 "Inspect the shared mailbox `rules/` directory first for mailbox-local policy guidance.",
                 (
                     "Treat shared `rules/` content as policy guidance, not as the ordinary public "
-                    "execution contract for send, reply, check, or mark-read workflows."
+                    "execution contract for send, reply, list, mark, move, or archive workflows."
                 ),
             ]
         )
@@ -401,10 +412,17 @@ def _mail_result_contract_template(
         payload["recipient_count"] = 1
     elif operation == "reply":
         payload["message_id"] = "msg-YYYYMMDDTHHMMSSZ-<uuid4-no-dashes>"
-    elif operation == "mark-read":
-        payload["message_ref"] = "<opaque message_ref>"
+    elif operation == "mark":
+        payload["message_refs"] = ["<opaque message_ref>"]
         payload["read"] = True
-    elif operation == "check":
+        payload["answered"] = True
+        payload["archived"] = False
+    elif operation == "move":
+        payload["message_refs"] = ["<opaque message_ref>"]
+        payload["destination_box"] = "archive"
+    elif operation == "archive":
+        payload["message_refs"] = ["<opaque message_ref>"]
+    elif operation == "list":
         payload["message_count"] = 0
         payload["messages"] = []
     return payload
@@ -921,7 +939,7 @@ def _verification_paths_for_mailbox(mailbox: MailboxResolvedConfig) -> list[str]
     """Return generic follow-up verification guidance for one submission-only result."""
 
     paths = [
-        "Use manager-owned follow-up such as `houmao-mgr agents mail status` or `houmao-mgr agents mail check` when that authority is available.",
+        "Use manager-owned follow-up such as `houmao-mgr agents mail status` or `houmao-mgr agents mail list` when that authority is available.",
     ]
     if mailbox.transport == "filesystem":
         paths.append(

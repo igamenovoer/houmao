@@ -132,8 +132,8 @@ Common optional inputs:
 - `--agent-id`
 - `--workdir`
 - `--auth`
-- `--memory-dir`
-- `--no-memory-dir`
+- `--persist-dir`
+- `--no-persist-dir`
 - `--model`
 - `--reasoning-level`
 - `--prompt-mode unattended|as_is`
@@ -160,7 +160,7 @@ Common clear inputs for `profile set`:
 - `--clear-agent-id`
 - `--clear-workdir`
 - `--clear-auth`
-- `--clear-memory-dir`
+- `--clear-persist-dir`
 - `--clear-model`
 - `--clear-reasoning-level`
 - `--clear-prompt-mode`

@@ -397,11 +397,19 @@ def _build_parser() -> argparse.ArgumentParser:
     mail = subparsers.add_parser("mail", help="Run mailbox operations against a resumed session")
     mail_subparsers = mail.add_subparsers(dest="mail_command")
 
-    mail_check = mail_subparsers.add_parser("check", help="Ask a session to check its mailbox")
-    _add_mail_common_args(mail_check)
-    mail_check.add_argument("--unread-only", action="store_true")
-    mail_check.add_argument("--limit", type=int)
-    mail_check.add_argument("--since", help="Optional RFC3339 lower bound")
+    mail_list = mail_subparsers.add_parser("list", help="Ask a session to list its mailbox")
+    _add_mail_common_args(mail_list)
+    mail_list.add_argument("--box", default="inbox")
+    mail_list.add_argument("--read-state", choices=["any", "read", "unread"], default="any")
+    mail_list.add_argument(
+        "--answered-state",
+        choices=["any", "answered", "unanswered"],
+        default="any",
+    )
+    mail_list.add_argument("--archived", action="store_true", default=None)
+    mail_list.add_argument("--not-archived", action="store_false", dest="archived")
+    mail_list.add_argument("--limit", type=int)
+    mail_list.add_argument("--since", help="Optional RFC3339 lower bound")
 
     mail_send = mail_subparsers.add_parser("send", help="Ask a session to send mailbox content")
     _add_mail_common_args(mail_send)
@@ -421,7 +429,7 @@ def _build_parser() -> argparse.ArgumentParser:
     reply_target_group.add_argument(
         "--message-ref",
         dest="message_ref",
-        help="Opaque message reference from shared mailbox check results",
+        help="Opaque message reference from shared mailbox list results",
     )
     reply_target_group.add_argument(
         "--message-id",
@@ -591,9 +599,21 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     tmux_session_name = getattr(controller, "tmux_session_name", None)
     if tmux_session_name is not None:
         payload["tmux_session_name"] = tmux_session_name
-    job_dir = getattr(controller, "job_dir", None)
-    if job_dir is not None:
-        payload["job_dir"] = str(job_dir)
+    workspace_root = getattr(controller, "workspace_root", None)
+    if workspace_root is not None:
+        payload["workspace_root"] = str(workspace_root)
+    memo_file = getattr(controller, "memo_file", None)
+    if memo_file is not None:
+        payload["memo_file"] = str(memo_file)
+    scratch_dir = getattr(controller, "scratch_dir", None)
+    if scratch_dir is not None:
+        payload["scratch_dir"] = str(scratch_dir)
+    persist_binding = getattr(controller, "persist_binding", None)
+    if persist_binding is not None:
+        payload["persist_binding"] = persist_binding
+    persist_dir = getattr(controller, "persist_dir", None)
+    if persist_dir is not None:
+        payload["persist_dir"] = str(persist_dir)
     parsing_mode = getattr(controller, "parsing_mode", None)
     if parsing_mode is not None:
         payload["parsing_mode"] = parsing_mode
@@ -839,7 +859,7 @@ def _cmd_cleanup_registry(args: argparse.Namespace) -> int:
 
 def _cmd_mail(args: argparse.Namespace) -> int:
     if args.mail_command is None:
-        raise BrainLaunchRuntimeError("mail requires a subcommand: check, send, or reply.")
+        raise BrainLaunchRuntimeError("mail requires a subcommand: list, send, or reply.")
 
     cwd = Path.cwd().resolve()
     agent_def_dir, resolved = _resolve_control_target(
@@ -998,10 +1018,13 @@ def _add_cao_parsing_mode_arg(parser: argparse.ArgumentParser) -> None:
 
 
 def _mail_args_from_cli(args: argparse.Namespace, *, cwd: Path) -> dict[str, object]:
-    if args.mail_command == "check":
+    if args.mail_command == "list":
         payload: dict[str, object] = {}
-        if bool(args.unread_only):
-            payload["unread_only"] = True
+        payload["box"] = str(args.box)
+        payload["read_state"] = str(args.read_state)
+        payload["answered_state"] = str(args.answered_state)
+        if args.archived is not None:
+            payload["archived"] = bool(args.archived)
         if args.limit is not None:
             payload["limit"] = int(args.limit)
         if args.since is not None:

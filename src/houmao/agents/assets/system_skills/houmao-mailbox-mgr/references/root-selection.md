@@ -18,4 +18,4 @@ Use this reference when the mailbox-admin task could land on more than one maint
 
 - Root lifecycle and account lifecycle belong to `mailbox` or `project mailbox`.
 - Actor-scoped mailbox participation belongs to `houmao-agent-email-comms`.
-- Notifier-driven unread-email rounds belong to `houmao-process-emails-via-gateway`.
+- Notifier-driven open-mail rounds belong to `houmao-process-emails-via-gateway`.

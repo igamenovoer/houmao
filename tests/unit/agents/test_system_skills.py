@@ -793,6 +793,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_setup_path = touring_branches / "setup-project-and-mailbox.md"
     touring_author_launch_path = touring_branches / "author-and-launch.md"
     touring_live_ops_path = touring_branches / "live-operations.md"
+    touring_advanced_usage_path = touring_branches / "advanced-usage.md"
     touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
     touring_question_style_path = touring_references / "question-style.md"
     stable_pairwise_loop_formulate_path = stable_pairwise_loop_authoring / "formulate-loop-plan.md"
@@ -833,6 +834,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     relay_loop_bundle_template_path = relay_loop_templates / "bundle-plan.md"
     mailbox_init_action_path = mailbox_mgr_actions / "init.md"
     mailbox_register_action_path = mailbox_mgr_actions / "register.md"
+    mailbox_clear_messages_action_path = mailbox_mgr_actions / "clear-messages.md"
+    mailbox_export_action_path = mailbox_mgr_actions / "export.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
     mailbox_agent_binding_register_action_path = mailbox_mgr_actions / "agent-binding-register.md"
     mailbox_root_reference_path = mailbox_mgr_references / "root-selection.md"
@@ -840,6 +843,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
     mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
+    mailbox_export_action = mailbox_export_action_path.read_text(encoding="utf-8")
     touring_setup = touring_setup_path.read_text(encoding="utf-8")
     discover_action = discover_action_path.read_text(encoding="utf-8")
     interrupt_action = interrupt_action_path.read_text(encoding="utf-8")
@@ -850,6 +854,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
     gateway_lifecycle_action = gateway_lifecycle_action_path.read_text(encoding="utf-8")
     gateway_reminders_action = gateway_reminders_action_path.read_text(encoding="utf-8")
+    gateway_mail_notifier_action = gateway_mail_notifier_action_path.read_text(encoding="utf-8")
     gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
     self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
     self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
@@ -857,6 +862,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
     relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_author_launch = touring_author_launch_path.read_text(encoding="utf-8")
+    touring_advanced_usage = touring_advanced_usage_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
     stable_pairwise_loop_start = stable_pairwise_loop_start_path.read_text(encoding="utf-8")
     stable_pairwise_loop_status = stable_pairwise_loop_status_path.read_text(encoding="utf-8")
@@ -892,6 +898,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
 
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
+    assert "actions/clear-messages.md" in mailbox_mgr_skill
+    assert "actions/export.md" in mailbox_mgr_skill
     assert "actions/agent-binding-register.md" in mailbox_mgr_skill
     assert "references/root-selection.md" in mailbox_mgr_skill
     assert "command -v houmao-mgr" in mailbox_mgr_skill
@@ -907,6 +915,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "route to `actions/agent-binding-register.md` instead" in mailbox_mgr_skill
     assert mailbox_init_action_path.is_file()
     assert mailbox_register_action_path.is_file()
+    assert mailbox_clear_messages_action_path.is_file()
+    assert mailbox_export_action_path.is_file()
     assert mailbox_messages_get_action_path.is_file()
     assert mailbox_agent_binding_register_action_path.is_file()
     assert mailbox_root_reference_path.is_file()
@@ -924,6 +934,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "may own mailbox registration instead of preregistering that address here"
         in mailbox_register_action
     )
+    assert "mailbox export" in mailbox_export_action
+    assert "--symlink-mode materialize|preserve" in mailbox_export_action
+    assert "Do not recommend raw recursive mailbox-root copying" in mailbox_export_action
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill
@@ -1039,13 +1052,29 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         in touring_skill
     )
     assert "branches/orient.md" in touring_skill
+    assert "branches/advanced-usage.md" in touring_skill
     assert "branches/lifecycle-follow-up.md" in touring_skill
     assert "references/question-style.md" in touring_skill
     assert "houmao-project-mgr" in touring_skill
+    assert "houmao-agent-loop-pairwise" in touring_skill
+    assert "houmao-agent-loop-pairwise-v2" in touring_skill
     assert "houmao-agent-instance" in touring_skill
     assert "foreground-first gateway posture" in touring_author_launch
     assert "not as detached background gateway execution" in touring_author_launch
     assert "gateway_tmux_window_index" in touring_author_launch
+    assert "stable pairwise loop" in touring_advanced_usage
+    assert "enriched pairwise loop" in touring_advanced_usage
+    assert "plan`, `start`, `status`, and `stop" in touring_advanced_usage
+    assert "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`" in (
+        touring_advanced_usage
+    )
+    assert "ask the user to select or explicitly invoke the desired pairwise skill" in (
+        touring_advanced_usage
+    )
+    assert "elemental immediate driver-worker edge protocol guidance belongs to" in (
+        touring_advanced_usage
+    )
+    assert "houmao-adv-usage-pattern" in touring_advanced_usage
     assert "distinguish mailbox-root bootstrap from mailbox-account creation" in touring_setup
     assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
     assert "initialize the shared mailbox root now" in touring_question_style
@@ -1100,6 +1129,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert gateway_services_action_path.is_file()
     assert gateway_reminders_action_path.is_file()
     assert gateway_mail_notifier_action_path.is_file()
+    assert "`any_inbox`: default" in gateway_mail_notifier_action
+    assert "`unread_only`: notify only while unread inbox mail remains unarchived" in (
+        gateway_mail_notifier_action
+    )
+    assert "Processed mail should be archived" in gateway_mail_notifier_action
     assert gateway_scope_reference_path.is_file()
     assert gateway_http_reference_path.is_file()
     assert self_notification_pattern_path.is_file()
@@ -1111,6 +1145,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert touring_setup_path.is_file()
     assert touring_author_launch_path.is_file()
     assert touring_live_ops_path.is_file()
+    assert touring_advanced_usage_path.is_file()
     assert touring_lifecycle_path.is_file()
     assert touring_question_style_path.is_file()
     assert stable_pairwise_loop_formulate_path.is_file()
@@ -1156,9 +1191,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "foreground same-session auxiliary-window attach is the default" in (
         gateway_lifecycle_action
     )
-    assert "agents gateway attach --background --agent-name <name>" in (
-        gateway_lifecycle_action
-    )
+    assert "agents gateway attach --background --agent-name <name>" in (gateway_lifecycle_action)
     assert "Do not choose `--background` by default" in gateway_lifecycle_action
     assert "gateway_tmux_window_index" in gateway_lifecycle_action
     assert (
@@ -1206,8 +1239,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ask the user for that value" in pairwise_edge_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in pairwise_edge_loop_pattern
     assert "Subject: [edge-result] edge_loop=<edge_loop_id>" in pairwise_edge_loop_pattern
-    assert "HOUMAO_JOB_DIR" in relay_loop_pattern
-    assert "Do not use `HOUMAO_MEMORY_DIR` as the default home" in relay_loop_pattern
+    assert "HOUMAO_AGENT_SCRATCH_DIR" in relay_loop_pattern
+    assert "Do not use `HOUMAO_AGENT_PERSIST_DIR` as the default home" in relay_loop_pattern
     assert "ask the user for that parameter" in relay_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
     assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
@@ -1298,7 +1331,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "`broadcast-stop`" in pairwise_loop_stop
     assert "participant-wide direct intervention" in pairwise_loop_hard_kill
     assert "disable gateway mail-notifier polling" in pairwise_loop_hard_kill
-    assert "mark every unread `message_ref` read" in pairwise_loop_hard_kill
+    assert "archive every open `message_ref`" in pairwise_loop_hard_kill
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter
@@ -1339,7 +1372,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "routing packet validation: <validate-packets result when graph and packet JSON" in (
         pairwise_loop_single_template
     )
-    assert "Initialize<br/>enable email notifier<br/>send init mail" in pairwise_loop_single_template
+    assert (
+        "Initialize<br/>enable email notifier<br/>send init mail" in pairwise_loop_single_template
+    )
     assert "# Routing Packets" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template

@@ -24,15 +24,15 @@ def easy_profile_group() -> None:
 @click.option("--workdir", default=None, help="Optional default working directory.")
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
 @click.option(
-    "--memory-dir",
+    "--persist-dir",
     type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
     default=None,
-    help="Optional exact default durable memory directory for launches from this easy profile.",
+    help="Optional exact default durable persist lane for launches from this easy profile.",
 )
 @click.option(
-    "--no-memory-dir",
+    "--no-persist-dir",
     is_flag=True,
-    help="Persist disabled memory binding for launches from this easy profile.",
+    help="Persist disabled durable lane binding for launches from this easy profile.",
 )
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option(
@@ -113,8 +113,8 @@ def create_easy_profile_command(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -156,9 +156,9 @@ def create_easy_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
-        memory_dir=memory_dir,
-        no_memory_dir=no_memory_dir,
-        clear_memory_dir=False,
+        persist_dir=persist_dir,
+        no_persist_dir=no_persist_dir,
+        clear_persist_dir=False,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -209,20 +209,20 @@ def create_easy_profile_command(
 @click.option("--auth", default=None, help="Optional default auth bundle override.")
 @click.option("--clear-auth", is_flag=True, help="Clear the stored auth override.")
 @click.option(
-    "--memory-dir",
+    "--persist-dir",
     type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
     default=None,
-    help="Optional exact durable memory directory override for launches from this profile.",
+    help="Optional exact durable persist lane override for launches from this profile.",
 )
 @click.option(
-    "--no-memory-dir",
+    "--no-persist-dir",
     is_flag=True,
-    help="Persist disabled memory binding for launches from this profile.",
+    help="Persist disabled durable lane binding for launches from this profile.",
 )
 @click.option(
-    "--clear-memory-dir",
+    "--clear-persist-dir",
     is_flag=True,
-    help="Clear the stored memory binding back to no profile preference.",
+    help="Clear the stored durable lane binding back to no profile preference.",
 )
 @click.option("--model", default=None, help="Optional launch-owned model override.")
 @click.option("--clear-model", is_flag=True, help="Clear the stored launch-owned model.")
@@ -335,9 +335,9 @@ def set_easy_profile_command(
     clear_workdir: bool,
     auth: str | None,
     clear_auth: bool,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
-    clear_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
+    clear_persist_dir: bool,
     model: str | None,
     clear_model: bool,
     reasoning_level: int | None,
@@ -387,9 +387,9 @@ def set_easy_profile_command(
         agent_id=agent_id,
         workdir=workdir,
         auth=auth,
-        memory_dir=memory_dir,
-        no_memory_dir=no_memory_dir,
-        clear_memory_dir=clear_memory_dir,
+        persist_dir=persist_dir,
+        no_persist_dir=no_persist_dir,
+        clear_persist_dir=clear_persist_dir,
         model=model,
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
@@ -1340,15 +1340,15 @@ def easy_instance_group() -> None:
     help="Optional runtime working directory override; defaults to the invocation cwd.",
 )
 @click.option(
-    "--memory-dir",
+    "--persist-dir",
     type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
     default=None,
-    help="Optional exact durable memory directory override for this instance launch.",
+    help="Optional exact durable persist lane override for this instance launch.",
 )
 @click.option(
-    "--no-memory-dir",
+    "--no-persist-dir",
     is_flag=True,
-    help="Disable durable memory-directory binding for this instance launch.",
+    help="Disable durable persist-lane binding for this instance launch.",
 )
 @click.option(
     "--env-set",
@@ -1407,8 +1407,8 @@ def launch_easy_instance_command(
     gateway_tui_stale_active_recovery_seconds: float | None,
     gateway_tui_final_stable_active_recovery_seconds: float | None,
     workdir: Path | None,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
     env_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
@@ -1432,16 +1432,16 @@ def launch_easy_instance_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
-    launch_profile_memory_dir: str | None = None
-    launch_profile_memory_disabled = False
+    launch_profile_persist_dir: str | None = None
+    launch_profile_persist_disabled = False
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_managed_header_section_policy: (
         dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None
     ) = None
     launch_profile_provenance = None
-    resolved_memory_dir, no_memory_dir, _ = _resolve_memory_dir_option_or_click(
-        memory_dir=memory_dir,
-        no_memory_dir=no_memory_dir,
+    resolved_persist_dir, no_persist_dir, _ = _resolve_persist_dir_option_or_click(
+        persist_dir=persist_dir,
+        no_persist_dir=no_persist_dir,
     )
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
@@ -1474,9 +1474,9 @@ def launch_easy_instance_command(
             source=f"easy profile `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
-        launch_profile_memory_dir = getattr(resolved_profile.entry, "memory_dir", None)
-        launch_profile_memory_disabled = bool(
-            getattr(resolved_profile.entry, "memory_disabled", False)
+        launch_profile_persist_dir = getattr(resolved_profile.entry, "persist_dir", None)
+        launch_profile_persist_disabled = bool(
+            getattr(resolved_profile.entry, "persist_disabled", False)
         )
         launch_profile_model_config = _build_model_config_or_click(
             model_name=resolved_profile.entry.model_name,
@@ -1613,10 +1613,10 @@ def launch_easy_instance_command(
         headless=resolved_headless,
         provider=specialist_metadata.provider,
         working_directory=working_directory,
-        memory_dir=resolved_memory_dir,
-        no_memory_dir=no_memory_dir,
-        launch_profile_memory_dir=launch_profile_memory_dir,
-        launch_profile_memory_disabled=launch_profile_memory_disabled,
+        persist_dir=resolved_persist_dir,
+        no_persist_dir=no_persist_dir,
+        launch_profile_persist_dir=launch_profile_persist_dir,
+        launch_profile_persist_disabled=launch_profile_persist_disabled,
         source_working_directory=overlay.project_root,
         source_agent_def_dir=source_agent_def_dir,
         headless_display_style="plain",

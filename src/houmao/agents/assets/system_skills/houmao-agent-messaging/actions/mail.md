@@ -8,7 +8,7 @@ Use this action only when the target has mailbox capability and the current task
 2. Recover the target selector and mailbox intent from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the target selector or mailbox intent is still missing, ask the user in Markdown before proceeding.
 4. Use `agents mail resolve-live` first when the task needs current mailbox bindings, mailbox capability confirmation, or an exact live `gateway.base_url`.
-5. When the mailbox task is a notifier-driven unread-email round and current context already provides the exact live gateway base URL, hand off to `houmao-process-emails-via-gateway`.
+5. When the mailbox task is a notifier-driven open-mail round and current context already provides the exact live gateway base URL, hand off to `houmao-process-emails-via-gateway`.
 6. Otherwise hand off ordinary mailbox work to `houmao-agent-email-comms`.
 7. Use the resolver output to tell the selected mailbox skill whether the turn has a live `gateway.base_url` or must use no-gateway fallback guidance.
 8. Report the selected mailbox lane and any resolved live-gateway fact that matters for the handoff.
@@ -27,8 +27,8 @@ Managed-agent HTTP discovery surface:
 
 After `resolve-live`:
 
-- use `houmao-agent-email-comms` for ordinary mailbox `status`, `check`, `read`, `send`, `reply`, or `mark-read` work
-- use `houmao-process-emails-via-gateway` for one live-gateway unread-email round that already has the exact current base URL in context
+- use `houmao-agent-email-comms` for ordinary mailbox `status`, `list`, `peek`, `read`, `send`, `reply`, or `archive` work
+- use `houmao-process-emails-via-gateway` for one live-gateway open-mail round that already has the exact current base URL in context
 
 ## Guardrails
 

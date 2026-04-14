@@ -15,9 +15,15 @@ from houmao.project.overlay import (
 )
 
 from .cleanup_support import emit_cleanup_payload
-from .common import build_destructive_confirmation_callback, overwrite_confirm_option
+from .common import (
+    build_destructive_confirmation_callback,
+    confirm_destructive_action,
+    overwrite_confirm_option,
+)
 from .mailbox_support import (
+    clear_mailbox_messages_at_root,
     cleanup_mailbox_root,
+    export_mailbox_root,
     get_mailbox_account,
     get_mailbox_message,
     init_mailbox_root,
@@ -234,6 +240,96 @@ def cleanup_mailbox_command(
             ),
             "mailbox_root_detail": describe_mailbox_root_selection(explicit_root=mailbox_root),
         }
+    )
+
+
+@mailbox_group.command(name="clear-messages")
+@_mailbox_root_option
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview delivered-message clearing without deleting mail.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    help="Confirm delivered-message clearing non-interactively.",
+)
+def clear_mailbox_messages_command(
+    mailbox_root: Path | None,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    """Clear delivered messages while preserving mailbox registrations."""
+
+    if not dry_run:
+        confirm_destructive_action(
+            prompt=(
+                "Clear all delivered messages from the resolved filesystem mailbox root while "
+                "preserving mailbox registrations?"
+            ),
+            yes=yes,
+            non_interactive_message=(
+                "Mailbox message clearing would delete delivered messages. Rerun with `--yes` "
+                "to confirm non-interactively or use `--dry-run` to preview."
+            ),
+            cancelled_message="Mailbox message clearing cancelled.",
+        )
+    emit_cleanup_payload(
+        {
+            **clear_mailbox_messages_at_root(
+                mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+                dry_run=dry_run,
+            ),
+            "mailbox_root_detail": describe_mailbox_root_selection(explicit_root=mailbox_root),
+        }
+    )
+
+
+@mailbox_group.command(name="export")
+@_mailbox_root_option
+@click.option(
+    "--output-dir",
+    required=True,
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help="New archive directory to create for the mailbox export.",
+)
+@click.option(
+    "--all-accounts",
+    is_flag=True,
+    help="Export every registration row and every indexed canonical message.",
+)
+@click.option(
+    "--address",
+    "addresses",
+    multiple=True,
+    help="Full mailbox address to export; repeat for multiple selected accounts.",
+)
+@click.option(
+    "--symlink-mode",
+    type=click.Choice(("materialize", "preserve")),
+    default="materialize",
+    show_default=True,
+    help="Materialize symlinks by default, or preserve archive-internal projection symlinks.",
+)
+def export_mailbox_command(
+    mailbox_root: Path | None,
+    output_dir: Path,
+    all_accounts: bool,
+    addresses: tuple[str, ...],
+    symlink_mode: str,
+) -> None:
+    """Export selected mailbox state into a portable archive directory."""
+
+    _emit_mailbox_payload(
+        mailbox_root=mailbox_root,
+        payload=export_mailbox_root(
+            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+            output_dir=output_dir,
+            all_accounts=all_accounts,
+            addresses=addresses,
+            symlink_mode=symlink_mode,
+        ),
     )
 
 

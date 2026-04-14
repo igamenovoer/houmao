@@ -37,7 +37,7 @@ houmao-mgr admin cleanup runtime [OPTIONS] COMMAND [ARGS]...
 | `logs` | Clean log-style runtime artifacts while preserving active sessions. |
 | `mailbox-credentials` | Clean unreferenced runtime-owned Stalwart credential material. |
 
-All four `runtime` subcommands accept the same shared `--runtime-root` option (project-aware default; falls back to `HOUMAO_GLOBAL_RUNTIME_DIR` or the active project overlay's runtime root when omitted). They each accept `--older-than-seconds` and `--dry-run`. Only `runtime sessions` accepts the additional `--include-job-dir` toggle.
+All four `runtime` subcommands accept the same shared `--runtime-root` option (project-aware default; falls back to `HOUMAO_GLOBAL_RUNTIME_DIR` or the active project overlay's runtime root when omitted). They each accept `--older-than-seconds` and `--dry-run`. Runtime session cleanup removes session envelopes only; scratch-lane cleanup is handled by `houmao-mgr agents workspace clear --lane scratch`.
 
 #### `runtime sessions`
 
@@ -49,7 +49,6 @@ houmao-mgr admin cleanup runtime sessions [OPTIONS]
 |---|---|
 | `--runtime-root PATH` | Optional runtime root override. Defaults to the project-aware runtime root. |
 | `--older-than-seconds INTEGER` | Only remove removable session envelopes older than this threshold. Default: `0`. Must be ≥ 0. |
-| `--include-job-dir / --no-include-job-dir` | Also remove manifest-persisted job directories for removable sessions. Default: `--no-include-job-dir`. |
 | `--dry-run` | Preview removable session envelopes without deleting them. |
 
 #### `runtime builds`

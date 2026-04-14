@@ -76,7 +76,9 @@ from .common import (
 )
 from .output import emit
 from .mailbox_support import (
+    clear_mailbox_messages_at_root,
     cleanup_mailbox_root,
+    export_mailbox_root,
     get_mailbox_account,
     get_mailbox_message,
     init_mailbox_root,
@@ -895,24 +897,24 @@ def _resolve_managed_header_section_policy_for_storage(
     return resolved
 
 
-def _resolve_memory_dir_option_or_click(
+def _resolve_persist_dir_option_or_click(
     *,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
-    clear_memory_dir: bool = False,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
+    clear_persist_dir: bool = False,
 ) -> tuple[Path | None, bool, bool]:
-    """Resolve normalized memory-directory CLI inputs."""
+    """Resolve normalized persist-lane CLI inputs."""
 
-    if memory_dir is not None and no_memory_dir:
-        raise click.ClickException("`--memory-dir` and `--no-memory-dir` are mutually exclusive.")
-    if clear_memory_dir and (memory_dir is not None or no_memory_dir):
+    if persist_dir is not None and no_persist_dir:
+        raise click.ClickException("`--persist-dir` and `--no-persist-dir` are mutually exclusive.")
+    if clear_persist_dir and (persist_dir is not None or no_persist_dir):
         raise click.ClickException(
-            "`--memory-dir`, `--no-memory-dir`, and `--clear-memory-dir` are mutually exclusive."
+            "`--persist-dir`, `--no-persist-dir`, and `--clear-persist-dir` are mutually exclusive."
         )
     return (
-        memory_dir.expanduser().resolve() if memory_dir is not None else None,
-        no_memory_dir,
-        clear_memory_dir,
+        persist_dir.expanduser().resolve() if persist_dir is not None else None,
+        no_persist_dir,
+        clear_persist_dir,
     )
 
 
@@ -1040,9 +1042,9 @@ def _store_launch_profile_from_cli(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
-    memory_dir: Path | None,
-    no_memory_dir: bool,
-    clear_memory_dir: bool,
+    persist_dir: Path | None,
+    no_persist_dir: bool,
+    clear_persist_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -1136,11 +1138,11 @@ def _store_launch_profile_from_cli(
             prompt_overlay_file=prompt_overlay_file,
         )
     )
-    resolved_memory_dir_option, resolved_no_memory_dir, resolved_clear_memory_dir = (
-        _resolve_memory_dir_option_or_click(
-            memory_dir=memory_dir,
-            no_memory_dir=no_memory_dir,
-            clear_memory_dir=clear_memory_dir,
+    resolved_persist_dir_option, resolved_no_persist_dir, resolved_clear_persist_dir = (
+        _resolve_persist_dir_option_or_click(
+            persist_dir=persist_dir,
+            no_persist_dir=no_persist_dir,
+            clear_persist_dir=clear_persist_dir,
         )
     )
     env_mapping = (
@@ -1168,10 +1170,10 @@ def _store_launch_profile_from_cli(
         resolved_agent_id = _optional_non_empty_value(agent_id)
         resolved_workdir = _optional_non_empty_value(workdir)
         resolved_auth = _optional_non_empty_value(auth)
-        resolved_memory_dir = (
-            str(resolved_memory_dir_option) if resolved_memory_dir_option is not None else None
+        resolved_persist_dir = (
+            str(resolved_persist_dir_option) if resolved_persist_dir_option is not None else None
         )
-        resolved_memory_disabled = resolved_no_memory_dir
+        resolved_persist_disabled = resolved_no_persist_dir
         resolved_model_config = _build_model_config_or_click(
             model_name=resolved_model_input,
             reasoning_level=reasoning_level,
@@ -1229,18 +1231,18 @@ def _store_launch_profile_from_cli(
             if clear_auth
             else (_optional_non_empty_value(auth) if auth is not None else current.entry.auth_name)
         )
-        if resolved_clear_memory_dir:
-            resolved_memory_dir = None
-            resolved_memory_disabled = False
-        elif resolved_no_memory_dir:
-            resolved_memory_dir = None
-            resolved_memory_disabled = True
-        elif resolved_memory_dir_option is not None:
-            resolved_memory_dir = str(resolved_memory_dir_option)
-            resolved_memory_disabled = False
+        if resolved_clear_persist_dir:
+            resolved_persist_dir = None
+            resolved_persist_disabled = False
+        elif resolved_no_persist_dir:
+            resolved_persist_dir = None
+            resolved_persist_disabled = True
+        elif resolved_persist_dir_option is not None:
+            resolved_persist_dir = str(resolved_persist_dir_option)
+            resolved_persist_disabled = False
         else:
-            resolved_memory_dir = current.entry.memory_dir
-            resolved_memory_disabled = current.entry.memory_disabled
+            resolved_persist_dir = current.entry.persist_dir
+            resolved_persist_disabled = current.entry.persist_disabled
         if clear_model and model is not None:
             raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
         if clear_reasoning_level and reasoning_level is not None:
@@ -1322,9 +1324,9 @@ def _store_launch_profile_from_cli(
             clear_workdir,
             auth is not None,
             clear_auth,
-            memory_dir is not None,
-            no_memory_dir,
-            clear_memory_dir,
+            persist_dir is not None,
+            no_persist_dir,
+            clear_persist_dir,
             model is not None,
             clear_model,
             reasoning_level is not None,
@@ -1363,8 +1365,8 @@ def _store_launch_profile_from_cli(
         workdir=resolved_workdir,
         auth_tool=source.tool,
         auth_name=resolved_auth,
-        memory_dir=resolved_memory_dir,
-        memory_disabled=resolved_memory_disabled,
+        persist_dir=resolved_persist_dir,
+        persist_disabled=resolved_persist_disabled,
         model_name=resolved_model_config.name if resolved_model_config is not None else None,
         reasoning_level=(
             resolved_model_config.reasoning.level
@@ -1515,7 +1517,19 @@ def _instance_payload(
         "project_agent_def_dir": runtime_payload.get("agent_def_dir")
         if isinstance(runtime_payload, dict)
         else None,
-        "memory_dir": runtime_payload.get("memory_dir")
+        "workspace_root": runtime_payload.get("workspace_root")
+        if isinstance(runtime_payload, dict)
+        else None,
+        "memo_file": runtime_payload.get("memo_file")
+        if isinstance(runtime_payload, dict)
+        else None,
+        "scratch_dir": runtime_payload.get("scratch_dir")
+        if isinstance(runtime_payload, dict)
+        else None,
+        "persist_binding": runtime_payload.get("persist_binding")
+        if isinstance(runtime_payload, dict)
+        else None,
+        "persist_dir": runtime_payload.get("persist_dir")
         if isinstance(runtime_payload, dict)
         else None,
         "mailbox": mailbox_payload,
@@ -1887,7 +1901,9 @@ __all__ = [
     "managed_launch_force_option",
     "overwrite_confirm_option",
     "emit",
+    "clear_mailbox_messages_at_root",
     "cleanup_mailbox_root",
+    "export_mailbox_root",
     "get_mailbox_account",
     "get_mailbox_message",
     "init_mailbox_root",
@@ -1953,7 +1969,7 @@ __all__ = [
     "_managed_header_section_policy_from_options",
     "_managed_header_section_names_from_options",
     "_resolve_managed_header_section_policy_for_storage",
-    "_resolve_memory_dir_option_or_click",
+    "_resolve_persist_dir_option_or_click",
     "_build_profile_mailbox_mapping_or_click",
     "_stored_mailbox_or_click",
     "_resolve_profile_posture_mapping",

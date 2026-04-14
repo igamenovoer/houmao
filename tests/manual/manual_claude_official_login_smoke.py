@@ -174,8 +174,6 @@ def _validated_env(*, agent_def_dir: Path) -> dict[str, str]:
     for variable in (
         "HOUMAO_GLOBAL_RUNTIME_DIR",
         "HOUMAO_GLOBAL_MAILBOX_DIR",
-        "HOUMAO_LOCAL_JOBS_DIR",
-        "HOUMAO_JOB_DIR",
         "HOUMAO_PROJECT_OVERLAY_DIR",
     ):
         env.pop(variable, None)
@@ -264,7 +262,6 @@ def _stop_and_cleanup_session(
             "session",
             "--manifest-path",
             str(manifest_path),
-            "--include-job-dir",
         ],
         cwd=workdir,
         env=env,

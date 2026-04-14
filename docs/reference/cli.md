@@ -95,7 +95,7 @@ The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` ar
 
 Useful pair runtime controls:
 
-- `houmao-mgr agents launch --agents <selector> --agent-name <friendly-name> --provider <provider> [--workdir <path>]` performs local brain build plus launch without requiring a running `houmao-server`. When `--workdir` is set, the invocation project or explicit preset owner still supplies the project-aware overlay, runtime root, jobs root, and mailbox root; `--workdir` only changes the launched session cwd.
+- `houmao-mgr agents launch --agents <selector> --agent-name <friendly-name> --provider <provider> [--workdir <path>]` performs local brain build plus launch without requiring a running `houmao-server`. When `--workdir` is set, the invocation project or explicit preset owner still supplies the project-aware overlay, runtime root, memory/workspace root, and mailbox root; `--workdir` only changes the launched session cwd.
 - `houmao-mgr agents join --agent-name <friendly-name> [--workdir <path>]` adopts a supported TUI that is already running in tmux window `0`, pane `0` of the current session, publishes the normal manifest-first runtime envelope, and does not restart the live TUI.
 - `houmao-mgr agents join --headless --agent-name <friendly-name> --provider <provider> --launch-args <arg> ... [--workdir <path>]` adopts a tmux-backed native headless logical session between turns; `--resume-id` is optional, where omitted means start from no known chat, `last` means resume the latest known chat, and any other non-empty value means resume that exact provider session id.
 - `houmao-mgr agents relaunch --agent-name <friendly-name>` or `houmao-mgr agents relaunch` from inside the owning tmux session refreshes the supported tmux-backed runtime surface without rebuilding the managed-agent home.
@@ -114,7 +114,7 @@ Joined-session notes:
 
 - `houmao-mgr agents join` must be run from inside the target tmux session and, in v1, always adopts tmux window `0`, pane `0` as the canonical managed surface.
 - `agents join` now exposes `--workdir` as the public cwd override; when omitted, Houmao derives the adopted workdir from the primary pane current path.
-- Successful join publishes the same stable tmux discovery variables used by native launches: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, and `HOUMAO_JOB_DIR`.
+- Successful join publishes the same stable tmux discovery variables used by native launches: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, `HOUMAO_AGENT_SCRATCH_DIR`, and `HOUMAO_AGENT_PERSIST_DIR` when persistence is enabled.
 - Joined sessions publish a shared-registry record immediately using a long sentinel lease instead of relying on a background lease-renewal daemon. Later runtime control can refresh that same record opportunistically.
 - Joined TUI sessions without recorded `--launch-args` and `--launch-env` remain controllable while live but fail explicitly on later `agents relaunch` because restart posture is unavailable by design.
 - `--launch-env` follows Docker `--env` style: `NAME=value` stores a literal secret-free binding, while `NAME` means the relaunch resolves that variable from the tmux session environment at relaunch time.

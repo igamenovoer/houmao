@@ -71,9 +71,11 @@ class _LocalMessageStateRow(TypedDict):
     created_at_utc: str
     subject: str
     is_read: bool
+    is_answered: bool
     is_starred: bool
     is_archived: bool
     is_deleted: bool
+    box_name: str
 
 
 class ManagedMailboxOperationError(RuntimeError):
@@ -323,6 +325,7 @@ class StateUpdateRequest(_ManagedRequestModel):
     address: str
     message_id: str
     read: bool | None = None
+    answered: bool | None = None
     starred: bool | None = None
     archived: bool | None = None
     deleted: bool | None = None
@@ -345,7 +348,7 @@ class StateUpdateRequest(_ManagedRequestModel):
     def _validate_mutation_request(self) -> "StateUpdateRequest":
         """Require at least one mailbox-state flag to be present."""
 
-        if self.read is self.starred is self.archived is self.deleted is None:
+        if self.read is self.answered is self.starred is self.archived is self.deleted is None:
             raise ValueError("state update payload must set at least one field")
         return self
 
@@ -365,6 +368,53 @@ class RepairRequest(_ManagedRequestModel):
         if payload is None:
             return cls()
         return _parse_managed_request(cls, payload)
+
+
+class MailboxExportRequest(_ManagedRequestModel):
+    """Structured filesystem mailbox export request."""
+
+    PAYLOAD_NAME: ClassVar[str] = "mailbox export payload"
+
+    output_dir: Path
+    all_accounts: bool = False
+    addresses: tuple[str, ...] = Field(default_factory=tuple)
+    symlink_mode: Literal["materialize", "preserve"] = "materialize"
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def _coerce_output_dir(cls, value: object) -> object:
+        """Accept string payload paths and resolve them eagerly."""
+
+        return _coerce_path_value(value)
+
+    @field_validator("addresses", mode="before")
+    @classmethod
+    def _coerce_addresses(cls, value: object) -> object:
+        """Accept JSON arrays for tuple-backed address selection."""
+
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @field_validator("addresses")
+    @classmethod
+    def _validate_addresses(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Validate selected mailbox addresses and reject duplicates."""
+
+        normalized = tuple(_validate_managed_address(item) for item in value)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("mailbox export addresses must not contain duplicates")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_selection(self) -> "MailboxExportRequest":
+        """Require exactly one account-selection mode."""
+
+        if self.all_accounts and self.addresses:
+            raise ValueError("mailbox export accepts either all_accounts or addresses, not both")
+        if not self.all_accounts and not self.addresses:
+            raise ValueError("mailbox export requires all_accounts or at least one address")
+        return self
 
 
 class RegisterMailboxRequest(_ManagedRequestModel):
@@ -470,7 +520,7 @@ class _IndexSnapshot:
     """Existing mailbox index data preserved across reindex."""
 
     registrations: dict[str, MailboxRegistration]
-    mailbox_state: dict[tuple[str, str], tuple[bool, bool, bool, bool]]
+    mailbox_state: dict[tuple[str, str], tuple[bool, bool, bool, bool, bool, str]]
     sender_registration_ids: dict[str, str | None]
     recipient_registration_ids: dict[tuple[str, str, int], str | None]
     backup_path: Path | None
@@ -487,6 +537,8 @@ class MailboxCleanupRecord:
     address: str | None = None
     registration_id: str | None = None
     registration_status: str | None = None
+    message_id: str | None = None
+    attachment_id: str | None = None
 
     def to_payload(self) -> dict[str, object]:
         """Return a JSON-compatible cleanup record payload."""
@@ -503,6 +555,10 @@ class MailboxCleanupRecord:
             payload["registration_id"] = self.registration_id
         if self.registration_status is not None:
             payload["registration_status"] = self.registration_status
+        if self.message_id is not None:
+            payload["message_id"] = self.message_id
+        if self.attachment_id is not None:
+            payload["attachment_id"] = self.attachment_id
         return payload
 
 
@@ -516,6 +572,134 @@ class MailboxCleanupResult:
     removed: tuple[MailboxCleanupRecord, ...]
     preserved: tuple[MailboxCleanupRecord, ...]
     blocked: tuple[MailboxCleanupRecord, ...]
+
+
+@dataclass(frozen=True)
+class MailboxMessageClearResult:
+    """Structured delivered-message clearing result."""
+
+    mailbox_root: Path
+    dry_run: bool
+    planned: tuple[MailboxCleanupRecord, ...]
+    removed: tuple[MailboxCleanupRecord, ...]
+    preserved: tuple[MailboxCleanupRecord, ...]
+    blocked: tuple[MailboxCleanupRecord, ...]
+
+
+@dataclass(frozen=True)
+class MailboxExportAction:
+    """One mailbox export copy, materialization, skip, or blocked outcome."""
+
+    outcome: Literal["copied", "materialized", "preserved_symlink", "skipped", "blocked"]
+    artifact_kind: str
+    source_path: Path | None
+    archive_path: Path | None
+    reason: str
+    address: str | None = None
+    registration_id: str | None = None
+    registration_status: str | None = None
+    message_id: str | None = None
+    attachment_id: str | None = None
+    symlink_target: Path | None = None
+    details: dict[str, object] | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        """Return a JSON-compatible export action payload."""
+
+        payload: dict[str, object] = {
+            "outcome": self.outcome,
+            "artifact_kind": self.artifact_kind,
+            "reason": self.reason,
+        }
+        if self.source_path is not None:
+            payload["source_path"] = str(self.source_path)
+        if self.archive_path is not None:
+            payload["archive_path"] = str(self.archive_path)
+        if self.address is not None:
+            payload["address"] = self.address
+        if self.registration_id is not None:
+            payload["registration_id"] = self.registration_id
+        if self.registration_status is not None:
+            payload["registration_status"] = self.registration_status
+        if self.message_id is not None:
+            payload["message_id"] = self.message_id
+        if self.attachment_id is not None:
+            payload["attachment_id"] = self.attachment_id
+        if self.symlink_target is not None:
+            payload["symlink_target"] = str(self.symlink_target)
+        if self.details:
+            payload["details"] = dict(self.details)
+        return payload
+
+
+@dataclass(frozen=True)
+class MailboxExportResult:
+    """Structured filesystem mailbox export result."""
+
+    mailbox_root: Path
+    output_dir: Path
+    manifest_path: Path
+    symlink_mode: Literal["materialize", "preserve"]
+    all_accounts: bool
+    selected_addresses: tuple[str, ...]
+    account_count: int
+    message_count: int
+    attachment_count: int
+    copied: tuple[MailboxExportAction, ...]
+    materialized: tuple[MailboxExportAction, ...]
+    preserved_symlinks: tuple[MailboxExportAction, ...]
+    skipped: tuple[MailboxExportAction, ...]
+    blocked: tuple[MailboxExportAction, ...]
+
+
+@dataclass(frozen=True)
+class _MailboxExportMessage:
+    """Message row selected for one mailbox export snapshot."""
+
+    message_id: str
+    thread_id: str
+    in_reply_to: str | None
+    created_at_utc: str
+    canonical_path: Path
+    subject: str
+    sender_address: str
+    sender_principal_id: str
+    sender_registration_id: str | None
+
+
+@dataclass(frozen=True)
+class _MailboxExportProjection:
+    """Mailbox projection row selected for one mailbox export snapshot."""
+
+    registration_id: str
+    message_id: str
+    folder_name: str
+    projection_path: Path
+
+
+@dataclass(frozen=True)
+class _MailboxExportAttachment:
+    """Message attachment row selected for one mailbox export snapshot."""
+
+    message_id: str
+    attachment_id: str
+    kind: str
+    locator: str
+    media_type: str
+    sha256: str | None
+    size_bytes: int | None
+    label: str | None
+    ordinal: int
+
+
+@dataclass(frozen=True)
+class _MailboxExportSnapshot:
+    """Index state selected under the mailbox export lock boundary."""
+
+    registrations: tuple[MailboxRegistration, ...]
+    messages: tuple[_MailboxExportMessage, ...]
+    projections: tuple[_MailboxExportProjection, ...]
+    attachments: tuple[_MailboxExportAttachment, ...]
 
 
 def ensure_operator_mailbox_registration(mailbox_root: Path) -> dict[str, object]:
@@ -845,6 +1029,32 @@ def _load_all_active_registrations(
     return {registration.address: registration for registration in _rows_to_registrations(rows)}
 
 
+def _load_all_registrations(connection: sqlite3.Connection) -> list[MailboxRegistration]:
+    """Load every mailbox registration ordered for deterministic mutation/reporting."""
+
+    rows = connection.execute(
+        """
+        SELECT
+            registration_id,
+            address,
+            owner_principal_id,
+            status,
+            mailbox_kind,
+            mailbox_path,
+            mailbox_entry_path,
+            display_name,
+            manifest_path_hint,
+            role,
+            created_at_utc,
+            deactivated_at_utc,
+            replaced_by_registration_id
+        FROM mailbox_registrations
+        ORDER BY address, registration_id
+        """
+    ).fetchall()
+    return _rows_to_registrations(rows)
+
+
 def _load_cleanup_candidate_registrations(
     connection: sqlite3.Connection,
 ) -> list[MailboxRegistration]:
@@ -906,9 +1116,11 @@ def _seed_or_rebuild_local_mailbox_state(
             created_at_utc=row["created_at_utc"],
             subject=row["subject"],
             is_read=row["is_read"],
+            is_answered=row["is_answered"],
             is_starred=row["is_starred"],
             is_archived=row["is_archived"],
             is_deleted=row["is_deleted"],
+            box_name=row["box_name"],
         )
     _rebuild_local_thread_summaries(connection=connection, local_alias=local_alias)
 
@@ -929,9 +1141,11 @@ def _registration_local_state_rows(
             message.subject,
             projection.folder_name,
             state.is_read,
+            state.is_answered,
             state.is_starred,
             state.is_archived,
-            state.is_deleted
+            state.is_deleted,
+            state.box_name
         FROM mailbox_projections AS projection
         JOIN messages AS message ON message.message_id = projection.message_id
         LEFT JOIN mailbox_state AS state
@@ -949,13 +1163,20 @@ def _registration_local_state_rows(
     current_created_at_utc = ""
     current_subject = ""
     current_folder_names: set[str] = set()
-    current_state_values: tuple[object, object, object, object] | None = None
+    current_state_values: tuple[object, object, object, object, object, object] | None = None
 
     def _flush_current_row() -> None:
         nonlocal current_message_id
         if current_message_id is None or current_state_values is None:
             return
-        is_read_value, is_starred_value, is_archived_value, is_deleted_value = current_state_values
+        (
+            is_read_value,
+            is_answered_value,
+            is_starred_value,
+            is_archived_value,
+            is_deleted_value,
+            box_name_value,
+        ) = current_state_values
         materialized_rows.append(
             {
                 "message_id": current_message_id,
@@ -966,9 +1187,17 @@ def _registration_local_state_rows(
                     is_read_value,
                     default=_default_read_for_projection_folders(current_folder_names),
                 ),
+                "is_answered": _coerce_optional_bool(is_answered_value, default=False),
                 "is_starred": _coerce_optional_bool(is_starred_value, default=False),
-                "is_archived": _coerce_optional_bool(is_archived_value, default=False),
+                "is_archived": _coerce_optional_bool(
+                    is_archived_value,
+                    default=_default_archived_for_projection_folders(current_folder_names),
+                ),
                 "is_deleted": _coerce_optional_bool(is_deleted_value, default=False),
+                "box_name": _coerce_optional_box_name(
+                    box_name_value,
+                    default=_default_box_for_projection_folders(current_folder_names),
+                ),
             }
         )
 
@@ -982,7 +1211,7 @@ def _registration_local_state_rows(
             current_thread_id = str(row[1])
             current_created_at_utc = str(row[2])
             current_subject = str(row[3])
-            current_state_values = (row[5], row[6], row[7], row[8])
+            current_state_values = (row[5], row[6], row[7], row[8], row[9], row[10])
         current_folder_names.add(str(row[4]))
 
     _flush_current_row()
@@ -1007,6 +1236,37 @@ def _default_read_for_projection_folders(folder_names: set[str]) -> bool:
     """Return the deterministic default read state for one mailbox-local projection set."""
 
     return "inbox" not in folder_names
+
+
+def _default_archived_for_projection_folders(folder_names: set[str]) -> bool:
+    """Return the deterministic default archived state for one projection set."""
+
+    return "archive" in folder_names and "inbox" not in folder_names
+
+
+def _default_box_for_projection_folders(folder_names: set[str]) -> str:
+    """Return the deterministic active box for one mailbox-local projection set."""
+
+    for box_name in ("inbox", "sent", "archive"):
+        if box_name in folder_names:
+            return box_name
+    return sorted(folder_names)[0] if folder_names else "inbox"
+
+
+def _coerce_optional_box_name(value: object, *, default: str) -> str:
+    """Convert one optional SQLite text value into a mailbox box name."""
+
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+    if isinstance(value, bytes | bytearray):
+        normalized = value.decode("utf-8").strip()
+        if normalized:
+            return normalized
+    return default
 
 
 def _has_interactive_terminal(*streams: TextIO | None) -> bool:
@@ -1198,9 +1458,11 @@ def _insert_local_message_state_row(
     created_at_utc: str,
     subject: str,
     is_read: bool,
+    is_answered: bool,
     is_starred: bool,
     is_archived: bool,
     is_deleted: bool,
+    box_name: str,
 ) -> None:
     """Insert or replace one mailbox-local message-state row."""
 
@@ -1212,19 +1474,23 @@ def _insert_local_message_state_row(
             created_at_utc,
             subject,
             is_read,
+            is_answered,
             is_starred,
             is_archived,
-            is_deleted
+            is_deleted,
+            box_name
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO UPDATE SET
             thread_id = excluded.thread_id,
             created_at_utc = excluded.created_at_utc,
             subject = excluded.subject,
             is_read = excluded.is_read,
+            is_answered = excluded.is_answered,
             is_starred = excluded.is_starred,
             is_archived = excluded.is_archived,
-            is_deleted = excluded.is_deleted
+            is_deleted = excluded.is_deleted,
+            box_name = excluded.box_name
         """,
         (
             message_id,
@@ -1232,9 +1498,11 @@ def _insert_local_message_state_row(
             created_at_utc,
             subject,
             int(is_read),
+            int(is_answered),
             int(is_starred),
             int(is_archived),
             int(is_deleted),
+            box_name,
         ),
     )
 
@@ -1799,7 +2067,7 @@ def update_mailbox_state(
                             )
                         legacy_state_row = connection.execute(
                             """
-                            SELECT is_read, is_starred, is_archived, is_deleted
+                            SELECT is_read, is_answered, is_starred, is_archived, is_deleted, box_name
                             FROM mailbox_state
                             WHERE registration_id = ? AND message_id = ?
                             """,
@@ -1818,17 +2086,25 @@ def update_mailbox_state(
                                 None if legacy_state_row is None else legacy_state_row[0],
                                 default=_default_read_for_projection_folders(folder_names),
                             ),
-                            is_starred=_coerce_optional_bool(
+                            is_answered=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[1],
                                 default=False,
                             ),
-                            is_archived=_coerce_optional_bool(
+                            is_starred=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[2],
                                 default=False,
                             ),
-                            is_deleted=_coerce_optional_bool(
+                            is_archived=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[3],
+                                default=_default_archived_for_projection_folders(folder_names),
+                            ),
+                            is_deleted=_coerce_optional_bool(
+                                None if legacy_state_row is None else legacy_state_row[4],
                                 default=False,
+                            ),
+                            box_name=_coerce_optional_box_name(
+                                None if legacy_state_row is None else legacy_state_row[5],
+                                default=_default_box_for_projection_folders(folder_names),
                             ),
                         )
 
@@ -1837,6 +2113,9 @@ def update_mailbox_state(
                     if request.read is not None:
                         assignments.append("is_read = ?")
                         parameters.append(int(request.read))
+                    if request.answered is not None:
+                        assignments.append("is_answered = ?")
+                        parameters.append(int(request.answered))
                     if request.starred is not None:
                         assignments.append("is_starred = ?")
                         parameters.append(int(request.starred))
@@ -1862,7 +2141,7 @@ def update_mailbox_state(
                     )
                     state_row = connection.execute(
                         f"""
-                        SELECT is_read, is_starred, is_archived, is_deleted
+                        SELECT is_read, is_answered, is_starred, is_archived, is_deleted, box_name
                         FROM {local_alias}.message_state
                         WHERE message_id = ?
                         """,
@@ -1881,9 +2160,11 @@ def update_mailbox_state(
         "registration_id": registration.registration_id,
         "message_id": request.message_id,
         "read": bool(state_row[0]),
-        "starred": bool(state_row[1]),
-        "archived": bool(state_row[2]),
-        "deleted": bool(state_row[3]),
+        "answered": bool(state_row[1]),
+        "starred": bool(state_row[2]),
+        "archived": bool(state_row[3]),
+        "deleted": bool(state_row[4]),
+        "box": str(state_row[5]),
     }
 
 
@@ -2176,6 +2457,1453 @@ def cleanup_mailbox_registrations(
         preserved=tuple(preserved),
         blocked=tuple(blocked),
     )
+
+
+def clear_mailbox_messages(
+    mailbox_root: Path,
+    *,
+    dry_run: bool = False,
+    lock_timeout_seconds: float = 5.0,
+) -> MailboxMessageClearResult:
+    """Clear delivered messages and derived state without unregistering mailbox accounts."""
+
+    paths = _resolve_paths(mailbox_root)
+    _ensure_supported_mailbox_root(paths)
+    if not paths.sqlite_path.is_file():
+        raise ManagedMailboxOperationError(
+            f"mailbox root needs repair before clearing messages: missing index `{paths.sqlite_path}`"
+        )
+
+    try:
+        with sqlite3.connect(paths.sqlite_path) as seed_connection:
+            seed_connection.execute("PRAGMA foreign_keys = ON")
+            seed_registrations = _load_all_registrations(seed_connection)
+    except sqlite3.DatabaseError as exc:
+        raise ManagedMailboxOperationError(
+            f"mailbox root needs repair before clearing messages: {exc}"
+        ) from exc
+
+    affected_addresses = tuple(
+        sorted({registration.address for registration in seed_registrations})
+    )
+    planned: list[MailboxCleanupRecord] = []
+    removed: list[MailboxCleanupRecord] = []
+    preserved: list[MailboxCleanupRecord] = []
+    blocked: list[MailboxCleanupRecord] = []
+
+    with _acquired_lock_set(paths, affected_addresses, timeout_seconds=lock_timeout_seconds):
+        try:
+            with sqlite3.connect(paths.sqlite_path) as connection:
+                connection.execute("PRAGMA foreign_keys = ON")
+                registrations = _load_all_registrations(connection)
+                targets = _message_clear_targets(
+                    paths=paths,
+                    connection=connection,
+                    registrations=registrations,
+                )
+                blocked_targets = tuple(target for target in targets if target.outcome == "blocked")
+                removal_targets = tuple(target for target in targets if target.outcome != "blocked")
+
+                for registration in sorted(
+                    registrations,
+                    key=lambda item: (item.address, item.registration_id),
+                ):
+                    preserved.append(
+                        MailboxCleanupRecord(
+                            outcome="preserved",
+                            artifact_kind="mailbox_registration",
+                            path=registration.mailbox_entry_path,
+                            reason=(
+                                "mailbox registrations are intentionally preserved during "
+                                "message clearing"
+                            ),
+                            address=registration.address,
+                            registration_id=registration.registration_id,
+                            registration_status=registration.status,
+                        )
+                    )
+
+                if dry_run:
+                    planned.extend(removal_targets)
+                    blocked.extend(blocked_targets)
+                    return MailboxMessageClearResult(
+                        mailbox_root=paths.root,
+                        dry_run=True,
+                        planned=tuple(planned),
+                        removed=(),
+                        preserved=tuple(preserved),
+                        blocked=tuple(blocked),
+                    )
+
+                connection.execute("BEGIN IMMEDIATE")
+                _delete_shared_message_index_rows(connection)
+                connection.commit()
+        except sqlite3.DatabaseError as exc:
+            raise ManagedMailboxOperationError(
+                f"mailbox root needs repair before clearing messages: {exc}"
+            ) from exc
+
+        blocked.extend(blocked_targets)
+        for target in removal_targets:
+            try:
+                if target.artifact_kind == "mailbox_local_state":
+                    _clear_existing_local_mailbox_database(target.path)
+                else:
+                    _remove_message_clear_artifact(target.path)
+                    if target.artifact_kind == "canonical_message":
+                        _remove_empty_descendant_dirs(paths.messages_dir)
+                    elif target.artifact_kind == "managed_attachment":
+                        _remove_empty_descendant_dirs(paths.attachments_managed_dir)
+            except (OSError, sqlite3.DatabaseError) as exc:
+                blocked.append(
+                    MailboxCleanupRecord(
+                        outcome="blocked",
+                        artifact_kind=target.artifact_kind,
+                        path=target.path,
+                        reason=f"{target.reason}; clear failed: {exc}",
+                        address=target.address,
+                        registration_id=target.registration_id,
+                        registration_status=target.registration_status,
+                        message_id=target.message_id,
+                        attachment_id=target.attachment_id,
+                    )
+                )
+            else:
+                removed.append(
+                    MailboxCleanupRecord(
+                        outcome="removed",
+                        artifact_kind=target.artifact_kind,
+                        path=target.path,
+                        reason=target.reason,
+                        address=target.address,
+                        registration_id=target.registration_id,
+                        registration_status=target.registration_status,
+                        message_id=target.message_id,
+                        attachment_id=target.attachment_id,
+                    )
+                )
+
+    return MailboxMessageClearResult(
+        mailbox_root=paths.root,
+        dry_run=False,
+        planned=(),
+        removed=tuple(removed),
+        preserved=tuple(preserved),
+        blocked=tuple(blocked),
+    )
+
+
+def export_mailbox_archive(
+    mailbox_root: Path,
+    request: MailboxExportRequest,
+    *,
+    lock_timeout_seconds: float = 5.0,
+) -> MailboxExportResult:
+    """Export selected filesystem mailbox state into a portable archive directory."""
+
+    paths = _resolve_paths(mailbox_root)
+    _ensure_supported_mailbox_root(paths)
+    if not paths.sqlite_path.is_file():
+        raise ManagedMailboxOperationError(
+            f"mailbox root needs repair before export: missing index `{paths.sqlite_path}`"
+        )
+    _ensure_export_output_available(request.output_dir)
+
+    try:
+        with sqlite3.connect(paths.sqlite_path) as seed_connection:
+            seed_connection.execute("PRAGMA foreign_keys = ON")
+            seed_registrations = _select_export_registrations(
+                seed_connection,
+                request=request,
+            )
+    except sqlite3.DatabaseError as exc:
+        raise ManagedMailboxOperationError(
+            f"mailbox root needs repair before export: {exc}"
+        ) from exc
+
+    locked_addresses = tuple(sorted({registration.address for registration in seed_registrations}))
+
+    with _acquired_lock_set(paths, locked_addresses, timeout_seconds=lock_timeout_seconds):
+        _ensure_export_output_available(request.output_dir)
+        try:
+            with sqlite3.connect(paths.sqlite_path) as connection:
+                connection.execute("PRAGMA foreign_keys = ON")
+                snapshot = _load_export_snapshot(connection, request=request)
+        except sqlite3.DatabaseError as exc:
+            raise ManagedMailboxOperationError(
+                f"mailbox root needs repair before export: {exc}"
+            ) from exc
+
+        _validate_export_registration_artifacts(snapshot.registrations)
+        return _write_mailbox_export_archive(paths=paths, request=request, snapshot=snapshot)
+
+
+def _select_export_registrations(
+    connection: sqlite3.Connection,
+    *,
+    request: MailboxExportRequest,
+) -> tuple[MailboxRegistration, ...]:
+    """Return registrations selected by one export request."""
+
+    registrations = tuple(_load_all_registrations(connection))
+    if request.all_accounts:
+        return registrations
+
+    requested_addresses = set(request.addresses)
+    selected = tuple(
+        registration
+        for registration in registrations
+        if registration.address in requested_addresses
+    )
+    found_addresses = {registration.address for registration in selected}
+    missing_addresses = tuple(sorted(requested_addresses - found_addresses))
+    if missing_addresses:
+        raise ManagedMailboxOperationError(
+            "mailbox export selected address not found: " + ", ".join(missing_addresses)
+        )
+    return selected
+
+
+def _load_export_snapshot(
+    connection: sqlite3.Connection,
+    *,
+    request: MailboxExportRequest,
+) -> _MailboxExportSnapshot:
+    """Load export-selected mailbox index state."""
+
+    registrations = _select_export_registrations(connection, request=request)
+    registration_ids = tuple(registration.registration_id for registration in registrations)
+    messages = _load_export_messages(
+        connection,
+        all_accounts=request.all_accounts,
+        registration_ids=registration_ids,
+    )
+    message_ids = tuple(message.message_id for message in messages)
+    projections = _load_export_projections(
+        connection,
+        registration_ids=registration_ids,
+    )
+    attachments = _load_export_attachments(connection, message_ids=message_ids)
+    return _MailboxExportSnapshot(
+        registrations=registrations,
+        messages=messages,
+        projections=projections,
+        attachments=attachments,
+    )
+
+
+def _load_export_messages(
+    connection: sqlite3.Connection,
+    *,
+    all_accounts: bool,
+    registration_ids: Sequence[str],
+) -> tuple[_MailboxExportMessage, ...]:
+    """Load canonical message rows selected for export."""
+
+    if all_accounts:
+        rows = connection.execute(
+            """
+            SELECT
+                message_id,
+                thread_id,
+                in_reply_to,
+                created_at_utc,
+                canonical_path,
+                subject,
+                sender_address,
+                sender_principal_id,
+                sender_registration_id
+            FROM messages
+            ORDER BY created_at_utc, message_id
+            """
+        ).fetchall()
+    elif registration_ids:
+        placeholders = _sql_placeholders(len(registration_ids))
+        rows = connection.execute(
+            f"""
+            SELECT DISTINCT
+                message.message_id,
+                message.thread_id,
+                message.in_reply_to,
+                message.created_at_utc,
+                message.canonical_path,
+                message.subject,
+                message.sender_address,
+                message.sender_principal_id,
+                message.sender_registration_id
+            FROM messages AS message
+            JOIN mailbox_projections AS projection
+              ON projection.message_id = message.message_id
+            WHERE projection.registration_id IN ({placeholders})
+            ORDER BY message.created_at_utc, message.message_id
+            """,
+            registration_ids,
+        ).fetchall()
+    else:
+        rows = []
+
+    return tuple(
+        _MailboxExportMessage(
+            message_id=str(row[0]),
+            thread_id=str(row[1]),
+            in_reply_to=None if row[2] is None else str(row[2]),
+            created_at_utc=str(row[3]),
+            canonical_path=_artifact_path(str(row[4])),
+            subject=str(row[5]),
+            sender_address=str(row[6]),
+            sender_principal_id=str(row[7]),
+            sender_registration_id=None if row[8] is None else str(row[8]),
+        )
+        for row in rows
+    )
+
+
+def _load_export_projections(
+    connection: sqlite3.Connection,
+    *,
+    registration_ids: Sequence[str],
+) -> tuple[_MailboxExportProjection, ...]:
+    """Load projection rows selected for export."""
+
+    if not registration_ids:
+        return ()
+    placeholders = _sql_placeholders(len(registration_ids))
+    rows = connection.execute(
+        f"""
+        SELECT registration_id, message_id, folder_name, projection_path
+        FROM mailbox_projections
+        WHERE registration_id IN ({placeholders})
+        ORDER BY registration_id, folder_name, message_id, projection_path
+        """,
+        tuple(registration_ids),
+    ).fetchall()
+    return tuple(
+        _MailboxExportProjection(
+            registration_id=str(row[0]),
+            message_id=str(row[1]),
+            folder_name=str(row[2]),
+            projection_path=_artifact_path(str(row[3])),
+        )
+        for row in rows
+    )
+
+
+def _load_export_attachments(
+    connection: sqlite3.Connection,
+    *,
+    message_ids: Sequence[str],
+) -> tuple[_MailboxExportAttachment, ...]:
+    """Load attachment rows linked to selected messages."""
+
+    if not message_ids:
+        return ()
+    placeholders = _sql_placeholders(len(message_ids))
+    rows = connection.execute(
+        f"""
+        SELECT
+            link.message_id,
+            attachment.attachment_id,
+            attachment.kind,
+            attachment.locator,
+            attachment.media_type,
+            attachment.sha256,
+            attachment.size_bytes,
+            attachment.label,
+            link.ordinal
+        FROM message_attachments AS link
+        JOIN attachments AS attachment
+          ON attachment.attachment_id = link.attachment_id
+        WHERE link.message_id IN ({placeholders})
+        ORDER BY link.message_id, link.ordinal, attachment.attachment_id
+        """,
+        tuple(message_ids),
+    ).fetchall()
+    return tuple(
+        _MailboxExportAttachment(
+            message_id=str(row[0]),
+            attachment_id=str(row[1]),
+            kind=str(row[2]),
+            locator=str(row[3]),
+            media_type=str(row[4]),
+            sha256=None if row[5] is None else str(row[5]),
+            size_bytes=None if row[6] is None else int(row[6]),
+            label=None if row[7] is None else str(row[7]),
+            ordinal=int(row[8]),
+        )
+        for row in rows
+    )
+
+
+def _validate_export_registration_artifacts(
+    registrations: Sequence[MailboxRegistration],
+) -> None:
+    """Reject active registration artifacts that indicate a repair-needed root."""
+
+    for registration in registrations:
+        if registration.status != "active":
+            continue
+        if registration.mailbox_kind == "symlink":
+            if not registration.mailbox_entry_path.is_symlink():
+                raise ManagedMailboxOperationError(
+                    f"mailbox root needs repair before export: missing symlink registration for "
+                    f"`{registration.address}`"
+                )
+        elif registration.mailbox_kind == "in_root":
+            if registration.mailbox_entry_path.is_symlink():
+                raise ManagedMailboxOperationError(
+                    f"mailbox root needs repair before export: in-root registration "
+                    f"`{registration.address}` is a symlink"
+                )
+        else:
+            raise ManagedMailboxOperationError(
+                f"mailbox root needs repair before export: unsupported mailbox kind "
+                f"`{registration.mailbox_kind}`"
+            )
+
+        if not registration.mailbox_path.is_dir():
+            raise ManagedMailboxOperationError(
+                f"mailbox root needs repair before export: invalid mailbox path for "
+                f"`{registration.address}`: {registration.mailbox_path}"
+            )
+        for directory_name in _MAILBOX_PLACEHOLDER_DIRS:
+            if not (registration.mailbox_path / directory_name).is_dir():
+                raise ManagedMailboxOperationError(
+                    f"mailbox root needs repair before export: `{registration.address}` is "
+                    f"missing `{directory_name}/`"
+                )
+
+
+def _write_mailbox_export_archive(
+    *,
+    paths: FilesystemMailboxPaths,
+    request: MailboxExportRequest,
+    snapshot: _MailboxExportSnapshot,
+) -> MailboxExportResult:
+    """Write one selected mailbox snapshot through a temporary archive directory."""
+
+    output_dir = request.output_dir
+    output_parent = output_dir.parent
+    output_parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = _mailbox_export_temp_dir(output_dir)
+
+    copied: list[MailboxExportAction] = []
+    materialized: list[MailboxExportAction] = []
+    preserved_symlinks: list[MailboxExportAction] = []
+    skipped: list[MailboxExportAction] = []
+    blocked: list[MailboxExportAction] = []
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "source_mailbox_root": str(paths.root),
+        "source_protocol_version": MAILBOX_PROTOCOL_VERSION,
+        "exported_at_utc": _timestamp_utc(),
+        "selection": {
+            "all_accounts": request.all_accounts,
+            "addresses": list(request.addresses),
+        },
+        "symlink_mode": request.symlink_mode,
+        "accounts": [],
+        "messages": [],
+        "projections": [],
+        "attachments": [],
+    }
+
+    try:
+        temp_dir.mkdir()
+        message_archive_paths = _export_canonical_messages(
+            paths=paths,
+            snapshot=snapshot,
+            output_dir=output_dir,
+            temp_dir=temp_dir,
+            manifest=manifest,
+            copied=copied,
+            blocked=blocked,
+        )
+        _export_accounts(
+            snapshot=snapshot,
+            output_dir=output_dir,
+            temp_dir=temp_dir,
+            manifest=manifest,
+            copied=copied,
+            skipped=skipped,
+        )
+        _export_projections(
+            snapshot=snapshot,
+            output_dir=output_dir,
+            temp_dir=temp_dir,
+            symlink_mode=request.symlink_mode,
+            message_archive_paths=message_archive_paths,
+            manifest=manifest,
+            materialized=materialized,
+            preserved_symlinks=preserved_symlinks,
+            blocked=blocked,
+        )
+        _export_attachments(
+            paths=paths,
+            snapshot=snapshot,
+            output_dir=output_dir,
+            temp_dir=temp_dir,
+            manifest=manifest,
+            copied=copied,
+            skipped=skipped,
+            blocked=blocked,
+        )
+        manifest["copied_artifacts"] = [action.to_payload() for action in copied]
+        manifest["materialized_artifacts"] = [action.to_payload() for action in materialized]
+        manifest["preserved_symlinks"] = [action.to_payload() for action in preserved_symlinks]
+        manifest["skipped_artifacts"] = [action.to_payload() for action in skipped]
+        manifest["blocked_artifacts"] = [action.to_payload() for action in blocked]
+        _write_json_file(temp_dir / "manifest.json", manifest)
+        if request.symlink_mode == "materialize":
+            _ensure_export_tree_has_no_symlinks(temp_dir)
+        _ensure_export_output_available(output_dir)
+        temp_dir.rename(output_dir)
+    except Exception:
+        if temp_dir.exists() or temp_dir.is_symlink():
+            _remove_export_temp_dir(temp_dir)
+        raise
+
+    return MailboxExportResult(
+        mailbox_root=paths.root,
+        output_dir=output_dir,
+        manifest_path=output_dir / "manifest.json",
+        symlink_mode=request.symlink_mode,
+        all_accounts=request.all_accounts,
+        selected_addresses=request.addresses,
+        account_count=len(snapshot.registrations),
+        message_count=len(snapshot.messages),
+        attachment_count=len(snapshot.attachments),
+        copied=tuple(copied),
+        materialized=tuple(materialized),
+        preserved_symlinks=tuple(preserved_symlinks),
+        skipped=tuple(skipped),
+        blocked=tuple(blocked),
+    )
+
+
+def _export_canonical_messages(
+    *,
+    paths: FilesystemMailboxPaths,
+    snapshot: _MailboxExportSnapshot,
+    output_dir: Path,
+    temp_dir: Path,
+    manifest: dict[str, object],
+    copied: list[MailboxExportAction],
+    blocked: list[MailboxExportAction],
+) -> dict[str, Path]:
+    """Copy exported canonical messages and update manifest state."""
+
+    archive_paths: dict[str, Path] = {}
+    message_manifest = _manifest_list(manifest, "messages")
+    for message in snapshot.messages:
+        archive_path: Path | None = None
+        if not _path_is_relative_to(message.canonical_path, paths.messages_dir):
+            blocked.append(
+                MailboxExportAction(
+                    outcome="blocked",
+                    artifact_kind="canonical_message",
+                    source_path=message.canonical_path,
+                    archive_path=None,
+                    reason="canonical message path is outside the mailbox messages directory",
+                    message_id=message.message_id,
+                )
+            )
+        elif not message.canonical_path.is_file():
+            blocked.append(
+                MailboxExportAction(
+                    outcome="blocked",
+                    artifact_kind="canonical_message",
+                    source_path=message.canonical_path,
+                    archive_path=None,
+                    reason="canonical message file is missing",
+                    message_id=message.message_id,
+                )
+            )
+        else:
+            relative_source = message.canonical_path.relative_to(paths.messages_dir)
+            archive_path = temp_dir / "messages" / relative_source
+            _copy_export_artifact(message.canonical_path, archive_path)
+            archive_paths[message.message_id] = archive_path
+            copied.append(
+                MailboxExportAction(
+                    outcome="copied",
+                    artifact_kind="canonical_message",
+                    source_path=message.canonical_path,
+                    archive_path=_final_archive_path(
+                        output_dir=output_dir,
+                        temp_dir=temp_dir,
+                        temp_path=archive_path,
+                    ),
+                    reason="canonical mailbox message copied into export archive",
+                    message_id=message.message_id,
+                )
+            )
+
+        message_manifest.append(
+            {
+                "message_id": message.message_id,
+                "thread_id": message.thread_id,
+                "in_reply_to": message.in_reply_to,
+                "created_at_utc": message.created_at_utc,
+                "subject": message.subject,
+                "sender_address": message.sender_address,
+                "sender_principal_id": message.sender_principal_id,
+                "sender_registration_id": message.sender_registration_id,
+                "source_path": str(message.canonical_path),
+                "archive_path": None
+                if archive_path is None
+                else _archive_relative_path(temp_dir, archive_path),
+            }
+        )
+    return archive_paths
+
+
+def _export_accounts(
+    *,
+    snapshot: _MailboxExportSnapshot,
+    output_dir: Path,
+    temp_dir: Path,
+    manifest: dict[str, object],
+    copied: list[MailboxExportAction],
+    skipped: list[MailboxExportAction],
+) -> None:
+    """Materialize selected account directories and metadata."""
+
+    account_manifest = _manifest_list(manifest, "accounts")
+    for registration in snapshot.registrations:
+        account_dir = _export_account_dir(temp_dir, registration)
+        account_dir.mkdir(parents=True, exist_ok=True)
+        for folder_name in _MAILBOX_PLACEHOLDER_DIRS:
+            (account_dir / folder_name).mkdir(parents=True, exist_ok=True)
+
+        account_json_path = account_dir / "account.json"
+        account_payload = _export_account_manifest(
+            registration=registration,
+            temp_dir=temp_dir,
+            account_dir=account_dir,
+        )
+        _write_json_file(account_json_path, account_payload)
+        copied.append(
+            MailboxExportAction(
+                outcome="copied",
+                artifact_kind="account_metadata",
+                source_path=None,
+                archive_path=_final_archive_path(
+                    output_dir=output_dir,
+                    temp_dir=temp_dir,
+                    temp_path=account_json_path,
+                ),
+                reason="registration metadata written into export archive",
+                address=registration.address,
+                registration_id=registration.registration_id,
+                registration_status=registration.status,
+            )
+        )
+
+        local_sqlite_archive_path: Path | None = None
+        local_sqlite_path = registration.local_sqlite_path
+        if local_sqlite_path.is_file():
+            local_sqlite_archive_path = account_dir / "mailbox.sqlite"
+            _copy_export_artifact(local_sqlite_path, local_sqlite_archive_path)
+            copied.append(
+                MailboxExportAction(
+                    outcome="copied",
+                    artifact_kind="mailbox_local_sqlite",
+                    source_path=local_sqlite_path,
+                    archive_path=_final_archive_path(
+                        output_dir=output_dir,
+                        temp_dir=temp_dir,
+                        temp_path=local_sqlite_archive_path,
+                    ),
+                    reason="mailbox-local SQLite state copied into export archive",
+                    address=registration.address,
+                    registration_id=registration.registration_id,
+                    registration_status=registration.status,
+                )
+            )
+        else:
+            skipped.append(
+                MailboxExportAction(
+                    outcome="skipped",
+                    artifact_kind="mailbox_local_sqlite",
+                    source_path=local_sqlite_path,
+                    archive_path=None,
+                    reason="mailbox-local SQLite state file was not present",
+                    address=registration.address,
+                    registration_id=registration.registration_id,
+                    registration_status=registration.status,
+                )
+            )
+
+        account_payload["archive_local_sqlite_path"] = (
+            None
+            if local_sqlite_archive_path is None
+            else _archive_relative_path(temp_dir, local_sqlite_archive_path)
+        )
+        _write_json_file(account_json_path, account_payload)
+        account_manifest.append(account_payload)
+
+
+def _export_projections(
+    *,
+    snapshot: _MailboxExportSnapshot,
+    output_dir: Path,
+    temp_dir: Path,
+    symlink_mode: Literal["materialize", "preserve"],
+    message_archive_paths: dict[str, Path],
+    manifest: dict[str, object],
+    materialized: list[MailboxExportAction],
+    preserved_symlinks: list[MailboxExportAction],
+    blocked: list[MailboxExportAction],
+) -> None:
+    """Copy or preserve archive-internal message projection links."""
+
+    projection_manifest = _manifest_list(manifest, "projections")
+    registrations_by_id = {
+        registration.registration_id: registration for registration in snapshot.registrations
+    }
+    messages_by_id = {message.message_id: message for message in snapshot.messages}
+    for projection in snapshot.projections:
+        registration = registrations_by_id.get(projection.registration_id)
+        message = messages_by_id.get(projection.message_id)
+        account_dir = None if registration is None else _export_account_dir(temp_dir, registration)
+        projection_archive_path = None
+        projection_action = "blocked"
+        projection_reason = "projection was not exported"
+
+        if registration is None:
+            blocked.append(
+                MailboxExportAction(
+                    outcome="blocked",
+                    artifact_kind="mailbox_projection",
+                    source_path=projection.projection_path,
+                    archive_path=None,
+                    reason="projection registration was not selected for export",
+                    registration_id=projection.registration_id,
+                    message_id=projection.message_id,
+                )
+            )
+        elif message is None or projection.message_id not in message_archive_paths:
+            blocked.append(
+                MailboxExportAction(
+                    outcome="blocked",
+                    artifact_kind="mailbox_projection",
+                    source_path=projection.projection_path,
+                    archive_path=None,
+                    reason="projection canonical message was not available in the export",
+                    address=registration.address,
+                    registration_id=registration.registration_id,
+                    registration_status=registration.status,
+                    message_id=projection.message_id,
+                )
+            )
+        elif not _path_is_relative_to(projection.projection_path, registration.mailbox_path):
+            blocked.append(
+                MailboxExportAction(
+                    outcome="blocked",
+                    artifact_kind="mailbox_projection",
+                    source_path=projection.projection_path,
+                    archive_path=None,
+                    reason="projection path is outside the registered mailbox path",
+                    address=registration.address,
+                    registration_id=registration.registration_id,
+                    registration_status=registration.status,
+                    message_id=projection.message_id,
+                )
+            )
+        else:
+            assert account_dir is not None
+            projection_archive_path = (
+                account_dir / projection.folder_name / f"{projection.message_id}.md"
+            )
+            canonical_archive_path = message_archive_paths[projection.message_id]
+            projection_archive_path.parent.mkdir(parents=True, exist_ok=True)
+            if symlink_mode == "preserve":
+                relative_target = Path(
+                    os.path.relpath(canonical_archive_path, start=projection_archive_path.parent)
+                )
+                try:
+                    projection_archive_path.symlink_to(relative_target)
+                except OSError as exc:
+                    raise ManagedMailboxOperationError(
+                        "mailbox export could not create a projection symlink in preserve "
+                        f"mode at `{projection_archive_path}`: {exc}"
+                    ) from exc
+                preserved_symlinks.append(
+                    MailboxExportAction(
+                        outcome="preserved_symlink",
+                        artifact_kind="mailbox_projection",
+                        source_path=projection.projection_path,
+                        archive_path=_final_archive_path(
+                            output_dir=output_dir,
+                            temp_dir=temp_dir,
+                            temp_path=projection_archive_path,
+                        ),
+                        reason="projection preserved as archive-internal relative symlink",
+                        address=registration.address,
+                        registration_id=registration.registration_id,
+                        registration_status=registration.status,
+                        message_id=projection.message_id,
+                        symlink_target=relative_target,
+                    )
+                )
+                projection_action = "preserved_symlink"
+                projection_reason = "projection preserved as relative archive symlink"
+            else:
+                _copy_export_artifact(canonical_archive_path, projection_archive_path)
+                materialized.append(
+                    MailboxExportAction(
+                        outcome="materialized",
+                        artifact_kind="mailbox_projection",
+                        source_path=projection.projection_path,
+                        archive_path=_final_archive_path(
+                            output_dir=output_dir,
+                            temp_dir=temp_dir,
+                            temp_path=projection_archive_path,
+                        ),
+                        reason="projection symlink materialized as a regular archive file",
+                        address=registration.address,
+                        registration_id=registration.registration_id,
+                        registration_status=registration.status,
+                        message_id=projection.message_id,
+                    )
+                )
+                projection_action = "materialized"
+                projection_reason = "projection materialized as regular file"
+
+        projection_manifest.append(
+            {
+                "registration_id": projection.registration_id,
+                "address": None if registration is None else registration.address,
+                "message_id": projection.message_id,
+                "folder_name": projection.folder_name,
+                "source_path": str(projection.projection_path),
+                "archive_path": None
+                if projection_archive_path is None
+                else _archive_relative_path(temp_dir, projection_archive_path),
+                "action": projection_action,
+                "reason": projection_reason,
+            }
+        )
+
+
+def _export_attachments(
+    *,
+    paths: FilesystemMailboxPaths,
+    snapshot: _MailboxExportSnapshot,
+    output_dir: Path,
+    temp_dir: Path,
+    manifest: dict[str, object],
+    copied: list[MailboxExportAction],
+    skipped: list[MailboxExportAction],
+    blocked: list[MailboxExportAction],
+) -> None:
+    """Copy mailbox-owned managed attachments and record external path refs."""
+
+    attachment_manifest = _manifest_list(manifest, "attachments")
+    copied_archive_paths: dict[str, Path] = {}
+    terminal_actions: dict[str, str] = {}
+
+    for attachment in snapshot.attachments:
+        source_path = _artifact_path(attachment.locator)
+        archive_path = copied_archive_paths.get(attachment.attachment_id)
+        action = terminal_actions.get(attachment.attachment_id)
+        reason = "attachment action reused from an earlier selected message"
+
+        if action is None:
+            if attachment.kind == "path_ref":
+                exists = source_path.exists()
+                skipped.append(
+                    MailboxExportAction(
+                        outcome="skipped",
+                        artifact_kind="path_ref_attachment",
+                        source_path=source_path,
+                        archive_path=None,
+                        reason="external path_ref attachment recorded in manifest only",
+                        attachment_id=attachment.attachment_id,
+                        message_id=attachment.message_id,
+                        details={"target_exists": exists},
+                    )
+                )
+                action = "skipped"
+                reason = "external path_ref attachment recorded in manifest only"
+            elif attachment.kind != "managed_copy":
+                blocked.append(
+                    MailboxExportAction(
+                        outcome="blocked",
+                        artifact_kind="attachment",
+                        source_path=source_path,
+                        archive_path=None,
+                        reason=f"unsupported attachment kind `{attachment.kind}`",
+                        attachment_id=attachment.attachment_id,
+                        message_id=attachment.message_id,
+                    )
+                )
+                action = "blocked"
+                reason = f"unsupported attachment kind `{attachment.kind}`"
+            elif not _path_resolves_relative_to(source_path, paths.attachments_managed_dir):
+                blocked.append(
+                    MailboxExportAction(
+                        outcome="blocked",
+                        artifact_kind="managed_attachment",
+                        source_path=source_path,
+                        archive_path=None,
+                        reason=(
+                            "managed-copy attachment path is outside the mailbox managed "
+                            "attachment directory"
+                        ),
+                        attachment_id=attachment.attachment_id,
+                        message_id=attachment.message_id,
+                    )
+                )
+                action = "blocked"
+                reason = "managed-copy attachment path is outside the managed attachment directory"
+            elif not source_path.exists():
+                blocked.append(
+                    MailboxExportAction(
+                        outcome="blocked",
+                        artifact_kind="managed_attachment",
+                        source_path=source_path,
+                        archive_path=None,
+                        reason="managed-copy attachment file is missing",
+                        attachment_id=attachment.attachment_id,
+                        message_id=attachment.message_id,
+                    )
+                )
+                action = "blocked"
+                reason = "managed-copy attachment file is missing"
+            else:
+                archive_path = (
+                    temp_dir
+                    / "attachments"
+                    / "managed"
+                    / attachment.attachment_id
+                    / (source_path.name or "attachment")
+                )
+                _copy_export_artifact(source_path, archive_path)
+                copied_archive_paths[attachment.attachment_id] = archive_path
+                copied.append(
+                    MailboxExportAction(
+                        outcome="copied",
+                        artifact_kind="managed_attachment",
+                        source_path=source_path,
+                        archive_path=_final_archive_path(
+                            output_dir=output_dir,
+                            temp_dir=temp_dir,
+                            temp_path=archive_path,
+                        ),
+                        reason="mailbox-owned managed-copy attachment copied into export archive",
+                        attachment_id=attachment.attachment_id,
+                        message_id=attachment.message_id,
+                    )
+                )
+                action = "copied"
+                reason = "managed-copy attachment copied into export archive"
+
+            terminal_actions[attachment.attachment_id] = action
+
+        attachment_manifest.append(
+            {
+                "message_id": attachment.message_id,
+                "attachment_id": attachment.attachment_id,
+                "kind": attachment.kind,
+                "source_path": str(source_path),
+                "media_type": attachment.media_type,
+                "sha256": attachment.sha256,
+                "size_bytes": attachment.size_bytes,
+                "label": attachment.label,
+                "ordinal": attachment.ordinal,
+                "target_exists": source_path.exists(),
+                "archive_path": None
+                if archive_path is None
+                else _archive_relative_path(temp_dir, archive_path),
+                "action": action,
+                "reason": reason,
+            }
+        )
+
+
+def _export_account_dir(temp_dir: Path, registration: MailboxRegistration) -> Path:
+    """Return the archive account directory for one registration."""
+
+    return (
+        temp_dir
+        / "accounts"
+        / mailbox_address_path_segment(registration.address)
+        / registration.registration_id
+    )
+
+
+def _export_account_manifest(
+    *,
+    registration: MailboxRegistration,
+    temp_dir: Path,
+    account_dir: Path,
+) -> dict[str, object]:
+    """Return manifest metadata for one exported account registration."""
+
+    source_entry_target = (
+        str(registration.mailbox_entry_path.resolve())
+        if registration.mailbox_entry_path.is_symlink()
+        else None
+    )
+    return {
+        "registration_id": registration.registration_id,
+        "address": registration.address,
+        "owner_principal_id": registration.owner_principal_id,
+        "status": registration.status,
+        "mailbox_kind": registration.mailbox_kind,
+        "source_mailbox_path": str(registration.mailbox_path),
+        "source_mailbox_entry_path": str(registration.mailbox_entry_path),
+        "source_mailbox_entry_is_symlink": registration.mailbox_entry_path.is_symlink(),
+        "source_mailbox_entry_target": source_entry_target,
+        "archive_account_path": _archive_relative_path(temp_dir, account_dir),
+        "display_name": registration.display_name,
+        "manifest_path_hint": registration.manifest_path_hint,
+        "role": registration.role,
+        "created_at_utc": registration.created_at_utc,
+        "deactivated_at_utc": registration.deactivated_at_utc,
+        "replaced_by_registration_id": registration.replaced_by_registration_id,
+    }
+
+
+def _ensure_export_output_available(output_dir: Path) -> None:
+    """Require that the final export output path does not already exist."""
+
+    if output_dir.exists() or output_dir.is_symlink():
+        raise ManagedMailboxOperationError(
+            f"mailbox export output directory already exists: {output_dir}"
+        )
+
+
+def _mailbox_export_temp_dir(output_dir: Path) -> Path:
+    """Return a unique sibling temporary export directory."""
+
+    name = output_dir.name or "mailbox-export"
+    while True:
+        candidate = output_dir.parent / f".{name}.tmp-{os.getpid()}-{uuid4().hex}"
+        if not candidate.exists() and not candidate.is_symlink():
+            return candidate
+
+
+def _copy_export_artifact(source_path: Path, archive_path: Path) -> None:
+    """Copy one source artifact while materializing symlink content."""
+
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    if source_path.is_dir():
+        shutil.copytree(source_path, archive_path, symlinks=False)
+        return
+    if source_path.is_file():
+        shutil.copy2(source_path, archive_path, follow_symlinks=True)
+        return
+    raise ManagedMailboxOperationError(f"mailbox export source artifact is missing: {source_path}")
+
+
+def _archive_relative_path(archive_root: Path, archive_path: Path) -> str:
+    """Return one POSIX archive-relative manifest path."""
+
+    return archive_path.relative_to(archive_root).as_posix()
+
+
+def _final_archive_path(*, output_dir: Path, temp_dir: Path, temp_path: Path) -> Path:
+    """Return the final archive path corresponding to a temporary archive path."""
+
+    return output_dir / temp_path.relative_to(temp_dir)
+
+
+def _manifest_list(manifest: dict[str, object], key: str) -> list[dict[str, object]]:
+    """Return a typed list from an export manifest draft."""
+
+    value = manifest[key]
+    if not isinstance(value, list):
+        raise AssertionError(f"manifest key `{key}` is not a list")
+    return value
+
+
+def _write_json_file(path: Path, payload: object) -> None:
+    """Write one stable UTF-8 JSON payload."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _ensure_export_tree_has_no_symlinks(root: Path) -> None:
+    """Verify that a materialized export tree contains no symlink artifacts."""
+
+    if root.is_symlink():
+        raise ManagedMailboxOperationError(
+            f"mailbox export materialize mode produced a symlink: {root}"
+        )
+    for candidate in root.rglob("*"):
+        if candidate.is_symlink():
+            raise ManagedMailboxOperationError(
+                f"mailbox export materialize mode produced a symlink: {candidate}"
+            )
+
+
+def _remove_export_temp_dir(temp_dir: Path) -> None:
+    """Remove one temporary export directory after a failed export."""
+
+    if temp_dir.is_symlink() or temp_dir.is_file():
+        temp_dir.unlink(missing_ok=True)
+        return
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+
+
+def _path_resolves_relative_to(path: Path, root: Path) -> bool:
+    """Return whether one path resolves under a root path."""
+
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _sql_placeholders(count: int) -> str:
+    """Return a positional SQL placeholder list for one non-empty sequence."""
+
+    if count <= 0:
+        raise ValueError("SQL placeholder count must be positive")
+    return ", ".join("?" for _ in range(count))
+
+
+def _message_clear_targets(
+    *,
+    paths: FilesystemMailboxPaths,
+    connection: sqlite3.Connection,
+    registrations: Sequence[MailboxRegistration],
+) -> tuple[MailboxCleanupRecord, ...]:
+    """Return deterministic filesystem/local-state targets for message clearing."""
+
+    targets: list[MailboxCleanupRecord] = []
+    seen_paths: set[Path] = set()
+
+    for message_id, canonical_path in _message_clear_canonical_paths(
+        paths=paths,
+        connection=connection,
+    ):
+        _append_unique_clear_target(
+            targets=targets,
+            seen_paths=seen_paths,
+            target=MailboxCleanupRecord(
+                outcome="planned",
+                artifact_kind="canonical_message",
+                path=canonical_path,
+                reason="canonical delivered mailbox message is in clear-messages scope",
+                message_id=message_id,
+            ),
+        )
+
+    registration_by_id = {
+        registration.registration_id: registration for registration in registrations
+    }
+    for row in connection.execute(
+        """
+        SELECT registration_id, message_id, projection_path
+        FROM mailbox_projections
+        ORDER BY registration_id, message_id, folder_name, projection_path
+        """
+    ).fetchall():
+        registration = registration_by_id.get(str(row[0]))
+        projection_path = _artifact_path(str(row[2]))
+        if registration is not None and not _path_is_relative_to(
+            projection_path, registration.mailbox_path
+        ):
+            targets.append(
+                MailboxCleanupRecord(
+                    outcome="blocked",
+                    artifact_kind="mailbox_projection",
+                    path=projection_path,
+                    reason=(
+                        "recorded mailbox projection is outside the registered mailbox path "
+                        "and will not be deleted automatically"
+                    ),
+                    address=registration.address,
+                    registration_id=registration.registration_id,
+                    registration_status=registration.status,
+                    message_id=str(row[1]),
+                )
+            )
+            continue
+        if projection_path.exists() or projection_path.is_symlink():
+            _append_unique_clear_target(
+                targets=targets,
+                seen_paths=seen_paths,
+                target=MailboxCleanupRecord(
+                    outcome="planned",
+                    artifact_kind="mailbox_projection",
+                    path=projection_path,
+                    reason="mailbox projection for delivered message is in clear-messages scope",
+                    address=None if registration is None else registration.address,
+                    registration_id=None if registration is None else registration.registration_id,
+                    registration_status=None if registration is None else registration.status,
+                    message_id=str(row[1]),
+                ),
+            )
+
+    for record in _stale_projection_targets(
+        registrations=registrations,
+        already_seen_paths=seen_paths,
+    ):
+        _append_unique_clear_target(targets=targets, seen_paths=seen_paths, target=record)
+
+    for record in _managed_attachment_clear_targets(paths=paths, connection=connection):
+        _append_unique_clear_target(targets=targets, seen_paths=seen_paths, target=record)
+
+    for record in _stale_managed_attachment_targets(paths=paths, already_seen_paths=seen_paths):
+        _append_unique_clear_target(targets=targets, seen_paths=seen_paths, target=record)
+
+    for registration in registrations:
+        local_sqlite_path = registration.local_sqlite_path
+        if not local_sqlite_path.is_file():
+            continue
+        try:
+            if _local_mailbox_state_row_count(local_sqlite_path) == 0:
+                continue
+        except sqlite3.DatabaseError:
+            pass
+        _append_unique_clear_target(
+            targets=targets,
+            seen_paths=seen_paths,
+            target=MailboxCleanupRecord(
+                outcome="planned",
+                artifact_kind="mailbox_local_state",
+                path=local_sqlite_path,
+                reason="mailbox-local message and thread state is in clear-messages scope",
+                address=registration.address,
+                registration_id=registration.registration_id,
+                registration_status=registration.status,
+            ),
+        )
+
+    return tuple(targets)
+
+
+def _message_clear_canonical_paths(
+    *,
+    paths: FilesystemMailboxPaths,
+    connection: sqlite3.Connection,
+) -> list[tuple[str | None, Path]]:
+    """Return canonical message files known from the index plus stale canonical files."""
+
+    rows = connection.execute(
+        """
+        SELECT message_id, canonical_path
+        FROM messages
+        ORDER BY created_at_utc, message_id
+        """
+    ).fetchall()
+    canonical_paths: list[tuple[str | None, Path]] = []
+    for message_id, path_value in rows:
+        canonical_path = _artifact_path(str(path_value))
+        if canonical_path.exists() or canonical_path.is_symlink():
+            canonical_paths.append((str(message_id), canonical_path))
+    known_paths = {path for _message_id, path in canonical_paths}
+    if paths.messages_dir.exists():
+        for stale_path in sorted(paths.messages_dir.rglob("*.md")):
+            resolved_stale_path = _artifact_path(stale_path)
+            if resolved_stale_path not in known_paths:
+                canonical_paths.append((stale_path.stem, resolved_stale_path))
+                known_paths.add(resolved_stale_path)
+    return canonical_paths
+
+
+def _stale_projection_targets(
+    *,
+    registrations: Sequence[MailboxRegistration],
+    already_seen_paths: set[Path],
+) -> list[MailboxCleanupRecord]:
+    """Return mailbox projection symlinks not currently present in the shared index."""
+
+    targets: list[MailboxCleanupRecord] = []
+    for registration in registrations:
+        if not registration.mailbox_path.is_dir():
+            continue
+        for directory_name in _MAILBOX_PLACEHOLDER_DIRS:
+            folder_path = registration.mailbox_path / directory_name
+            if not folder_path.is_dir():
+                continue
+            for projection_path in sorted(folder_path.glob("*.md")):
+                resolved_projection_path = _artifact_path(projection_path)
+                if resolved_projection_path in already_seen_paths:
+                    continue
+                if not projection_path.is_symlink():
+                    continue
+                targets.append(
+                    MailboxCleanupRecord(
+                        outcome="planned",
+                        artifact_kind="mailbox_projection",
+                        path=resolved_projection_path,
+                        reason="stale mailbox projection symlink is in clear-messages scope",
+                        address=registration.address,
+                        registration_id=registration.registration_id,
+                        registration_status=registration.status,
+                        message_id=projection_path.stem,
+                    )
+                )
+    return targets
+
+
+def _managed_attachment_clear_targets(
+    *,
+    paths: FilesystemMailboxPaths,
+    connection: sqlite3.Connection,
+) -> list[MailboxCleanupRecord]:
+    """Return managed-copy attachment artifacts referenced by delivered messages."""
+
+    targets: list[MailboxCleanupRecord] = []
+    rows = connection.execute(
+        """
+        SELECT DISTINCT attachment.attachment_id, attachment.locator
+        FROM attachments AS attachment
+        JOIN message_attachments AS link
+          ON link.attachment_id = attachment.attachment_id
+        WHERE attachment.kind = 'managed_copy'
+        ORDER BY attachment.attachment_id
+        """
+    ).fetchall()
+    for attachment_id, locator in rows:
+        attachment_path = _artifact_path(str(locator))
+        if not _path_is_relative_to(attachment_path, paths.attachments_managed_dir):
+            targets.append(
+                MailboxCleanupRecord(
+                    outcome="blocked",
+                    artifact_kind="managed_attachment",
+                    path=attachment_path,
+                    reason=(
+                        "managed-copy attachment path is outside the mailbox managed "
+                        "attachment directory and will not be deleted automatically"
+                    ),
+                    attachment_id=str(attachment_id),
+                )
+            )
+            continue
+        if attachment_path.exists() or attachment_path.is_symlink():
+            targets.append(
+                MailboxCleanupRecord(
+                    outcome="planned",
+                    artifact_kind="managed_attachment",
+                    path=attachment_path,
+                    reason="mailbox-owned managed-copy attachment is in clear-messages scope",
+                    attachment_id=str(attachment_id),
+                )
+            )
+    return targets
+
+
+def _stale_managed_attachment_targets(
+    *,
+    paths: FilesystemMailboxPaths,
+    already_seen_paths: set[Path],
+) -> list[MailboxCleanupRecord]:
+    """Return stale mailbox-owned managed attachment artifacts."""
+
+    if not paths.attachments_managed_dir.exists():
+        return []
+    targets: list[MailboxCleanupRecord] = []
+    for attachment_path in sorted(paths.attachments_managed_dir.rglob("*"), reverse=True):
+        if attachment_path.is_dir():
+            continue
+        resolved_attachment_path = _artifact_path(attachment_path)
+        if resolved_attachment_path in already_seen_paths:
+            continue
+        targets.append(
+            MailboxCleanupRecord(
+                outcome="planned",
+                artifact_kind="managed_attachment",
+                path=resolved_attachment_path,
+                reason="stale mailbox-owned managed attachment is in clear-messages scope",
+            )
+        )
+    return targets
+
+
+def _append_unique_clear_target(
+    *,
+    targets: list[MailboxCleanupRecord],
+    seen_paths: set[Path],
+    target: MailboxCleanupRecord,
+) -> None:
+    """Append one clear target once per filesystem path."""
+
+    if target.path in seen_paths:
+        return
+    seen_paths.add(target.path)
+    targets.append(target)
+
+
+def _delete_shared_message_index_rows(connection: sqlite3.Connection) -> None:
+    """Delete shared index rows that are derived from delivered messages."""
+
+    connection.execute("DELETE FROM messages")
+    connection.execute("DELETE FROM attachments")
+    connection.execute("DELETE FROM thread_summaries")
+
+
+def _clear_existing_local_mailbox_database(sqlite_path: Path) -> None:
+    """Clear message and thread state from one existing mailbox-local SQLite database."""
+
+    initialize_mailbox_local_sqlite_schema(sqlite_path)
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute("DELETE FROM thread_summaries")
+        connection.execute("DELETE FROM message_state")
+        connection.commit()
+
+
+def _local_mailbox_state_row_count(sqlite_path: Path) -> int:
+    """Return the count of mailbox-local rows that message clearing would reset."""
+
+    with sqlite3.connect(sqlite_path) as connection:
+        message_count = int(connection.execute("SELECT COUNT(*) FROM message_state").fetchone()[0])
+        thread_count = int(
+            connection.execute("SELECT COUNT(*) FROM thread_summaries").fetchone()[0]
+        )
+    return message_count + thread_count
+
+
+def _remove_message_clear_artifact(path: Path) -> None:
+    """Remove one filesystem artifact owned by delivered-message clear."""
+
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+        return
+    if path.exists():
+        shutil.rmtree(path)
+
+
+def _remove_empty_descendant_dirs(root: Path) -> None:
+    """Remove empty descendant directories while preserving the root itself."""
+
+    if not root.is_dir():
+        return
+    for candidate in sorted(
+        (path for path in root.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        try:
+            candidate.rmdir()
+        except OSError:
+            pass
+
+
+def _path_is_relative_to(path: Path, root: Path) -> bool:
+    """Return whether one path resolves under a root path."""
+
+    candidate = _artifact_path(path)
+    root_path = _artifact_path(root)
+    try:
+        candidate.relative_to(root_path)
+    except ValueError:
+        return False
+    return True
+
+
+def _artifact_path(path: str | Path) -> Path:
+    """Return one absolute path without dereferencing a symlink artifact."""
+
+    return Path(os.path.abspath(Path(path).expanduser()))
 
 
 def _resolve_paths(mailbox_root: Path) -> FilesystemMailboxPaths:
@@ -2986,6 +4714,7 @@ def _insert_mailbox_state_records(
         ),
     }
     for registration_id in sorted(affected_registration_ids):
+        is_recipient = registration_id in recipient_registration_ids
         _insert_local_message_state_row(
             connection=connection,
             local_alias=local_aliases[registration_id],
@@ -2993,10 +4722,12 @@ def _insert_mailbox_state_records(
             thread_id=thread_id,
             created_at_utc=created_at_utc,
             subject=subject,
-            is_read=registration_id not in recipient_registration_ids,
+            is_read=not is_recipient,
+            is_answered=False,
             is_starred=False,
             is_archived=False,
             is_deleted=False,
+            box_name="inbox" if is_recipient else "sent",
         )
         _recompute_local_thread_summary(
             connection=connection,
@@ -3209,9 +4940,11 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
                     registration_id,
                     message_id,
                     is_read,
+                    is_answered,
                     is_starred,
                     is_archived,
-                    is_deleted
+                    is_deleted,
+                    box_name
                 FROM mailbox_state
                 """
             ).fetchall()
@@ -3243,7 +4976,14 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
         for registration in _rows_to_registrations(registration_rows)
     }
     mailbox_state = {
-        (str(row[0]), str(row[1])): (bool(row[2]), bool(row[3]), bool(row[4]), bool(row[5]))
+        (str(row[0]), str(row[1])): (
+            bool(row[2]),
+            bool(row[3]),
+            bool(row[4]),
+            bool(row[5]),
+            bool(row[6]),
+            str(row[7]),
+        )
         for row in state_rows
     }
     sender_registration_ids = {
@@ -3681,15 +5421,27 @@ def _insert_recovered_mailbox_state_records(
             continue
         prior_state = snapshot.mailbox_state.get((registration_id, message.message_id))
         if prior_state is None:
-            state_values = (int(registration_id not in delivered_recipient_ids), 0, 0, 0)
+            is_recipient = registration_id in delivered_recipient_ids
+            state_values = (
+                not is_recipient,
+                False,
+                False,
+                False,
+                False,
+                "inbox" if is_recipient else "sent",
+            )
             defaulted_state_count += 1
         else:
-            read_state, starred_state, archived_state, deleted_state = prior_state
+            read_state, answered_state, starred_state, archived_state, deleted_state, box_name = (
+                prior_state
+            )
             state_values = (
                 bool(read_state),
+                bool(answered_state),
                 bool(starred_state),
                 bool(archived_state),
                 bool(deleted_state),
+                box_name,
             )
             restored_state_count += 1
 
@@ -3701,9 +5453,11 @@ def _insert_recovered_mailbox_state_records(
             created_at_utc=message.created_at_utc,
             subject=message.subject,
             is_read=bool(state_values[0]),
-            is_starred=bool(state_values[1]),
-            is_archived=bool(state_values[2]),
-            is_deleted=bool(state_values[3]),
+            is_answered=bool(state_values[1]),
+            is_starred=bool(state_values[2]),
+            is_archived=bool(state_values[3]),
+            is_deleted=bool(state_values[4]),
+            box_name=str(state_values[5]),
         )
 
     return restored_state_count, defaulted_state_count

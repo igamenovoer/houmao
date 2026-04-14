@@ -16,7 +16,9 @@ from houmao.passive_server.client import PassiveServerClient
 from houmao.passive_server.models import (
     PassiveHeadlessLaunchRequest,
     PassiveHeadlessLaunchResponse,
+    PassiveHeadlessTurnRequest,
 )
+from houmao.mailbox.protocol import HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
 from houmao.server.client import HoumaoServerClient
 from houmao.server.pair_client import (
     UnsupportedPairAuthorityError,
@@ -34,13 +36,14 @@ from houmao.server.models import (
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentMailActionResponse,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailLifecycleResponse,
+    HoumaoManagedAgentMailListRequest,
+    HoumaoManagedAgentMailListResponse,
+    HoumaoManagedAgentMailMarkRequest,
     HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
-    HoumaoManagedAgentMailStateRequest,
-    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentSubmitPromptRequest,
@@ -553,12 +556,13 @@ def test_send_managed_agent_gateway_control_input_posts_json_body(monkeypatch) -
 
 def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
-    request_model = GatewayMailNotifierPutV1(interval_seconds=60)
+    request_model = GatewayMailNotifierPutV1(interval_seconds=60, mode="unread_only")
     recorded: dict[str, object] = {}
     response_payload = {
         "schema_version": 1,
         "enabled": True,
         "interval_seconds": 60,
+        "mode": "unread_only",
         "supported": True,
         "support_error": None,
         "last_poll_at_utc": None,
@@ -582,6 +586,7 @@ def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) ->
     response = client.put_managed_agent_gateway_mail_notifier("HOUMAO gpu/1", request_model)
 
     assert response.enabled is True
+    assert response.mode == "unread_only"
     assert recorded == {
         "method": "PUT",
         "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
@@ -623,17 +628,18 @@ def test_get_managed_agent_mail_status_percent_encodes_alias(monkeypatch) -> Non
     }
 
 
-def test_check_managed_agent_mail_posts_json_body(monkeypatch) -> None:
+def test_list_managed_agent_mail_posts_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
-    request_model = HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5)
+    request_model = HoumaoManagedAgentMailListRequest(read_state="unread", limit=5)
     recorded: dict[str, object] = {}
     response_payload = {
         "schema_version": 1,
         "transport": "filesystem",
         "principal_id": "agent-1234",
         "address": "agent@agents.localhost",
-        "unread_only": True,
+        "box": "inbox",
         "message_count": 0,
+        "open_count": 0,
         "unread_count": 0,
         "messages": [],
     }
@@ -641,7 +647,7 @@ def test_check_managed_agent_mail_posts_json_body(monkeypatch) -> None:
     def _request_root_model(
         method: str,
         path: str,
-        model: type[HoumaoManagedAgentMailCheckResponse],
+        model: type[HoumaoManagedAgentMailListResponse],
         **kwargs,
     ):
         recorded["method"] = method
@@ -651,12 +657,12 @@ def test_check_managed_agent_mail_posts_json_body(monkeypatch) -> None:
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.check_managed_agent_mail("HOUMAO gpu/1", request_model)
+    response = client.list_managed_agent_mail("HOUMAO gpu/1", request_model)
 
-    assert response.unread_only is True
+    assert response.box == "inbox"
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/check",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/list",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -673,6 +679,7 @@ def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> N
         subject="operator note",
         body_content="operator body",
     )
+    assert post_request.reply_policy == HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
     reply_request = HoumaoManagedAgentMailReplyRequest(
         message_ref="msg-123",
         body_content="reply",
@@ -741,42 +748,73 @@ def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> N
     ]
 
 
-def test_update_managed_agent_mail_state_posts_json_body(monkeypatch) -> None:
+def test_mark_and_archive_managed_agent_mail_post_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
-    recorded: dict[str, object] = {}
-    request_model = HoumaoManagedAgentMailStateRequest(
-        message_ref="filesystem:msg-123",
+    recorded: list[dict[str, object]] = []
+    mark_request = HoumaoManagedAgentMailMarkRequest(
+        message_refs=["filesystem:msg-123"],
         read=True,
+        answered=True,
     )
+    archive_request = HoumaoManagedAgentMailArchiveRequest(message_refs=["filesystem:msg-123"])
 
     def _request_root_model(
         method: str,
         path: str,
-        model: type[HoumaoManagedAgentMailStateResponse],
+        model: type[HoumaoManagedAgentMailLifecycleResponse],
         **kwargs,
     ):
-        recorded.update({"method": method, "path": path, "kwargs": kwargs})
+        recorded.append({"method": method, "path": path, "kwargs": kwargs})
+        operation = "archive" if path.endswith("/archive") else "mark"
         return model.model_validate(
             {
                 "schema_version": 1,
+                "operation": operation,
                 "transport": "filesystem",
                 "principal_id": "agent-1234",
                 "address": "agent@agents.localhost",
-                "message_ref": "filesystem:msg-123",
-                "read": True,
+                "message_count": 1,
+                "messages": [
+                    {
+                        "message_ref": "filesystem:msg-123",
+                        "thread_ref": "thread-1",
+                        "created_at_utc": "2026-03-24T16:00:00+00:00",
+                        "subject": "status",
+                        "read": True,
+                        "answered": True,
+                        "archived": operation == "archive",
+                        "box": "archive" if operation == "archive" else "inbox",
+                        "unread": False,
+                        "body_preview": "hello",
+                        "sender": {"address": "agent@agents.localhost"},
+                        "to": [{"address": "peer@agents.localhost"}],
+                        "cc": [],
+                        "reply_to": [],
+                        "attachments": [],
+                    }
+                ],
             }
         )
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.update_managed_agent_mail_state("HOUMAO gpu/1", request_model)
+    mark_response = client.mark_managed_agent_mail("HOUMAO gpu/1", mark_request)
+    archive_response = client.archive_managed_agent_mail("HOUMAO gpu/1", archive_request)
 
-    assert response.read is True
-    assert recorded == {
-        "method": "POST",
-        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/state",
-        "kwargs": {"json_body": request_model.model_dump(mode="json")},
-    }
+    assert mark_response.operation == "mark"
+    assert archive_response.operation == "archive"
+    assert recorded == [
+        {
+            "method": "POST",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/mark",
+            "kwargs": {"json_body": mark_request.model_dump(mode="json")},
+        },
+        {
+            "method": "POST",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/archive",
+            "kwargs": {"json_body": archive_request.model_dump(mode="json")},
+        },
+    ]
 
 
 def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:
@@ -982,7 +1020,12 @@ def test_passive_server_client_submit_headless_turn_normalizes_response(monkeypa
     assert recorded == {
         "method": "POST",
         "path": "/houmao/agents/HOUMAO%20gpu%2F1/turns",
-        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+        "kwargs": {
+            "json_body": PassiveHeadlessTurnRequest(
+                prompt=request_model.prompt,
+                chat_session=request_model.chat_session,
+            ).model_dump(mode="json")
+        },
     }
 
 
@@ -1082,7 +1125,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
     client = PassiveServerClient("http://127.0.0.1:9891")
     recorded: list[dict[str, object]] = []
     request_model = GatewayControlInputRequestV1(sequence="abc", escape_special_keys=True)
-    notifier_put = GatewayMailNotifierPutV1(interval_seconds=45)
+    notifier_put = GatewayMailNotifierPutV1(interval_seconds=45, mode="unread_only")
     control_payload = {
         "status": "ok",
         "action": "control_input",
@@ -1092,6 +1135,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
         "schema_version": 1,
         "enabled": True,
         "interval_seconds": 45,
+        "mode": "unread_only",
         "supported": True,
         "support_error": None,
         "last_poll_at_utc": None,
@@ -1102,6 +1146,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
         "schema_version": 1,
         "enabled": False,
         "interval_seconds": None,
+        "mode": "unread_only",
         "supported": True,
         "support_error": None,
         "last_poll_at_utc": None,
@@ -1127,7 +1172,9 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
     assert control.detail == "queued"
     assert notifier_status.enabled is True
     assert notifier_enabled.interval_seconds == 45
+    assert notifier_enabled.mode == "unread_only"
     assert notifier_disabled.enabled is False
+    assert notifier_disabled.mode == "unread_only"
     assert recorded == [
         {
             "method": "POST",

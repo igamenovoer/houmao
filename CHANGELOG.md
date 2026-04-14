@@ -4,6 +4,35 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc1] - 2026-04-14
+
+### Added
+
+- **Agent workspace commands**: `houmao-mgr agents workspace` command family gives every managed agent an operator-addressable workspace root with `path`, `memo show/set`, `tree`, `read`, `write`, `append`, `delete`, and `clear` sub-commands. Per-agent workspaces resolve to `<project-root>/.houmao/memory/agents/<agent-id>/` by default and expose `scratch/` and `persist/` lanes. The same workspace controls are available on `agents join`, `agents launch`, `project easy instance launch`, and stored launch profiles.
+- **Mail-notifier notification mode**: gateway mail-notifier gains a `notification_mode` setting — `any_inbox` (default, existing behavior: wake while any unarchived inbox mail remains) and `unread_only` (wake only for unread unarchived inbox mail). Configurable at attach time and stored in gateway state.
+- **Mailbox answered-archive lifecycle**: answered messages are now moved to an `answered/` archive lane in the filesystem mailbox, keeping the active inbox clean without deleting processed messages.
+
+### Changed
+
+- **Unified workspace directory layout**: `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, `HOUMAO_AGENT_SCRATCH_DIR`, and `HOUMAO_AGENT_PERSIST_DIR` replace the retired `HOUMAO_JOB_DIR` and `HOUMAO_MEMORY_DIR` env vars. The `memory/` subdirectory now appears in the `.houmao/` project overlay layout.
+- **Docs and README updated**: `docs/index.md` gains a brief intro and audience-oriented "where to start" table; `docs/getting-started/quickstart.md` notes that it targets from-source checkouts; `README.md` reflects the workspace layout and `agents workspace` capabilities; `DEVELOPMENT-SETUP.md` filename typo fixed.
+
+## [0.6.6] - 2026-04-14
+
+### Changed
+
+- **Operator-origin reply policy defaults to `operator_mailbox`**: `houmao-mgr agents mail post`, the gateway `POST /v1/mail/post` route, and the low-level `operator_origin_headers()` helper now default to `reply_policy=operator_mailbox` so replies route back to the reserved operator mailbox. Use `reply_policy=none` explicitly when a one-way operator note is intended.
+- **Reply hardening in email processing skill**: `houmao-process-emails-via-gateway` now includes reply-hardening guidance with one-off gateway reminders that guard required replies against stalls or interrupts, including a prompt template and guardrails for duplicate-reply prevention.
+- **Touring skill advanced-usage branch**: `houmao-touring` gains an `advanced-usage` branch for pairwise agent-loop creation guidance, routing users to `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2` with explicit skill-selection boundaries.
+
+## [0.6.5] - 2026-04-13
+
+### Added
+
+- **Mailbox `clear-messages` command**: `houmao-mgr mailbox clear-messages` (and `project mailbox clear-messages`) clears delivered filesystem mail, message projections, mailbox-local message/thread state, and managed-copy attachments while preserving mailbox registrations and account directories. Supports `--dry-run` preview and `--yes` for non-interactive confirmation.
+- **Mailbox `export` command**: `houmao-mgr mailbox export` (and `project mailbox export`) exports selected mailbox accounts and indexed messages into a portable archive directory with `manifest.json`, canonical messages, account metadata, and managed-copy attachments. Requires `--output-dir` plus explicit account scope (`--all-accounts` or `--address`). Default `--symlink-mode materialize` writes regular files with no symlinks.
+- **`houmao-mailbox-mgr` system skill updated**: skill actions now cover `clear-messages` and `export` verbs alongside existing mailbox lifecycle operations.
+
 ## [0.6.4] - 2026-04-13
 
 ### Added
@@ -240,6 +269,8 @@ Release superseded by 0.6.4 (missing changelog update).
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.6.6]: https://github.com/igamenovoer/houmao/compare/v0.6.5...v0.6.6
+[0.6.5]: https://github.com/igamenovoer/houmao/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/igamenovoer/houmao/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/igamenovoer/houmao/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/igamenovoer/houmao/compare/v0.6.1...v0.6.2

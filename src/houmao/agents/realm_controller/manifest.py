@@ -18,7 +18,7 @@ from houmao.agents.realm_controller.agent_identity import (
 from .boundary_models import (
     LaunchPlanPayloadV1,
     RegistryLaunchAuthorityV1,
-    RuntimeMemoryBindingKindV1,
+    RuntimePersistBindingKindV1,
     SessionManifestAgentLaunchAuthorityV1,
     SessionManifestPayloadV2,
     SessionManifestPayloadV3,
@@ -45,9 +45,11 @@ class SessionManifestRequest:
     agent_id: str | None = None
     tmux_session_name: str | None = None
     session_id: str | None = None
-    job_dir: Path | None = None
-    memory_binding: RuntimeMemoryBindingKindV1 | None = None
-    memory_dir: Path | None = None
+    workspace_root: Path | None = None
+    memo_file: Path | None = None
+    scratch_dir: Path | None = None
+    persist_binding: RuntimePersistBindingKindV1 | None = None
+    persist_dir: Path | None = None
     agent_def_dir: Path | None = None
     agent_pid: int | None = None
     created_at_utc: str | None = None
@@ -120,12 +122,6 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         agent_id=agent_id,
         tmux_session_name=tmux_session_name,
     )
-    job_dir = _resolve_manifest_job_dir(
-        request=request,
-        agent_name=agent_name,
-        agent_id=agent_id,
-        tmux_session_name=tmux_session_name,
-    )
 
     payload: dict[str, Any] = {
         "schema_version": SESSION_MANIFEST_SCHEMA_VERSION,
@@ -138,7 +134,6 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "agent_name": agent_name,
         "agent_id": agent_id,
         "tmux_session_name": tmux_session_name,
-        "job_dir": str(job_dir.resolve()) if job_dir is not None else None,
         "registry_generation_id": request.registry_generation_id,
         "registry_launch_authority": request.registry_launch_authority,
         "launch_plan": launch_payload,
@@ -216,7 +211,6 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
     payload["runtime"] = _build_manifest_runtime_section(
         request=request,
         session_id=session_id,
-        job_dir=job_dir,
     )
     payload["tmux"] = _build_manifest_tmux_section(
         request=request,
@@ -425,31 +419,6 @@ def _resolve_manifest_identity(
     return agent_name, agent_id, tmux_session_name
 
 
-def _resolve_manifest_job_dir(
-    *,
-    request: SessionManifestRequest,
-    agent_name: str | None,
-    agent_id: str | None,
-    tmux_session_name: str | None,
-) -> Path | None:
-    """Resolve the persisted job dir for one manifest request."""
-
-    if request.job_dir is not None:
-        return request.job_dir
-
-    job_key = (
-        _optional_non_empty_str(request.backend_state.get("session_id"))
-        or _optional_non_empty_str(request.backend_state.get("session_name"))
-        or tmux_session_name
-        or agent_id
-        or agent_name
-    )
-    if job_key is None:
-        return None
-
-    return (request.launch_plan.working_directory / ".houmao" / "jobs" / job_key).resolve()
-
-
 def _resolve_manifest_session_id(
     *,
     request: SessionManifestRequest,
@@ -473,7 +442,6 @@ def _build_manifest_runtime_section(
     *,
     request: SessionManifestRequest,
     session_id: str | None,
-    job_dir: Path | None,
 ) -> dict[str, Any]:
     """Build the normalized v4 runtime section."""
 
@@ -483,10 +451,16 @@ def _build_manifest_runtime_section(
         agent_pid = raw_agent_pid if isinstance(raw_agent_pid, int) and raw_agent_pid > 0 else None
     return {
         "session_id": session_id,
-        "job_dir": str(job_dir.resolve()) if job_dir is not None else None,
-        "memory_binding": request.memory_binding,
-        "memory_dir": (
-            str(request.memory_dir.resolve()) if request.memory_dir is not None else None
+        "workspace_root": (
+            str(request.workspace_root.resolve()) if request.workspace_root is not None else None
+        ),
+        "memo_file": str(request.memo_file.resolve()) if request.memo_file is not None else None,
+        "scratch_dir": (
+            str(request.scratch_dir.resolve()) if request.scratch_dir is not None else None
+        ),
+        "persist_binding": request.persist_binding,
+        "persist_dir": (
+            str(request.persist_dir.resolve()) if request.persist_dir is not None else None
         ),
         "agent_def_dir": (
             str(request.agent_def_dir.resolve()) if request.agent_def_dir is not None else None
@@ -682,6 +656,7 @@ def _upgrade_v3_manifest_payload(*, payload: SessionManifestPayloadV3) -> dict[s
 
     upgraded = payload.model_dump(mode="json")
     upgraded["schema_version"] = SESSION_MANIFEST_SCHEMA_VERSION
+    upgraded.pop("job_dir", None)
     session_id = (
         _optional_non_empty_str(payload.backend_state.get("session_id"))
         or _optional_non_empty_str(payload.backend_state.get("session_name"))
@@ -689,9 +664,14 @@ def _upgrade_v3_manifest_payload(*, payload: SessionManifestPayloadV3) -> dict[s
         or payload.agent_id
         or payload.agent_name
     )
+    workspace_root, memo_file, scratch_dir = _legacy_workspace_fields(payload=payload)
     upgraded["runtime"] = {
         "session_id": session_id,
-        "job_dir": payload.job_dir,
+        "workspace_root": workspace_root,
+        "memo_file": memo_file,
+        "scratch_dir": scratch_dir,
+        "persist_binding": None,
+        "persist_dir": None,
         "agent_def_dir": None,
         "agent_pid": payload.codex.pid if payload.codex is not None else None,
         "registry_generation_id": payload.registry_generation_id,
@@ -710,7 +690,9 @@ def _upgrade_v3_manifest_payload(*, payload: SessionManifestPayloadV3) -> dict[s
         else None
     )
     upgraded["interactive"] = {
-        "turn_index": _coerce_legacy_manifest_int(payload.backend_state.get("turn_index"), default=0),
+        "turn_index": _coerce_legacy_manifest_int(
+            payload.backend_state.get("turn_index"), default=0
+        ),
         "working_directory": str(
             payload.backend_state.get("working_directory", payload.working_directory)
         ),
@@ -794,6 +776,28 @@ def _legacy_job_dir(*, payload: SessionManifestPayloadV2, source: str) -> str | 
     session_id = session_root.name
     working_directory = Path(payload.working_directory).resolve()
     return str((working_directory / ".houmao" / "jobs" / session_id).resolve())
+
+
+def _legacy_workspace_fields(
+    *,
+    payload: SessionManifestPayloadV3,
+) -> tuple[str | None, str | None, str | None]:
+    """Best-effort workspace derivation for older manifest payloads."""
+
+    if payload.agent_id is None:
+        return None, None, None
+    workspace_root = (
+        Path(payload.working_directory).resolve()
+        / ".houmao"
+        / "memory"
+        / "agents"
+        / payload.agent_id
+    ).resolve()
+    return (
+        str(workspace_root),
+        str((workspace_root / "houmao-memo.md").resolve()),
+        str((workspace_root / "scratch").resolve()),
+    )
 
 
 def _optional_non_empty_str(value: object) -> str | None:

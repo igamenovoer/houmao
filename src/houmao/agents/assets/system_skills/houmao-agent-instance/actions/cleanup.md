@@ -15,9 +15,8 @@ Use this action only when the user wants to clean stopped-session managed-agent 
    - `--session-root`
 4. If the cleanup kind or selector is still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the cleanup kind choices and the selectors still needed.
 5. Include `--dry-run` only when the user explicitly asks to preview cleanup.
-6. For `cleanup session`, include `--include-job-dir` only when the user explicitly wants the persisted job dir removed together with the stopped session envelope.
-7. Run the selected cleanup command.
-8. Report the resulting `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`.
+6. Run the selected cleanup command. Session cleanup removes the stopped session envelope; use `agents workspace clear --lane scratch` as a separate explicit operation when the user wants scratch-lane contents cleared.
+7. Report the resulting `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`.
 
 ## Command Shape
 
