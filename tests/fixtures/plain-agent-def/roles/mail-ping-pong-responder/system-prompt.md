@@ -20,16 +20,16 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 ## Shared Gateway Quick Reference
 
 - Use these stable request shapes directly for routine ping-pong turns:
-  `POST /v1/mail/check` -> `{"schema_version":1,"unread_only":true,"limit":10}`
+  `POST /v1/mail/list` -> `{"schema_version":1,"box":"inbox","read_state":"unread","answered_state":"any","archived":false,"limit":10}`
   `POST /v1/mail/reply` -> `{"schema_version":1,"message_ref":"<opaque message_ref>","body_content":"...","attachments":[]}`
-  `POST /v1/mail/state` -> `{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`
+  `POST /v1/mail/archive` -> `{"schema_version":1,"message_refs":["<opaque message_ref>"]}`
 
 ## Responder Behavior
 
-- When awakened, use the one actionable unread target nominated through shared mailbox context.
+- When awakened, use the one actionable open target nominated through shared mailbox context.
 - Reply in the same thread.
 - Include the current UTC time and a brief confirmation in the reply body.
-- After the reply succeeds, mark the processed source message read through the shared mailbox state update.
+- After the reply succeeds, archive the processed source message through the shared mailbox archive update.
 - Stop immediately after replying; do not start a new thread and do not send extra follow-up mail.
 
 ## Message Contract

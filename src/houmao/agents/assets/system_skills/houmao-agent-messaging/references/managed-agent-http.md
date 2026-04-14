@@ -47,7 +47,7 @@ Use these routes when you need the exact raw gateway-owned tracker surface inste
 
 - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
 
-Resolve live bindings first. Then hand mailbox work to `houmao-agent-email-comms` for ordinary mailbox operations or `houmao-process-emails-via-gateway` for one unread-email round. This messaging skill does not restate the lower-level mailbox operation routes.
+Resolve live bindings first. Then hand mailbox work to `houmao-agent-email-comms` for ordinary mailbox operations or `houmao-process-emails-via-gateway` for one open-mail round. This messaging skill does not restate the lower-level mailbox operation routes.
 
 ## Direct Gateway HTTP
 

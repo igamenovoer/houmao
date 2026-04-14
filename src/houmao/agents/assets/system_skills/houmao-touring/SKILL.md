@@ -83,7 +83,7 @@ This packaged skill does not cover:
 - Route generic managed-agent inspection, live screen watching, mailbox-posture inspection, and runtime artifact inspection to `houmao-agent-inspect`.
 - Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
-- Route ordinary mailbox send, read, reply, or mark-read follow-up to `houmao-agent-email-comms`.
+- Route ordinary mailbox send, read, reply, or archive follow-up to `houmao-agent-email-comms`.
 - Route advanced stable pairwise loop creation to `houmao-agent-loop-pairwise` only after the user selects or explicitly invokes that skill.
 - Route advanced enriched pairwise loop creation to `houmao-agent-loop-pairwise-v2` only after the user selects or explicitly invokes that skill.
 - Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.

@@ -63,13 +63,17 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayHeadlessStartupDefaultV1,
     GatewayHost,
     GatewayMailActionResponseV1,
-    GatewayMailCheckRequestV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListRequestV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
-    GatewayMailStateRequestV1,
-    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayJsonObject,
     GatewayMailNotifierPutV1,
@@ -188,7 +192,7 @@ class _QueuedGatewayRequestRecord:
 
 @dataclass(frozen=True)
 class _UnreadMailboxMessage:
-    """Unread mailbox message summary used for notifier prompts."""
+    """Open mailbox message summary used for notifier prompts."""
 
     message_ref: str
     thread_ref: str | None
@@ -278,11 +282,15 @@ def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
     return "\n".join(
         [
             f"- `GET {base_url}/v1/mail/status`",
-            f"- `POST {base_url}/v1/mail/check`",
+            f"- `POST {base_url}/v1/mail/list`",
+            f"- `POST {base_url}/v1/mail/peek`",
+            f"- `POST {base_url}/v1/mail/read`",
             f"- `POST {base_url}/v1/mail/send`",
             f"- `POST {base_url}/v1/mail/post`",
             f"- `POST {base_url}/v1/mail/reply`",
-            f"- `POST {base_url}/v1/mail/state`",
+            f"- `POST {base_url}/v1/mail/mark`",
+            f"- `POST {base_url}/v1/mail/move`",
+            f"- `POST {base_url}/v1/mail/archive`",
         ]
     )
 
@@ -2254,8 +2262,8 @@ class GatewayServiceRuntime:
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    def check_mail(self, request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
-        """Run one shared mailbox check request."""
+    def list_mail(self, request_payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+        """Run one shared mailbox list request."""
 
         with self.m_lock:
             self._require_loopback_mail_surface()
@@ -2264,23 +2272,75 @@ class GatewayServiceRuntime:
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             try:
-                messages = adapter.check(
-                    unread_only=request_payload.unread_only,
+                messages = adapter.list_messages(
+                    box=request_payload.box,
+                    read_state=request_payload.read_state,
+                    answered_state=request_payload.answered_state,
+                    archived=request_payload.archived,
                     limit=request_payload.limit,
                     since=request_payload.since,
+                    include_body=request_payload.include_body,
                 )
             except GatewayMailboxError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             status = adapter.status()
             unread_count = sum(1 for message in messages if message.unread is True)
-            return GatewayMailCheckResponseV1(
+            open_count = sum(1 for message in messages if message.archived is not True)
+            return GatewayMailListResponseV1(
                 transport=status.transport,
                 principal_id=status.principal_id,
                 address=status.address,
-                unread_only=request_payload.unread_only,
+                box=request_payload.box,
                 message_count=len(messages),
+                open_count=open_count,
                 unread_count=unread_count,
                 messages=messages,
+            )
+
+    def peek_mail(self, request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox peek request."""
+
+        return self._mail_message_request(operation="peek", request_payload=request_payload)
+
+    def read_mail(self, request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox read request."""
+
+        return self._mail_message_request(operation="read", request_payload=request_payload)
+
+    def _mail_message_request(
+        self,
+        *,
+        operation: Literal["peek", "read"],
+        request_payload: GatewayMailMessageRequestV1,
+    ) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox message retrieval request."""
+
+        with self.m_lock:
+            self._require_loopback_mail_surface()
+            try:
+                adapter = self._mailbox_adapter_locked()
+            except GatewayError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            try:
+                if operation == "peek":
+                    message = adapter.peek(
+                        message_ref=request_payload.message_ref,
+                        box=request_payload.box,
+                    )
+                else:
+                    message = adapter.read(
+                        message_ref=request_payload.message_ref,
+                        box=request_payload.box,
+                    )
+            except GatewayMailboxError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailMessageResponseV1(
+                operation=operation,
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message=message,
             )
 
     def send_mail(self, request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
@@ -2370,11 +2430,46 @@ class GatewayServiceRuntime:
                 message=message,
             )
 
-    def update_mail_state(
+    def mark_mail(
         self,
-        request_payload: GatewayMailStateRequestV1,
-    ) -> GatewayMailStateResponseV1:
-        """Run one shared mailbox read-state update request."""
+        request_payload: GatewayMailMarkRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox mark request."""
+
+        return self._mail_lifecycle_request(
+            operation="mark",
+            request_payload=request_payload,
+        )
+
+    def move_mail(
+        self,
+        request_payload: GatewayMailMoveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox move request."""
+
+        return self._mail_lifecycle_request(
+            operation="move",
+            request_payload=request_payload,
+        )
+
+    def archive_mail(
+        self,
+        request_payload: GatewayMailArchiveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox archive request."""
+
+        return self._mail_lifecycle_request(
+            operation="archive",
+            request_payload=request_payload,
+        )
+
+    def _mail_lifecycle_request(
+        self,
+        *,
+        operation: Literal["mark", "move", "archive"],
+        request_payload: GatewayMailMarkRequestV1 | GatewayMailMoveRequestV1 | GatewayMailArchiveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox lifecycle mutation request."""
 
         with self.m_lock:
             self._require_loopback_mail_surface()
@@ -2383,12 +2478,31 @@ class GatewayServiceRuntime:
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             try:
-                return adapter.update_read_state(
-                    message_ref=request_payload.message_ref,
-                    read=request_payload.read,
-                )
+                if isinstance(request_payload, GatewayMailMarkRequestV1):
+                    messages = adapter.mark(
+                        message_refs=request_payload.message_refs,
+                        read=request_payload.read,
+                        answered=request_payload.answered,
+                        archived=request_payload.archived,
+                    )
+                elif isinstance(request_payload, GatewayMailMoveRequestV1):
+                    messages = adapter.move(
+                        message_refs=request_payload.message_refs,
+                        destination_box=request_payload.destination_box,
+                    )
+                else:
+                    messages = adapter.archive(message_refs=request_payload.message_refs)
             except GatewayMailboxError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
+            status = adapter.status()
+            return GatewayMailLifecycleResponseV1(
+                operation=operation,
+                transport=status.transport,
+                principal_id=status.principal_id,
+                address=status.address,
+                message_count=len(messages),
+                messages=messages,
+            )
 
     def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
         """Return the current notifier configuration and runtime status."""
@@ -2531,7 +2645,7 @@ class GatewayServiceRuntime:
             return "\n".join(
                 [
                     "Houmao mailbox skills are not installed for this session.",
-                    "List unread mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
+                    "List open inbox mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
                 ]
             )
 
@@ -2613,7 +2727,7 @@ class GatewayServiceRuntime:
             )
 
     def _notifier_loop(self) -> None:
-        """Poll mailbox-local unread state when the notifier is enabled."""
+        """Poll mailbox-local open inbox work when the notifier is enabled."""
 
         next_poll_monotonic: float | None = None
         scheduled_interval_seconds: int | None = None
@@ -2687,7 +2801,15 @@ class GatewayServiceRuntime:
                             sender_display_name=message.sender.display_name,
                             subject=message.subject,
                         )
-                        for message in adapter.check(unread_only=True, limit=None, since=None)
+                        for message in adapter.list_messages(
+                            box="inbox",
+                            read_state="any",
+                            answered_state="any",
+                            archived=False,
+                            limit=None,
+                            since=None,
+                            include_body=False,
+                        )
                     ]
                 )
             except GatewayMailboxError as exc:
@@ -2723,7 +2845,7 @@ class GatewayServiceRuntime:
                     unread_digest=None,
                     outcome="empty",
                 )
-                self._log("mail notifier poll: no unread mail")
+                self._log("mail notifier poll: no open inbox mail")
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
@@ -2765,11 +2887,11 @@ class GatewayServiceRuntime:
                 enqueued_request_id=request_id,
             )
             self._log(
-                f"mail notifier enqueued request_id={request_id} unread_count={len(unread_messages)}"
+                f"mail notifier enqueued request_id={request_id} open_mail_count={len(unread_messages)}"
             )
 
     def _mail_notifier_digest(self, unread_messages: list[_UnreadMailboxMessage]) -> str:
-        """Build a stable digest for one unread-mail snapshot."""
+        """Build a stable digest for one open-mail snapshot."""
 
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
@@ -3748,11 +3870,23 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.get_mail_status()
 
-    @app.post("/v1/mail/check", response_model=GatewayMailCheckResponseV1)
-    def _mail_check(request_payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
-        """Run one shared mailbox check request."""
+    @app.post("/v1/mail/list", response_model=GatewayMailListResponseV1)
+    def _mail_list(request_payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+        """Run one shared mailbox list request."""
 
-        return runtime.check_mail(request_payload)
+        return runtime.list_mail(request_payload)
+
+    @app.post("/v1/mail/peek", response_model=GatewayMailMessageResponseV1)
+    def _mail_peek(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox peek request."""
+
+        return runtime.peek_mail(request_payload)
+
+    @app.post("/v1/mail/read", response_model=GatewayMailMessageResponseV1)
+    def _mail_read(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Run one shared mailbox read request."""
+
+        return runtime.read_mail(request_payload)
 
     @app.post("/v1/mail/send", response_model=GatewayMailActionResponseV1)
     def _mail_send(request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
@@ -3772,11 +3906,25 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.reply_mail(request_payload)
 
-    @app.post("/v1/mail/state", response_model=GatewayMailStateResponseV1)
-    def _mail_state(request_payload: GatewayMailStateRequestV1) -> GatewayMailStateResponseV1:
-        """Run one shared mailbox state update request."""
+    @app.post("/v1/mail/mark", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_mark(request_payload: GatewayMailMarkRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox mark request."""
 
-        return runtime.update_mail_state(request_payload)
+        return runtime.mark_mail(request_payload)
+
+    @app.post("/v1/mail/move", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_move(request_payload: GatewayMailMoveRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox move request."""
+
+        return runtime.move_mail(request_payload)
+
+    @app.post("/v1/mail/archive", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_archive(
+        request_payload: GatewayMailArchiveRequestV1,
+    ) -> GatewayMailLifecycleResponseV1:
+        """Run one shared mailbox archive request."""
+
+        return runtime.archive_mail(request_payload)
 
     @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
     def _get_mail_notifier() -> GatewayMailNotifierStatusV1:

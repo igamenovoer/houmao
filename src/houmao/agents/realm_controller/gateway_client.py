@@ -21,15 +21,19 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayJsonObject,
     GatewayJsonValue,
     GatewayMailActionResponseV1,
-    GatewayMailCheckRequestV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListRequestV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
-    GatewayMailStateRequestV1,
-    GatewayMailStateResponseV1,
     GatewayMailStatusV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
@@ -98,13 +102,33 @@ class GatewayClient:
 
         return self._request_model("GET", "/v1/mail/status", GatewayMailStatusV1)
 
-    def check_mail(self, payload: GatewayMailCheckRequestV1) -> GatewayMailCheckResponseV1:
-        """Call `POST /v1/mail/check`."""
+    def list_mail(self, payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+        """Call `POST /v1/mail/list`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/check",
-            GatewayMailCheckResponseV1,
+            "/v1/mail/list",
+            GatewayMailListResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def peek_mail(self, payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Call `POST /v1/mail/peek`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/peek",
+            GatewayMailMessageResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def read_mail(self, payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+        """Call `POST /v1/mail/read`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/read",
+            GatewayMailMessageResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
@@ -138,13 +162,33 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
-    def update_mail_state(self, payload: GatewayMailStateRequestV1) -> GatewayMailStateResponseV1:
-        """Call `POST /v1/mail/state`."""
+    def mark_mail(self, payload: GatewayMailMarkRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Call `POST /v1/mail/mark`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/state",
-            GatewayMailStateResponseV1,
+            "/v1/mail/mark",
+            GatewayMailLifecycleResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def move_mail(self, payload: GatewayMailMoveRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Call `POST /v1/mail/move`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/move",
+            GatewayMailLifecycleResponseV1,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def archive_mail(self, payload: GatewayMailArchiveRequestV1) -> GatewayMailLifecycleResponseV1:
+        """Call `POST /v1/mail/archive`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/archive",
+            GatewayMailLifecycleResponseV1,
             body=payload.model_dump(mode="json"),
         )
 

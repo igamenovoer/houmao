@@ -49,16 +49,21 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayCurrentExecutionMode,
     GatewayMailActionResponseV1,
+    GatewayMailArchiveRequestV1,
     GatewayMailAttachmentUploadV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayExecutionOverrideV1,
+    GatewayMailAnsweredFilter,
     GatewayMailPostRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
-    GatewayMailStateRequestV1,
-    GatewayMailStateResponseV1,
+    GatewayMailReadFilter,
     GatewayMailStatusV1,
     GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
@@ -122,7 +127,6 @@ from houmao.server.models import (
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailboxSummaryView,
-    HoumaoManagedAgentMailStateRequest,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTuiDetailView,
@@ -1279,30 +1283,90 @@ def _local_manager_mail_status(controller: RuntimeSessionController) -> GatewayM
         raise click.ClickException(str(exc)) from exc
 
 
-def _local_manager_mail_check(
+def _local_manager_mail_list(
     controller: RuntimeSessionController,
     *,
-    unread_only: bool,
+    box: str,
+    read_state: str,
+    answered_state: str,
+    archived: bool | None,
     limit: int | None,
     since: str | None,
-) -> GatewayMailCheckResponseV1:
-    """Check mailbox contents through manager-owned local execution."""
+    include_body: bool,
+) -> GatewayMailListResponseV1:
+    """List mailbox contents through manager-owned local execution."""
 
     adapter = _local_mailbox_adapter_for_controller(controller)
     try:
-        messages = adapter.check(unread_only=unread_only, limit=limit, since=since)
+        messages = adapter.list_messages(
+            box=box,
+            read_state=read_state,
+            answered_state=answered_state,
+            archived=archived,
+            limit=limit,
+            since=since,
+            include_body=include_body,
+        )
         status = adapter.status()
     except GatewayMailboxError as exc:
         raise click.ClickException(str(exc)) from exc
     unread_count = sum(1 for message in messages if message.unread is True)
-    return GatewayMailCheckResponseV1(
+    open_count = sum(1 for message in messages if message.archived is not True)
+    return GatewayMailListResponseV1(
         transport=status.transport,
         principal_id=status.principal_id,
         address=status.address,
-        unread_only=unread_only,
+        box=box,
         message_count=len(messages),
+        open_count=open_count,
         unread_count=unread_count,
         messages=messages,
+    )
+
+
+def _local_manager_mail_peek(
+    controller: RuntimeSessionController,
+    *,
+    message_ref: str,
+    box: str | None,
+) -> GatewayMailMessageResponseV1:
+    """Peek at one mailbox message through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        message = adapter.peek(message_ref=message_ref, box=box)
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return GatewayMailMessageResponseV1(
+        operation="peek",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message=message,
+    )
+
+
+def _local_manager_mail_read(
+    controller: RuntimeSessionController,
+    *,
+    message_ref: str,
+    box: str | None,
+) -> GatewayMailMessageResponseV1:
+    """Read one mailbox message through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        message = adapter.read(message_ref=message_ref, box=box)
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return GatewayMailMessageResponseV1(
+        operation="read",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message=message,
     )
 
 
@@ -1396,18 +1460,82 @@ def _local_manager_mail_post(
     )
 
 
-def _local_manager_mail_mark_read(
+def _local_manager_mail_mark(
     controller: RuntimeSessionController,
     *,
-    message_ref: str,
-) -> GatewayMailStateResponseV1:
-    """Mark one mailbox message read through manager-owned local execution."""
+    message_refs: Sequence[str],
+    read: bool | None,
+    answered: bool | None,
+    archived: bool | None,
+) -> GatewayMailLifecycleResponseV1:
+    """Mark mailbox state through manager-owned local execution."""
 
     adapter = _local_mailbox_adapter_for_controller(controller)
     try:
-        return adapter.update_read_state(message_ref=message_ref, read=True)
+        messages = adapter.mark(
+            message_refs=message_refs,
+            read=read,
+            answered=answered,
+            archived=archived,
+        )
+        status = adapter.status()
     except GatewayMailboxError as exc:
         raise click.ClickException(str(exc)) from exc
+    return GatewayMailLifecycleResponseV1(
+        operation="mark",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message_count=len(messages),
+        messages=messages,
+    )
+
+
+def _local_manager_mail_move(
+    controller: RuntimeSessionController,
+    *,
+    message_refs: Sequence[str],
+    destination_box: str,
+) -> GatewayMailLifecycleResponseV1:
+    """Move mailbox messages through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        messages = adapter.move(message_refs=message_refs, destination_box=destination_box)
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return GatewayMailLifecycleResponseV1(
+        operation="move",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message_count=len(messages),
+        messages=messages,
+    )
+
+
+def _local_manager_mail_archive(
+    controller: RuntimeSessionController,
+    *,
+    message_refs: Sequence[str],
+) -> GatewayMailLifecycleResponseV1:
+    """Archive mailbox messages through manager-owned local execution."""
+
+    adapter = _local_mailbox_adapter_for_controller(controller)
+    try:
+        messages = adapter.archive(message_refs=message_refs)
+        status = adapter.status()
+    except GatewayMailboxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return GatewayMailLifecycleResponseV1(
+        operation="archive",
+        transport=status.transport,
+        principal_id=status.principal_id,
+        address=status.address,
+        message_count=len(messages),
+        messages=messages,
+    )
 
 
 def _local_mailbox_adapter_for_controller(
@@ -1499,20 +1627,57 @@ def _gateway_mail_post(
         raise click.ClickException(exc.detail) from exc
 
 
-def _gateway_mail_mark_read(
+def _gateway_mail_mark(
     client: GatewayClient,
     *,
-    message_ref: str,
-) -> GatewayMailStateResponseV1:
-    """Mark one mailbox message read through one live loopback gateway client."""
+    message_refs: Sequence[str],
+    read: bool | None,
+    answered: bool | None,
+    archived: bool | None,
+) -> GatewayMailLifecycleResponseV1:
+    """Mark mailbox state through one live loopback gateway client."""
 
     try:
-        return client.update_mail_state(
-            GatewayMailStateRequestV1(
-                message_ref=message_ref,
-                read=True,
+        return client.mark_mail(
+            GatewayMailMarkRequestV1(
+                message_refs=list(message_refs),
+                read=read,
+                answered=answered,
+                archived=archived,
             )
         )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def _gateway_mail_move(
+    client: GatewayClient,
+    *,
+    message_refs: Sequence[str],
+    destination_box: str,
+) -> GatewayMailLifecycleResponseV1:
+    """Move mailbox messages through one live loopback gateway client."""
+
+    try:
+        return client.move_mail(
+            GatewayMailMoveRequestV1(
+                message_refs=list(message_refs),
+                destination_box=destination_box,
+            )
+        )
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def _gateway_mail_archive(
+    client: GatewayClient,
+    *,
+    message_refs: Sequence[str],
+) -> GatewayMailLifecycleResponseV1:
+    """Archive mailbox messages through one live loopback gateway client."""
+
+    try:
+        return client.archive_mail(GatewayMailArchiveRequestV1(message_refs=list(message_refs)))
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 
@@ -1536,42 +1701,122 @@ def mail_status(target: ManagedAgentTarget) -> object:
     )
 
 
-def mail_check(
+def mail_list(
     target: ManagedAgentTarget,
     *,
-    unread_only: bool,
+    box: str,
+    read_state: str,
+    answered_state: str,
+    archived: bool | None,
     limit: int | None,
     since: str | None,
+    include_body: bool,
 ) -> object:
-    """Check mailbox contents for one managed agent."""
+    """List mailbox contents for one managed agent."""
 
     if target.mode == "server":
         assert target.client is not None
-        from houmao.server.models import HoumaoManagedAgentMailCheckRequest
+        from houmao.server.models import HoumaoManagedAgentMailListRequest
 
         return build_verified_mail_command_result(
-            operation="check",
+            operation="list",
             execution_path="gateway_backed",
             payload=pair_request(
-                target.client.check_managed_agent_mail,
+                target.client.list_managed_agent_mail,
                 target.agent_ref,
-                HoumaoManagedAgentMailCheckRequest(
-                    unread_only=unread_only,
+                HoumaoManagedAgentMailListRequest(
+                    box=box,
+                    read_state=cast(GatewayMailReadFilter, read_state),
+                    answered_state=cast(GatewayMailAnsweredFilter, answered_state),
+                    archived=archived,
                     limit=limit,
                     since=since,
+                    include_body=include_body,
                 ),
             ),
         )
 
     assert target.controller is not None
     return build_verified_mail_command_result(
-        operation="check",
+        operation="list",
         execution_path="manager_direct",
-        payload=_local_manager_mail_check(
+        payload=_local_manager_mail_list(
             target.controller,
-            unread_only=unread_only,
+            box=box,
+            read_state=read_state,
+            answered_state=answered_state,
+            archived=archived,
             limit=limit,
             since=since,
+            include_body=include_body,
+        ),
+    )
+
+
+def mail_peek(
+    target: ManagedAgentTarget,
+    *,
+    message_ref: str,
+    box: str | None,
+) -> object:
+    """Peek at one mailbox message for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        from houmao.server.models import HoumaoManagedAgentMailMessageRequest
+
+        return build_verified_mail_command_result(
+            operation="peek",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.peek_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailMessageRequest(message_ref=message_ref, box=box),
+            ),
+        )
+
+    assert target.controller is not None
+    return build_verified_mail_command_result(
+        operation="peek",
+        execution_path="manager_direct",
+        payload=_local_manager_mail_peek(
+            target.controller,
+            message_ref=message_ref,
+            box=box,
+        ),
+    )
+
+
+def mail_read(
+    target: ManagedAgentTarget,
+    *,
+    message_ref: str,
+    box: str | None,
+) -> object:
+    """Read one mailbox message for one managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        from houmao.server.models import HoumaoManagedAgentMailMessageRequest
+
+        return build_verified_mail_command_result(
+            operation="read",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.read_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailMessageRequest(message_ref=message_ref, box=box),
+            ),
+        )
+
+    assert target.controller is not None
+    return build_verified_mail_command_result(
+        operation="read",
+        execution_path="manager_direct",
+        payload=_local_manager_mail_read(
+            target.controller,
+            message_ref=message_ref,
+            box=box,
         ),
     )
 
@@ -1818,24 +2063,31 @@ def mail_reply(
     )
 
 
-def mail_mark_read(
+def mail_mark(
     target: ManagedAgentTarget,
     *,
-    message_ref: str,
+    message_refs: list[str],
+    read: bool | None,
+    answered: bool | None,
+    archived: bool | None,
 ) -> object:
-    """Mark one mailbox message read for a managed agent."""
+    """Mark selected mailbox messages for a managed agent."""
 
     if target.mode == "server":
         assert target.client is not None
+        from houmao.server.models import HoumaoManagedAgentMailMarkRequest
+
         return build_verified_mail_command_result(
-            operation="mark-read",
+            operation="mark",
             execution_path="gateway_backed",
             payload=pair_request(
-                target.client.update_managed_agent_mail_state,
+                target.client.mark_managed_agent_mail,
                 target.agent_ref,
-                HoumaoManagedAgentMailStateRequest(
-                    message_ref=message_ref,
-                    read=True,
+                HoumaoManagedAgentMailMarkRequest(
+                    message_refs=message_refs,
+                    read=read,
+                    answered=answered,
+                    archived=archived,
                 ),
             ),
         )
@@ -1843,42 +2095,119 @@ def mail_mark_read(
     assert target.controller is not None
     if target.identity.transport != "tui":
         return build_verified_mail_command_result(
-            operation="mark-read",
+            operation="mark",
             execution_path="manager_direct",
-            payload=_local_manager_mail_mark_read(
+            payload=_local_manager_mail_mark(
                 target.controller,
-                message_ref=message_ref,
+                message_refs=message_refs,
+                read=read,
+                answered=answered,
+                archived=archived,
             ),
         )
 
     direct_mail_error = _local_manager_mail_authority_error(target.controller)
     if direct_mail_error is None:
         return build_verified_mail_command_result(
-            operation="mark-read",
+            operation="mark",
             execution_path="manager_direct",
-            payload=_local_manager_mail_mark_read(
+            payload=_local_manager_mail_mark(
                 target.controller,
-                message_ref=message_ref,
+                message_refs=message_refs,
+                read=read,
+                answered=answered,
+                archived=archived,
             ),
         )
 
     gateway_client = _live_gateway_client_for_controller(target.controller)
     if gateway_client is not None:
         return build_verified_mail_command_result(
-            operation="mark-read",
+            operation="mark",
             execution_path="gateway_backed",
-            payload=_gateway_mail_mark_read(
+            payload=_gateway_mail_mark(
                 gateway_client,
-                message_ref=message_ref,
+                message_refs=message_refs,
+                read=read,
+                answered=answered,
+                archived=archived,
             ),
         )
     return _run_local_mail_prompt(
         controller=target.controller,
-        operation="mark-read",
+        operation="mark",
         args={
-            "message_ref": message_ref,
-            "read": True,
+            "message_refs": message_refs,
+            "read": read,
+            "answered": answered,
+            "archived": archived,
         },
+    )
+
+
+def mail_move(
+    target: ManagedAgentTarget,
+    *,
+    message_refs: list[str],
+    destination_box: str,
+) -> object:
+    """Move selected mailbox messages for a managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        from houmao.server.models import HoumaoManagedAgentMailMoveRequest
+
+        return build_verified_mail_command_result(
+            operation="move",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.move_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailMoveRequest(
+                    message_refs=message_refs,
+                    destination_box=destination_box,
+                ),
+            ),
+        )
+
+    assert target.controller is not None
+    return build_verified_mail_command_result(
+        operation="move",
+        execution_path="manager_direct",
+        payload=_local_manager_mail_move(
+            target.controller,
+            message_refs=message_refs,
+            destination_box=destination_box,
+        ),
+    )
+
+
+def mail_archive(
+    target: ManagedAgentTarget,
+    *,
+    message_refs: list[str],
+) -> object:
+    """Archive selected mailbox messages for a managed agent."""
+
+    if target.mode == "server":
+        assert target.client is not None
+        from houmao.server.models import HoumaoManagedAgentMailArchiveRequest
+
+        return build_verified_mail_command_result(
+            operation="archive",
+            execution_path="gateway_backed",
+            payload=pair_request(
+                target.client.archive_managed_agent_mail,
+                target.agent_ref,
+                HoumaoManagedAgentMailArchiveRequest(message_refs=message_refs),
+            ),
+        )
+
+    assert target.controller is not None
+    return build_verified_mail_command_result(
+        operation="archive",
+        execution_path="manager_direct",
+        payload=_local_manager_mail_archive(target.controller, message_refs=message_refs),
     )
 
 

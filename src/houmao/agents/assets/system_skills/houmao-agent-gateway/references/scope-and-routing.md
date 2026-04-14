@@ -19,7 +19,7 @@ Use `houmao-agent-gateway` when the task is about the managed gateway itself or 
 - `houmao-agent-messaging`
   ordinary prompt, interrupt, or mailbox routing across already-running managed agents
 - `houmao-process-emails-via-gateway`
-  one notifier-driven unread-mail processing round
+  one notifier-driven open-mail processing round
 - `houmao-agent-email-comms`
   unified mailbox operations, the exact shared `/v1/mail/*` route contract, and gateway-backed or no-gateway fallback detail
 

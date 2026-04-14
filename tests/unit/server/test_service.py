@@ -60,8 +60,8 @@ from houmao.server.models import (
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailStateRequest,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailListRequest,
     HoumaoManagedAgentSubmitPromptRequest,
     HoumaoParsedSurface,
     HoumaoRegisterLaunchRequest,
@@ -761,15 +761,15 @@ def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) 
         HTTPException,
         match="does not expose pair-owned mailbox capability",
     ) as exc_info:
-        service.check_managed_agent_mail(
+        service.list_managed_agent_mail(
             "cao-gpu",
-            HoumaoManagedAgentMailCheckRequest(unread_only=True, limit=5),
+            HoumaoManagedAgentMailListRequest(read_state="unread", limit=5),
         )
 
     assert exc_info.value.status_code == 503
 
 
-def test_managed_agent_mail_state_requires_pair_owned_mail_capability(tmp_path: Path) -> None:
+def test_managed_agent_mail_archive_requires_pair_owned_mail_capability(tmp_path: Path) -> None:
     service = HoumaoServerService(
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
@@ -798,12 +798,9 @@ def test_managed_agent_mail_state_requires_pair_owned_mail_capability(tmp_path: 
         HTTPException,
         match="does not expose pair-owned mailbox capability",
     ) as exc_info:
-        service.update_managed_agent_mail_state(
+        service.archive_managed_agent_mail(
             "cao-gpu",
-            HoumaoManagedAgentMailStateRequest(
-                message_ref="filesystem:msg-123",
-                read=True,
-            ),
+            HoumaoManagedAgentMailArchiveRequest(message_refs=["filesystem:msg-123"]),
         )
 
     assert exc_info.value.status_code == 503

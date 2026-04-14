@@ -18,9 +18,13 @@ from houmao.mailbox.protocol import (
 from ..common import managed_agent_selector_options, pair_port_option, resolve_body_text
 from ..output import emit
 from ..managed_agents import (
-    mail_check,
-    mail_mark_read,
+    mail_archive,
+    mail_list,
+    mail_mark,
+    mail_move,
+    mail_peek,
     mail_post,
+    mail_read,
     mail_reply,
     mail_resolve_live,
     mail_send,
@@ -44,24 +48,91 @@ def status_mail_command(port: int | None, agent_id: str | None, agent_name: str 
     emit(mail_status(target))
 
 
-@mail_group.command(name="check")
-@click.option("--unread-only", is_flag=True, help="Return only unread messages.")
+@mail_group.command(name="list")
+@click.option("--box", default="inbox", show_default=True, help="Mailbox box/subdirectory to read.")
+@click.option(
+    "--read-state",
+    type=click.Choice(["any", "read", "unread"], case_sensitive=False),
+    default="any",
+    show_default=True,
+    help="Read-state filter.",
+)
+@click.option(
+    "--answered-state",
+    type=click.Choice(["any", "answered", "unanswered"], case_sensitive=False),
+    default="any",
+    show_default=True,
+    help="Answered-state filter.",
+)
+@click.option("--archived/--not-archived", default=None, help="Archived-state filter.")
 @click.option("--limit", default=None, type=int, help="Maximum number of messages to return.")
 @click.option("--since", default=None, help="Optional RFC3339 lower bound.")
+@click.option("--include-body", is_flag=True, help="Include full message body text.")
 @pair_port_option()
 @managed_agent_selector_options
-def check_mail_command(
+def list_mail_command(
     port: int | None,
-    unread_only: bool,
+    box: str,
+    read_state: str,
+    answered_state: str,
+    archived: bool | None,
     limit: int | None,
     since: str | None,
+    include_body: bool,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
-    """Check mailbox contents for one managed agent."""
+    """List mailbox contents for one managed agent."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(mail_check(target, unread_only=unread_only, limit=limit, since=since))
+    emit(
+        mail_list(
+            target,
+            box=box,
+            read_state=read_state,
+            answered_state=answered_state,
+            archived=archived,
+            limit=limit,
+            since=since,
+            include_body=include_body,
+        )
+    )
+
+
+@mail_group.command(name="peek")
+@click.option("--message-ref", required=True, help="Opaque message reference.")
+@click.option("--box", default=None, help="Require the message to be in this box.")
+@pair_port_option()
+@managed_agent_selector_options
+def peek_mail_command(
+    port: int | None,
+    message_ref: str,
+    box: str | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Peek at one mailbox message without marking it read."""
+
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_peek(target, message_ref=message_ref, box=box))
+
+
+@mail_group.command(name="read")
+@click.option("--message-ref", required=True, help="Opaque message reference.")
+@click.option("--box", default=None, help="Require the message to be in this box.")
+@pair_port_option()
+@managed_agent_selector_options
+def read_mail_command(
+    port: int | None,
+    message_ref: str,
+    box: str | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Read one mailbox message and mark it read."""
+
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_read(target, message_ref=message_ref, box=box))
 
 
 @mail_group.command(name="send")
@@ -144,7 +215,7 @@ def post_mail_command(
 @click.option(
     "--message-ref",
     required=True,
-    help="Opaque message reference returned by `agents mail check`.",
+    help="Opaque message reference returned by `agents mail list`.",
 )
 @click.option("--body-content", default=None, help="Inline body content.")
 @click.option("--body-file", default=None, help="Body content file path.")
@@ -173,24 +244,71 @@ def reply_mail_command(
     )
 
 
-@mail_group.command(name="mark-read")
-@click.option(
-    "--message-ref",
-    required=True,
-    help="Opaque message reference returned by `agents mail check`.",
-)
+@mail_group.command(name="mark")
+@click.option("--message-ref", "message_refs", multiple=True, required=True, help="Message reference.")
+@click.option("--read/--unread", default=None, help="Set read state.")
+@click.option("--answered/--unanswered", default=None, help="Set answered state.")
+@click.option("--archived/--unarchived", default=None, help="Set archived state.")
 @pair_port_option()
 @managed_agent_selector_options
-def mark_read_mail_command(
+def mark_mail_command(
     port: int | None,
-    message_ref: str,
+    message_refs: tuple[str, ...],
+    read: bool | None,
+    answered: bool | None,
+    archived: bool | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
-    """Mark one mailbox message read for a managed agent."""
+    """Mark selected mailbox messages for a managed agent."""
+
+    if read is answered is archived is None:
+        raise click.ClickException("At least one of --read/--unread, --answered/--unanswered, or --archived/--unarchived is required.")
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(mail_mark_read(target, message_ref=message_ref))
+    emit(
+        mail_mark(
+            target,
+            message_refs=list(message_refs),
+            read=read,
+            answered=answered,
+            archived=archived,
+        )
+    )
+
+
+@mail_group.command(name="move")
+@click.option("--message-ref", "message_refs", multiple=True, required=True, help="Message reference.")
+@click.option("--destination-box", required=True, help="Destination mailbox box/subdirectory.")
+@pair_port_option()
+@managed_agent_selector_options
+def move_mail_command(
+    port: int | None,
+    message_refs: tuple[str, ...],
+    destination_box: str,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Move selected mailbox messages for a managed agent."""
+
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_move(target, message_refs=list(message_refs), destination_box=destination_box))
+
+
+@mail_group.command(name="archive")
+@click.option("--message-ref", "message_refs", multiple=True, required=True, help="Message reference.")
+@pair_port_option()
+@managed_agent_selector_options
+def archive_mail_command(
+    port: int | None,
+    message_refs: tuple[str, ...],
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Archive selected mailbox messages for a managed agent."""
+
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(mail_archive(target, message_refs=list(message_refs)))
 
 
 @mail_group.command(name="resolve-live")

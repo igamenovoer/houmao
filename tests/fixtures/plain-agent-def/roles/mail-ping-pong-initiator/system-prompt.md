@@ -20,17 +20,17 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 ## Shared Gateway Quick Reference
 
 - Use these stable request shapes directly for routine ping-pong turns:
-  `POST /v1/mail/check` -> `{"schema_version":1,"unread_only":true,"limit":10}`
+  `POST /v1/mail/list` -> `{"schema_version":1,"box":"inbox","read_state":"unread","answered_state":"any","archived":false,"limit":10}`
   `POST /v1/mail/send` -> `{"schema_version":1,"to":["recipient@agents.localhost"],"subject":"...","body_content":"...","attachments":[]}`
-  `POST /v1/mail/state` -> `{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`
+  `POST /v1/mail/archive` -> `{"schema_version":1,"message_refs":["<opaque message_ref>"]}`
 
 ## Initiator Behavior
 
 - On the kickoff turn, send round 1 to the responder address provided by the user prompt.
-- On later turns, use the one actionable unread target nominated through shared mailbox context and keep the work in the same ping-pong thread.
+- On later turns, use the one actionable open target nominated through shared mailbox context and keep the work in the same ping-pong thread.
 - If the latest round is below the round limit, send the next round message in the same thread.
 - If the latest round equals the round limit, stop without sending a new message.
-- After the next-round send succeeds, or after the final stop decision succeeds, mark the processed source message read through the shared mailbox state update.
+- After the next-round send succeeds, or after the final stop decision succeeds, archive the processed source message through the shared mailbox archive update.
 
 ## Message Contract
 

@@ -71,9 +71,11 @@ class _LocalMessageStateRow(TypedDict):
     created_at_utc: str
     subject: str
     is_read: bool
+    is_answered: bool
     is_starred: bool
     is_archived: bool
     is_deleted: bool
+    box_name: str
 
 
 class ManagedMailboxOperationError(RuntimeError):
@@ -323,6 +325,7 @@ class StateUpdateRequest(_ManagedRequestModel):
     address: str
     message_id: str
     read: bool | None = None
+    answered: bool | None = None
     starred: bool | None = None
     archived: bool | None = None
     deleted: bool | None = None
@@ -345,7 +348,7 @@ class StateUpdateRequest(_ManagedRequestModel):
     def _validate_mutation_request(self) -> "StateUpdateRequest":
         """Require at least one mailbox-state flag to be present."""
 
-        if self.read is self.starred is self.archived is self.deleted is None:
+        if self.read is self.answered is self.starred is self.archived is self.deleted is None:
             raise ValueError("state update payload must set at least one field")
         return self
 
@@ -517,7 +520,7 @@ class _IndexSnapshot:
     """Existing mailbox index data preserved across reindex."""
 
     registrations: dict[str, MailboxRegistration]
-    mailbox_state: dict[tuple[str, str], tuple[bool, bool, bool, bool]]
+    mailbox_state: dict[tuple[str, str], tuple[bool, bool, bool, bool, bool, str]]
     sender_registration_ids: dict[str, str | None]
     recipient_registration_ids: dict[tuple[str, str, int], str | None]
     backup_path: Path | None
@@ -1113,9 +1116,11 @@ def _seed_or_rebuild_local_mailbox_state(
             created_at_utc=row["created_at_utc"],
             subject=row["subject"],
             is_read=row["is_read"],
+            is_answered=row["is_answered"],
             is_starred=row["is_starred"],
             is_archived=row["is_archived"],
             is_deleted=row["is_deleted"],
+            box_name=row["box_name"],
         )
     _rebuild_local_thread_summaries(connection=connection, local_alias=local_alias)
 
@@ -1136,9 +1141,11 @@ def _registration_local_state_rows(
             message.subject,
             projection.folder_name,
             state.is_read,
+            state.is_answered,
             state.is_starred,
             state.is_archived,
-            state.is_deleted
+            state.is_deleted,
+            state.box_name
         FROM mailbox_projections AS projection
         JOIN messages AS message ON message.message_id = projection.message_id
         LEFT JOIN mailbox_state AS state
@@ -1156,13 +1163,20 @@ def _registration_local_state_rows(
     current_created_at_utc = ""
     current_subject = ""
     current_folder_names: set[str] = set()
-    current_state_values: tuple[object, object, object, object] | None = None
+    current_state_values: tuple[object, object, object, object, object, object] | None = None
 
     def _flush_current_row() -> None:
         nonlocal current_message_id
         if current_message_id is None or current_state_values is None:
             return
-        is_read_value, is_starred_value, is_archived_value, is_deleted_value = current_state_values
+        (
+            is_read_value,
+            is_answered_value,
+            is_starred_value,
+            is_archived_value,
+            is_deleted_value,
+            box_name_value,
+        ) = current_state_values
         materialized_rows.append(
             {
                 "message_id": current_message_id,
@@ -1173,9 +1187,17 @@ def _registration_local_state_rows(
                     is_read_value,
                     default=_default_read_for_projection_folders(current_folder_names),
                 ),
+                "is_answered": _coerce_optional_bool(is_answered_value, default=False),
                 "is_starred": _coerce_optional_bool(is_starred_value, default=False),
-                "is_archived": _coerce_optional_bool(is_archived_value, default=False),
+                "is_archived": _coerce_optional_bool(
+                    is_archived_value,
+                    default=_default_archived_for_projection_folders(current_folder_names),
+                ),
                 "is_deleted": _coerce_optional_bool(is_deleted_value, default=False),
+                "box_name": _coerce_optional_box_name(
+                    box_name_value,
+                    default=_default_box_for_projection_folders(current_folder_names),
+                ),
             }
         )
 
@@ -1189,7 +1211,7 @@ def _registration_local_state_rows(
             current_thread_id = str(row[1])
             current_created_at_utc = str(row[2])
             current_subject = str(row[3])
-            current_state_values = (row[5], row[6], row[7], row[8])
+            current_state_values = (row[5], row[6], row[7], row[8], row[9], row[10])
         current_folder_names.add(str(row[4]))
 
     _flush_current_row()
@@ -1214,6 +1236,37 @@ def _default_read_for_projection_folders(folder_names: set[str]) -> bool:
     """Return the deterministic default read state for one mailbox-local projection set."""
 
     return "inbox" not in folder_names
+
+
+def _default_archived_for_projection_folders(folder_names: set[str]) -> bool:
+    """Return the deterministic default archived state for one projection set."""
+
+    return "archive" in folder_names and "inbox" not in folder_names
+
+
+def _default_box_for_projection_folders(folder_names: set[str]) -> str:
+    """Return the deterministic active box for one mailbox-local projection set."""
+
+    for box_name in ("inbox", "sent", "archive"):
+        if box_name in folder_names:
+            return box_name
+    return sorted(folder_names)[0] if folder_names else "inbox"
+
+
+def _coerce_optional_box_name(value: object, *, default: str) -> str:
+    """Convert one optional SQLite text value into a mailbox box name."""
+
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+    if isinstance(value, bytes | bytearray):
+        normalized = value.decode("utf-8").strip()
+        if normalized:
+            return normalized
+    return default
 
 
 def _has_interactive_terminal(*streams: TextIO | None) -> bool:
@@ -1405,9 +1458,11 @@ def _insert_local_message_state_row(
     created_at_utc: str,
     subject: str,
     is_read: bool,
+    is_answered: bool,
     is_starred: bool,
     is_archived: bool,
     is_deleted: bool,
+    box_name: str,
 ) -> None:
     """Insert or replace one mailbox-local message-state row."""
 
@@ -1419,19 +1474,23 @@ def _insert_local_message_state_row(
             created_at_utc,
             subject,
             is_read,
+            is_answered,
             is_starred,
             is_archived,
-            is_deleted
+            is_deleted,
+            box_name
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO UPDATE SET
             thread_id = excluded.thread_id,
             created_at_utc = excluded.created_at_utc,
             subject = excluded.subject,
             is_read = excluded.is_read,
+            is_answered = excluded.is_answered,
             is_starred = excluded.is_starred,
             is_archived = excluded.is_archived,
-            is_deleted = excluded.is_deleted
+            is_deleted = excluded.is_deleted,
+            box_name = excluded.box_name
         """,
         (
             message_id,
@@ -1439,9 +1498,11 @@ def _insert_local_message_state_row(
             created_at_utc,
             subject,
             int(is_read),
+            int(is_answered),
             int(is_starred),
             int(is_archived),
             int(is_deleted),
+            box_name,
         ),
     )
 
@@ -2006,7 +2067,7 @@ def update_mailbox_state(
                             )
                         legacy_state_row = connection.execute(
                             """
-                            SELECT is_read, is_starred, is_archived, is_deleted
+                            SELECT is_read, is_answered, is_starred, is_archived, is_deleted, box_name
                             FROM mailbox_state
                             WHERE registration_id = ? AND message_id = ?
                             """,
@@ -2025,17 +2086,25 @@ def update_mailbox_state(
                                 None if legacy_state_row is None else legacy_state_row[0],
                                 default=_default_read_for_projection_folders(folder_names),
                             ),
-                            is_starred=_coerce_optional_bool(
+                            is_answered=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[1],
                                 default=False,
                             ),
-                            is_archived=_coerce_optional_bool(
+                            is_starred=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[2],
                                 default=False,
                             ),
-                            is_deleted=_coerce_optional_bool(
+                            is_archived=_coerce_optional_bool(
                                 None if legacy_state_row is None else legacy_state_row[3],
+                                default=_default_archived_for_projection_folders(folder_names),
+                            ),
+                            is_deleted=_coerce_optional_bool(
+                                None if legacy_state_row is None else legacy_state_row[4],
                                 default=False,
+                            ),
+                            box_name=_coerce_optional_box_name(
+                                None if legacy_state_row is None else legacy_state_row[5],
+                                default=_default_box_for_projection_folders(folder_names),
                             ),
                         )
 
@@ -2044,6 +2113,9 @@ def update_mailbox_state(
                     if request.read is not None:
                         assignments.append("is_read = ?")
                         parameters.append(int(request.read))
+                    if request.answered is not None:
+                        assignments.append("is_answered = ?")
+                        parameters.append(int(request.answered))
                     if request.starred is not None:
                         assignments.append("is_starred = ?")
                         parameters.append(int(request.starred))
@@ -2069,7 +2141,7 @@ def update_mailbox_state(
                     )
                     state_row = connection.execute(
                         f"""
-                        SELECT is_read, is_starred, is_archived, is_deleted
+                        SELECT is_read, is_answered, is_starred, is_archived, is_deleted, box_name
                         FROM {local_alias}.message_state
                         WHERE message_id = ?
                         """,
@@ -2088,9 +2160,11 @@ def update_mailbox_state(
         "registration_id": registration.registration_id,
         "message_id": request.message_id,
         "read": bool(state_row[0]),
-        "starred": bool(state_row[1]),
-        "archived": bool(state_row[2]),
-        "deleted": bool(state_row[3]),
+        "answered": bool(state_row[1]),
+        "starred": bool(state_row[2]),
+        "archived": bool(state_row[3]),
+        "deleted": bool(state_row[4]),
+        "box": str(state_row[5]),
     }
 
 
@@ -4640,6 +4714,7 @@ def _insert_mailbox_state_records(
         ),
     }
     for registration_id in sorted(affected_registration_ids):
+        is_recipient = registration_id in recipient_registration_ids
         _insert_local_message_state_row(
             connection=connection,
             local_alias=local_aliases[registration_id],
@@ -4647,10 +4722,12 @@ def _insert_mailbox_state_records(
             thread_id=thread_id,
             created_at_utc=created_at_utc,
             subject=subject,
-            is_read=registration_id not in recipient_registration_ids,
+            is_read=not is_recipient,
+            is_answered=False,
             is_starred=False,
             is_archived=False,
             is_deleted=False,
+            box_name="inbox" if is_recipient else "sent",
         )
         _recompute_local_thread_summary(
             connection=connection,
@@ -4863,9 +4940,11 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
                     registration_id,
                     message_id,
                     is_read,
+                    is_answered,
                     is_starred,
                     is_archived,
-                    is_deleted
+                    is_deleted,
+                    box_name
                 FROM mailbox_state
                 """
             ).fetchall()
@@ -4897,7 +4976,14 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
         for registration in _rows_to_registrations(registration_rows)
     }
     mailbox_state = {
-        (str(row[0]), str(row[1])): (bool(row[2]), bool(row[3]), bool(row[4]), bool(row[5]))
+        (str(row[0]), str(row[1])): (
+            bool(row[2]),
+            bool(row[3]),
+            bool(row[4]),
+            bool(row[5]),
+            bool(row[6]),
+            str(row[7]),
+        )
         for row in state_rows
     }
     sender_registration_ids = {
@@ -5335,15 +5421,18 @@ def _insert_recovered_mailbox_state_records(
             continue
         prior_state = snapshot.mailbox_state.get((registration_id, message.message_id))
         if prior_state is None:
-            state_values = (int(registration_id not in delivered_recipient_ids), 0, 0, 0)
+            is_recipient = registration_id in delivered_recipient_ids
+            state_values = (not is_recipient, False, False, False, False, "inbox" if is_recipient else "sent")
             defaulted_state_count += 1
         else:
-            read_state, starred_state, archived_state, deleted_state = prior_state
+            read_state, answered_state, starred_state, archived_state, deleted_state, box_name = prior_state
             state_values = (
                 bool(read_state),
+                bool(answered_state),
                 bool(starred_state),
                 bool(archived_state),
                 bool(deleted_state),
+                box_name,
             )
             restored_state_count += 1
 
@@ -5355,9 +5444,11 @@ def _insert_recovered_mailbox_state_records(
             created_at_utc=message.created_at_utc,
             subject=message.subject,
             is_read=bool(state_values[0]),
-            is_starred=bool(state_values[1]),
-            is_archived=bool(state_values[2]),
-            is_deleted=bool(state_values[3]),
+            is_answered=bool(state_values[1]),
+            is_starred=bool(state_values[2]),
+            is_archived=bool(state_values[3]),
+            is_deleted=bool(state_values[4]),
+            box_name=str(state_values[5]),
         )
 
     return restored_state_count, defaulted_state_count

@@ -26,7 +26,7 @@ Supported surfaces for this skill include:
 - `houmao-mgr agents state`
 - `houmao-mgr agents gateway status`
 - `houmao-mgr agents gateway tui state|history|watch`
-- `houmao-mgr agents mail resolve-live|status|check`
+- `houmao-mgr agents mail resolve-live|status|list`
 - `houmao-mgr agents mailbox status`
 - `houmao-mgr agents turn status|events|stdout|stderr`
 - managed-agent HTTP routes under `/houmao/agents/*`, including `/state`, `/state/detail`, `/history`, `/gateway`, `/gateway/tui/*`, `/mail/*`, and `/turns/*`
@@ -37,7 +37,7 @@ This packaged skill does not cover:
 
 - `houmao-mgr agents prompt|interrupt`
 - `houmao-mgr agents gateway attach|detach|prompt|interrupt|send-keys`
-- mailbox send, reply, post, or mark-read work
+- mailbox send, reply, post, or archive work
 - mailbox registration, unregister, cleanup, or mailbox-root administration
 - agent stop, relaunch, cleanup, or other lifecycle mutation
 - automatic terminal-recorder workflows when the user did not explicitly ask for replay-grade capture

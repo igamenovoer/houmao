@@ -146,13 +146,17 @@ from houmao.server.models import (
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailActionResponse,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailLifecycleResponse,
+    HoumaoManagedAgentMailListRequest,
+    HoumaoManagedAgentMailListResponse,
+    HoumaoManagedAgentMailMarkRequest,
+    HoumaoManagedAgentMailMessageRequest,
+    HoumaoManagedAgentMailMessageResponse,
+    HoumaoManagedAgentMailMoveRequest,
     HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
-    HoumaoManagedAgentMailStateRequest,
-    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentMailboxSummaryView,
     HoumaoManagedAgentRequestAcceptedResponse,
@@ -1426,16 +1430,38 @@ class HoumaoServerService:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return resolution.payload()
 
-    def check_managed_agent_mail(
+    def list_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailCheckRequest,
-    ) -> HoumaoManagedAgentMailCheckResponse:
-        """Check pair-owned mailbox contents for one managed agent."""
+        request_model: HoumaoManagedAgentMailListRequest,
+    ) -> HoumaoManagedAgentMailListResponse:
+        """List pair-owned mailbox contents for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.check_mail(request_model))
-        return HoumaoManagedAgentMailCheckResponse.model_validate(response.model_dump(mode="json"))
+        response = self._invoke_live_gateway(lambda: client.list_mail(request_model))
+        return HoumaoManagedAgentMailListResponse.model_validate(response.model_dump(mode="json"))
+
+    def peek_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Peek at one pair-owned mailbox message for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.peek_mail(request_model))
+        return HoumaoManagedAgentMailMessageResponse.model_validate(response.model_dump(mode="json"))
+
+    def read_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Read one pair-owned mailbox message for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.read_mail(request_model))
+        return HoumaoManagedAgentMailMessageResponse.model_validate(response.model_dump(mode="json"))
 
     def send_managed_agent_mail(
         self,
@@ -1470,16 +1496,38 @@ class HoumaoServerService:
         response = self._invoke_live_gateway(lambda: client.reply_mail(request_model))
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
-    def update_managed_agent_mail_state(
+    def mark_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailStateRequest,
-    ) -> HoumaoManagedAgentMailStateResponse:
-        """Update pair-owned mailbox state for one managed agent."""
+        request_model: HoumaoManagedAgentMailMarkRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Mark pair-owned mailbox state for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.update_mail_state(request_model))
-        return HoumaoManagedAgentMailStateResponse.model_validate(response.model_dump(mode="json"))
+        response = self._invoke_live_gateway(lambda: client.mark_mail(request_model))
+        return HoumaoManagedAgentMailLifecycleResponse.model_validate(response.model_dump(mode="json"))
+
+    def move_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMoveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Move pair-owned mailbox messages for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.move_mail(request_model))
+        return HoumaoManagedAgentMailLifecycleResponse.model_validate(response.model_dump(mode="json"))
+
+    def archive_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailArchiveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Archive pair-owned mailbox messages for one managed agent."""
+
+        client = self._require_live_managed_mail_gateway_client(agent_ref)
+        response = self._invoke_live_gateway(lambda: client.archive_mail(request_model))
+        return HoumaoManagedAgentMailLifecycleResponse.model_validate(response.model_dump(mode="json"))
 
     def refresh_terminal_state(self, terminal_id: str) -> HoumaoTerminalStateResponse:
         """Poll one known tracked terminal immediately and return the updated state."""

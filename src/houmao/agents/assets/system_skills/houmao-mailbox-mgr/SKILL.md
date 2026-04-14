@@ -106,7 +106,7 @@ This packaged skill does not cover:
 ## Guardrails
 
 - Do not guess missing required inputs that remain absent after checking the prompt and recent chat context.
-- Do not route ordinary mailbox send, reply, check, read, mark-read, or live mailbox discovery through this skill.
+- Do not route ordinary mailbox send, reply, list, peek, read, mark, move, archive, or live mailbox discovery through this skill.
 - Do not route gateway notifier, reminder, or other live gateway-only state through this skill.
 - Do not invent `houmao-mgr mailbox ...` filesystem root or account CRUD for Stalwart.
 - Do not teach manual preregistration of the same `<agent-name>@houmao.localhost` address as the default precursor to same-root specialist-backed easy launch.

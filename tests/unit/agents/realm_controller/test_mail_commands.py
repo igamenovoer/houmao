@@ -81,12 +81,12 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
 
     prompt_request = prepare_mail_prompt(
         launch_plan=launch_plan,
-        operation="check",
-        args={"unread_only": True, "limit": 5},
+        operation="list",
+        args={"read_state": "unread", "limit": 5},
         prefer_live_gateway=True,
     )
 
-    assert prompt_request.operation == "check"
+    assert prompt_request.operation == "list"
     assert "`houmao-agent-email-comms`" in prompt_request.prompt
     assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt_request.prompt
     assert "skills/mailbox/email-via-filesystem/SKILL.md" not in prompt_request.prompt
@@ -98,7 +98,7 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     assert "gateway.base_url" in prompt_request.prompt
     assert "attached gateway env vars" not in prompt_request.prompt
     assert "HOUMAO_MAIL_RESULT_BEGIN" in prompt_request.prompt
-    assert '"operation": "check"' in prompt_request.prompt
+    assert '"operation": "list"' in prompt_request.prompt
 
 
 def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) -> None:
@@ -113,17 +113,17 @@ def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) ->
                     kind="assistant",
                     message=(
                         "HOUMAO_MAIL_RESULT_BEGIN\n"
-                        '{"request_id":"r1","operation":"check"}\n'
+                        '{"request_id":"r1","operation":"list"}\n'
                         "HOUMAO_MAIL_RESULT_END\n"
                         "HOUMAO_MAIL_RESULT_BEGIN\n"
-                        '{"request_id":"r1","operation":"check"}\n'
+                        '{"request_id":"r1","operation":"list"}\n'
                         "HOUMAO_MAIL_RESULT_END"
                     ),
                     turn_index=1,
                 )
             ],
             request_id="r1",
-            operation="check",
+            operation="list",
             mailbox=mailbox,
         )
 
@@ -144,14 +144,14 @@ def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -
                 kind="done",
                 message=(
                     "HOUMAO_MAIL_RESULT_BEGIN\n"
-                    '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":1}\n'
+                    '{"ok":true,"request_id":"r1","operation":"list","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":1}\n'
                     "HOUMAO_MAIL_RESULT_END"
                 ),
                 turn_index=1,
             ),
         ],
         request_id="r1",
-        operation="check",
+        operation="list",
         mailbox=mailbox,
     )
 
@@ -179,7 +179,7 @@ def test_parse_mail_result_accepts_shadow_only_dialog_projection_payload(tmp_pat
                     "dialog_projection": {
                         "dialog_text": (
                             "HOUMAO_MAIL_RESULT_BEGIN\n"
-                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":3}\n'
+                            '{"ok":true,"request_id":"r1","operation":"list","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":3}\n'
                             "HOUMAO_MAIL_RESULT_END"
                         )
                     }
@@ -187,7 +187,7 @@ def test_parse_mail_result_accepts_shadow_only_dialog_projection_payload(tmp_pat
             ),
         ],
         request_id="r1",
-        operation="check",
+        operation="list",
         mailbox=mailbox,
     )
 
@@ -212,7 +212,7 @@ def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payloa
                     "dialog_projection": {
                         "normalized_text": (
                             "HOUMAO_MAIL_RESULT_BEGIN\n"
-                            '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":7}\n'
+                            '{"ok":true,"request_id":"r1","operation":"list","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":7}\n'
                             "HOUMAO_MAIL_RESULT_END"
                         ),
                         "dialog_text": "messy tui chrome without sentinels",
@@ -221,7 +221,7 @@ def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payloa
             ),
         ],
         request_id="r1",
-        operation="check",
+        operation="list",
         mailbox=mailbox,
     )
 
@@ -246,7 +246,7 @@ def test_parse_mail_result_prefers_scoped_mail_result_surfaces(tmp_path: Path) -
                             "surface_id": "shadow_post_submit.raw_text",
                             "text": (
                                 "HOUMAO_MAIL_RESULT_BEGIN\n"
-                                '{"ok":true,"request_id":"r1","operation":"check","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":9}\n'
+                                '{"ok":true,"request_id":"r1","operation":"list","transport":"filesystem","principal_id":"HOUMAO-research","unread_count":9}\n'
                                 "HOUMAO_MAIL_RESULT_END"
                             ),
                         }
@@ -258,7 +258,7 @@ def test_parse_mail_result_prefers_scoped_mail_result_surfaces(tmp_path: Path) -
             ),
         ],
         request_id="r1",
-        operation="check",
+        operation="list",
         mailbox=mailbox,
     )
 
@@ -321,8 +321,8 @@ def test_run_mail_prompt_maps_busy_backend_error_to_submission_status(tmp_path: 
         send_mail_prompt=_raise_busy,
         prompt_request=MailPromptRequest(
             request_id="mailreq-2",
-            operation="check",
-            prompt="check mail",
+            operation="list",
+            prompt="list mail",
         ),
         mailbox=mailbox,
     )
@@ -332,7 +332,7 @@ def test_run_mail_prompt_maps_busy_backend_error_to_submission_status(tmp_path: 
     assert result["execution_path"] == "tui_submission"
 
 
-def test_mail_check_cli_prints_structured_result(
+def test_mail_list_cli_prints_structured_result(
     monkeypatch,
     capsys,
     tmp_path: Path,
@@ -356,7 +356,7 @@ def test_mail_check_cli_prints_structured_result(
                             {
                                 "ok": True,
                                 "request_id": request_id,
-                                "operation": "check",
+                                "operation": "list",
                                 "transport": "filesystem",
                                 "principal_id": "HOUMAO-research",
                                 "unread_count": 2,
@@ -384,18 +384,19 @@ def test_mail_check_cli_prints_structured_result(
     exit_code = cli.main(
         [
             "mail",
-            "check",
+            "list",
             "--agent-identity",
             "HOUMAO-research",
-            "--unread-only",
+            "--read-state",
+            "unread",
             "--limit",
             "5",
         ]
     )
 
     assert exit_code == 0
-    assert '"operation": "check"' in captured_prompt["prompt"]
-    assert '"unread_only": true' in captured_prompt["prompt"]
+    assert '"operation": "list"' in captured_prompt["prompt"]
+    assert '"read_state": "unread"' in captured_prompt["prompt"]
     payload = json.loads(capsys.readouterr().out)
     assert payload["authoritative"] is False
     assert payload["status"] == "submitted"
@@ -558,7 +559,7 @@ def test_mail_command_errors_for_missing_bootstrap_assets(
     exit_code = cli.main(
         [
             "mail",
-            "check",
+            "list",
             "--agent-identity",
             "HOUMAO-research",
         ]
@@ -599,7 +600,7 @@ def test_mail_command_errors_for_busy_session(
     exit_code = cli.main(
         [
             "mail",
-            "check",
+            "list",
             "--agent-identity",
             "HOUMAO-research",
         ]
@@ -643,7 +644,7 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
     exit_code = cli.main(
         [
             "mail",
-            "check",
+            "list",
             "--agent-identity",
             "HOUMAO-research",
         ]
@@ -700,7 +701,7 @@ def test_extract_sentinel_blocks_ignores_prompt_echo_finds_real_block() -> None:
         "```\n"
         "\n"
         "HOUMAO_MAIL_RESULT_BEGIN\n"
-        '{"ok": true, "request_id": "r1", "operation": "check"}\n'
+        '{"ok": true, "request_id": "r1", "operation": "list"}\n'
         "HOUMAO_MAIL_RESULT_END\n"
     )
     blocks = extract_sentinel_blocks(text)
@@ -751,7 +752,7 @@ def _build_prompt_echo_surface() -> str:
             {
                 "version": 1,
                 "request_id": "mailreq-test",
-                "operation": "check",
+                "operation": "list",
                 "response_contract": {
                     "format": "json",
                     "sentinel_begin": MAIL_RESULT_BEGIN_SENTINEL,
@@ -778,7 +779,7 @@ def test_shadow_contract_reached_when_real_block_follows_echo() -> None:
         _build_prompt_echo_surface()
         + "\n"
         + "HOUMAO_MAIL_RESULT_BEGIN\n"
-        + '{"ok": true, "request_id": "r1", "operation": "check"}\n'
+        + '{"ok": true, "request_id": "r1", "operation": "list"}\n'
         + "HOUMAO_MAIL_RESULT_END\n"
     )
     surface_payloads = ({"surface_id": "shadow_post_submit.normalized_text", "text": text},)
@@ -822,7 +823,7 @@ def test_parse_mail_result_succeeds_with_prompt_echo_plus_real_block(tmp_path: P
         {
             "ok": True,
             "request_id": "r1",
-            "operation": "check",
+            "operation": "list",
             "transport": "filesystem",
             "principal_id": "HOUMAO-research",
             "unread_count": 5,
@@ -837,7 +838,7 @@ def test_parse_mail_result_succeeds_with_prompt_echo_plus_real_block(tmp_path: P
     payload = parse_mail_result(
         [SessionEvent(kind="assistant", message=text, turn_index=1)],
         request_id="r1",
-        operation="check",
+        operation="list",
         mailbox=mailbox,
     )
     assert payload["ok"] is True
@@ -854,7 +855,7 @@ def test_parse_mail_result_rejects_prompt_echo_only_surface(tmp_path: Path) -> N
         parse_mail_result(
             [SessionEvent(kind="assistant", message=_build_prompt_echo_surface(), turn_index=1)],
             request_id="r1",
-            operation="check",
+            operation="list",
             mailbox=mailbox,
         )
 
@@ -870,6 +871,6 @@ def test_parse_mail_result_still_rejects_malformed_standalone_block(tmp_path: Pa
         parse_mail_result(
             [SessionEvent(kind="assistant", message=text, turn_index=1)],
             request_id="r1",
-            operation="check",
+            operation="list",
             mailbox=mailbox,
         )

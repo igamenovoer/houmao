@@ -43,7 +43,7 @@ The canonical operator-facing lifecycle actions are `plan`, `initialize`, `start
 - `pause`: suspend the run's wakeup mechanisms so the loop intentionally stalls.
 - `resume`: restore the paused wakeup mechanisms for the same run.
 - `stop`: send the canonical termination request to the designated master.
-- `hard-kill`: directly interrupt every currently known participant, disable mail-notifier polling, remove live reminders, and mark every unread message read even when that mail is unrelated to the run.
+- `hard-kill`: directly interrupt every currently known participant, disable mail-notifier polling, remove live reminders, and archive every open inbox message even when that mail is unrelated to the run.
 
 If participant-wide advisory stop mail is ever needed, document it separately as `broadcast-stop`; do not treat it as a synonym for canonical `stop`.
 
@@ -161,4 +161,4 @@ The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `
 - Do not push multi-edge topology, recursive child-control planning, rendered graph semantics, lifecycle preparation, or run-control actions down into `houmao-adv-usage-pattern`; those remain in this skill.
 - Do not replace the existing elemental pairwise edge-loop pattern or restate its full mailbox and reminder protocol here; compose it through `houmao-adv-usage-pattern` for each immediate driver-worker edge.
 - Do not leave mail-notifier polling or live reminders active after a `hard-kill`.
-- Do not limit `hard-kill` mailbox cleanup to loop-related mail; it intentionally marks every unread message read for the named participants.
+- Do not limit `hard-kill` mailbox cleanup to loop-related mail; it intentionally archives every open inbox message for the named participants.
