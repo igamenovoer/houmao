@@ -27,6 +27,7 @@ Use this branch when the user wants to create or inspect specialists or profiles
    - send mailbox work
    - if the live gateway is up and mailbox accounts are already set up, enable automatic email notification so the agent can check unread mail automatically
    - create reminders
+   - explore advanced pairwise agent-loop creation
    - create another specialist or launch another agent
 
 ## Guardrails

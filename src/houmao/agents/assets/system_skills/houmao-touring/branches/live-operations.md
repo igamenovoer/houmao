@@ -20,6 +20,7 @@ Use this branch when the user wants to try post-launch operations against one al
    - send or read mailbox work
    - enable automatic email notification through gateway `mail-notifier`
    - create a reminder
+   - explore advanced pairwise agent-loop creation
    - stop, relaunch, or clean up the agent
    - create another specialist or launch another agent
 

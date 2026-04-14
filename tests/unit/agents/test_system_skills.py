@@ -793,6 +793,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_setup_path = touring_branches / "setup-project-and-mailbox.md"
     touring_author_launch_path = touring_branches / "author-and-launch.md"
     touring_live_ops_path = touring_branches / "live-operations.md"
+    touring_advanced_usage_path = touring_branches / "advanced-usage.md"
     touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
     touring_question_style_path = touring_references / "question-style.md"
     stable_pairwise_loop_formulate_path = stable_pairwise_loop_authoring / "formulate-loop-plan.md"
@@ -860,6 +861,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
     relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
     touring_author_launch = touring_author_launch_path.read_text(encoding="utf-8")
+    touring_advanced_usage = touring_advanced_usage_path.read_text(encoding="utf-8")
     touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
     stable_pairwise_loop_start = stable_pairwise_loop_start_path.read_text(encoding="utf-8")
     stable_pairwise_loop_status = stable_pairwise_loop_status_path.read_text(encoding="utf-8")
@@ -1049,13 +1051,29 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         in touring_skill
     )
     assert "branches/orient.md" in touring_skill
+    assert "branches/advanced-usage.md" in touring_skill
     assert "branches/lifecycle-follow-up.md" in touring_skill
     assert "references/question-style.md" in touring_skill
     assert "houmao-project-mgr" in touring_skill
+    assert "houmao-agent-loop-pairwise" in touring_skill
+    assert "houmao-agent-loop-pairwise-v2" in touring_skill
     assert "houmao-agent-instance" in touring_skill
     assert "foreground-first gateway posture" in touring_author_launch
     assert "not as detached background gateway execution" in touring_author_launch
     assert "gateway_tmux_window_index" in touring_author_launch
+    assert "stable pairwise loop" in touring_advanced_usage
+    assert "enriched pairwise loop" in touring_advanced_usage
+    assert "plan`, `start`, `status`, and `stop" in touring_advanced_usage
+    assert "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`" in (
+        touring_advanced_usage
+    )
+    assert "ask the user to select or explicitly invoke the desired pairwise skill" in (
+        touring_advanced_usage
+    )
+    assert "elemental immediate driver-worker edge protocol guidance belongs to" in (
+        touring_advanced_usage
+    )
+    assert "houmao-adv-usage-pattern" in touring_advanced_usage
     assert "distinguish mailbox-root bootstrap from mailbox-account creation" in touring_setup
     assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
     assert "initialize the shared mailbox root now" in touring_question_style
@@ -1121,6 +1139,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert touring_setup_path.is_file()
     assert touring_author_launch_path.is_file()
     assert touring_live_ops_path.is_file()
+    assert touring_advanced_usage_path.is_file()
     assert touring_lifecycle_path.is_file()
     assert touring_question_style_path.is_file()
     assert stable_pairwise_loop_formulate_path.is_file()

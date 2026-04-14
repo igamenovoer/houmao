@@ -25,6 +25,7 @@ Use this branch first when the user explicitly wants the `houmao-touring` experi
    - prompt or watch a running agent
    - send mailbox work
    - create reminders
+   - explore advanced pairwise agent-loop creation
    - stop, relaunch, or clean up a managed agent
 
 ## Guardrails

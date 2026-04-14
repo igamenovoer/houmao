@@ -16,6 +16,7 @@ Use this branch when the user wants to inspect, stop, relaunch, or clean up mana
    - relaunch or re-open live operations if the agent is still available
    - launch another agent
    - create another specialist
+   - explore advanced pairwise agent-loop creation
    - clean up stopped-session artifacts when appropriate
 
 ## Guardrails

@@ -1,4 +1,4 @@
 interface:
   display_name: "Houmao Touring"
   short_description: "Guide first-time Houmao users through a branching manual tour."
-  default_prompt: "Use $houmao-touring only when the user explicitly asks for a first-time guided Houmao tour. Start from current state, explain the next likely branches with examples, and route execution to the maintained Houmao-owned project, mailbox, specialist, messaging, gateway, email, or lifecycle skill."
+  default_prompt: "Use $houmao-touring only when the user explicitly asks for a first-time guided Houmao tour. Start from current state, explain the next likely branches with examples, and route execution to the maintained Houmao-owned project, mailbox, specialist, messaging, gateway, email, pairwise loop, or lifecycle skill."
