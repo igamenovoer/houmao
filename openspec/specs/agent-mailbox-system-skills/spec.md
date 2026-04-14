@@ -228,28 +228,6 @@ The skill SHALL NOT present mailbox `rules/` as requiring the agent to execute m
 - **THEN** that skill may direct the agent to consult shared mailbox `rules/` for mailbox-local policy guidance
 - **AND THEN** the skill does not treat mailbox `rules/` as an executable mutation contract for ordinary mailbox operations
 
-### Requirement: Filesystem mailbox system skills instruct agents to mark processed mail read explicitly
-The system SHALL require the projected filesystem mailbox system skill to distinguish between discovering unread mail and marking a message read after processing.
-
-That skill SHALL instruct agents to mark a message read only after the agent has actually processed that message successfully.
-
-When the agent is using gateway HTTP, the skill SHALL direct the agent to `POST /v1/mail/state`.
-
-When the agent is using the manager-owned fallback path, the skill SHALL direct the agent to `houmao-mgr agents mail mark-read`.
-
-The skill SHALL NOT instruct agents to mark a message read merely because unread mail was detected or because a reminder prompt mentioned the message.
-
-#### Scenario: Agent marks processed message read through the selected manager or gateway surface
-- **WHEN** an agent finishes processing an unread mailbox message successfully
-- **THEN** the projected mailbox system skill instructs the agent to mark that message read through `POST /v1/mail/state` when gateway HTTP is in use or `houmao-mgr agents mail mark-read` when the manager fallback path is in use
-- **AND THEN** the agent does not treat message discovery or reminder prompts as implicit read-state mutation
-
-#### Scenario: Non-authoritative mark-read fallback still requires verification
-- **WHEN** an agent uses `houmao-mgr agents mail mark-read` through a manager fallback path
-- **AND WHEN** that command returns `authoritative: false`
-- **THEN** the projected mailbox system skill treats the result as submission-only rather than verified read-state mutation
-- **AND THEN** the agent verifies read state through a follow-up mailbox check or transport-owned state before assuming the message is now read
-
 ### Requirement: Runtime-owned mailbox system skills are available to launched agents through a unified Houmao mailbox surface
 The system SHALL provide implemented mailbox access to agents through runtime-owned mailbox system skills projected from platform-owned templates rather than requiring role-authored mailbox skill content.
 
@@ -400,4 +378,57 @@ Projected runtime-owned mailbox skills SHALL NOT present `python -m houmao.agent
 - **WHEN** an agent follows the projected mailbox skills for ordinary mailbox work
 - **THEN** those skills do not instruct the agent to use `pixi run houmao-mgr agents mail resolve-live`
 - **AND THEN** they do not instruct the agent to invoke `python -m houmao.agents.mailbox_runtime_support resolve-live` directly
+
+### Requirement: Runtime-owned mailbox workflow skills use archive as completion
+Projected runtime-owned mailbox workflow skills SHALL instruct agents to treat archive, not read state, as the completion signal for processed mailbox work.
+
+The `houmao-process-emails-via-gateway` workflow SHALL direct agents to list open inbox work through the gateway, choose relevant messages for the current round, peek or read selected messages intentionally, perform the requested work, reply or acknowledge when appropriate, archive only successfully processed messages, and stop after the round.
+
+Deferred, skipped, or not-yet-completed messages SHALL remain unarchived so later notifier rounds can wake the agent again.
+
+#### Scenario: Successfully processed mail is archived
+- **WHEN** an agent finishes processing selected mailbox work during a notifier-driven round
+- **THEN** the projected workflow skill instructs the agent to archive the successfully processed messages through the gateway or manager fallback surface
+- **AND THEN** unfinished messages remain unarchived for later notification
+
+### Requirement: Runtime-owned mailbox skills distinguish list, peek, read, mark, move, and archive
+Projected runtime-owned mailbox skills SHALL present the ordinary mailbox action set as status, list, peek, read, send, post, reply, mark, move, archive, and resolve-live.
+
+The skills SHALL explain that listing and peeking do not mark a message read, that reading marks a message read, that reply marks the parent answered, and that archive closes processed inbox work.
+
+The skills SHALL keep manual marking available as a repair or operator-directed action rather than as the normal completion step for processed mail.
+
+#### Scenario: Skill user can inspect without marking read
+- **WHEN** an agent follows projected mailbox skill guidance to inspect a message for triage
+- **THEN** the skill presents `peek` as the non-mutating body-inspection action
+- **AND THEN** it reserves `read` for the action that marks the message read
+
+#### Scenario: Manual marking is not the normal completion path
+- **WHEN** an agent follows projected mailbox skill guidance after completing a mailbox task
+- **THEN** the skill directs the agent to archive the processed message
+- **AND THEN** it presents manual `mark` only for explicit state repair or operator-directed state changes
+
+### Requirement: Notifier-driven mailbox skills honor notification mode
+The runtime-owned `houmao-process-emails-via-gateway` workflow skill SHALL understand notifier prompts that identify notification mode as `any_inbox` or `unread_only`.
+
+When the prompt identifies mode `any_inbox`, the workflow SHALL direct the agent to list open inbox mail through the shared gateway mailbox API and process relevant selected mail for the round.
+
+When the prompt identifies mode `unread_only`, the workflow SHALL direct the agent to start from unread inbox mail through the shared gateway mailbox API for that round.
+
+In both modes, the workflow SHALL keep archive as the completion action for successfully processed mail and SHALL NOT treat reading, peeking, replying, or acknowledging as implicit completion.
+
+#### Scenario: Any-inbox notification uses open inbox triage
+- **WHEN** an agent begins a notifier-driven round whose prompt states mode `any_inbox`
+- **THEN** the workflow skill directs the agent to list open inbox mail through the shared gateway mailbox API
+- **AND THEN** selected processed mail is archived only after the corresponding work and any required reply succeed
+
+#### Scenario: Unread-only notification starts from unread inbox triage
+- **WHEN** an agent begins a notifier-driven round whose prompt states mode `unread_only`
+- **THEN** the workflow skill directs the agent to start from unread inbox mail through the shared gateway mailbox API
+- **AND THEN** it keeps archive as the completion action for any successfully processed selected mail
+
+#### Scenario: Skill does not restore read-as-completion semantics
+- **WHEN** an agent follows the notifier-driven workflow in either mode
+- **THEN** the workflow does not tell the agent that marking a message read completes the mailbox work
+- **AND THEN** deferred, skipped, or unfinished messages remain unarchived for later handling according to the configured notifier mode
 

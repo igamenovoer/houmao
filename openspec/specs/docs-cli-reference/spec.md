@@ -1020,3 +1020,43 @@ The CLI reference SHALL list supported section names and states, and SHALL state
 - **THEN** the reference lists `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` as supported sections
 - **AND THEN** the reference lists `enabled` and `disabled` as supported states
 - **AND THEN** the reference states that `task-reminder` and `mail-ack` default to disabled
+
+### Requirement: CLI reference documents revised `agents mail` lifecycle commands
+When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
+
+That coverage SHALL explain:
+
+- the selector rules for explicit targeting versus current-session targeting inside the owning managed tmux session,
+- the structured `resolve-live` result contract for current mailbox discovery, including the returned mailbox binding and optional `gateway.base_url`,
+- that mailbox-specific shell export is not part of the supported `resolve-live` contract,
+- the difference between listing, peeking, and reading mail,
+- that reply or acknowledgement marks a message answered but does not close it,
+- that archive is the normal completion action for processed mail,
+- the authority-aware result semantics that distinguish verified execution from non-authoritative TUI submission fallback.
+
+The CLI reference SHALL NOT present `check` or `mark-read` as the current mailbox lifecycle workflow for processed mail after this change.
+
+#### Scenario: Reader can find archive and move commands
+- **WHEN** a reader looks up `houmao-mgr agents mail`
+- **THEN** the CLI reference documents `archive` and `move` as supported mailbox lifecycle commands
+- **AND THEN** the reader can tell that archive is the common processed-mail completion command
+
+#### Scenario: Reader understands peek versus read
+- **WHEN** a reader looks up mailbox message inspection commands
+- **THEN** the CLI reference explains that `peek` does not mark a message read
+- **AND THEN** it explains that `read` returns the message and marks it read
+
+### Requirement: CLI reference documents gateway mail-notifier mode
+The CLI reference page for `houmao-mgr agents gateway` SHALL document the mail-notifier notification mode option on `mail-notifier enable`.
+
+That documentation SHALL list supported mode values `any_inbox` and `unread_only`, SHALL state that omitted mode defaults to `any_inbox`, and SHALL explain that `unread_only` only wakes for unread unarchived inbox mail.
+
+#### Scenario: Reader finds mail-notifier mode option
+- **WHEN** a reader opens the `agents gateway mail-notifier enable` CLI reference
+- **THEN** the option table documents the notifier mode option and its allowed values
+- **AND THEN** the prose states that `any_inbox` is the default
+
+#### Scenario: Reader understands unread-only trade-off
+- **WHEN** a reader studies the `unread_only` mode documentation
+- **THEN** the CLI reference explains that only unread unarchived inbox mail triggers notifications in that mode
+- **AND THEN** it does not imply that read-but-unarchived mail will continue to wake the agent in `unread_only` mode

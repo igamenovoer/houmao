@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change add-system-files-reference-docs. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: System-files reference documentation is organized under a dedicated subtree
 The repository SHALL publish a centralized system-files reference under `docs/reference/system-files/` with an `index.md` entrypoint instead of leaving the full Houmao filesystem story distributed only across subsystem pages.
 
@@ -137,3 +135,19 @@ That explanation SHALL keep the broader mailbox semantics in the mailbox subtree
 - **WHEN** an operator needs to understand which Stalwart-related runtime files are durable state and which are secret-bearing or session-local artifacts
 - **THEN** the system-files docs identify the relevant path families and their contract level clearly
 - **AND THEN** the operator is not left to infer cleanup or handling expectations solely from source code
+
+### Requirement: System-files reference documents managed workspace lanes
+System-files reference documentation SHALL describe the per-agent workspace envelope, its `houmao-memo.md` file, and its scratch and persist lanes.
+
+The documentation SHALL explain that `HOUMAO_AGENT_SCRATCH_DIR` replaces the old `job_dir` scratch role and that `HOUMAO_AGENT_PERSIST_DIR` replaces the old durable memory role when persistence is enabled.
+
+The documentation SHALL explain that `HOUMAO_AGENT_MEMO_FILE` points to the per-agent memo file used for live-agent rules and loop initialization material.
+
+The documentation SHALL not present `.houmao/jobs/<session-id>/`, `HOUMAO_JOB_DIR`, or `HOUMAO_MEMORY_DIR` as current managed-agent contracts.
+
+#### Scenario: Reference reader understands the new workspace layout
+- **WHEN** an operator reads the system-files reference
+- **THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/scratch/`
+- **AND THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/persist/`
+- **AND THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`
+- **AND THEN** the reference explains the scratch and persist lifetime difference

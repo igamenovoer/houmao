@@ -10,18 +10,23 @@ That skill SHALL cover ordinary mailbox operations across supported mailbox tran
 
 - current mailbox discovery,
 - mailbox status inspection,
-- unread or current-message inspection,
+- list and open-work inspection,
+- non-mutating message peek,
+- mutating message read,
 - message selection guidance,
 - outbound send,
+- operator-origin post where supported,
 - reply,
-- post-success mark-read behavior.
+- manual mark,
+- move among supported mailbox boxes,
+- archive-after-processing behavior.
 
 `houmao-agent-email-comms` SHALL remain distinct from `houmao-process-emails-via-gateway`, which SHALL continue to own notifier-driven round workflow rather than ordinary mailbox operations.
 
 #### Scenario: Mailbox-enabled session receives the unified ordinary mailbox skill
 - **WHEN** the runtime starts a mailbox-enabled session for a supported tool
 - **THEN** the visible Houmao-owned mailbox skill surface includes `houmao-agent-email-comms`
-- **AND THEN** the agent uses that skill as the ordinary entrypoint for status, check, read, send, reply, or mark-read work
+- **AND THEN** the agent uses that skill as the ordinary entrypoint for status, list, peek, read, send, post, reply, mark, move, archive, or resolve-live work
 - **AND THEN** notifier-driven mailbox rounds continue to use `houmao-process-emails-via-gateway`
 
 ### Requirement: `houmao-agent-email-comms` routes shared gateway and fallback mailbox actions
@@ -31,11 +36,15 @@ At minimum, the unified skill SHALL provide internal guidance for:
 
 - `resolve-live`
 - `status`
-- `check`
+- `list`
+- `peek`
 - `read`
 - `send`
+- `post`
 - `reply`
-- `mark-read`
+- `mark`
+- `move`
+- `archive`
 
 When current prompt or recent mailbox context already provides the exact current `gateway.base_url`, the skill SHALL use that value directly for shared `/v1/mail/*` operations.
 
@@ -56,6 +65,11 @@ The skill SHALL continue to treat `message_ref` and `thread_ref` as opaque share
 - **AND WHEN** `houmao-mgr agents mail resolve-live` reports `gateway: null`
 - **THEN** the skill directs the agent to the supported fallback surface for the resolved transport
 - **AND THEN** it does not guess a localhost port or invent a direct shared-gateway endpoint
+
+#### Scenario: Archive action is the ordinary completion reference
+- **WHEN** an agent follows `houmao-agent-email-comms` after successfully processing a mailbox message
+- **THEN** the skill directs the agent to the `archive` action for completion
+- **AND THEN** it does not present `mark-read` as the processed-mail completion action
 
 ### Requirement: `houmao-agent-email-comms` internalizes transport-specific guidance
 `houmao-agent-email-comms` SHALL keep filesystem-specific and Stalwart-specific guidance as internal transport pages, sections, or references within the same skill package.

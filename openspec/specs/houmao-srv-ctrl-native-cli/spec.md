@@ -1168,3 +1168,75 @@ The command help SHALL report the reply-policy default as `operator_mailbox`.
 - **THEN** the `--reply-policy` option reports `operator_mailbox` as the default
 - **AND THEN** it still lists `none` as the no-reply opt-out value
 
+### Requirement: `houmao-mgr agents mail` exposes mailbox lifecycle commands
+`houmao-mgr agents mail` SHALL expose a mailbox lifecycle command family for managed-agent mailbox work.
+
+At minimum, that family SHALL include:
+
+- `resolve-live`,
+- `status`,
+- `list`,
+- `peek`,
+- `read`,
+- `send`,
+- `post`,
+- `reply`,
+- `mark`,
+- `move`,
+- `archive`.
+
+`list` SHALL support selecting a mailbox box and SHALL default to the inbox when omitted.
+
+`peek` SHALL retrieve one message without marking it read.
+
+`read` SHALL retrieve one message and mark it read.
+
+`reply` SHALL mark the replied message answered after a successful reply.
+
+`mark` SHALL allow explicit manual marking of supported lifecycle fields such as `read` and `answered`.
+
+`move` SHALL move selected messages among supported mailbox boxes.
+
+`archive` SHALL archive selected messages and remain a shortcut for the common processed-mail completion operation.
+
+The CLI SHALL keep the existing authority-aware result contract for verified execution versus non-authoritative fallback submission.
+
+#### Scenario: Operator archives selected mail from the CLI
+- **WHEN** an operator runs `houmao-mgr agents mail archive` with one or more message refs
+- **THEN** the command resolves the target mailbox binding through the supported managed-agent selector contract
+- **AND THEN** it archives the selected messages through the live gateway or manager-owned fallback surface
+
+#### Scenario: CLI peek does not mark a message read
+- **WHEN** an operator runs `houmao-mgr agents mail peek --message-ref <ref>`
+- **THEN** the command returns the selected message content
+- **AND THEN** the selected message is not marked read merely because of that peek operation
+
+#### Scenario: CLI read marks a message read
+- **WHEN** an operator runs `houmao-mgr agents mail read --message-ref <ref>`
+- **THEN** the command returns the selected message content
+- **AND THEN** the selected message is marked read for the target mailbox principal
+
+### Requirement: Native gateway mail-notifier CLI configures notification mode
+`houmao-mgr agents gateway mail-notifier enable` SHALL accept an optional notifier mode argument with values `any_inbox` and `unread_only`.
+
+When the operator omits the notifier mode, the command SHALL send the gateway notifier enable request with effective mode `any_inbox`.
+
+When the operator supplies `unread_only`, the command SHALL send the gateway notifier enable request with mode `unread_only`.
+
+The command output for notifier status and enable results SHALL preserve the `mode` field returned by the gateway.
+
+#### Scenario: CLI enable defaults to any-inbox mode
+- **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-id abc123 --interval-seconds 60` without a mode option
+- **THEN** the CLI sends a notifier enable request with mode `any_inbox`
+- **AND THEN** the emitted result includes the gateway-reported `mode`
+
+#### Scenario: CLI enable accepts unread-only mode
+- **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-id abc123 --interval-seconds 60 --mode unread_only`
+- **THEN** the CLI sends a notifier enable request with mode `unread_only`
+- **AND THEN** it does not require the operator to address the raw `/v1/mail-notifier` route directly
+
+#### Scenario: CLI rejects invalid notifier mode
+- **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --interval-seconds 60 --mode read`
+- **THEN** the CLI rejects the invocation as invalid input
+- **AND THEN** it does not send a notifier enable request with an unknown mode value
+

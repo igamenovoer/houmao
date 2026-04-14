@@ -81,7 +81,7 @@ The filesystem mailbox transport SHALL allow each full-address entry under `mail
 
 A symlink-registered private mailbox directory SHALL expose the same mailbox substructure expected from an in-root mailbox directory.
 
-In v1, `archive/` and `drafts/` are reserved placeholder directories in that substructure rather than defined archive or draft workflows.
+The `archive/` directory in that substructure SHALL be an active mailbox box. The `drafts/` directory MAY remain reserved until a later draft workflow defines it.
 
 #### Scenario: Address joins filesystem mail group through symlink registration
 - **WHEN** an agent or human participant wants to join an existing filesystem mail group without relocating its mailbox projection directory into the shared root
@@ -93,20 +93,10 @@ In v1, `archive/` and `drafts/` are reserved placeholder directories in that sub
 - **THEN** the filesystem mailbox transport writes the mailbox projection through that symlink-resolved mailbox directory
 - **AND THEN** the canonical message store, lock files, and shared SQLite index remain anchored under the shared mail-group root
 
-### Requirement: Archive and drafts directories are reserved placeholders in v1
-The filesystem mailbox transport SHALL reserve `archive/` and `drafts/` directories in address-based mailbox layouts for forward compatibility.
-
-This change SHALL NOT require archive or draft mailbox workflows beyond creating or validating those placeholder directories.
-
-#### Scenario: Bootstrap provisions placeholder archive and drafts directories
-- **WHEN** the runtime initializes an in-root filesystem mailbox directory for a principal
-- **THEN** the resulting mailbox layout includes placeholder `archive/` and `drafts/` directories
-- **AND THEN** the transport does not need to define archive or draft workflows to complete that initialization
-
-#### Scenario: V1 mailbox workflows do not depend on archive or drafts semantics
-- **WHEN** the v1 filesystem mailbox transport performs mailbox operations such as `check`, `send`, or `reply`
-- **THEN** those operations succeed without requiring archive or draft folder behavior beyond placeholder directory presence
-- **AND THEN** follow-up changes may define archive or draft workflows without changing the reserved directory names
+#### Scenario: Symlink-registered mailbox exposes active archive box
+- **WHEN** a symlink-registered mailbox receives and archives a message
+- **THEN** the archive projection is written through the symlink-resolved mailbox directory
+- **AND THEN** the shared mailbox operation surface does not treat that `archive/` directory as a placeholder
 
 ### Requirement: Filesystem transport stores canonical messages as Markdown and projects them into mailbox folders
 The filesystem mailbox transport SHALL persist each delivered canonical message as a Markdown file in the canonical message store under `messages/<YYYY-MM-DD>/<message-id>.md` and SHALL materialize mailbox-visible projections for sender and recipient folders as symlinks to that canonical message file.
@@ -332,3 +322,33 @@ For a self-addressed message projected into the same mailbox as both sender and 
 - **WHEN** the filesystem mailbox transport repairs or rebuilds mailbox-local state for a self-addressed message
 - **THEN** the rebuilt mailbox-local state for that mailbox starts unread if no explicit prior mailbox-local read record exists
 - **AND THEN** later actor-scoped unread checks continue to treat that self-addressed message as unread until explicitly marked read
+
+### Requirement: Filesystem archive is an active per-account mailbox box
+The filesystem mailbox transport SHALL treat each account's `archive/` directory as an active mailbox box rather than as a placeholder.
+
+Archiving a message SHALL remove or deactivate that recipient's inbox projection for the message, SHALL materialize the recipient's archive projection, and SHALL update mailbox-local state so the message is no longer open inbox work.
+
+The filesystem transport SHALL continue to preserve canonical message Markdown content as immutable delivered-message content during archive, move, read, answered, and manual mark operations.
+
+#### Scenario: Archive creates an archive projection without rewriting canonical content
+- **WHEN** a recipient archives a filesystem-backed inbox message
+- **THEN** the recipient's archive box exposes a projection for that message
+- **AND THEN** the recipient's open inbox view no longer treats that message as actionable work
+- **AND THEN** the canonical Markdown message file is not rewritten for the archive state change
+
+### Requirement: Filesystem mailbox-local state stores read, answered, archived, and box state
+The filesystem mailbox transport SHALL store recipient-local lifecycle state in mailbox-local durable state rather than in canonical message Markdown.
+
+That recipient-local lifecycle state SHALL include at minimum `read`, `answered`, `archived`, and the message's active mailbox box membership for the recipient.
+
+Filesystem mailbox state updates for read, answered, move, and archive operations SHALL be serialized with the same address-lock and index-lock discipline used by existing filesystem mailbox mutations.
+
+#### Scenario: Reply state is recipient-local
+- **WHEN** one recipient replies to a filesystem-backed message that was delivered to multiple recipients
+- **THEN** the replying recipient's mailbox-local state records `answered=true`
+- **AND THEN** other recipients do not inherit that answered state merely because they received the same canonical message
+
+#### Scenario: Moving a message updates box membership atomically
+- **WHEN** a caller moves a filesystem-backed message from `inbox` to `archive`
+- **THEN** the filesystem transport updates the affected mailbox projection and mailbox-local state under the mailbox write lock discipline
+- **AND THEN** readers do not observe a committed message in both open inbox work and archive as a partial move result

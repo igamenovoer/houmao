@@ -1,8 +1,6 @@
 ## Purpose
 Define the operator-facing `houmao-mgr agents join` workflow for adopting existing tmux-backed TUI and native headless sessions into Houmao managed-agent control.
-
 ## Requirements
-
 ### Requirement: `houmao-mgr agents join` adopts an existing supported TUI from the current tmux session
 `houmao-mgr agents join` SHALL provide a local adoption path for a supported provider TUI that is already running inside the caller's current tmux session.
 
@@ -131,27 +129,29 @@ When that flag is present, the join workflow SHALL continue without mutating the
 - **THEN** the join workflow may continue without performing the default Houmao-owned system-skill installation
 - **AND THEN** the command does not mutate the adopted tool home through that default installer path
 
-### Requirement: `houmao-mgr agents join` supports memory-directory controls for adopted sessions
-`houmao-mgr agents join` SHALL accept optional `--memory-dir <path>` and `--no-memory-dir` for both TUI and headless tmux-backed adoption flows.
+### Requirement: `houmao-mgr agents join` supports persist-lane controls for adopted sessions
+`houmao-mgr agents join` SHALL accept optional `--persist-dir <path>` and `--no-persist-dir` for both TUI and headless tmux-backed adoption flows.
 
-`--memory-dir` and `--no-memory-dir` SHALL be mutually exclusive on this surface.
+`--persist-dir` and `--no-persist-dir` SHALL be mutually exclusive on this surface.
 
-When neither flag is supplied, `agents join` SHALL resolve memory binding from the selected join invocation context's system default behavior.
+When neither flag is supplied, `agents join` SHALL resolve persist binding from the selected join invocation context's system default behavior.
 
-A successful join SHALL persist the resolved memory binding for the adopted managed session without requiring the adopted tool to use any fixed memory-directory structure.
+A successful join SHALL persist the resolved workspace root, scratch lane, persist binding, and optional persist lane for the adopted managed session.
 
-#### Scenario: Joined session resolves the default memory directory when no override is supplied
+#### Scenario: Joined session resolves default workspace lanes when no override is supplied
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer` without `--memory-dir` or `--no-memory-dir`
-- **THEN** the adopted managed session resolves memory under `/repo/.houmao/memory/agents/<agent-id>/`
-- **AND THEN** the join persists that resolved memory binding for later managed inspection
+- **AND WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer` without `--persist-dir` or `--no-persist-dir`
+- **THEN** the adopted managed session resolves scratch under `/repo/.houmao/memory/agents/<agent-id>/scratch/`
+- **AND THEN** the adopted managed session resolves persist under `/repo/.houmao/memory/agents/<agent-id>/persist/`
+- **AND THEN** the join persists those resolved workspace lanes for later managed inspection
 
-#### Scenario: Joined session may explicitly disable memory binding
-- **WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer --no-memory-dir`
-- **THEN** the adopted managed session resolves memory binding as disabled
-- **AND THEN** the join does not create or publish a memory directory for that session
+#### Scenario: Joined session may explicitly disable persistence
+- **WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer --no-persist-dir`
+- **THEN** the adopted managed session resolves persist binding as disabled
+- **AND THEN** the join does not create or publish a persist directory for that session
+- **AND THEN** the join still publishes a scratch lane for that session
 
-#### Scenario: Joined session may bind one explicit shared memory directory
-- **WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer --memory-dir /shared/reviewer`
-- **THEN** the adopted managed session resolves memory binding to `/shared/reviewer`
-- **AND THEN** the join persists that exact directory as the session's managed memory binding
+#### Scenario: Joined session may bind one explicit shared persist directory
+- **WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer --persist-dir /shared/reviewer`
+- **THEN** the adopted managed session resolves persist binding to `/shared/reviewer`
+- **AND THEN** the join persists that exact directory as the session's managed persist binding

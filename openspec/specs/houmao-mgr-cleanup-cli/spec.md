@@ -98,36 +98,6 @@ These commands SHALL remain local-only maintenance commands and SHALL NOT accept
 - **THEN** `houmao-mgr` derives the cleanup target's session root from that path
 - **AND THEN** manifest-independent cleanup may still continue from that session root
 
-### Requirement: `houmao-mgr agents cleanup session` removes stopped session envelopes and optionally the job dir
-For one resolved local managed session, `houmao-mgr agents cleanup session` SHALL classify the runtime-owned session root as removable only when the resolved session no longer appears live on the local host.
-
-When the operator requests `--include-job-dir`, the command SHALL also classify the manifest-persisted `job_dir` for removal as part of the same cleanup result.
-
-When the session root is resolved but the manifest is missing or malformed, the command SHALL still classify the session root itself for removal when no available local evidence shows that session as still live.
-
-When manifest metadata required for `job_dir` cleanup is unavailable or the referenced `job_dir` is already absent, the command SHALL skip that `job_dir` cleanup instead of failing the whole cleanup command.
-
-The command SHALL block removal when the resolved session still appears live rather than deleting the active session envelope.
-
-#### Scenario: Stopped session cleanup removes the session root and requested job dir
-- **WHEN** an operator runs `houmao-mgr agents cleanup session --manifest-path /abs/path/runtime/sessions/local_interactive/session-1/manifest.json --include-job-dir`
-- **AND WHEN** the resolved session no longer appears live on the local host
-- **THEN** the cleanup result removes the session root
-- **AND THEN** it also removes the manifest-persisted `job_dir`
-
-#### Scenario: Live session cleanup is blocked
-- **WHEN** an operator runs `houmao-mgr agents cleanup session --agent-id abc123`
-- **AND WHEN** the resolved managed session still appears live on the local host
-- **THEN** the cleanup result reports that session-root removal is blocked
-- **AND THEN** the command does not delete the live session envelope
-
-#### Scenario: Missing manifest still allows stopped session-root cleanup
-- **WHEN** an operator runs `houmao-mgr agents cleanup session --session-root /abs/path/runtime/sessions/local_interactive/session-1 --include-job-dir`
-- **AND WHEN** `manifest.json` under that session root is missing or malformed
-- **AND WHEN** no available local evidence still shows that session root as live
-- **THEN** the cleanup result removes the session root
-- **AND THEN** it skips `job_dir` cleanup instead of failing because the manifest metadata is unavailable
-
 ### Requirement: Explicit managed-session cleanup treats missing session-local artifacts as non-fatal
 For `houmao-mgr agents cleanup session|logs|mailbox`, when the selected authority resolves one runtime-owned session root explicitly or through fresh shared-registry fallback, already-absent candidate artifacts SHALL be treated as no-op cleanup work rather than as command-failing errors.
 
@@ -272,3 +242,38 @@ When an explicit runtime-root override or global runtime-root env override wins,
 - **WHEN** an operator runs `houmao-mgr admin cleanup runtime sessions --runtime-root /tmp/houmao-runtime --dry-run`
 - **THEN** the structured cleanup result identifies `/tmp/houmao-runtime` as the selected cleanup root for that invocation
 - **AND THEN** the operator-facing wording does not describe that explicit override as the active project runtime root
+
+### Requirement: `houmao-mgr agents cleanup session` removes stopped session envelopes without job-dir cleanup
+For one resolved local managed session, `houmao-mgr agents cleanup session` SHALL classify the runtime-owned session root as removable only when the resolved session no longer appears live on the local host.
+
+The command SHALL NOT accept `--include-job-dir`.
+
+The command SHALL NOT remove workspace scratch or persist lanes as an incidental effect of session-envelope cleanup.
+
+When the session root is resolved but the manifest is missing or malformed, the command SHALL still classify the session root itself for removal when no available local evidence shows that session as still live.
+
+The command SHALL block removal when the resolved session still appears live rather than deleting the active session envelope.
+
+#### Scenario: Stopped session cleanup removes the session root only
+- **WHEN** an operator runs `houmao-mgr agents cleanup session --manifest-path /abs/path/runtime/sessions/local_interactive/session-1/manifest.json`
+- **AND WHEN** the resolved session no longer appears live on the local host
+- **THEN** the cleanup result removes the session root
+- **AND THEN** it does not remove the managed agent workspace scratch lane
+
+#### Scenario: Include-job-dir flag is not supported
+- **WHEN** an operator runs `houmao-mgr agents cleanup session --include-job-dir`
+- **THEN** the command fails as an unsupported option
+- **AND THEN** the command does not delete workspace files
+
+### Requirement: Workspace scratch cleanup is an explicit lane-scoped cleanup action
+Houmao SHALL provide a supported cleanup action that clears the addressed managed agent's scratch lane without removing the runtime session envelope or persist lane.
+
+The cleanup action SHALL support dry-run planning with per-artifact actions.
+
+The cleanup action SHALL require explicit managed-agent targeting and SHALL block by default when the addressed scratch lane cannot be resolved safely.
+
+#### Scenario: Scratch cleanup clears only the scratch lane
+- **WHEN** an operator runs a supported scratch cleanup command for managed agent `researcher`
+- **AND WHEN** the command resolves scratch lane `/repo/.houmao/memory/agents/researcher-id/scratch`
+- **THEN** the cleanup result removes contents under that scratch lane
+- **AND THEN** it preserves `/repo/.houmao/memory/agents/researcher-id/persist`
