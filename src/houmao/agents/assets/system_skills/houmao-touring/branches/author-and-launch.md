@@ -25,7 +25,7 @@ Use this branch when the user wants to create or inspect specialists or profiles
    - send a normal prompt
    - watch live gateway or TUI state
    - send mailbox work
-   - if the live gateway is up and mailbox accounts are already set up, enable automatic email notification so the agent can check unread mail automatically
+   - if the live gateway is up and mailbox accounts are already set up, enable automatic email notification so the agent can process open mail automatically
    - create reminders
    - explore advanced pairwise agent-loop creation
    - create another specialist or launch another agent

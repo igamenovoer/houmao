@@ -41,12 +41,15 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayExecutionModelReasoningV1,
     GatewayExecutionModelV1,
     GatewayExecutionOverrideV1,
-    GatewayMailCheckRequestV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailListRequestV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMoveRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
-    GatewayMailStateRequestV1,
     GatewayPromptControlRequestV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
@@ -108,7 +111,12 @@ from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
-from houmao.mailbox.managed import DeliveryRequest, deliver_message
+from houmao.mailbox.managed import (
+    DeliveryRequest,
+    StateUpdateRequest,
+    deliver_message,
+    update_mailbox_state,
+)
 from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_ADDRESS,
@@ -4096,8 +4104,8 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert status_response.json()["transport"] == "filesystem"
 
     check_response = client.post(
-        "/v1/mail/check",
-        json=GatewayMailCheckRequestV1(unread_only=True, limit=10).model_dump(mode="json"),
+        "/v1/mail/list",
+        json=GatewayMailListRequestV1(read_state="unread", limit=10).model_dump(mode="json"),
     )
     assert check_response.status_code == 200
     check_payload = check_response.json()
@@ -4105,6 +4113,26 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert check_payload["message_count"] == 1
     assert check_payload["unread_count"] == 1
     assert check_payload["messages"][0]["message_ref"] == f"filesystem:{unread_message_id}"
+
+    peek_response = client.post(
+        "/v1/mail/peek",
+        json=GatewayMailMessageRequestV1(
+            message_ref=f"filesystem:{unread_message_id}",
+        ).model_dump(mode="json"),
+    )
+    assert peek_response.status_code == 200
+    assert peek_response.json()["operation"] == "peek"
+    assert peek_response.json()["message"]["read"] is False
+
+    read_response = client.post(
+        "/v1/mail/read",
+        json=GatewayMailMessageRequestV1(
+            message_ref=f"filesystem:{unread_message_id}",
+        ).model_dump(mode="json"),
+    )
+    assert read_response.status_code == 200
+    assert read_response.json()["operation"] == "read"
+    assert read_response.json()["message"]["read"] is True
 
     send_response = client.post(
         "/v1/mail/send",
@@ -4166,6 +4194,29 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert reply_payload["transport"] == "filesystem"
     assert reply_payload["message"]["subject"] == "Re: Gateway unread reminder"
     assert reply_payload["message"]["message_ref"].startswith("filesystem:msg-")
+
+    mark_response = client.post(
+        "/v1/mail/mark",
+        json=GatewayMailMarkRequestV1(
+            message_refs=[f"filesystem:{unread_message_id}"],
+            answered=True,
+        ).model_dump(mode="json"),
+    )
+    assert mark_response.status_code == 200
+    assert mark_response.json()["operation"] == "mark"
+    assert mark_response.json()["messages"][0]["answered"] is True
+
+    move_response = client.post(
+        "/v1/mail/move",
+        json=GatewayMailMoveRequestV1(
+            message_refs=[f"filesystem:{unread_message_id}"],
+            destination_box="archive",
+        ).model_dump(mode="json"),
+    )
+    assert move_response.status_code == 200
+    assert move_response.json()["operation"] == "move"
+    assert move_response.json()["messages"][0]["box"] == "archive"
+    assert move_response.json()["messages"][0]["archived"] is True
 
     operator_reply_response = client.post(
         "/v1/mail/reply",
@@ -4425,8 +4476,8 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
         assert send_payload["message"]["unread"] is True
 
         check_response = client.post(
-            "/v1/mail/check",
-            json=GatewayMailCheckRequestV1(unread_only=True, limit=10).model_dump(mode="json"),
+            "/v1/mail/list",
+            json=GatewayMailListRequestV1(read_state="unread", limit=10).model_dump(mode="json"),
         )
         assert check_response.status_code == 200
         check_payload = check_response.json()
@@ -4451,18 +4502,17 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
         )
 
         state_response = client.post(
-            "/v1/mail/state",
-            json=GatewayMailStateRequestV1(
-                message_ref=self_message_ref,
-                read=True,
+            "/v1/mail/archive",
+            json=GatewayMailArchiveRequestV1(
+                message_refs=[self_message_ref],
             ).model_dump(mode="json"),
         )
         assert state_response.status_code == 200
-        assert state_response.json()["read"] is True
+        assert state_response.json()["operation"] == "archive"
 
         post_mark_read_check = client.post(
-            "/v1/mail/check",
-            json=GatewayMailCheckRequestV1(unread_only=True, limit=10).model_dump(mode="json"),
+            "/v1/mail/list",
+            json=GatewayMailListRequestV1(read_state="unread", limit=10).model_dump(mode="json"),
         )
         assert post_mark_read_check.status_code == 200
         assert post_mark_read_check.json()["unread_count"] == 0
@@ -4478,7 +4528,7 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
         runtime.shutdown()
 
 
-def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mutation(
+def test_gateway_mail_read_route_marks_filesystem_message_read_without_queue_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4497,25 +4547,25 @@ def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mu
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/state",
-        json=GatewayMailStateRequestV1(
+        "/v1/mail/read",
+        json=GatewayMailMessageRequestV1(
             message_ref=f"filesystem:{unread_message_id}",
-            read=True,
         ).model_dump(mode="json"),
     )
 
     assert response.status_code == 200
     assert set(response.json()) == {
         "schema_version",
+        "operation",
         "transport",
         "principal_id",
         "address",
-        "message_ref",
-        "read",
+        "message",
     }
     assert response.json()["transport"] == "filesystem"
-    assert response.json()["message_ref"] == f"filesystem:{unread_message_id}"
-    assert response.json()["read"] is True
+    assert response.json()["operation"] == "read"
+    assert response.json()["message"]["message_ref"] == f"filesystem:{unread_message_id}"
+    assert response.json()["message"]["read"] is True
     assert runtime.status().queue_depth == 0
 
     local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
@@ -4530,7 +4580,7 @@ def test_gateway_mail_state_route_marks_filesystem_message_read_without_queue_mu
     assert state_row == (1,)
 
 
-def test_gateway_mail_state_route_rejects_unsupported_mailbox_state_fields(
+def test_gateway_mail_mark_route_rejects_unsupported_mailbox_state_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4548,10 +4598,10 @@ def test_gateway_mail_state_route_rejects_unsupported_mailbox_state_fields(
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/state",
+        "/v1/mail/mark",
         json={
             "schema_version": 1,
-            "message_ref": f"filesystem:{unread_message_id}",
+            "message_refs": [f"filesystem:{unread_message_id}"],
             "read": True,
             "starred": True,
         },
@@ -4600,8 +4650,8 @@ def test_gateway_mail_routes_reject_missing_mailbox_binding(
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/check",
-        json=GatewayMailCheckRequestV1(unread_only=False).model_dump(mode="json"),
+        "/v1/mail/list",
+        json=GatewayMailListRequestV1().model_dump(mode="json"),
     )
 
     assert response.status_code == 422
@@ -4628,14 +4678,17 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
 
-        def check(
+        def list_messages(
             self,
             *,
-            unread_only: bool,
+            box: str,
+            read_state: str,
+            answered_state: str,
+            archived: bool | None,
             limit: int | None,
             since: str | None,
         ) -> list[dict[str, object]]:
-            del unread_only, limit, since
+            del box, read_state, answered_state, archived, limit, since
             return [
                 {
                     "id": "mail-1",
@@ -4703,13 +4756,16 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                 "unread": False,
             }
 
-        def update_read_state(
+        def mark(
             self,
             *,
             message_ref: str,
-            read: bool,
+            read: bool | None,
+            answered: bool | None,
+            archived: bool | None,
         ) -> dict[str, object]:
-            self.m_read_updates.append((message_ref, read))
+            del answered, archived
+            self.m_read_updates.append((message_ref, bool(read)))
             return {
                 "id": message_ref,
                 "threadId": "thread-1",
@@ -4722,6 +4778,10 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                 "cc": [],
                 "replyTo": [],
                 "attachments": [],
+                "read": bool(read),
+                "answered": False,
+                "archived": False,
+                "box": "inbox",
                 "unread": not read,
             }
 
@@ -4747,8 +4807,8 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     assert status_response.json()["transport"] == "stalwart"
 
     check_response = client.post(
-        "/v1/mail/check",
-        json=GatewayMailCheckRequestV1(unread_only=True, limit=5).model_dump(mode="json"),
+        "/v1/mail/list",
+        json=GatewayMailListRequestV1(read_state="unread", limit=5).model_dump(mode="json"),
     )
     assert check_response.status_code == 200
     check_payload = check_response.json()
@@ -4788,19 +4848,19 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     assert reply_response.json()["message"]["message_ref"] == "stalwart:reply-1"
 
     state_response = client.post(
-        "/v1/mail/state",
-        json=GatewayMailStateRequestV1(
-            message_ref="stalwart:mail-1",
+        "/v1/mail/mark",
+        json=GatewayMailMarkRequestV1(
+            message_refs=["stalwart:mail-1"],
             read=True,
         ).model_dump(mode="json"),
     )
     assert state_response.status_code == 200
     assert state_response.json()["transport"] == "stalwart"
-    assert state_response.json()["message_ref"] == "stalwart:mail-1"
-    assert state_response.json()["read"] is True
+    assert state_response.json()["messages"][0]["message_ref"] == "stalwart:mail-1"
+    assert state_response.json()["messages"][0]["read"] is True
 
 
-def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization(
+def test_gateway_mail_mark_route_rejects_malformed_stalwart_message_normalization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4814,15 +4874,19 @@ def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization
         def __init__(self, *, jmap_url: str, login_identity: str, credential_file: Path) -> None:
             del jmap_url, login_identity, credential_file
 
-        def update_read_state(
+        def status(self) -> dict[str, object]:
+            return {"account_id": "acc-1"}
+
+        def mark(
             self,
             *,
             message_ref: str,
-            read: bool,
+            read: bool | None,
+            answered: bool | None,
+            archived: bool | None,
         ) -> dict[str, object]:
-            del read
+            del read, answered, archived
             return {
-                "id": message_ref,
                 "threadId": "thread-1",
                 "receivedAt": "2026-03-19T08:00:00Z",
                 "subject": "Stalwart unread",
@@ -4848,14 +4912,14 @@ def test_gateway_mail_state_route_rejects_malformed_stalwart_state_normalization
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/state",
-        json=GatewayMailStateRequestV1(
-            message_ref="stalwart:mail-1",
+        "/v1/mail/mark",
+        json=GatewayMailMarkRequestV1(
+            message_refs=["stalwart:mail-1"],
             read=True,
         ).model_dump(mode="json"),
     )
     assert response.status_code == 502
-    assert "explicit boolean `unread` state" in response.json()["detail"]
+    assert "mailbox payload is missing `id`" in response.json()["detail"]
 
 
 def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_restart(
@@ -4868,6 +4932,15 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
     message_id = _deliver_unread_mailbox_message(tmp_path)
+    update_mailbox_state(
+        tmp_path / "mailbox",
+        StateUpdateRequest(
+            address="HOUMAO-gpu@agents.localhost",
+            message_id=message_id,
+            read=True,
+            answered=True,
+        ),
+    )
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
@@ -5282,11 +5355,15 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/check`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/list`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/peek`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/read`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/send`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/post`" in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/reply`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/state`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/mark`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/move`" in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/archive`" in prompt
         assert "curl -sS -X POST" not in prompt
         assert "stop and wait for the next notification" in prompt
         assert "Houmao mailbox skills are not installed for this session." not in prompt
@@ -5396,10 +5473,7 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
         assert "Houmao mailbox skills are not installed for this session." in prompt
-        assert (
-            "List unread mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn."
-            in prompt
-        )
+        assert "List open inbox mail through the shared gateway mailbox API" in prompt
         assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
@@ -5430,14 +5504,17 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
 
-        def check(
+        def list_messages(
             self,
             *,
-            unread_only: bool,
+            box: str,
+            read_state: str,
+            answered_state: str,
+            archived: bool | None,
             limit: int | None,
             since: str | None,
         ) -> list[dict[str, object]]:
-            del unread_only, limit, since
+            del box, read_state, answered_state, archived, limit, since
             return [
                 {
                     "id": "mail-1",
@@ -5515,11 +5592,12 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
         assert "stalwart:mail-1" not in fake_client.submitted_prompts[1][1]
         assert "stalwart:mail-1" not in fake_client.submitted_prompts[2][1]
         assert (
-            "List unread mail through the shared gateway mailbox API for this round."
+            "List open inbox mail through the shared gateway mailbox API"
             in fake_client.submitted_prompts[1][1]
         )
         assert (
-            "- `POST http://127.0.0.1:43123/v1/mail/state`" in fake_client.submitted_prompts[1][1]
+            "- `POST http://127.0.0.1:43123/v1/mail/archive`"
+            in fake_client.submitted_prompts[1][1]
         )
     finally:
         runtime.shutdown()
@@ -5549,14 +5627,17 @@ def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
 
-        def check(
+        def list_messages(
             self,
             *,
-            unread_only: bool,
+            box: str,
+            read_state: str,
+            answered_state: str,
+            archived: bool | None,
             limit: int | None,
             since: str | None,
         ) -> list[dict[str, object]]:
-            del unread_only, limit, since
+            del box, read_state, answered_state, archived, limit, since
             raise StalwartError("simulated stalwart mailbox failure")
 
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")

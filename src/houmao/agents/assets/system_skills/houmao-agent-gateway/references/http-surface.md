@@ -53,10 +53,15 @@ Use direct gateway `/v1/...` only when the exact live `gateway.base_url` is alre
 ## Shared Mailbox Facade
 
 - `GET {gateway.base_url}/v1/mail/status`
-- `POST {gateway.base_url}/v1/mail/check`
+- `POST {gateway.base_url}/v1/mail/list`
+- `POST {gateway.base_url}/v1/mail/peek`
+- `POST {gateway.base_url}/v1/mail/read`
 - `POST {gateway.base_url}/v1/mail/send`
+- `POST {gateway.base_url}/v1/mail/post`
 - `POST {gateway.base_url}/v1/mail/reply`
-- `POST {gateway.base_url}/v1/mail/state`
+- `POST {gateway.base_url}/v1/mail/mark`
+- `POST {gateway.base_url}/v1/mail/move`
+- `POST {gateway.base_url}/v1/mail/archive`
 
 Use `houmao-agent-email-comms` for the exact `/v1/mail/*` request contract once the live base URL is known.
 

@@ -337,25 +337,26 @@ class StalwartJmapClient:
             "account_id": account_id,
         }
 
-    def check(
+    def list_messages(
         self,
         *,
-        unread_only: bool,
+        box: str,
+        read_state: str,
+        answered_state: str,
+        archived: bool | None,
         limit: int | None,
         since: str | None,
     ) -> list[dict[str, Any]]:
         """Fetch normalized JMAP message payloads."""
 
         account_id = self.primary_account_id()
-        inbox_mailbox_id = self.mailbox_id_for_role("inbox")
+        mailbox_id = self.mailbox_id_for_role(box)
         method_calls: list[list[object]] = [
             [
                 "Email/query",
                 {
                     "accountId": account_id,
-                    "filter": {"inMailbox": inbox_mailbox_id}
-                    if inbox_mailbox_id is not None
-                    else None,
+                    "filter": {"inMailbox": mailbox_id} if mailbox_id is not None else None,
                     "sort": [{"property": "receivedAt", "isAscending": False}],
                     "limit": limit if limit is not None and limit > 0 else None,
                 },
@@ -392,6 +393,7 @@ class StalwartJmapClient:
                             "subject",
                             "preview",
                             "keywords",
+                            "mailboxIds",
                             "attachments",
                             "textBody",
                             "bodyValues",
@@ -416,8 +418,20 @@ class StalwartJmapClient:
             received_at = _require_string(raw_email, "receivedAt")
             if since_timestamp is not None and _parse_timestamp(received_at) < since_timestamp:
                 continue
-            unread = "$seen" not in _coerce_keywords(raw_email.get("keywords"))
-            if unread_only and not unread:
+            keywords = _coerce_keywords(raw_email.get("keywords"))
+            read = "$seen" in keywords
+            answered = "$answered" in keywords
+            box_name = self._box_name_for_mailbox_ids(raw_email.get("mailboxIds")) or box
+            archived_state = box_name == "archive"
+            if read_state == "read" and not read:
+                continue
+            if read_state == "unread" and read:
+                continue
+            if answered_state == "answered" and not answered:
+                continue
+            if answered_state == "unanswered" and answered:
+                continue
+            if archived is not None and archived_state is not archived:
                 continue
             normalized.append(
                 {
@@ -435,13 +449,35 @@ class StalwartJmapClient:
                     "preview": _optional_string(raw_email, "preview"),
                     "body": _extract_text_body(raw_email),
                     "attachments": _coerce_attachment_list(raw_email.get("attachments")),
-                    "unread": unread,
+                    "read": read,
+                    "answered": answered,
+                    "archived": archived_state,
+                    "box": box_name,
+                    "unread": not read,
                 }
             )
 
         if limit is not None and limit > 0:
             return normalized[:limit]
         return normalized
+
+    def check(
+        self,
+        *,
+        unread_only: bool,
+        limit: int | None,
+        since: str | None,
+    ) -> list[dict[str, Any]]:
+        """Fetch inbox messages through the legacy check vocabulary."""
+
+        return self.list_messages(
+            box="inbox",
+            read_state="unread" if unread_only else "any",
+            answered_state="any",
+            archived=False,
+            limit=limit,
+            since=since,
+        )
 
     def send(
         self,
@@ -550,7 +586,7 @@ class StalwartJmapClient:
         if in_reply_to:
             references = [*references, in_reply_to[-1]]
 
-        return self.send(
+        sent = self.send(
             sender_address=sender_address,
             to_addresses=[item["email"] for item in cast(list[dict[str, str]], reply_targets)],
             cc_addresses=(),
@@ -560,6 +596,44 @@ class StalwartJmapClient:
             in_reply_to=in_reply_to,
             references=references,
         )
+        self.mark(message_ref=email_id, read=True, answered=True, archived=None)
+        return sent
+
+    def mark(
+        self,
+        *,
+        message_ref: str,
+        read: bool | None,
+        answered: bool | None,
+        archived: bool | None,
+    ) -> dict[str, Any]:
+        """Apply one JMAP lifecycle-state mutation and return the normalized message."""
+
+        email_id = message_ref.split(":", 1)[1] if ":" in message_ref else message_ref
+        if archived is not None:
+            self.move(message_ref=email_id, destination_box="archive" if archived else "inbox")
+        account_id = self.primary_account_id()
+        update_payload: dict[str, object] = {}
+        if read is not None:
+            update_payload["keywords/$seen"] = read
+        if answered is not None:
+            update_payload["keywords/$answered"] = answered
+        if not update_payload:
+            return self.get_email(email_id=email_id)
+        response = self.call(
+            [
+                [
+                    "Email/set",
+                    {
+                        "accountId": account_id,
+                        "update": {email_id: update_payload},
+                    },
+                    "m1",
+                ]
+            ]
+        )
+        _require_method_response(response, method_name="Email/set", call_id="m1")
+        return self.get_email(email_id=email_id)
 
     def update_read_state(
         self,
@@ -569,28 +643,45 @@ class StalwartJmapClient:
     ) -> dict[str, Any]:
         """Apply one JMAP read-state mutation and return the normalized message."""
 
+        return self.mark(message_ref=message_ref, read=read, answered=None, archived=None)
+
+    def move(self, *, message_ref: str, destination_box: str) -> dict[str, Any]:
+        """Move one JMAP email into another mailbox role."""
+
         email_id = message_ref.split(":", 1)[1] if ":" in message_ref else message_ref
         account_id = self.primary_account_id()
+        destination_mailbox_id = self.mailbox_id_for_role(destination_box)
+        if destination_mailbox_id is None:
+            raise StalwartError(f"JMAP mailbox role `{destination_box}` is not available.")
+        original = self.get_email(email_id=email_id)
+        mailbox_ids = original.get("mailboxIds")
+        if not isinstance(mailbox_ids, dict):
+            mailbox_ids = {}
+        update_payload: dict[str, object] = {f"mailboxIds/{destination_mailbox_id}": True}
+        for mailbox_id in mailbox_ids:
+            if isinstance(mailbox_id, str) and mailbox_id != destination_mailbox_id:
+                update_payload[f"mailboxIds/{mailbox_id}"] = None
+        if destination_box == "archive":
+            update_payload["keywords/$seen"] = True
         response = self.call(
             [
                 [
                     "Email/set",
                     {
                         "accountId": account_id,
-                        "update": {
-                            email_id: {
-                                "keywords/$seen": read,
-                            }
-                        },
+                        "update": {email_id: update_payload},
                     },
                     "m1",
                 ]
             ]
         )
         _require_method_response(response, method_name="Email/set", call_id="m1")
-        # The shared gateway facade speaks in `read`, while JMAP models the same state
-        # through the presence or absence of the `$seen` keyword.
         return self.get_email(email_id=email_id)
+
+    def archive(self, *, message_ref: str) -> dict[str, Any]:
+        """Archive one JMAP email."""
+
+        return self.move(message_ref=message_ref, destination_box="archive")
 
     def get_email(self, *, email_id: str) -> dict[str, Any]:
         """Fetch one normalized email payload."""
@@ -617,6 +708,7 @@ class StalwartJmapClient:
                             "subject",
                             "preview",
                             "keywords",
+                            "mailboxIds",
                             "attachments",
                             "textBody",
                             "bodyValues",
@@ -633,6 +725,8 @@ class StalwartJmapClient:
         if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], dict):
             raise StalwartError(f"JMAP Email/get did not return the requested email `{email_id}`.")
         raw_email = values[0]
+        keywords = _coerce_keywords(raw_email.get("keywords"))
+        box_name = self._box_name_for_mailbox_ids(raw_email.get("mailboxIds"))
         return {
             "id": _require_string(raw_email, "id"),
             "threadId": _optional_string(raw_email, "threadId"),
@@ -648,7 +742,12 @@ class StalwartJmapClient:
             "preview": _optional_string(raw_email, "preview"),
             "body": _extract_text_body(raw_email),
             "attachments": _coerce_attachment_list(raw_email.get("attachments")),
-            "unread": "$seen" not in _coerce_keywords(raw_email.get("keywords")),
+            "mailboxIds": raw_email.get("mailboxIds") if isinstance(raw_email.get("mailboxIds"), dict) else {},
+            "read": "$seen" in keywords,
+            "answered": "$answered" in keywords,
+            "archived": box_name == "archive",
+            "box": box_name,
+            "unread": "$seen" not in keywords,
         }
 
     def upload_attachments(
@@ -719,6 +818,37 @@ class StalwartJmapClient:
             if isinstance(mailbox, dict) and mailbox.get("role") == role:
                 return _require_string(mailbox, "id")
         return None
+
+    def _box_name_for_mailbox_ids(self, value: object) -> str | None:
+        """Return a normalized mailbox role/name for one JMAP mailbox membership map."""
+
+        if not isinstance(value, dict):
+            return None
+        active_ids = {item for item, enabled in value.items() if isinstance(item, str) and enabled}
+        if not active_ids:
+            return None
+        account_id = self.primary_account_id()
+        response = self.call([["Mailbox/get", {"accountId": account_id, "ids": None}, "m1"]])
+        payload = _require_method_response(response, method_name="Mailbox/get", call_id="m1")
+        mailboxes = payload.get("list")
+        if not isinstance(mailboxes, list):
+            raise StalwartError("JMAP Mailbox/get response is missing a `list` payload.")
+        fallback_name: str | None = None
+        for mailbox in mailboxes:
+            if not isinstance(mailbox, dict):
+                continue
+            mailbox_id = mailbox.get("id")
+            if not isinstance(mailbox_id, str) or mailbox_id not in active_ids:
+                continue
+            role = mailbox.get("role")
+            if isinstance(role, str) and role.strip():
+                if role in {"inbox", "sent", "archive"}:
+                    return role
+                fallback_name = fallback_name or role
+            name = mailbox.get("name")
+            if isinstance(name, str) and name.strip():
+                fallback_name = fallback_name or name.strip()
+        return fallback_name
 
     def primary_account_id(self) -> str:
         """Return the preferred mail account id."""

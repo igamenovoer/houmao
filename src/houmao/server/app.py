@@ -53,13 +53,17 @@ from .models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailActionResponse,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailLifecycleResponse,
+    HoumaoManagedAgentMailListRequest,
+    HoumaoManagedAgentMailListResponse,
+    HoumaoManagedAgentMailMarkRequest,
+    HoumaoManagedAgentMailMessageRequest,
+    HoumaoManagedAgentMailMessageResponse,
+    HoumaoManagedAgentMailMoveRequest,
     HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
-    HoumaoManagedAgentMailStateRequest,
-    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -550,12 +554,26 @@ def create_app(
     def managed_agent_mail_resolve_live(agent_ref: str) -> dict[str, object]:
         return resolved_service.managed_agent_mail_resolve_live(agent_ref)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/check")
-    def check_managed_agent_mail(
+    @app.post("/houmao/agents/{agent_ref}/mail/list")
+    def list_managed_agent_mail(
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailCheckRequest,
-    ) -> HoumaoManagedAgentMailCheckResponse:
-        return resolved_service.check_managed_agent_mail(agent_ref, request_model)
+        request_model: HoumaoManagedAgentMailListRequest,
+    ) -> HoumaoManagedAgentMailListResponse:
+        return resolved_service.list_managed_agent_mail(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/peek")
+    def peek_managed_agent_mail(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        return resolved_service.peek_managed_agent_mail(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/read")
+    def read_managed_agent_mail(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        return resolved_service.read_managed_agent_mail(agent_ref, request_model)
 
     @app.post("/houmao/agents/{agent_ref}/mail/send")
     def send_managed_agent_mail(
@@ -578,12 +596,26 @@ def create_app(
     ) -> HoumaoManagedAgentMailActionResponse:
         return resolved_service.reply_managed_agent_mail(agent_ref, request_model)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/state")
-    def update_managed_agent_mail_state(
+    @app.post("/houmao/agents/{agent_ref}/mail/mark")
+    def mark_managed_agent_mail(
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailStateRequest,
-    ) -> HoumaoManagedAgentMailStateResponse:
-        return resolved_service.update_managed_agent_mail_state(agent_ref, request_model)
+        request_model: HoumaoManagedAgentMailMarkRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        return resolved_service.mark_managed_agent_mail(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/move")
+    def move_managed_agent_mail(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMoveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        return resolved_service.move_managed_agent_mail(agent_ref, request_model)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/archive")
+    def archive_managed_agent_mail(
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailArchiveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        return resolved_service.archive_managed_agent_mail(agent_ref, request_model)
 
     @app.get("/houmao/terminals/{terminal_id}/state")
     def terminal_state(terminal_id: TerminalId) -> HoumaoTerminalStateResponse:

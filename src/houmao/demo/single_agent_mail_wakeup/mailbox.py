@@ -90,20 +90,20 @@ def collect_actor_mail_check(
     unread_only: bool,
     limit: int = 10,
 ) -> dict[str, Any]:
-    """Return one actor-scoped `agents mail check` payload."""
+    """Return one actor-scoped `agents mail list` payload."""
 
     env = build_demo_environment(paths=paths)
     command = [
         "agents",
         "mail",
-        "check",
+        "list",
         "--agent-name",
         state.agent_name,
         "--limit",
         str(limit),
     ]
     if unread_only:
-        command.append("--unread-only")
+        command.extend(["--read-state", "unread"])
     return run_json_command(
         manager_cli_command(command),
         cwd=state.project_workdir,

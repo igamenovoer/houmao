@@ -50,7 +50,7 @@ Treat these state names as observations, not operator actions.
 - which participants still reported cleanup or liveness blockers
 - notifier disable result for each participant
 - reminder removal result for each participant
-- unread counts drained and any residual unread blockers for each participant
+- open inbox counts drained and any residual open-mail blockers for each participant
 
 ## Guardrails
 

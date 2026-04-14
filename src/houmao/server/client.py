@@ -55,13 +55,17 @@ from .models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailActionResponse,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailLifecycleResponse,
+    HoumaoManagedAgentMailListRequest,
+    HoumaoManagedAgentMailListResponse,
+    HoumaoManagedAgentMailMarkRequest,
+    HoumaoManagedAgentMailMessageRequest,
+    HoumaoManagedAgentMailMessageResponse,
+    HoumaoManagedAgentMailMoveRequest,
     HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
-    HoumaoManagedAgentMailStateRequest,
-    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -673,18 +677,48 @@ class HoumaoServerClient(CaoRestClient):
             )
         return payload
 
-    def check_managed_agent_mail(
+    def list_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailCheckRequest,
-    ) -> HoumaoManagedAgentMailCheckResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/check`."""
+        request_model: HoumaoManagedAgentMailListRequest,
+    ) -> HoumaoManagedAgentMailListResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/list`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/check",
-            HoumaoManagedAgentMailCheckResponse,
+            f"/houmao/agents/{escaped}/mail/list",
+            HoumaoManagedAgentMailListResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def peek_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/peek`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/peek",
+            HoumaoManagedAgentMailMessageResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def read_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/read`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/read",
+            HoumaoManagedAgentMailMessageResponse,
             json_body=request_model.model_dump(mode="json"),
         )
 
@@ -733,18 +767,48 @@ class HoumaoServerClient(CaoRestClient):
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def update_managed_agent_mail_state(
+    def mark_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailStateRequest,
-    ) -> HoumaoManagedAgentMailStateResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/state`."""
+        request_model: HoumaoManagedAgentMailMarkRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/mark`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/state",
-            HoumaoManagedAgentMailStateResponse,
+            f"/houmao/agents/{escaped}/mail/mark",
+            HoumaoManagedAgentMailLifecycleResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def move_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMoveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/move`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/move",
+            HoumaoManagedAgentMailLifecycleResponse,
+            json_body=request_model.model_dump(mode="json"),
+        )
+
+    def archive_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailArchiveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Call `POST /houmao/agents/{agent_ref}/mail/archive`."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/archive",
+            HoumaoManagedAgentMailLifecycleResponse,
             json_body=request_model.model_dump(mode="json"),
         )
 

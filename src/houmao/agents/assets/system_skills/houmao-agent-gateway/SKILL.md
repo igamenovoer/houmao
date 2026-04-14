@@ -86,7 +86,7 @@ This packaged skill does not cover:
 - Use `actions/discover.md` when the user needs to find the live gateway from inside the attached session or decide whether to stay on the managed-agent seam versus direct gateway `/v1/...`.
 - Use `actions/gateway-services.md` when the task needs gateway-owned control, queued gateway requests, raw input delivery, TUI inspection, or headless session control.
 - Use `actions/reminders.md` when the task is to create, inspect, update, pause, or delete ranked live reminders for the attached agent.
-- Use `actions/mail-notifier.md` when the user wants background unread-mail prompting through the live gateway.
+- Use `actions/mail-notifier.md` when the user wants background open-mail prompting through the live gateway.
 - Use `houmao-agent-inspect` for generic managed-agent liveness, mailbox posture, runtime artifacts, non-gateway logs, or tmux-backing inspection.
 - Use `houmao-agent-instance` for starting or stopping the managed agent itself.
 - Use `houmao-agent-messaging` for ordinary prompt, interrupt, or mailbox routing across already-running managed agents.

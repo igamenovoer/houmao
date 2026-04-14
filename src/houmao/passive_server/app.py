@@ -15,8 +15,14 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayHeadlessControlStateV1,
     GatewayMailActionResponseV1,
-    GatewayMailCheckRequestV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailArchiveRequestV1,
+    GatewayMailLifecycleResponseV1,
+    GatewayMailListRequestV1,
+    GatewayMailListResponseV1,
+    GatewayMailMarkRequestV1,
+    GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1,
+    GatewayMailMoveRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayMailPostRequestV1,
@@ -307,11 +313,29 @@ def create_app(
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/mail/check")
-    def gateway_mail_check(
-        agent_ref: str, payload: GatewayMailCheckRequestV1
-    ) -> GatewayMailCheckResponseV1:
-        result = resolved_service.gateway_mail_check(agent_ref, payload)
+    @app.post("/houmao/agents/{agent_ref}/mail/list")
+    def gateway_mail_list(
+        agent_ref: str, payload: GatewayMailListRequestV1
+    ) -> GatewayMailListResponseV1:
+        result = resolved_service.gateway_mail_list(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/peek")
+    def gateway_mail_peek(
+        agent_ref: str, payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
+        result = resolved_service.gateway_mail_peek(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/read")
+    def gateway_mail_read(
+        agent_ref: str, payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
+        result = resolved_service.gateway_mail_read(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
@@ -339,6 +363,33 @@ def create_app(
         agent_ref: str, payload: GatewayMailReplyRequestV1
     ) -> GatewayMailActionResponseV1:
         result = resolved_service.gateway_mail_reply(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/mark")
+    def gateway_mail_mark(
+        agent_ref: str, payload: GatewayMailMarkRequestV1
+    ) -> GatewayMailLifecycleResponseV1:
+        result = resolved_service.gateway_mail_mark(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/move")
+    def gateway_mail_move(
+        agent_ref: str, payload: GatewayMailMoveRequestV1
+    ) -> GatewayMailLifecycleResponseV1:
+        result = resolved_service.gateway_mail_move(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.post("/houmao/agents/{agent_ref}/mail/archive")
+    def gateway_mail_archive(
+        agent_ref: str, payload: GatewayMailArchiveRequestV1
+    ) -> GatewayMailLifecycleResponseV1:
+        result = resolved_service.gateway_mail_archive(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

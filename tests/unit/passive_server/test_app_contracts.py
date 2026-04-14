@@ -14,7 +14,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputResultV1,
     GatewayMailActionResponseV1,
-    GatewayMailCheckResponseV1,
+    GatewayMailListResponseV1,
     GatewayMailNotifierStatusV1,
     GatewayMailStatusV1,
     GatewayMailboxMessageV1,
@@ -387,15 +387,16 @@ def _stub_mail_status() -> GatewayMailStatusV1:
     )
 
 
-def _stub_mail_check_response() -> GatewayMailCheckResponseV1:
-    """Create a minimal valid GatewayMailCheckResponseV1 for mocking."""
+def _stub_mail_list_response() -> GatewayMailListResponseV1:
+    """Create a minimal valid GatewayMailListResponseV1 for mocking."""
 
-    return GatewayMailCheckResponseV1(
+    return GatewayMailListResponseV1(
         transport="filesystem",
         principal_id="p1",
         address="agent@local",
-        unread_only=False,
+        box="inbox",
         message_count=0,
+        open_count=0,
         unread_count=0,
         messages=[],
     )
@@ -1075,22 +1076,22 @@ class TestGatewayMailStatusEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# Mail check endpoint
+# Mail list endpoint
 # ---------------------------------------------------------------------------
 
 
-class TestGatewayMailCheckEndpoint:
-    """POST /houmao/agents/{agent_ref}/mail/check."""
+class TestGatewayMailListEndpoint:
+    """POST /houmao/agents/{agent_ref}/mail/list."""
 
     def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
         agent = _agent_with_gateway()
         client = _make_agent_client(tmp_path, [agent])
         with (
             client,
-            patch.object(GatewayClient, "check_mail", return_value=_stub_mail_check_response()),
+            patch.object(GatewayClient, "list_mail", return_value=_stub_mail_list_response()),
         ):
             resp = client.post(
-                "/houmao/agents/abc123/mail/check",
+                "/houmao/agents/abc123/mail/list",
                 json={"schema_version": 1},
             )
         assert resp.status_code == 200
@@ -1099,7 +1100,7 @@ class TestGatewayMailCheckEndpoint:
         client = _make_agent_client(tmp_path, [])
         with client:
             resp = client.post(
-                "/houmao/agents/unknown/mail/check",
+                "/houmao/agents/unknown/mail/list",
                 json={"schema_version": 1},
             )
         assert resp.status_code == 404
@@ -1108,7 +1109,7 @@ class TestGatewayMailCheckEndpoint:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
             resp = client.post(
-                "/houmao/agents/abc123/mail/check",
+                "/houmao/agents/abc123/mail/list",
                 json={"schema_version": 1},
             )
         assert resp.status_code == 502

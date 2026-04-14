@@ -80,7 +80,7 @@ Common first actions:
 - send a normal prompt
 - watch live gateway or TUI state
 - send a mailbox message
-- if the gateway is up and mailbox accounts are set up, enable automatic email notification so the agent can check unread mail automatically
+- if the gateway is up and mailbox accounts are set up, enable automatic email notification so the agent can process open mail automatically
 - create a reminder
 - create another specialist and launch a second agent
 ```

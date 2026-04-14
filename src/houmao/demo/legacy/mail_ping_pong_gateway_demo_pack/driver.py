@@ -548,8 +548,8 @@ def _build_kickoff_prompt(
                 '"body_content":"...","attachments":[]}`'
             ),
             (
-                "`POST /v1/mail/state` -> "
-                '`{"schema_version":1,"message_ref":"<opaque message_ref>","read":true}`'
+                "`POST /v1/mail/archive` -> "
+                '`{"schema_version":1,"message_refs":["<opaque message_ref>"]}`'
             ),
             f"Start a ping-pong conversation with `{state.responder.mailbox_address}`.",
             f"Thread key: {thread_key}",
@@ -569,13 +569,13 @@ def _build_kickoff_prompt(
             "",
             "The responder should reply in the same thread with the current UTC time.",
             (
-                "Later wake-up turns will nominate one actionable unread target by shared "
+                "Later wake-up turns will nominate one actionable open target by shared "
                 "`message_ref` and optional `thread_ref`."
             ),
             (
                 "Use shared mailbox operations for that later work: inspect the nominated "
-                "message, send the next in-thread reply when needed, and mark the processed "
-                "source message read through `POST /v1/mail/state` only after success."
+                "message, send the next in-thread reply when needed, and archive the processed "
+                "source message through `POST /v1/mail/archive` only after success."
             ),
             "If the latest round is below the round limit, send the next round message in the same thread.",
             "If the latest round equals the round limit, stop without sending a new message.",

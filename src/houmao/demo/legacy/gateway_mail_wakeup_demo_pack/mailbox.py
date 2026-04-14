@@ -16,7 +16,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     capture_tmux_pane,
     resolve_tmux_pane,
 )
-from houmao.agents.realm_controller.gateway_models import GatewayMailCheckRequestV1
+from houmao.agents.realm_controller.gateway_models import GatewayMailListRequestV1
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
@@ -76,7 +76,7 @@ def collect_mailbox_snapshot(state: DemoState) -> dict[str, Any]:
 
     try:
         client = build_gateway_client(state=state)
-        response = client.check_mail(GatewayMailCheckRequestV1(unread_only=False, limit=64))
+        response = client.list_mail(GatewayMailListRequestV1(box="inbox", limit=64))
         return {
             "state_source": "gateway",
             "principal_id": response.principal_id,

@@ -42,13 +42,17 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
     HoumaoManagedAgentMailActionResponse,
-    HoumaoManagedAgentMailCheckRequest,
-    HoumaoManagedAgentMailCheckResponse,
+    HoumaoManagedAgentMailArchiveRequest,
+    HoumaoManagedAgentMailLifecycleResponse,
+    HoumaoManagedAgentMailListRequest,
+    HoumaoManagedAgentMailListResponse,
+    HoumaoManagedAgentMailMarkRequest,
+    HoumaoManagedAgentMailMessageRequest,
+    HoumaoManagedAgentMailMessageResponse,
+    HoumaoManagedAgentMailMoveRequest,
     HoumaoManagedAgentMailPostRequest,
     HoumaoManagedAgentMailReplyRequest,
     HoumaoManagedAgentMailSendRequest,
-    HoumaoManagedAgentMailStateRequest,
-    HoumaoManagedAgentMailStateResponse,
     HoumaoManagedAgentMailStatusResponse,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentRequestEnvelope,
@@ -286,12 +290,26 @@ class PairAuthorityClientProtocol(Protocol):
     ) -> dict[str, object]:
         """Return manifest-backed managed-agent mailbox discovery."""
 
-    def check_managed_agent_mail(
+    def list_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailCheckRequest,
-    ) -> HoumaoManagedAgentMailCheckResponse:
-        """Check managed-agent mail."""
+        request_model: HoumaoManagedAgentMailListRequest,
+    ) -> HoumaoManagedAgentMailListResponse:
+        """List managed-agent mail."""
+
+    def peek_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Peek at one managed-agent mail message."""
+
+    def read_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMessageRequest,
+    ) -> HoumaoManagedAgentMailMessageResponse:
+        """Read one managed-agent mail message."""
 
     def send_managed_agent_mail(
         self,
@@ -314,12 +332,26 @@ class PairAuthorityClientProtocol(Protocol):
     ) -> HoumaoManagedAgentMailActionResponse:
         """Reply to managed-agent mail."""
 
-    def update_managed_agent_mail_state(
+    def mark_managed_agent_mail(
         self,
         agent_ref: str,
-        request_model: HoumaoManagedAgentMailStateRequest,
-    ) -> HoumaoManagedAgentMailStateResponse:
-        """Update managed-agent mail state."""
+        request_model: HoumaoManagedAgentMailMarkRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Mark managed-agent mail state."""
+
+    def move_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailMoveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Move managed-agent mail."""
+
+    def archive_managed_agent_mail(
+        self,
+        agent_ref: str,
+        request_model: HoumaoManagedAgentMailArchiveRequest,
+    ) -> HoumaoManagedAgentMailLifecycleResponse:
+        """Archive managed-agent mail."""
 
     def submit_headless_turn(
         self,

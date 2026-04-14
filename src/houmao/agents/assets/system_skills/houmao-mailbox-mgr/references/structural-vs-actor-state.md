@@ -15,11 +15,11 @@ Those commands inspect canonical mailbox metadata plus address-scoped structural
 
 Use `houmao-agent-email-comms` and the maintained `houmao-mgr agents mail ...` surface when the task is about:
 
-- unread versus read state
+- unread, read, answered, archived, and box state
 - replying, sending, or checking mail as one managed agent
 - message processing through a live gateway facade
 - participant-local mutable state such as read, archived, or deleted follow-up
 
 ## Guardrail
 
-Do not present structural message inspection as if it were the same thing as unread-mail triage for one managed agent.
+Do not present structural message inspection as if it were the same thing as open-mail triage for one managed agent.

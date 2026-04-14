@@ -5,7 +5,7 @@ Use this pattern family when a Houmao-managed agent wants to remind itself about
 There are two supported modes:
 
 - live gateway reminders through `/v1/reminders`,
-- self-mail reminders that re-enter through ordinary unread-mail processing.
+- self-mail reminders that re-enter through ordinary open-mail processing.
 
 ## How To Choose
 
@@ -13,13 +13,13 @@ Prefer live gateway reminders when:
 
 - the task is high-priority and the agent should stay focused on it first,
 - the agent wants behavior like "ignore other new mail and work on this first",
-- the reminder should not mix with newly arrived unread mailbox traffic,
+- the reminder should not mix with newly arrived open mailbox traffic,
 - one-off scheduling, repeating cadence, ranking, or pause behavior is useful.
 
 Prefer self-mail when:
 
 - the reminder backlog must survive gateway shutdown or restart,
-- it is acceptable for later rounds to see the reminder together with newly arrived unread mail,
+- it is acceptable for later rounds to see the reminder together with newly arrived open mail,
 - the agent may legitimately decide that some new external mail is more important than the old self-reminder.
 
 If you are not sure and durable recovery is not explicitly required, prefer live gateway reminders.

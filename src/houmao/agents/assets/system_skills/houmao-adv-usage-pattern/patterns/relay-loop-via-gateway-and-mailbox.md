@@ -154,9 +154,9 @@ The supervisor reminder should reopen the loop ledger, check mailbox first, adva
 
 ## Optional Self-Mail Checkpoint
 
-If the sender wants a durable backlog marker in addition to the live supervisor reminder, one unread self-mail checkpoint per agent is acceptable. Use it as a pointer back to the `HOUMAO_JOB_DIR` ledger, not as the authoritative mutable loop ledger itself.
+If the sender wants a durable backlog marker in addition to the live supervisor reminder, one open self-mail checkpoint per agent is acceptable. Use it as a pointer back to the `HOUMAO_JOB_DIR` ledger, not as the authoritative mutable loop ledger itself.
 
-If unchanged unread self-mail remains in the mailbox, later notifier cycles may still re-enqueue wake prompts while it remains unread. Keep the checkpoint idempotent and prune it when no longer needed.
+If unchanged open self-mail remains in the mailbox, later notifier cycles may still re-enqueue wake prompts while it remains unarchived. Keep the checkpoint idempotent and prune it when no longer needed.
 
 ## Templates
 
@@ -270,7 +270,7 @@ Start after: <context-derived delay>
 Interval: <context-derived supervisor_interval_seconds>
 ```
 
-### Optional self-mail checkpoint text
+### Optional self-mail listpoint text
 
 ```text
 Subject: [relay-backlog] reopen relay-loop ledger

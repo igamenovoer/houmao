@@ -8,7 +8,7 @@ license: MIT
 
 Use this Houmao skill when the task is a supported multi-step Houmao workflow composition rather than one direct mailbox, gateway, or lifecycle action.
 
-This skill is intentionally above the direct-operation skills and below the dedicated loop-planning skills. Keep exact mailbox actions in `houmao-agent-email-comms`, gateway and notifier control in `houmao-agent-gateway`, one notifier-driven unread-mail round in `houmao-process-emails-via-gateway`, and graph/run planning in the dedicated loop skills.
+This skill is intentionally above the direct-operation skills and below the dedicated loop-planning skills. Keep exact mailbox actions in `houmao-agent-email-comms`, gateway and notifier control in `houmao-agent-gateway`, one notifier-driven open-mail round in `houmao-process-emails-via-gateway`, and graph/run planning in the dedicated loop skills.
 
 ## Supported Patterns
 
@@ -25,5 +25,5 @@ This skill is intentionally above the direct-operation skills and below the dedi
 ## Guardrails
 
 - Do not treat this skill as a new control surface; it composes existing Houmao-owned skills.
-- Do not replace the direct-operation skills when the task is only one send, check, notifier, or wakeup action.
-- Do not claim durability beyond the mailbox unread state and live gateway contracts the pattern page states explicitly.
+- Do not replace the direct-operation skills when the task is only one send, list, notifier, or wakeup action.
+- Do not claim durability beyond the mailbox open-work state and live gateway contracts the pattern page states explicitly.

@@ -551,9 +551,9 @@ def build_report_snapshot(
     if not bool(queue_state.get("has_completed_notifier_request")):
         failures.append("gateway queue never completed a notifier request")
     if not delivered_message_visible:
-        failures.append("delivered message was not visible in actor-scoped mail check")
+        failures.append("delivered message was not visible in actor-scoped mail list")
     if not delivered_message_read:
-        failures.append("delivered message did not become read in actor-scoped mail check")
+        failures.append("delivered message did not become read in actor-scoped mail list")
     output_payload = inspect_snapshot["output_file"]
     if not bool(output_payload.get("exists")):
         failures.append("output file was not created")
