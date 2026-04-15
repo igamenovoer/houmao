@@ -16,10 +16,6 @@ import tomllib
 from typing import TYPE_CHECKING, Any, Iterator, cast
 from uuid import uuid4
 
-from houmao.agents.agent_workspace import (
-    resolve_stored_persist_binding,
-    stored_persist_binding_kind,
-)
 from houmao.agents.model_selection import parse_reasoning_level
 from houmao.agents.managed_prompt_header import (
     ManagedHeaderPolicy,
@@ -137,8 +133,6 @@ class LaunchProfileCatalogEntry:
     auth_profile_id: int | None
     auth_name: str | None
     auth_bundle_ref: str | None
-    persist_dir: str | None
-    persist_disabled: bool
     model_name: str | None
     reasoning_level: int | None
     operator_prompt_mode: str | None
@@ -152,15 +146,6 @@ class LaunchProfileCatalogEntry:
         field(default_factory=dict)
     )
     metadata_path: Path | None = None
-
-    @property
-    def persist_binding(self) -> str:
-        """Return the stored persist-lane intent for this launch profile."""
-
-        return stored_persist_binding_kind(
-            persist_dir=self.persist_dir,
-            persist_disabled=self.persist_disabled,
-        )
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection launch-profile path."""
@@ -826,8 +811,6 @@ class ProjectCatalog:
                     launch_profiles.auth_profile_id,
                     auth_profiles.display_name AS auth_name,
                     auth_profiles.bundle_ref AS auth_bundle_ref,
-                    launch_profiles.persist_dir,
-                    launch_profiles.persist_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -867,8 +850,6 @@ class ProjectCatalog:
                     launch_profiles.auth_profile_id,
                     auth_profiles.display_name AS auth_name,
                     auth_profiles.bundle_ref AS auth_bundle_ref,
-                    launch_profiles.persist_dir,
-                    launch_profiles.persist_disabled,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
                     launch_profiles.operator_prompt_mode,
@@ -906,8 +887,6 @@ class ProjectCatalog:
         workdir: str | None,
         auth_tool: str | None,
         auth_name: str | None,
-        persist_dir: str | None,
-        persist_disabled: bool,
         operator_prompt_mode: str | None,
         env_mapping: dict[str, str] | None,
         mailbox_mapping: dict[str, Any] | None,
@@ -940,10 +919,6 @@ class ProjectCatalog:
             raise ValueError("Prompt-overlay mode requires prompt-overlay text.")
         resolved_model_name = (
             model_name.strip() if model_name is not None and model_name.strip() else None
-        )
-        resolved_persist_binding = resolve_stored_persist_binding(
-            persist_dir=persist_dir,
-            persist_disabled=persist_disabled,
         )
         resolved_reasoning_level = (
             parse_reasoning_level(reasoning_level, source="launch_profiles.reasoning_level")
@@ -1017,8 +992,8 @@ class ProjectCatalog:
                     managed_agent_id = excluded.managed_agent_id,
                     workdir = excluded.workdir,
                     auth_profile_id = excluded.auth_profile_id,
-                    persist_dir = excluded.persist_dir,
-                    persist_disabled = excluded.persist_disabled,
+                    persist_dir = NULL,
+                    persist_disabled = 0,
                     model_name = excluded.model_name,
                     reasoning_level = excluded.reasoning_level,
                     operator_prompt_mode = excluded.operator_prompt_mode,
@@ -1040,12 +1015,8 @@ class ProjectCatalog:
                     managed_agent_id,
                     workdir,
                     auth_profile_id,
-                    (
-                        str(resolved_persist_binding.directory)
-                        if resolved_persist_binding.directory is not None
-                        else None
-                    ),
-                    1 if resolved_persist_binding.kind == "disabled" else 0,
+                    None,
+                    0,
                     resolved_model_name,
                     resolved_reasoning_level,
                     operator_prompt_mode,
@@ -1852,8 +1823,6 @@ class ProjectCatalog:
             else None,
             workdir=str(row["workdir"]) if row["workdir"] is not None else None,
             auth_name=str(row["auth_name"]) if row["auth_name"] is not None else None,
-            persist_dir=str(row["persist_dir"]) if row["persist_dir"] is not None else None,
-            persist_disabled=bool(row["persist_disabled"]),
             model_name=str(row["model_name"]) if row["model_name"] is not None else None,
             reasoning_level=(
                 parse_reasoning_level(
@@ -2093,8 +2062,6 @@ def _view_sql() -> str:
         launch_profiles.managed_agent_id AS managed_agent_id,
         launch_profiles.workdir AS workdir,
         auth_profiles.display_name AS auth_name,
-        launch_profiles.persist_dir AS persist_dir,
-        launch_profiles.persist_disabled AS persist_disabled,
         launch_profiles.model_name AS model_name,
         launch_profiles.reasoning_level AS reasoning_level,
         launch_profiles.operator_prompt_mode AS operator_prompt_mode,
@@ -2243,8 +2210,6 @@ def _render_launch_profile_yaml(
         defaults["workdir"] = entry.workdir
     if entry.auth_name is not None:
         defaults["auth"] = entry.auth_name
-    defaults["persist_binding"] = entry.persist_binding
-    defaults["persist_dir"] = entry.persist_dir
     if entry.model_name is not None or entry.reasoning_level is not None:
         defaults["model"] = {}
         if entry.model_name is not None:

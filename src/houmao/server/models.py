@@ -604,19 +604,15 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
-    workspace_root: str | None = None
+    memory_root: str | None = None
     memo_file: str | None = None
-    scratch_dir: str | None = None
-    persist_binding: str | None = None
-    persist_dir: str | None = None
+    pages_dir: str | None = None
 
     @field_validator(
         "tracked_agent_id",
-        "workspace_root",
+        "memory_root",
         "memo_file",
-        "scratch_dir",
-        "persist_binding",
-        "persist_dir",
+        "pages_dir",
     )
     @classmethod
     def _tracked_agent_id_not_blank(cls, value: str | None) -> str | None:

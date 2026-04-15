@@ -21,7 +21,7 @@ System skills are not Python plugins, MCP servers, or runtime hooks. They are ag
 
 ## The Packaged Skills
 
-Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into five concern groups: **guided touring**, **project, specialist, and credential authoring**, **agent definition and instance management**, **agent inspection, communication, gateway, and mailbox**, and **loop authoring and master-run control**.
+Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into five concern groups: **guided touring**, **project, specialist, and credential authoring**, **agent definition and instance management**, **agent inspection, communication, memory, gateway, and mailbox**, and **loop authoring and master-run control**.
 
 ### Guided Touring
 
@@ -44,7 +44,7 @@ Houmao currently ships the set of system skills declared in `src/houmao/agents/a
 | `houmao-agent-definition` | Low-level project-local role and recipe management. Use this when the right move is editing roles or named recipes instead of going through the easy specialist surface. | `houmao-mgr project agents roles ...`, `houmao-mgr project agents recipes ...` (with `presets ...` as the compatibility alias) |
 | `houmao-agent-instance` | Launch, adopt (`join`), list, stop, relaunch, and clean up live managed-agent instances created from roles, recipes, explicit launch profiles, or specialists. The canonical lifecycle skill for general live-agent work after any specialist-scoped launch or stop entry. | `houmao-mgr agents launch|join|list|stop|relaunch|cleanup` |
 
-### Agent inspection, communication, gateway, and mailbox
+### Agent inspection, communication, memory, gateway, and mailbox
 
 | Skill | What it enables | Canonical CLI routing |
 |---|---|---|
@@ -52,6 +52,7 @@ Houmao currently ships the set of system skills declared in `src/houmao/agents/a
 | `houmao-agent-messaging` | Communicate with already-running managed agents — synchronous prompt and interrupt, queued gateway requests, raw `send-keys`, mailbox routing, reset-context guidance, and request-scoped headless execution overrides through `--model` plus optional `--reasoning-level`. Routes by **communication intent**, not by one hardcoded transport. Prefers live gateway-backed delivery when available. | `houmao-mgr agents prompt|interrupt`, `houmao-mgr agents gateway prompt|interrupt|send-keys|tui state|history|note-prompt`, `houmao-mgr agents turn submit`, `houmao-mgr agents mail resolve-live` |
 | `houmao-agent-gateway` | Live gateway lifecycle, manifest-first discovery from inside or outside the attached session, gateway-only control surfaces, ranked direct reminders, and gateway mail-notifier behavior. Distinct from `houmao-agent-messaging` because it focuses on the gateway sidecar itself, not the messages going through it. | `houmao-mgr agents gateway attach|detach|status|tui watch`, `houmao-mgr agents gateway mail-notifier status|enable|disable` |
 | `houmao-mailbox-mgr` | Mailbox administration for filesystem mailbox roots, project mailbox roots, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents. This is the mailbox-admin skill, not the ordinary mailbox-participation skill. | `houmao-mgr mailbox ...`, `houmao-mgr project mailbox ...`, `houmao-mgr agents mailbox ...` |
+| `houmao-memory-mgr` | Managed-agent memory work: reading, editing, appending, pruning, and organizing the fixed `houmao-memo.md` file and contained `pages/` files while preserving authored memo links. | `houmao-mgr agents memory path|status`, `houmao-mgr agents memory memo show|set|append`, `houmao-mgr agents memory tree|resolve|read|write|append|delete` |
 | `houmao-agent-email-comms` | Unified ordinary shared-mailbox operations and no-gateway fallback guidance. Covers gateway-backed `/v1/mail/*` work, transport-local context, and the no-gateway fallback path. The canonical mailbox-operations skill paired with `houmao-mgr agents mail`. | `houmao-mgr agents mail status|check|send|reply|mark-read|resolve-live` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL: gateway-API-first triage, selective inspection, post-success mark-read, and stop-after-round discipline. | `houmao-mgr agents mail check|mark-read` plus the live gateway `/v1/mail/*` facade |
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds. | The composed `houmao-mgr agents mail ...` and `houmao-mgr agents gateway ...` families, plus the live gateway `/v1/mail/*` facade through the direct-operation skills |
@@ -91,6 +92,7 @@ The same catalog can land in a tool home through either path, but the **default 
                                          --tool <t> --home <path>)
    ┌───────────────────────────┐        ┌───────────────────────────┐
    │ mailbox-full              │        │ mailbox-full              │
+   │ agent-memory              │        │ agent-memory              │
    │ advanced-usage            │        │ advanced-usage            │
    │ touring                   │        │ touring                   │
    │ user-control              │        │ user-control              │
@@ -104,7 +106,8 @@ The same catalog can land in a tool home through either path, but the **default 
    │  process-emails-via-gw    │        │    agent-instance:        │
    │  agent-email-comms        │        │  all of managed launch    │
    │  mailbox-mgr              │        │  PLUS:                    │
-   │  adv-usage-pattern        │        │  agent-instance           │
+   │  memory-mgr               │        │  agent-instance           │
+   │  adv-usage-pattern        │        │                           │
    │  touring                  │        │                           │
    │  project-mgr              │        │                           │
    │  specialist-mgr           │        │                           │
@@ -119,15 +122,15 @@ The same catalog can land in a tool home through either path, but the **default 
    └───────────────────────────┘        └───────────────────────────┘
 ```
 
-The exact counts follow the resolved `catalog.toml` sets, so the "managed launch / join" column grows whenever a new skill joins `user-control`, `mailbox-full`, `advanced-usage`, `touring`, `agent-inspect`, `agent-messaging`, or `agent-gateway`, and the "explicit external install" column grows the same way plus `agent-instance`.
+The exact counts follow the resolved `catalog.toml` sets, so the "managed launch / join" column grows whenever a new skill joins `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, or `agent-gateway`, and the "explicit external install" column grows the same way plus `agent-instance`.
 
 The catalog source of truth lives at `src/houmao/agents/assets/system_skills/catalog.toml`:
 
 ```toml
 [auto_install]
-managed_launch_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
-managed_join_sets   = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
-cli_default_sets    = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway"]
+managed_launch_sets = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+managed_join_sets   = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+cli_default_sets    = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway"]
 ```
 
 The named sets resolve as:
@@ -136,6 +139,7 @@ The named sets resolve as:
 |---|---|
 | `mailbox-core` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms` |
 | `mailbox-full` | `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, `houmao-mailbox-mgr` |
+| `agent-memory` | `houmao-memory-mgr` |
 | `advanced-usage` | `houmao-adv-usage-pattern` |
 | `touring` | `houmao-touring` |
 | `user-control` | `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-generic` |
@@ -168,9 +172,9 @@ Two short heuristics help decide which skill applies to a task that an agent or 
 
 **By entry style.** When the user explicitly asks for a first-run guided tour or wants help re-orienting from current Houmao state, start with `houmao-touring`. It is the manual guided entrypoint that inspects current posture, explains the next likely branches, and routes execution to the maintained Houmao-owned skills rather than flattening them into one broad direct-operation surface.
 
-**By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, explicit launch profiles, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to `houmao-specialist-mgr`, `houmao-credential-mgr`, or `houmao-agent-definition`. Inspecting *what one live managed agent is doing right now* — liveness, screen posture, mailbox posture, logs, artifacts, or tmux backing — belongs to `houmao-agent-inspect`. Administering *mailbox authority itself* — mailbox roots, mailbox registrations, and late mailbox binding — belongs to `houmao-mailbox-mgr`. Driving *what a live agent does* — sending it a prompt, attaching a gateway, or participating in mailbox workflows — belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`.
+**By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, explicit launch profiles, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is* — its specialist, credentials, role, recipe — belongs to `houmao-specialist-mgr`, `houmao-credential-mgr`, or `houmao-agent-definition`. Inspecting *what one live managed agent is doing right now* — liveness, screen posture, mailbox posture, logs, artifacts, or tmux backing — belongs to `houmao-agent-inspect`. Editing the per-agent `houmao-memo.md` file or contained `pages/` files belongs to `houmao-memory-mgr`. Administering *mailbox authority itself* — mailbox roots, mailbox registrations, and late mailbox binding — belongs to `houmao-mailbox-mgr`. Driving *what a live agent does* — sending it a prompt, attaching a gateway, or participating in mailbox workflows — belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`.
 
-**By transport and boundary.** When the task is "inspect this running agent," start with `houmao-agent-inspect` and let it choose summary state, managed detail, gateway TUI tracking, mailbox posture, logs, artifacts, or tmux peek in that order. When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "manage mailbox roots, mailbox registrations, or late mailbox binding," use `houmao-mailbox-mgr`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the unread mail batch the notifier just told us about," use the round-oriented `houmao-process-emails-via-gateway`. When the task is "use a supported multi-skill mailbox or gateway composition such as self-wakeup through self-mail," use `houmao-adv-usage-pattern`. When the task is "what project is active here?" or "what changes for other subcommands when `.houmao/` exists?", use `houmao-project-mgr`.
+**By transport and boundary.** When the task is "inspect this running agent," start with `houmao-agent-inspect` and let it choose summary state, managed detail, gateway TUI tracking, mailbox posture, logs, artifacts, or tmux peek in that order. When the task is "edit this agent's memo" or "add/remove something from the agent memo," use `houmao-memory-mgr`. When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "manage mailbox roots, mailbox registrations, or late mailbox binding," use `houmao-mailbox-mgr`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the unread mail batch the notifier just told us about," use the round-oriented `houmao-process-emails-via-gateway`. When the task is "use a supported multi-skill mailbox or gateway composition such as self-wakeup through self-mail," use `houmao-adv-usage-pattern`. When the task is "what project is active here?" or "what changes for other subcommands when `.houmao/` exists?", use `houmao-project-mgr`.
 
 ## See Also
 

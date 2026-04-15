@@ -168,12 +168,14 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     )
     visible_gateway_skill = build_result.home_path / "skills/houmao-agent-email-comms/SKILL.md"
     visible_mailbox_mgr_skill = build_result.home_path / "skills/houmao-mailbox-mgr/SKILL.md"
+    visible_memory_mgr_skill = build_result.home_path / "skills/houmao-memory-mgr/SKILL.md"
     visible_skill = (
         build_result.home_path / "skills/houmao-agent-email-comms/transports/filesystem.md"
     )
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_mgr_skill.is_file()
+    assert visible_memory_mgr_skill.is_file()
     assert visible_skill.is_file()
     assert "pixi run houmao-mgr agents mail resolve-live" not in visible_processing_skill.read_text(
         encoding="utf-8"

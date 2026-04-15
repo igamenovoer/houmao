@@ -249,10 +249,12 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     visible_gateway_skill = home / "skills/houmao-agent-email-comms/SKILL.md"
     visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
     visible_mailbox_mgr_skill = home / "skills/houmao-mailbox-mgr/SKILL.md"
+    visible_memory_mgr_skill = home / "skills/houmao-memory-mgr/SKILL.md"
     visible_advanced_skill = home / "skills/houmao-adv-usage-pattern/SKILL.md"
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_mgr_skill.is_file()
+    assert visible_memory_mgr_skill.is_file()
     assert visible_advanced_skill.is_file()
     assert (home / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
@@ -273,6 +275,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-adv-usage-pattern",
         "houmao-touring",
         "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -445,6 +448,9 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     mailbox_mgr_skill = (result.home_path / "skills/houmao-mailbox-mgr/SKILL.md").read_text(
         encoding="utf-8"
     )
+    memory_mgr_skill = (result.home_path / "skills/houmao-memory-mgr/SKILL.md").read_text(
+        encoding="utf-8"
+    )
     advanced_skill = (result.home_path / "skills/houmao-adv-usage-pattern/SKILL.md").read_text(
         encoding="utf-8"
     )
@@ -482,6 +488,8 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr agents mailbox ..." in mailbox_mgr_skill
+    assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
+    assert "houmao-mgr agents memory" in memory_mgr_skill
 
 
 def test_build_brain_home_projects_claude_mailbox_skills_top_level(
@@ -528,6 +536,7 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/SKILL.md").is_file()
     assert (skills_root / "houmao-mailbox-mgr/SKILL.md").is_file()
+    assert (skills_root / "houmao-memory-mgr/SKILL.md").is_file()
     assert (skills_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
     assert (skills_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
@@ -903,6 +912,7 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
         result.home_path / ".gemini/skills/houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
     assert (result.home_path / ".gemini/skills/houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (result.home_path / ".gemini/skills/houmao-memory-mgr/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (result.home_path / ".gemini/skills/mailbox").exists()

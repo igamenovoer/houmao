@@ -1,6 +1,6 @@
 # Managed Launch Prompt Header
 
-The **managed launch prompt header** is a deterministic Houmao-owned prompt region that is rendered into every managed launch's effective prompt by default. For launches that use the current structured prompt contract, the effective prompt is rooted at `<houmao_system_prompt>` and the header lives inside a top-level `<managed_header>` section with individually controlled child sections. By default it identifies the agent as Houmao-managed, names `houmao-mgr` as the canonical interface, tells the model to prefer Houmao-supported workflows when the task touches managed runtime, gateway, mailbox, or lifecycle behavior, and records that the launch is running in automated mode.
+The **managed launch prompt header** is a deterministic Houmao-owned prompt region that is rendered into every managed launch's effective prompt by default. For launches that use the current structured prompt contract, the effective prompt is rooted at `<houmao_system_prompt>` and the header lives inside a top-level `<managed_header>` section with individually controlled child sections. By default it identifies the agent as Houmao-managed, points it at its fixed `houmao-memo.md` file for each prompt turn, names `houmao-mgr` as the canonical interface, tells the model to prefer Houmao-supported workflows when the task touches managed runtime, gateway, mailbox, or lifecycle behavior, and records that the launch is running in automated mode.
 
 This page documents what the header is, when it is added, how it composes with the rest of the launch prompt, and how to opt out per launch or via stored launch profiles.
 
@@ -14,6 +14,9 @@ The header text is rendered by `render_managed_prompt_header()` in [`src/houmao/
 <identity>
 ...
 </identity>
+<memo_cue>
+...
+</memo_cue>
 <houmao_runtime_guidance>
 ...
 </houmao_runtime_guidance>
@@ -27,11 +30,12 @@ The header text is rendered by `render_managed_prompt_header()` in [`src/houmao/
 </houmao_system_prompt>
 ```
 
-The header has five stable policy sections. CLI and stored-profile policy use the hyphenated section names; the rendered prompt uses the XML-like tags:
+The header has six stable policy sections. CLI and stored-profile policy use the hyphenated section names; the rendered prompt uses the XML-like tags:
 
 | Policy section | Rendered tag | Default | Content |
 |---|---|---|---|
 | `identity` | `<identity>` | enabled | States that the agent is Houmao-managed and includes the resolved managed-agent name and id. |
+| `memo-cue` | `<memo_cue>` | enabled | Tells the agent to read the resolved absolute `houmao-memo.md` path at the start of each prompt turn and to follow authored links to relevant `pages/` files when needed. |
 | `houmao-runtime-guidance` | `<houmao_runtime_guidance>` | enabled | Tells the agent to prefer bundled Houmao workflows, `houmao-mgr`, Houmao-owned manifests, runtime metadata, and supported service interfaces for Houmao-managed work. |
 | `automation-notice` | `<automation_notice>` | enabled | States that the agent is in fully automated mode, prohibits interactive user-question tools, and directs mailbox-driven clarification to reply-enabled mailbox threads when available. |
 | `task-reminder` | `<task_reminder>` | disabled | Instructs long-running mailbox-style work to create a short gateway reminder and clear it when the final action is complete. |
@@ -63,7 +67,7 @@ flowchart LR
 1. **Source role prompt.** The role's `system-prompt.md` content is loaded as the base prompt.
 2. **Prompt-overlay resolution.** When the resolved launch profile carries a prompt overlay, it is composed onto the base prompt with mode `append` or `replace`. Append concatenates with a blank-line separator; replace substitutes the overlay text.
 3. **Launch appendix append.** When `houmao-mgr agents launch` or `houmao-mgr project easy instance launch` receives `--append-system-prompt-text` or `--append-system-prompt-file`, that one-shot appendix is appended after overlay resolution for the current launch only. It never rewrites the source role prompt or a stored profile.
-4. **Structured render.** Houmao renders the effective prompt into `<houmao_system_prompt>`. When the whole header is enabled and at least one section is enabled, `<managed_header>` appears before `<prompt_body>` and contains enabled child sections in this fixed order: `<identity>`, `<houmao_runtime_guidance>`, `<automation_notice>`, `<task_reminder>`, `<mail_ack>`. Inside `<prompt_body>`, section order is `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` when those sections participate. If overlay mode is `replace`, `<role_prompt>` is omitted.
+4. **Structured render.** Houmao renders the effective prompt into `<houmao_system_prompt>`. When the whole header is enabled and at least one section is enabled, `<managed_header>` appears before `<prompt_body>` and contains enabled child sections in this fixed order: `<identity>`, `<memo_cue>`, `<houmao_runtime_guidance>`, `<automation_notice>`, `<task_reminder>`, `<mail_ack>`. Inside `<prompt_body>`, section order is `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` when those sections participate. If overlay mode is `replace`, `<role_prompt>` is omitted.
 5. **Backend role injection.** The per-backend role-injection plan delivers that final composed prompt to the underlying CLI tool. See [Role Injection](role-injection.md) for the per-backend mechanism (`native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, etc.).
 
 The composition is implemented by `compose_managed_launch_prompt_payload()` and `compose_managed_launch_prompt()` in `managed_prompt_header.py`. When no header or prompt-body sections participate, the rendered effective prompt is empty.
@@ -82,7 +86,9 @@ Managed-header sections have their own policy resolution through `resolve_manage
 
 1. **Launch-time section override** — repeatable `--managed-header-section SECTION=enabled|disabled` on the launch command.
 2. **Stored launch-profile section policy** — the selected launch profile's `managed_header_section_policy` mapping.
-3. **Section default** — `identity`, `houmao-runtime-guidance`, and `automation-notice` default enabled; `task-reminder` and `mail-ack` default disabled.
+3. **Section default** — `identity`, `memo-cue`, `houmao-runtime-guidance`, and `automation-notice` default enabled; `task-reminder` and `mail-ack` default disabled.
+
+The `memo-cue` section is rendered from the resolved managed-agent memory path for the launch. It includes the absolute `houmao-memo.md` path, for example `/repo/.houmao/memory/agents/<agent-id>/houmao-memo.md`, so the underlying agent can read the exact memo file at the start of each prompt turn. Disable it with `--managed-header-section memo-cue=disabled` only when that per-turn durable context should not be injected.
 
 The whole-header decision remains the outer render gate. If `--no-managed-header` disables the whole header, enabled section policy is still recorded in metadata but none of those sections render into the prompt for that launch.
 
@@ -99,7 +105,7 @@ For full flag-level coverage, see the [`houmao-mgr` CLI reference](../cli/houmao
 
 ## Persistence in Stored Launch Profiles
 
-Both lanes of stored launch profiles persist whole-header policy as `managed_header_policy` on the entry. Valid values are `enabled`, `disabled`, and `inherit`; `inherit` is the default when the operator does not select either policy at create time. They also persist optional per-section policy as `managed_header_section_policy`, keyed by the stable section names `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`. Section policy values are `enabled` or `disabled`; omitted section keys fall back to that section's default.
+Both lanes of stored launch profiles persist whole-header policy as `managed_header_policy` on the entry. Valid values are `enabled`, `disabled`, and `inherit`; `inherit` is the default when the operator does not select either policy at create time. They also persist optional per-section policy as `managed_header_section_policy`, keyed by the stable section names `identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`. Section policy values are `enabled` or `disabled`; omitted section keys fall back to that section's default.
 
 The stored field interacts with the launch-time flags on three surfaces:
 
@@ -140,7 +146,7 @@ Section policy resolves independently for each section:
 | (none) | `automation-notice: disabled` | disabled | `launch_profile` |
 | (none) | absent | section default | `default` |
 
-For example, a stored profile can disable only `automation-notice` while keeping the default `identity` and `houmao-runtime-guidance` sections. A one-shot launch can then restore the notice with `--managed-header-section automation-notice=enabled`, or it can enable the default-off mailbox sections with `--managed-header-section task-reminder=enabled --managed-header-section mail-ack=enabled`.
+For example, a stored profile can disable only `automation-notice` while keeping the default `identity`, `memo-cue`, and `houmao-runtime-guidance` sections. A one-shot launch can then restore the notice with `--managed-header-section automation-notice=enabled`, disable the memo cue with `--managed-header-section memo-cue=disabled`, or enable the default-off mailbox sections with `--managed-header-section task-reminder=enabled --managed-header-section mail-ack=enabled`.
 
 ## Verifying the Header for One Launch
 

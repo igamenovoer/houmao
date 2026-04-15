@@ -146,9 +146,9 @@ That local edge-loop state SHALL include explicit workflow identifiers and retry
 
 The pairwise edge-loop pattern SHALL NOT require or present `parent_edge_loop_id` as part of the elemental pairwise pattern.
 
-The pairwise edge-loop pattern SHALL direct agents to store that mutable edge-loop ledger under `HOUMAO_JOB_DIR` by default as per-session scratch bookkeeping.
+The pairwise edge-loop pattern SHALL direct agents to store mutable edge-loop ledgers in mailbox records, reminder state, runtime-visible state, or an operator-designated work artifact path rather than in managed memory by default.
 
-The pairwise edge-loop pattern SHALL NOT describe `HOUMAO_MEMORY_DIR` as the default or recommended location for this mutable edge-loop bookkeeping.
+The pairwise edge-loop pattern SHALL NOT describe `HOUMAO_MEMORY_DIR`, `HOUMAO_JOB_DIR`, or managed memory pages as the default or recommended location for this mutable edge-loop bookkeeping.
 
 The pairwise edge-loop pattern SHALL describe timing thresholds such as receipt review time, result deadline, next review time, retry spacing, or retry horizon as workflow-policy values that agents derive from current task context and explicit user requirements rather than as fixed Houmao runtime constants.
 
@@ -187,10 +187,10 @@ The pairwise edge-loop pattern SHALL NOT teach downstream child-loop dispatch, r
 - **THEN** the pattern requires `edge_loop_id` for the two-node round
 - **AND THEN** it does not require `parent_edge_loop_id` as part of that elemental state model
 
-#### Scenario: Mutable edge-loop ledger uses the job dir rather than managed memory
+#### Scenario: Mutable edge-loop ledger avoids managed memory
 - **WHEN** a reader looks for where the pairwise edge-loop pattern stores retry counters, due times, and seen-request bookkeeping
-- **THEN** the pattern directs that mutable ledger to `HOUMAO_JOB_DIR`
-- **AND THEN** it does not present `HOUMAO_MEMORY_DIR` as the normal home for that ephemeral control state
+- **THEN** the pattern directs that mutable ledger to mailbox records, reminder state, runtime-visible state, or an operator-designated artifact path
+- **AND THEN** any memory page guidance is framed as readable context rather than mutable retry authority
 
 #### Scenario: Timing thresholds come from workflow context or explicit user input
 - **WHEN** a reader looks for how to choose receipt deadlines, review cadence, or retry horizons in the pairwise edge-loop pattern
@@ -287,9 +287,9 @@ That local loop state SHALL include explicit workflow identifiers and retry book
 - due time or next review time,
 - retry or attempt count.
 
-The relay-loop pattern SHALL direct agents to store that mutable loop ledger under `HOUMAO_JOB_DIR` by default as per-session scratch bookkeeping.
+The relay-loop pattern SHALL direct agents to store mutable relay-loop ledgers in mailbox records, reminder state, runtime-visible state, or an operator-designated work artifact path rather than in managed memory by default.
 
-The relay-loop pattern SHALL NOT describe `HOUMAO_MEMORY_DIR` as the default or recommended location for this mutable relay-loop bookkeeping.
+The relay-loop pattern SHALL NOT describe `HOUMAO_MEMORY_DIR`, `HOUMAO_JOB_DIR`, or managed memory pages as the default or recommended location for this mutable relay-loop bookkeeping.
 
 The relay-loop pattern SHALL describe timing thresholds such as receipt review time, result deadline, next review time, retry spacing, or retry horizon as workflow-policy values that agents derive from current task context and explicit user requirements rather than as fixed Houmao runtime constants.
 
@@ -344,10 +344,10 @@ The relay-loop pattern SHALL NOT present many outbound loops, fan-out, or a grap
 - **THEN** the pattern directs the upstream sender to update local review state and schedule another review
 - **AND THEN** it does not resend the relay handoff
 
-#### Scenario: Mutable relay-loop ledger uses the job dir rather than managed memory
+#### Scenario: Mutable relay-loop ledger avoids managed memory
 - **WHEN** a reader looks for where the relay-loop pattern stores retry counters, due times, and seen-handoff bookkeeping
-- **THEN** the pattern directs that mutable ledger to `HOUMAO_JOB_DIR`
-- **AND THEN** it does not present `HOUMAO_MEMORY_DIR` as the normal home for that ephemeral control state
+- **THEN** the pattern directs that mutable ledger to mailbox records, reminder state, runtime-visible state, or an operator-designated artifact path
+- **AND THEN** any memory page guidance is framed as readable context rather than mutable retry authority
 
 #### Scenario: Timing thresholds come from workflow context or explicit user input
 - **WHEN** a reader looks for how to choose receipt deadlines, review cadence, or retry horizons in the relay-loop pattern
@@ -417,20 +417,19 @@ If an advanced usage pattern requires or recommends that a live gateway already 
 - **THEN** the pattern guidance does not tell the agent to choose a background gateway launch or attach path
 - **AND THEN** it preserves the foreground-first gateway lifecycle rule from the owning gateway skill
 
-### Requirement: Advanced usage patterns store mutable ledgers in the workspace scratch lane
-The `houmao-adv-usage-pattern` skill SHALL direct mutable pairwise edge-loop and relay-loop ledgers to `HOUMAO_AGENT_SCRATCH_DIR`.
+### Requirement: Advanced usage patterns do not use managed memory as mutable ledger storage
+The `houmao-adv-usage-pattern` skill SHALL NOT direct mutable pairwise edge-loop or relay-loop ledgers to managed memory pages by default.
 
-The skill SHALL NOT describe `HOUMAO_JOB_DIR` or `HOUMAO_MEMORY_DIR` as the current default location for mutable loop bookkeeping.
+When the pattern references durable operator-visible context, it SHALL describe readable memo pages under `HOUMAO_AGENT_PAGES_DIR` as summaries or pointers rather than authoritative retry/dedupe ledgers.
 
-When the pattern references durable backlog notes or long-lived archives, it SHALL use `HOUMAO_AGENT_PERSIST_DIR` only when that variable is available.
+The skill SHALL NOT reference `HOUMAO_AGENT_SCRATCH_DIR` or `HOUMAO_AGENT_PERSIST_DIR` as current managed memory variables.
 
-#### Scenario: Pairwise ledger uses scratch lane
+#### Scenario: Pairwise guidance avoids scratch-lane ledger paths
 - **WHEN** the pairwise edge-loop pattern describes its local mutable ledger
-- **THEN** it directs agents to store the ledger under `$HOUMAO_AGENT_SCRATCH_DIR/edge-loops/ledger.json`
-- **AND THEN** it does not present `HOUMAO_JOB_DIR` as the ledger home
+- **THEN** it does not direct agents to store the ledger under `$HOUMAO_AGENT_SCRATCH_DIR/edge-loops/ledger.json`
+- **AND THEN** any memory page guidance is framed as readable context rather than mutable retry authority
 
-#### Scenario: Relay ledger uses scratch lane
+#### Scenario: Relay guidance avoids scratch-lane ledger paths
 - **WHEN** the relay-loop pattern describes its local mutable ledger
-- **THEN** it directs agents to store the ledger under `$HOUMAO_AGENT_SCRATCH_DIR/relay-loops/ledger.json`
-- **AND THEN** it does not present `HOUMAO_MEMORY_DIR` as the ledger home
-
+- **THEN** it does not direct agents to store the ledger under `$HOUMAO_AGENT_SCRATCH_DIR/relay-loops/ledger.json`
+- **AND THEN** the guidance does not use `HOUMAO_AGENT_PERSIST_DIR` for long-lived archive notes

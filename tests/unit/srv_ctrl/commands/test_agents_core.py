@@ -28,6 +28,14 @@ def _expected_default_section_metadata(*, header_enabled: bool) -> dict[str, obj
             "stored_policy": None,
             "default_enabled": True,
         },
+        "memo-cue": {
+            "tag": "memo_cue",
+            "enabled": True,
+            "rendered": header_enabled,
+            "resolution_source": "default",
+            "stored_policy": None,
+            "default_enabled": True,
+        },
         "houmao-runtime-guidance": {
             "tag": "houmao_runtime_guidance",
             "enabled": True,
@@ -227,15 +235,13 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     assert captured["gateway_port"] == 0
     assert captured["gateway_execution_mode_override"] == "tmux_auxiliary_window"
     assert captured["gateway_tui_tracking_timing_overrides"] == timing_overrides
-    workspace_paths = captured["workspace_paths"]
-    persist_binding = getattr(workspace_paths, "persist")
-    assert persist_binding.kind == "auto"
-    assert (
-        persist_binding.directory
-        == (
-            overlay_root / "memory" / "agents" / "6ee1c825367e868092eda76cb18a96e0" / "persist"
-        ).resolve()
-    )
+    memory_paths = captured["memory_paths"]
+    expected_memory_root = (
+        overlay_root / "memory" / "agents" / "6ee1c825367e868092eda76cb18a96e0"
+    ).resolve()
+    assert getattr(memory_paths, "memory_root") == expected_memory_root
+    assert getattr(memory_paths, "memo_file") == (expected_memory_root / "houmao-memo.md").resolve()
+    assert getattr(memory_paths, "pages_dir") == (expected_memory_root / "pages").resolve()
     assert launch_result.controller.agent_identity == "repo-research-1"
 
 
@@ -362,6 +368,13 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         "OPENAI_BASE_URL": "https://profile.example/v1",
         "OPENAI_ORG_ID": "org-alice",
     }
+    expected_memo_file = (
+        overlay_root
+        / "memory"
+        / "agents"
+        / "6ee1c825367e868092eda76cb18a96e0"
+        / "houmao-memo.md"
+    ).resolve()
     assert build_request.role_prompt_override == compose_managed_launch_prompt(
         base_prompt="You are a precise repo researcher.",
         overlay_mode="append",
@@ -369,6 +382,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         managed_header_enabled=True,
         agent_name="repo-research-1",
         agent_id="6ee1c825367e868092eda76cb18a96e0",
+        memo_file=str(expected_memo_file),
     )
     assert build_request.managed_prompt_header == {
         "version": 1,

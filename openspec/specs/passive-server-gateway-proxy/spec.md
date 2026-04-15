@@ -325,26 +325,32 @@ When the `GatewayClient` call fails with a connection or HTTP error, all proxy e
 - **THEN** the response status code is 409
 - **AND THEN** the response body contains the ambiguous agent IDs
 
-### Requirement: Passive server proxies managed workspace gateway endpoints
-The passive server SHALL expose pair-server routes that proxy live gateway workspace endpoints for one resolved managed agent.
+### Requirement: Passive server proxies managed memory gateway endpoints
+The passive server SHALL expose pair-server routes that proxy live gateway memory endpoints for one resolved managed agent.
 
-The proxy routes SHALL mirror the gateway workspace summary, memo read, memo replace, memo append, lane tree, lane file read, lane file write, lane append, lane delete, and lane clear operations under the managed-agent gateway route family.
+The proxy routes SHALL mirror the gateway memory summary, memo read, memo replace, memo append, page tree, page read, page write, page append, page delete, and page path-resolution operations under the managed-agent gateway route family.
 
-The proxy SHALL preserve the gateway's lane validation, containment errors, disabled-persist errors, and unavailable-gateway errors in structured responses.
+The proxy SHALL preserve the gateway's page containment errors, memo-targeting errors, path-resolution errors, and unavailable-gateway errors in structured responses.
 
-#### Scenario: Pair server proxies workspace summary
-- **WHEN** an operator requests `/houmao/agents/researcher/gateway/workspace`
+The passive server SHALL NOT expose a memory reindex proxy route.
+
+#### Scenario: Pair server proxies memory summary
+- **WHEN** an operator requests `/houmao/agents/researcher/gateway/memory`
 - **AND WHEN** the passive server resolves `researcher` to a live gateway
-- **THEN** the passive server returns the gateway workspace summary response
+- **THEN** the passive server returns the gateway memory summary response
 
-#### Scenario: Pair server preserves disabled persist error
-- **WHEN** managed agent `researcher` has persistence disabled
-- **AND WHEN** an operator requests a persist-lane file through the pair-server gateway proxy
-- **THEN** the passive server returns the gateway's disabled-persist error
-- **AND THEN** the passive server does not create a persist directory
+#### Scenario: Pair server proxies page path resolution
+- **WHEN** an operator resolves page `notes/run.md` through the pair-server gateway memory proxy
+- **AND WHEN** the passive server resolves the agent to a live gateway
+- **THEN** the proxy returns the gateway's absolute page path
+- **AND THEN** it returns a memo-relative link such as `pages/notes/run.md`
+
+#### Scenario: Pair server does not proxy reindex
+- **WHEN** an operator inspects supported pair-server gateway memory routes
+- **THEN** there is no route that rebuilds a memo page index
 
 #### Scenario: Pair server proxies memo append
-- **WHEN** an operator appends initialization rules through the pair-server gateway workspace memo route
+- **WHEN** an operator appends initialization rules through the pair-server gateway memory memo route
 - **AND WHEN** the passive server resolves the agent to a live gateway
 - **THEN** the passive server forwards the append to the gateway memo endpoint
 - **AND THEN** the gateway writes to the fixed `houmao-memo.md` file

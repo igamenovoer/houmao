@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
@@ -87,6 +88,33 @@ def _make_client(tmp_path: object) -> TestClient:
 
     app.router.lifespan_context = _patched_lifespan  # type: ignore[assignment]
     return TestClient(app)
+
+
+def test_passive_gateway_memory_routes_expose_resolve_without_reindex(tmp_path: object) -> None:
+    """Passive proxy route inventory exposes path discovery and omits memo indexing."""
+
+    config = PassiveServerConfig(
+        api_base_url="http://127.0.0.1:19891",
+        runtime_root=Path(str(tmp_path)),
+    )
+    svc = PassiveServerService(config=config)
+    app = create_app(config=config, service=svc)
+    routes = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert (
+        "POST",
+        "/houmao/agents/{agent_ref}/gateway/memory/pages/resolve",
+    ) in routes
+    assert (
+        "POST",
+        "/houmao/agents/{agent_ref}/gateway/memory/reindex",
+    ) not in routes
 
 
 class TestHealthEndpoint:

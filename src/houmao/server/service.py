@@ -44,16 +44,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
-    GatewayWorkspaceActionResponseV1,
-    GatewayWorkspaceFileResponseV1,
-    GatewayWorkspaceFileWriteRequestV1,
-    GatewayWorkspaceLanePathRequestV1,
-    GatewayWorkspaceLaneRequestV1,
-    GatewayWorkspaceMemoResponseV1,
-    GatewayWorkspaceMemoWriteRequestV1,
-    GatewayWorkspaceSummaryV1,
-    GatewayWorkspaceTreeRequestV1,
-    GatewayWorkspaceTreeResponseV1,
+    GatewayMemoryActionResponseV1,
+    GatewayMemoryMemoResponseV1,
+    GatewayMemoryMemoWriteRequestV1,
+    GatewayMemoryPagePathRequestV1,
+    GatewayMemoryPagePathResolutionV1,
+    GatewayMemoryPageResponseV1,
+    GatewayMemoryPageTreeRequestV1,
+    GatewayMemoryPageTreeResponseV1,
+    GatewayMemoryPageWriteRequestV1,
+    GatewayMemorySummaryV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     build_offline_gateway_status,
@@ -1224,100 +1224,100 @@ class HoumaoServerService:
             Path(cast(str, gateway_context["session_root"]))
         )
 
-    def get_managed_agent_gateway_workspace(self, agent_ref: str) -> GatewayWorkspaceSummaryV1:
-        """Return live gateway workspace summary for one managed agent."""
+    def get_managed_agent_gateway_memory(self, agent_ref: str) -> GatewayMemorySummaryV1:
+        """Return live gateway memory summary for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(client.workspace)
+        return self._invoke_live_gateway(client.memory)
 
-    def get_managed_agent_gateway_workspace_memo(
+    def get_managed_agent_gateway_memory_memo(
         self,
         agent_ref: str,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Return live gateway workspace memo for one managed agent."""
+    ) -> GatewayMemoryMemoResponseV1:
+        """Return live gateway memory memo for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(client.read_workspace_memo)
+        return self._invoke_live_gateway(client.read_memory_memo)
 
-    def put_managed_agent_gateway_workspace_memo(
+    def put_managed_agent_gateway_memory_memo(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Replace live gateway workspace memo for one managed agent."""
+        request_model: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Replace live gateway memory memo for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.write_workspace_memo(request_model))
+        return self._invoke_live_gateway(lambda: client.write_memory_memo(request_model))
 
-    def append_managed_agent_gateway_workspace_memo(
+    def append_managed_agent_gateway_memory_memo(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Append to live gateway workspace memo for one managed agent."""
+        request_model: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Append to live gateway memory memo for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.append_workspace_memo(request_model))
+        return self._invoke_live_gateway(lambda: client.append_memory_memo(request_model))
 
-    def list_managed_agent_gateway_workspace_tree(
+    def list_managed_agent_gateway_memory_pages(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceTreeRequestV1,
-    ) -> GatewayWorkspaceTreeResponseV1:
-        """Return live gateway workspace lane tree for one managed agent."""
+        request_model: GatewayMemoryPageTreeRequestV1,
+    ) -> GatewayMemoryPageTreeResponseV1:
+        """Return live gateway memory pages tree for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.list_workspace_tree(request_model))
+        return self._invoke_live_gateway(lambda: client.list_memory_pages(request_model))
 
-    def read_managed_agent_gateway_workspace_file(
+    def resolve_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceFileResponseV1:
-        """Read a live gateway workspace lane file for one managed agent."""
+        request_model: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPagePathResolutionV1:
+        """Return live gateway memory page path metadata for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.read_workspace_file(request_model))
+        return self._invoke_live_gateway(lambda: client.resolve_memory_page_path(request_model))
 
-    def write_managed_agent_gateway_workspace_file(
+    def read_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Write a live gateway workspace lane file for one managed agent."""
+        request_model: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPageResponseV1:
+        """Read a live gateway memory page for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.write_workspace_file(request_model))
+        return self._invoke_live_gateway(lambda: client.read_memory_page(request_model))
 
-    def append_managed_agent_gateway_workspace_file(
+    def write_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Append a live gateway workspace lane file for one managed agent."""
+        request_model: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Write a live gateway memory page for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.append_workspace_file(request_model))
+        return self._invoke_live_gateway(lambda: client.write_memory_page(request_model))
 
-    def delete_managed_agent_gateway_workspace_path(
+    def append_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Delete a live gateway workspace lane path for one managed agent."""
+        request_model: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Append a live gateway memory page for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.delete_workspace_path(request_model))
+        return self._invoke_live_gateway(lambda: client.append_memory_page(request_model))
 
-    def clear_managed_agent_gateway_workspace_lane(
+    def delete_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceLaneRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Clear a live gateway workspace lane for one managed agent."""
+        request_model: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Delete a live gateway memory page path for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.clear_workspace_lane(request_model))
+        return self._invoke_live_gateway(lambda: client.delete_memory_page(request_model))
 
     def get_managed_agent_gateway_tui_state(self, agent_ref: str) -> HoumaoTerminalStateResponse:
         """Return raw gateway-owned TUI state for one managed agent."""

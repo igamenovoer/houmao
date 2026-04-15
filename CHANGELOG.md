@@ -4,6 +4,19 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc2] - 2026-04-15
+
+### Added
+
+- **`houmao-memory-mgr` system skill**: new packaged skill gives managed agents a first-class interface for reading and writing their own memory root — free-form memo file, page files, and page link resolution — without operator intervention.
+- **Memo-cue section in managed prompt header**: the Houmao-owned prompt header gains a sixth independently controllable section, `memo-cue`, enabled by default. It points the agent at the resolved absolute `houmao-memo.md` path at the start of every prompt turn, ensuring the agent sees its persistent memo without being explicitly instructed to read it. Control with `--managed-header-section memo-cue=disabled` or store the setting in a launch profile.
+
+### Changed
+
+- **`agents workspace` renamed to `agents memory`**: the per-agent workspace command family is now `houmao-mgr agents memory` to reflect the broader memory model (free-form memo, pages, and directory tree). All sub-commands (`path`, `memo show/set`, `tree`, `read`, `write`, `append`, `delete`, `clear`) are preserved under the new name. **BREAKING for rc1 users**: update any scripts using `agents workspace` to `agents memory`.
+- **Simplified memory model**: the `scratch/` and `persist/` lane distinction is removed in favor of a flat free-form memory root. The `houmao-memo.md` file and an optional `pages/` directory are the canonical memory surfaces. Environment variables updated accordingly.
+- **rc1 changelog corrected**: the `agents workspace` and unified workspace layout entries from rc1 describe the API that is now renamed/simplified in rc2.
+
 ## [0.7.0rc1] - 2026-04-14
 
 ### Added

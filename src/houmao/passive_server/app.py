@@ -38,16 +38,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
-    GatewayWorkspaceActionResponseV1,
-    GatewayWorkspaceFileResponseV1,
-    GatewayWorkspaceFileWriteRequestV1,
-    GatewayWorkspaceLanePathRequestV1,
-    GatewayWorkspaceLaneRequestV1,
-    GatewayWorkspaceMemoResponseV1,
-    GatewayWorkspaceMemoWriteRequestV1,
-    GatewayWorkspaceSummaryV1,
-    GatewayWorkspaceTreeRequestV1,
-    GatewayWorkspaceTreeResponseV1,
+    GatewayMemoryActionResponseV1,
+    GatewayMemoryMemoResponseV1,
+    GatewayMemoryMemoWriteRequestV1,
+    GatewayMemoryPagePathRequestV1,
+    GatewayMemoryPagePathResolutionV1,
+    GatewayMemoryPageResponseV1,
+    GatewayMemoryPageTreeRequestV1,
+    GatewayMemoryPageTreeResponseV1,
+    GatewayMemoryPageWriteRequestV1,
+    GatewayMemorySummaryV1,
 )
 from houmao.version import get_version
 from houmao.passive_server.config import PassiveServerConfig
@@ -152,96 +152,96 @@ def create_app(
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.get("/houmao/agents/{agent_ref}/gateway/workspace")
-    def gateway_workspace(agent_ref: str) -> GatewayWorkspaceSummaryV1:
-        result = resolved_service.gateway_workspace(agent_ref)
+    @app.get("/houmao/agents/{agent_ref}/gateway/memory")
+    def gateway_memory(agent_ref: str) -> GatewayMemorySummaryV1:
+        result = resolved_service.gateway_memory(agent_ref)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.get("/houmao/agents/{agent_ref}/gateway/workspace/memo")
-    def gateway_workspace_memo(agent_ref: str) -> GatewayWorkspaceMemoResponseV1:
-        result = resolved_service.gateway_workspace_memo(agent_ref)
+    @app.get("/houmao/agents/{agent_ref}/gateway/memory/memo")
+    def gateway_memory_memo(agent_ref: str) -> GatewayMemoryMemoResponseV1:
+        result = resolved_service.gateway_memory_memo(agent_ref)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.put("/houmao/agents/{agent_ref}/gateway/workspace/memo")
-    def gateway_workspace_memo_put(
+    @app.put("/houmao/agents/{agent_ref}/gateway/memory/memo")
+    def gateway_memory_memo_put(
         agent_ref: str,
-        payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        result = resolved_service.gateway_workspace_memo_put(agent_ref, payload)
+        payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        result = resolved_service.gateway_memory_memo_put(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/memo/append")
-    def gateway_workspace_memo_append(
+    @app.post("/houmao/agents/{agent_ref}/gateway/memory/memo/append")
+    def gateway_memory_memo_append(
         agent_ref: str,
-        payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        result = resolved_service.gateway_workspace_memo_append(agent_ref, payload)
+        payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        result = resolved_service.gateway_memory_memo_append(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/tree")
-    def gateway_workspace_tree(
+    @app.post("/houmao/agents/{agent_ref}/gateway/memory/pages/tree")
+    def gateway_memory_pages(
         agent_ref: str,
-        payload: GatewayWorkspaceTreeRequestV1,
-    ) -> GatewayWorkspaceTreeResponseV1:
-        result = resolved_service.gateway_workspace_tree(agent_ref, payload)
+        payload: GatewayMemoryPageTreeRequestV1,
+    ) -> GatewayMemoryPageTreeResponseV1:
+        result = resolved_service.gateway_memory_pages(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/read")
-    def gateway_workspace_file_read(
+    @app.post("/houmao/agents/{agent_ref}/gateway/memory/pages/resolve")
+    def gateway_memory_page_resolve(
         agent_ref: str,
-        payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceFileResponseV1:
-        result = resolved_service.gateway_workspace_file_read(agent_ref, payload)
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPagePathResolutionV1:
+        result = resolved_service.gateway_memory_page_resolve(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/write")
-    def gateway_workspace_file_write(
+    @app.post("/houmao/agents/{agent_ref}/gateway/memory/pages/read")
+    def gateway_memory_page_read(
         agent_ref: str,
-        payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        result = resolved_service.gateway_workspace_file_write(agent_ref, payload)
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPageResponseV1:
+        result = resolved_service.gateway_memory_page_read(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/append")
-    def gateway_workspace_file_append(
+    @app.post("/houmao/agents/{agent_ref}/gateway/memory/pages/write")
+    def gateway_memory_page_write(
         agent_ref: str,
-        payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        result = resolved_service.gateway_workspace_file_append(agent_ref, payload)
+        payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        result = resolved_service.gateway_memory_page_write(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/delete")
-    def gateway_workspace_path_delete(
+    @app.post("/houmao/agents/{agent_ref}/gateway/memory/pages/append")
+    def gateway_memory_page_append(
         agent_ref: str,
-        payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        result = resolved_service.gateway_workspace_path_delete(agent_ref, payload)
+        payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        result = resolved_service.gateway_memory_page_append(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    @app.post("/houmao/agents/{agent_ref}/gateway/workspace/lane/clear")
-    def gateway_workspace_lane_clear(
+    @app.post("/houmao/agents/{agent_ref}/gateway/memory/pages/delete")
+    def gateway_memory_page_delete(
         agent_ref: str,
-        payload: GatewayWorkspaceLaneRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        result = resolved_service.gateway_workspace_lane_clear(agent_ref, payload)
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        result = resolved_service.gateway_memory_page_delete(agent_ref, payload)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result

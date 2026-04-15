@@ -85,7 +85,7 @@ pixi run houmao-mgr agents mail resolve-live --agent-name research
 
 For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, late mailbox registration updates the durable session mailbox binding without requiring relaunch solely for mailbox attachment. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and validate the resulting mailbox binding. If direct mailbox work needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. That helper returns structured mailbox fields plus optional `gateway.base_url` data when an attached mailbox gateway is live.
 
-Project-aware agent workspaces remain separate from mailbox state. Managed agents use `<active-overlay>/memory/agents/<agent-id>/` for `houmao-memo.md`, `scratch/`, and optional `persist/`; that `.houmao/` subtree is workspace state rather than mailbox authority, even though it shares the same hidden overlay as project-local agent-definition sources.
+Project-aware agent memory remains separate from mailbox state. Managed agents use `<active-overlay>/memory/agents/<agent-id>/` for `houmao-memo.md` and `pages/`; that `.houmao/` subtree is memory state rather than mailbox authority, even though it shares the same hidden overlay as project-local agent-definition sources.
 
 ```mermaid
 sequenceDiagram

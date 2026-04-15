@@ -1,6 +1,6 @@
 # Project-Aware Operations
 
-Most `houmao-mgr` commands automatically discover and use the active `.houmao/` project overlay for agent definition resolution, runtime root binding, managed-agent workspace binding, and mailbox root binding. This page documents how project-aware resolution works and how to override it.
+Most `houmao-mgr` commands automatically discover and use the active `.houmao/` project overlay for agent definition resolution, runtime root binding, managed-agent memory binding, and mailbox root binding. This page documents how project-aware resolution works and how to override it.
 
 ## Resolution Precedence
 
@@ -37,8 +37,8 @@ When a project overlay is discovered, commands receive `ProjectAwareLocalRoots` 
 | `overlay_root` | `.houmao/` | The project overlay directory. |
 | `agent_def_dir` | `.houmao/agents/` | Agent definitions (tools, roles, skills, recipes, launch profiles). |
 | `runtime_root` | `.houmao/runtime/` | Session runtime state and build artifacts. |
-| `memory_root` | `.houmao/memory/` | Root for managed-agent workspace envelopes, including `houmao-memo.md`, `scratch/`, and optional `persist/` lanes. |
-| `jobs_root` | `.houmao/jobs/` | Legacy non-workspace job tracking root retained for older internal and demo flows; not the current managed-agent scratch contract. |
+| `memory_root` | `.houmao/memory/` | Root for managed-agent memory envelopes, including `houmao-memo.md` and `pages/`. |
+| `jobs_root` | `.houmao/jobs/` | Legacy job tracking root retained for older internal and demo flows; not the current managed-agent memory contract. |
 | `mailbox_root` | `.houmao/mailbox/` | Project-local filesystem mailbox root. |
 | `easy_root` | `.houmao/easy/` | Easy-specialist metadata. |
 
@@ -66,7 +66,7 @@ The catalog is initialized automatically during `project init` and is the author
 
 | Command Family | Project Context Used |
 |---|---|
-| `agents launch` / `agents join` | Agent definitions, runtime root, managed-agent workspace root, mailbox root |
+| `agents launch` / `agents join` | Agent definitions, runtime root, managed-agent memory root, mailbox root |
 | `brains build` | Agent definitions (with optional `--agent-def-dir` override) |
 | `agents list` / `agents state` | Runtime root for shared registry discovery |
 | `agents mailbox register` | Mailbox root defaults to project overlay |
@@ -87,6 +87,6 @@ In CI or controlled automation where no `.houmao/` directory exists on disk:
 ## See Also
 
 - [Agent Definition Directory](../../getting-started/agent-definitions.md) — overlay directory structure
-- [Managed Agent Workspaces](../../getting-started/managed-memory-dirs.md) — operator-facing guide to workspace roots, memo files, and scratch/persist lanes
+- [Managed Agent Memory](../../getting-started/managed-memory-dirs.md) — operator-facing guide to memory roots, free-form memo files, and pages
 - [System Files Reference](index.md) — filesystem paths reference
 - [Easy Specialists Guide](../../getting-started/easy-specialists.md) — the easy-specialist model

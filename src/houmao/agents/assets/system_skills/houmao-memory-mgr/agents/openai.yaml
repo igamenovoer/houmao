@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Memory Manager"
+  short_description: "Inspect and edit managed-agent memo and pages memory."
+  default_prompt: "Use $houmao-memory-mgr to inspect or edit a Houmao managed agent's houmao-memo.md file or contained pages/ files."

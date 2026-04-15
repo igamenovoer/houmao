@@ -11,10 +11,10 @@ from pathlib import Path
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.agent_workspace import (
-    AgentWorkspacePaths,
-    ensure_agent_workspace,
-    resolve_agent_workspace,
-    workspace_env,
+    AgentMemoryPaths,
+    ensure_agent_memory,
+    memory_env,
+    resolve_agent_memory,
 )
 from houmao.agents.native_launch_resolver import resolve_native_launch_target, tool_for_provider
 from houmao.agents.system_skills import install_system_skills_for_home
@@ -112,11 +112,9 @@ class JoinedSessionArtifacts:
     session_root: Path
     agent_name: str
     agent_id: str
-    workspace_root: Path
+    memory_root: Path
     memo_file: Path
-    scratch_dir: Path
-    persist_binding: str
-    persist_dir: Path | None
+    pages_dir: Path
     runtime_root: Path
     runtime_root_detail: str
     overlay_root: Path
@@ -130,8 +128,6 @@ def materialize_joined_launch(
     runtime_root: Path | None,
     agent_name: str,
     agent_id: str | None,
-    persist_dir: Path | None = None,
-    no_persist_dir: bool = False,
     provider: str,
     headless: bool,
     tmux_session_name: str,
@@ -209,22 +205,20 @@ def materialize_joined_launch(
             headless=headless,
             tmux_window_name=tmux_window_name,
         )
-        workspace = resolve_agent_workspace(
+        memory = resolve_agent_memory(
             overlay_root=project_roots.overlay_root,
             agent_id=resolved_agent_id,
-            explicit_persist_dir=persist_dir,
-            disable_persist_dir=no_persist_dir,
         )
-        ensure_agent_workspace(workspace)
+        ensure_agent_memory(memory)
         launch_plan = replace(
             launch_plan,
-            env=_launch_plan_env_with_workspace(
+            env=_launch_plan_env_with_memory(
                 launch_plan=launch_plan,
-                workspace=workspace,
+                memory=memory,
             ),
-            env_var_names=_launch_plan_env_var_names_with_workspace(
+            env_var_names=_launch_plan_env_var_names_with_memory(
                 launch_plan=launch_plan,
-                workspace=workspace,
+                memory=memory,
             ),
         )
         manifest_payload = build_session_manifest_payload(
@@ -243,11 +237,9 @@ def materialize_joined_launch(
                 agent_id=resolved_agent_id,
                 tmux_session_name=tmux_session_name,
                 session_id=session_id,
-                workspace_root=workspace.workspace_root,
-                memo_file=workspace.memo_file,
-                scratch_dir=workspace.scratch_dir,
-                persist_binding=workspace.persist_binding,
-                persist_dir=workspace.persist_dir,
+                memory_root=memory.memory_root,
+                memo_file=memory.memo_file,
+                pages_dir=memory.pages_dir,
                 agent_def_dir=agent_def_dir,
                 registry_generation_id=new_registry_generation_id(),
                 registry_launch_authority="runtime",
@@ -296,7 +288,7 @@ def materialize_joined_launch(
                 AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
                 AGENT_ID_ENV_VAR: resolved_agent_id,
                 AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
-                **workspace_env(workspace),
+                **memory_env(memory),
             },
         )
         unset_tmux_session_environment(
@@ -304,7 +296,9 @@ def materialize_joined_launch(
             variable_names=[
                 "HOUMAO_JOB_DIR",
                 "HOUMAO_MEMORY_DIR",
-                *(["HOUMAO_AGENT_PERSIST_DIR"] if workspace.persist_dir is None else []),
+                "HOUMAO_AGENT_STATE_DIR",
+                "HOUMAO_AGENT_SCRATCH_DIR",
+                "HOUMAO_AGENT_PERSIST_DIR",
             ],
         )
         published_tmux_env = True
@@ -336,11 +330,9 @@ def materialize_joined_launch(
             session_root=session_root,
             agent_name=normalized_agent_name,
             agent_id=resolved_agent_id,
-            workspace_root=workspace.workspace_root,
-            memo_file=workspace.memo_file,
-            scratch_dir=workspace.scratch_dir,
-            persist_binding=workspace.persist_binding,
-            persist_dir=workspace.persist_dir,
+            memory_root=memory.memory_root,
+            memo_file=memory.memo_file,
+            pages_dir=memory.pages_dir,
             runtime_root=resolved_runtime_root,
             runtime_root_detail=describe_runtime_root_selection(explicit_root=runtime_root),
             overlay_root=project_roots.overlay_root,
@@ -369,8 +361,10 @@ def materialize_joined_launch(
                                 AGENT_MANIFEST_PATH_ENV_VAR,
                                 AGENT_ID_ENV_VAR,
                                 AGENT_DEF_DIR_ENV_VAR,
+                                "HOUMAO_AGENT_MEMORY_DIR",
                                 "HOUMAO_AGENT_STATE_DIR",
                                 "HOUMAO_AGENT_MEMO_FILE",
+                                "HOUMAO_AGENT_PAGES_DIR",
                                 "HOUMAO_AGENT_SCRATCH_DIR",
                                 "HOUMAO_AGENT_PERSIST_DIR",
                                 "HOUMAO_JOB_DIR",
@@ -387,46 +381,50 @@ def materialize_joined_launch(
         raise
 
 
-def _launch_plan_env_with_workspace(
+def _launch_plan_env_with_memory(
     *,
     launch_plan: LaunchPlan,
-    workspace: AgentWorkspacePaths,
+    memory: AgentMemoryPaths,
 ) -> dict[str, str]:
-    """Return one launch env mapping with workspace bindings applied."""
+    """Return one launch env mapping with memory bindings applied."""
 
     updated_env = dict(launch_plan.env)
     for name in {
+        "HOUMAO_AGENT_MEMORY_DIR",
         "HOUMAO_AGENT_STATE_DIR",
         "HOUMAO_AGENT_MEMO_FILE",
+        "HOUMAO_AGENT_PAGES_DIR",
         "HOUMAO_AGENT_SCRATCH_DIR",
         "HOUMAO_AGENT_PERSIST_DIR",
         "HOUMAO_JOB_DIR",
         "HOUMAO_MEMORY_DIR",
     }:
         updated_env.pop(name, None)
-    updated_env.update(workspace_env(workspace))
+    updated_env.update(memory_env(memory))
     return updated_env
 
 
-def _launch_plan_env_var_names_with_workspace(
+def _launch_plan_env_var_names_with_memory(
     *,
     launch_plan: LaunchPlan,
-    workspace: AgentWorkspacePaths,
+    memory: AgentMemoryPaths,
 ) -> list[str]:
-    """Return launch env-var names after workspace binding injection."""
+    """Return launch env-var names after memory binding injection."""
 
     updated_names = set(launch_plan.env_var_names)
     updated_names.difference_update(
         {
+            "HOUMAO_AGENT_MEMORY_DIR",
             "HOUMAO_AGENT_STATE_DIR",
             "HOUMAO_AGENT_MEMO_FILE",
+            "HOUMAO_AGENT_PAGES_DIR",
             "HOUMAO_AGENT_SCRATCH_DIR",
             "HOUMAO_AGENT_PERSIST_DIR",
             "HOUMAO_JOB_DIR",
             "HOUMAO_MEMORY_DIR",
         }
     )
-    updated_names.update(workspace_env(workspace))
+    updated_names.update(memory_env(memory))
     return sorted(updated_names)
 
 
@@ -552,19 +550,17 @@ def materialize_delegated_launch(
         )
     )
 
-    workspace = resolve_agent_workspace(
+    memory = resolve_agent_memory(
         overlay_root=project_roots.overlay_root,
         agent_id=agent_id,
-        explicit_persist_dir=None,
-        disable_persist_dir=False,
     )
-    ensure_agent_workspace(workspace)
+    ensure_agent_memory(memory)
     launch_plan = replace(
         launch_plan,
-        env=_launch_plan_env_with_workspace(launch_plan=launch_plan, workspace=workspace),
-        env_var_names=_launch_plan_env_var_names_with_workspace(
+        env=_launch_plan_env_with_memory(launch_plan=launch_plan, memory=memory),
+        env_var_names=_launch_plan_env_var_names_with_memory(
             launch_plan=launch_plan,
-            workspace=workspace,
+            memory=memory,
         ),
     )
 
@@ -592,11 +588,9 @@ def materialize_delegated_launch(
             agent_id=agent_id,
             tmux_session_name=session_name,
             session_id=session_root.name,
-            workspace_root=workspace.workspace_root,
-            memo_file=workspace.memo_file,
-            scratch_dir=workspace.scratch_dir,
-            persist_binding=workspace.persist_binding,
-            persist_dir=workspace.persist_dir,
+            memory_root=memory.memory_root,
+            memo_file=memory.memo_file,
+            pages_dir=memory.pages_dir,
             agent_def_dir=agent_def_dir,
             registry_generation_id=new_registry_generation_id(),
             registry_launch_authority="external",
@@ -610,12 +604,18 @@ def materialize_delegated_launch(
             AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
             AGENT_ID_ENV_VAR: agent_id,
             AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir),
-            **workspace_env(workspace),
+            **memory_env(memory),
         },
     )
     unset_tmux_session_environment(
         session_name=session_name,
-        variable_names=["HOUMAO_JOB_DIR", "HOUMAO_MEMORY_DIR"],
+        variable_names=[
+            "HOUMAO_JOB_DIR",
+            "HOUMAO_MEMORY_DIR",
+            "HOUMAO_AGENT_STATE_DIR",
+            "HOUMAO_AGENT_SCRATCH_DIR",
+            "HOUMAO_AGENT_PERSIST_DIR",
+        ],
     )
     gateway_paths = ensure_gateway_capability(
         GatewayCapabilityPublication(

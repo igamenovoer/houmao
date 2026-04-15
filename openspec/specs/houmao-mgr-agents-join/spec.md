@@ -129,29 +129,21 @@ When that flag is present, the join workflow SHALL continue without mutating the
 - **THEN** the join workflow may continue without performing the default Houmao-owned system-skill installation
 - **AND THEN** the command does not mutate the adopted tool home through that default installer path
 
-### Requirement: `houmao-mgr agents join` supports persist-lane controls for adopted sessions
-`houmao-mgr agents join` SHALL accept optional `--persist-dir <path>` and `--no-persist-dir` for both TUI and headless tmux-backed adoption flows.
+### Requirement: `houmao-mgr agents join` creates memo-pages memory for adopted sessions
+`houmao-mgr agents join` SHALL create and persist memory root, memo file, and pages directory for adopted tmux-backed sessions.
 
-`--persist-dir` and `--no-persist-dir` SHALL be mutually exclusive on this surface.
+The command SHALL NOT accept `--persist-dir` or `--no-persist-dir`.
 
-When neither flag is supplied, `agents join` SHALL resolve persist binding from the selected join invocation context's system default behavior.
+A successful join SHALL publish `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into the adopted session environment when the backend supports environment publication.
 
-A successful join SHALL persist the resolved workspace root, scratch lane, persist binding, and optional persist lane for the adopted managed session.
-
-#### Scenario: Joined session resolves default workspace lanes when no override is supplied
+#### Scenario: Joined session resolves default memory pages
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer` without `--persist-dir` or `--no-persist-dir`
-- **THEN** the adopted managed session resolves scratch under `/repo/.houmao/memory/agents/<agent-id>/scratch/`
-- **AND THEN** the adopted managed session resolves persist under `/repo/.houmao/memory/agents/<agent-id>/persist/`
-- **AND THEN** the join persists those resolved workspace lanes for later managed inspection
+- **AND WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer`
+- **THEN** the adopted managed session resolves memory root under `/repo/.houmao/memory/agents/<agent-id>/`
+- **AND THEN** the adopted managed session resolves pages under `/repo/.houmao/memory/agents/<agent-id>/pages/`
+- **AND THEN** the join persists those resolved memory paths for later managed inspection
 
-#### Scenario: Joined session may explicitly disable persistence
-- **WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer --no-persist-dir`
-- **THEN** the adopted managed session resolves persist binding as disabled
-- **AND THEN** the join does not create or publish a persist directory for that session
-- **AND THEN** the join still publishes a scratch lane for that session
-
-#### Scenario: Joined session may bind one explicit shared persist directory
+#### Scenario: Persist flags are not supported on join
 - **WHEN** an operator runs `houmao-mgr agents join --agent-name reviewer --persist-dir /shared/reviewer`
-- **THEN** the adopted managed session resolves persist binding to `/shared/reviewer`
-- **AND THEN** the join persists that exact directory as the session's managed persist binding
+- **THEN** the command fails before adopting the session
+- **AND THEN** the error identifies `--persist-dir` as unsupported

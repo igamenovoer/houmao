@@ -63,8 +63,6 @@ def _write_runtime_manifest(
     runtime_root: Path | None = None,
     tmux_session_name: str = "join-sess",
     session_id: str = "session-1",
-    persist_binding: str | None = None,
-    persist_dir: Path | None = None,
 ) -> Path:
     resolved_runtime_root = (runtime_root or (tmp_path / "runtime")).resolve()
     session_root = (resolved_runtime_root / "sessions" / "codex_headless" / session_id).resolve()
@@ -75,8 +73,9 @@ def _write_runtime_manifest(
     brain_manifest_path.write_text('{"schema_version": 2, "runtime": {}, "credentials": {}}\n')
     agent_def_dir = (tmp_path / "agent-def").resolve()
     agent_def_dir.mkdir(parents=True, exist_ok=True)
-    workspace_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve()
-    workspace_root.mkdir(parents=True, exist_ok=True)
+    memory_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve()
+    pages_dir = (memory_root / "pages").resolve()
+    pages_dir.mkdir(parents=True, exist_ok=True)
     payload = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=_launch_plan(tmp_path, runtime_root=resolved_runtime_root),
@@ -93,11 +92,9 @@ def _write_runtime_manifest(
             tmux_session_name=tmux_session_name,
             session_id=session_id,
             agent_def_dir=agent_def_dir,
-            workspace_root=workspace_root,
-            memo_file=(workspace_root / "houmao-memo.md").resolve(),
-            scratch_dir=(workspace_root / "scratch").resolve(),
-            persist_binding=persist_binding,
-            persist_dir=persist_dir,
+            memory_root=memory_root,
+            memo_file=(memory_root / "houmao-memo.md").resolve(),
+            pages_dir=pages_dir,
         )
     )
     write_session_manifest(manifest_path, payload)
@@ -416,17 +413,13 @@ def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_without
     assert payload["resolution"]["authority"] == "manifest_path"
 
 
-def test_managed_session_cleanup_preserves_persist_dir(
+def test_managed_session_cleanup_preserves_agent_memory_dir(
     tmp_path: Path,
 ) -> None:
-    persist_dir = (tmp_path / "shared-persist" / "agent-a").resolve()
-    persist_dir.mkdir(parents=True, exist_ok=True)
-    (persist_dir / "notes.md").write_text("durable\n", encoding="utf-8")
-    manifest_path = _write_runtime_manifest(
-        tmp_path,
-        persist_binding="exact",
-        persist_dir=persist_dir,
-    )
+    manifest_path = _write_runtime_manifest(tmp_path)
+    memory_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve()
+    page_path = memory_root / "pages" / "notes.md"
+    page_path.write_text("durable\n", encoding="utf-8")
 
     payload = runtime_cleanup.cleanup_managed_session(
         agent_id=None,
@@ -436,8 +429,8 @@ def test_managed_session_cleanup_preserves_persist_dir(
         dry_run=False,
     )
 
-    assert persist_dir.exists()
-    assert (persist_dir / "notes.md").is_file()
+    assert memory_root.exists()
+    assert page_path.is_file()
     affected_paths = {
         action["path"]
         for action in (
@@ -447,7 +440,7 @@ def test_managed_session_cleanup_preserves_persist_dir(
             + payload["preserved_actions"]
         )
     }
-    assert str(persist_dir) not in affected_paths
+    assert str(memory_root) not in affected_paths
 
 
 def test_managed_session_cleanup_missing_manifest_removes_session_root_and_ignores_job_dir(

@@ -12,7 +12,7 @@ Choose this pattern when:
 - the downstream work should hop forward through one ordered sequence of live managed agents before completion,
 - the designated loop egress must return the final result to the loop origin through mailbox email,
 - the sender needs robust resend and deduplication behavior under ambiguous network outcomes,
-- the sender can keep a small mutable loop ledger under `HOUMAO_AGENT_SCRATCH_DIR`.
+- the sender can maintain a small mutable loop ledger through mailbox/reminder state or an operator-designated work artifact path.
 
 Use `houmao-agent-loop-generic` instead when the user needs multi-lane routing, fan-out, mixed pairwise/relay graph planning, graph policy authoring, a rendered graph, root-owned run planning, or `start`/`status`/`stop` run-control actions.
 
@@ -57,14 +57,14 @@ Every hop uses the same `loop_id` and a hop-specific `handoff_id`. A repeated se
 
 The loop egress still sends an immediate receipt to its direct upstream sender before or alongside returning the final result to the origin. Otherwise the previous hop never learns that the egress owns the work.
 
-## Mutable Local Ledger
+## Mutable Loop State
 
-Each agent that owns or sends relay-loop work keeps a small mutable ledger under `HOUMAO_AGENT_SCRATCH_DIR`. Treat this as scratch bookkeeping, not long-term persist-lane memory.
+Each agent that owns or sends relay-loop work keeps a small mutable ledger outside Houmao managed memory. Treat this as pattern bookkeeping, not operator-facing memo/page memory.
 
-Recommended location:
+Location guidance:
 
 ```text
-$HOUMAO_AGENT_SCRATCH_DIR/relay-loops/ledger.json
+Use mailbox records, reminder state, runtime state, or an operator-designated work artifact path for mutable counters and dedupe state. If operators need a readable checkpoint, write a concise summary page under $HOUMAO_AGENT_PAGES_DIR/relay-loops/.
 ```
 
 Minimum fields to record for each active outbound or owned handoff:
@@ -87,7 +87,7 @@ Minimum fields to record for each active outbound or owned handoff:
 
 Receivers also need a durable-enough per-session record of seen inbound `handoff_id` values so they can deduplicate repeated sends.
 
-Do not use `HOUMAO_AGENT_PERSIST_DIR` as the default home for this bookkeeping. The persist lane is the long-term notebook or archive lane, not the normal place for short-lived retry counters, due times, and seen-handoff markers.
+Do not use Houmao managed memory pages as the default home for short-lived retry counters, due times, and seen-handoff markers. Pages are for readable operator-facing context.
 
 ## Sender Workflow
 
@@ -154,7 +154,7 @@ The supervisor reminder should reopen the loop ledger, check mailbox first, adva
 
 ## Optional Self-Mail Checkpoint
 
-If the sender wants a durable backlog marker in addition to the live supervisor reminder, one open self-mail checkpoint per agent is acceptable. Use it as a pointer back to the `HOUMAO_AGENT_SCRATCH_DIR` ledger, not as the authoritative mutable loop ledger itself.
+If the sender wants a durable backlog marker in addition to the live supervisor reminder, one open self-mail checkpoint per agent is acceptable. Use it as a pointer back to the active ledger location or a readable summary page, not as the authoritative mutable loop ledger itself.
 
 If unchanged open self-mail remains in the mailbox, later notifier cycles may still re-enqueue wake prompts while it remains unarchived. Keep the checkpoint idempotent and prune it when no longer needed.
 
@@ -263,7 +263,7 @@ You may mark the loop egress row complete and stop follow-up for result `<result
 
 ```text
 Title: [relay-supervisor] review active relay handoffs
-Prompt: Reopen `$HOUMAO_AGENT_SCRATCH_DIR/relay-loops/ledger.json`, check mailbox first for relay receipts, results, and result acknowledgements, advance completed rows, use `houmao-agent-inspect` to peek downstream agents for due rows, use a narrow active status probe only as the last resort when read-only inspection is inconclusive, resend only due rows whose downstream agents cannot be observed or confirmed as still working, reuse the same loop_id and handoff_id for any resend, update next_review_at and attempt_count, then stop.
+Prompt: Reopen the active relay-loop ledger, check mailbox first for relay receipts, results, and result acknowledgements, advance completed rows, use `houmao-agent-inspect` to peek downstream agents for due rows, use a narrow active status probe only as the last resort when read-only inspection is inconclusive, resend only due rows whose downstream agents cannot be observed or confirmed as still working, reuse the same loop_id and handoff_id for any resend, update next_review_at and attempt_count, then stop.
 Ranking: <smaller value = higher priority>
 Mode: repeat
 Start after: <context-derived delay>
@@ -279,7 +279,7 @@ Reason:
 This unread self-mail is only a durable checkpoint pointer for active handoffs in the relay lane.
 
 Reopen:
-$HOUMAO_AGENT_SCRATCH_DIR/relay-loops/ledger.json
+the active relay-loop ledger or its readable summary page
 
 Required review:
 Check mailbox first for matching relay receipts, results, and result acknowledgements, peek due downstream agents through `houmao-agent-inspect`, and use active status probes only as the last resort before resending any handoff.
@@ -296,5 +296,5 @@ Delete or mark this checkpoint complete once the relay-loop ledger is empty.
 - Do not use mailbox thread ancestry alone as the workflow identity.
 - Do not teach fan-out, multiple relay lanes, or a graph of relay loops as part of this elemental pattern.
 - Do not use one live reminder per active handoff row as the default supervision strategy.
-- Do not store mutable relay-loop bookkeeping in `HOUMAO_AGENT_PERSIST_DIR`.
+- Do not store mutable relay-loop bookkeeping in Houmao managed memory pages.
 - Do not guess materially important timing thresholds when the user needs to set them.

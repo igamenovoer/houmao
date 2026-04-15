@@ -107,7 +107,7 @@ This creates a `.houmao/` overlay in your project directory. The overlay holds:
 - **agents/** — specialist definitions, roles, recipes, launch profiles
 - **content/** — projected credentials, prompts, setups, skills
 - **mailbox/** — filesystem mailbox root for inter-agent messaging
-- **memory/** — per-agent workspace roots, memo files, and scratch/persist lanes
+- **memory/** — per-agent memory roots, free-form memo files, and pages
 - **catalog.sqlite** — specialist and profile catalog
 - **houmao-config.toml** — project configuration
 
@@ -134,7 +134,7 @@ houmao-mgr agents state  --agent-name my-coder
 houmao-mgr agents stop   --agent-name my-coder
 ```
 
-For reusable birth-time defaults (fixed agent name, working directory, mailbox, auth lane), create an **easy profile** over a specialist with `houmao-mgr project easy profile create --specialist my-coder --name my-coder-default ...`. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full easy lane, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared conceptual model, and the [Managed Agent Workspaces guide](docs/getting-started/managed-memory-dirs.md) for per-agent workspace roots, memo files, and scratch/persist lanes.
+For reusable birth-time defaults (fixed agent name, working directory, mailbox, auth lane), create an **easy profile** over a specialist with `houmao-mgr project easy profile create --specialist my-coder --name my-coder-default ...`. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full easy lane, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared conceptual model, and the [Managed Agent Memory guide](docs/getting-started/managed-memory-dirs.md) for per-agent memory roots, free-form memo files, and pages.
 
 ### 4. Agent Loop: Multi-Agent Coordination
 
@@ -343,12 +343,12 @@ Once `agents join` completes, the adopted session has the same management capabi
 | Interrupt a running turn | `houmao-mgr agents interrupt --agent-name <name>` |
 | Attach to a gateway | `houmao-mgr agents gateway attach --agent-name <name>` |
 | Send / receive mailbox messages | `houmao-mgr agents mail send --agent-name <name>` |
-| Inspect workspace path and memo | `houmao-mgr agents workspace path --agent-name <name>` / `memo show` |
+| Inspect memory paths, memo, and page links | `houmao-mgr agents memory path --agent-name <name>` / `memo show` / `resolve --path <page>` |
 | Stop the agent | `houmao-mgr agents stop --agent-name <name>` |
 
 The only difference: a joined agent has a *placeholder* brain manifest (no skills/configs were projected), and relaunch support depends on whether you provided `--launch-args` at join time.
 
-> **Managed prompt header.** Both `agents launch` and `agents join` prepend a Houmao-owned prompt header with five independently controllable sections: **identity**, **houmao-runtime-guidance**, and **automation-notice** are enabled by default; **task-reminder** and **mail-ack** are disabled by default and opt-in per launch or profile. The automation-notice section prevents interactive user-question tools (e.g. `AskUserQuestion`) and routes mailbox-driven clarification to reply-enabled mailbox threads. Control individual sections with `--managed-header-section SECTION=enabled|disabled`, opt out of the whole header with `--no-managed-header`, or persist policy on stored launch profiles. See the [Managed Launch Prompt Header](docs/reference/run-phase/managed-prompt-header.md) reference for the full section list, composition order, and precedence rules.
+> **Managed prompt header.** Both `agents launch` and `agents join` prepend a Houmao-owned prompt header with six independently controllable sections: **identity**, **memo-cue**, **houmao-runtime-guidance**, and **automation-notice** are enabled by default; **task-reminder** and **mail-ack** are disabled by default and opt-in per launch or profile. The memo-cue section points the agent at the resolved absolute `houmao-memo.md` path for each prompt turn. The automation-notice section prevents interactive user-question tools (e.g. `AskUserQuestion`) and routes mailbox-driven clarification to reply-enabled mailbox threads. Control individual sections with `--managed-header-section SECTION=enabled|disabled`, opt out of the whole header with `--no-managed-header`, or persist policy on stored launch profiles. See the [Managed Launch Prompt Header](docs/reference/run-phase/managed-prompt-header.md) reference for the full section list, composition order, and precedence rules.
 
 ### 6. Full Recipes and Launch Profiles
 
@@ -376,7 +376,7 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 ## System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists, manage credentials, inspect definitions, inspect live managed agents, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
 
 | Skill | What it enables |
 |---|---|
@@ -390,6 +390,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
 | `houmao-agent-gateway` | Attach, detach, discover, and inspect live gateways, use gateway-only control surfaces, schedule ranked reminders, and manage gateway mail-notifier behavior |
 | `houmao-mailbox-mgr` | Create, inspect, repair, and clean filesystem mailbox roots; manage mailbox registrations; and manage late filesystem mailbox binding for existing local managed agents |
+| `houmao-memory-mgr` | Inspect, edit, append to, prune, and organize the fixed `houmao-memo.md` file and contained `pages/` files through supported managed memory commands |
 | `houmao-agent-email-comms` | Ordinary shared-mailbox operations and the no-gateway fallback path; the canonical mailbox-operations skill paired with `houmao-mgr agents mail` |
 | `houmao-process-emails-via-gateway` | Round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL |
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds |
@@ -397,7 +398,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-agent-loop-pairwise-v2` | Enriched pairwise workflow: author plans, run `initialize`, and operate accepted runs through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill` |
 | `houmao-agent-loop-generic` | Decompose generic multi-agent loop graphs into typed pairwise and relay components, render the final graph, and operate accepted root-owned runs through `start`, `status`, and `stop` |
 
-`agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`, managed homes gain the project-management front door plus the stable pairwise, enriched pairwise-v2, and generic loop graph-planning skills by default, `houmao-agent-inspect` is available there as the generic read-only inspection entrypoint, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
+`agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`, managed homes gain the project-management front door plus the stable pairwise, enriched pairwise-v2, and generic loop graph-planning skills by default, `houmao-memory-mgr` is available there for memo/pages memory work, `houmao-agent-inspect` is available there as the generic read-only inspection entrypoint, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
 
 ```bash
 houmao-mgr system-skills install --tool claude

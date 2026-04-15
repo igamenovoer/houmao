@@ -22,16 +22,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
-    GatewayWorkspaceActionResponseV1,
-    GatewayWorkspaceFileResponseV1,
-    GatewayWorkspaceFileWriteRequestV1,
-    GatewayWorkspaceLanePathRequestV1,
-    GatewayWorkspaceLaneRequestV1,
-    GatewayWorkspaceMemoResponseV1,
-    GatewayWorkspaceMemoWriteRequestV1,
-    GatewayWorkspaceSummaryV1,
-    GatewayWorkspaceTreeRequestV1,
-    GatewayWorkspaceTreeResponseV1,
+    GatewayMemoryActionResponseV1,
+    GatewayMemoryMemoResponseV1,
+    GatewayMemoryMemoWriteRequestV1,
+    GatewayMemoryPagePathRequestV1,
+    GatewayMemoryPagePathResolutionV1,
+    GatewayMemoryPageResponseV1,
+    GatewayMemoryPageTreeRequestV1,
+    GatewayMemoryPageTreeResponseV1,
+    GatewayMemoryPageWriteRequestV1,
+    GatewayMemorySummaryV1,
 )
 from houmao.cao.rest_client import (
     DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
@@ -409,146 +409,146 @@ class HoumaoServerClient(CaoRestClient):
             GatewayStatusV1,
         )
 
-    def get_managed_agent_gateway_workspace(self, agent_ref: str) -> GatewayWorkspaceSummaryV1:
-        """Call `GET /houmao/agents/{agent_ref}/gateway/workspace`."""
+    def get_managed_agent_gateway_memory(self, agent_ref: str) -> GatewayMemorySummaryV1:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/memory`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "GET",
-            f"/houmao/agents/{escaped}/gateway/workspace",
-            GatewayWorkspaceSummaryV1,
+            f"/houmao/agents/{escaped}/gateway/memory",
+            GatewayMemorySummaryV1,
         )
 
-    def get_managed_agent_gateway_workspace_memo(
+    def get_managed_agent_gateway_memory_memo(
         self,
         agent_ref: str,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Call `GET /houmao/agents/{agent_ref}/gateway/workspace/memo`."""
+    ) -> GatewayMemoryMemoResponseV1:
+        """Call `GET /houmao/agents/{agent_ref}/gateway/memory/memo`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "GET",
-            f"/houmao/agents/{escaped}/gateway/workspace/memo",
-            GatewayWorkspaceMemoResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/memo",
+            GatewayMemoryMemoResponseV1,
         )
 
-    def put_managed_agent_gateway_workspace_memo(
+    def put_managed_agent_gateway_memory_memo(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Call `PUT /houmao/agents/{agent_ref}/gateway/workspace/memo`."""
+        request_model: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Call `PUT /houmao/agents/{agent_ref}/gateway/memory/memo`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "PUT",
-            f"/houmao/agents/{escaped}/gateway/workspace/memo",
-            GatewayWorkspaceMemoResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/memo",
+            GatewayMemoryMemoResponseV1,
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def append_managed_agent_gateway_workspace_memo(
+    def append_managed_agent_gateway_memory_memo(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/memo/append`."""
+        request_model: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/memory/memo/append`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/gateway/workspace/memo/append",
-            GatewayWorkspaceMemoResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/memo/append",
+            GatewayMemoryMemoResponseV1,
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def list_managed_agent_gateway_workspace_tree(
+    def list_managed_agent_gateway_memory_pages(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceTreeRequestV1,
-    ) -> GatewayWorkspaceTreeResponseV1:
-        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/tree`."""
+        request_model: GatewayMemoryPageTreeRequestV1,
+    ) -> GatewayMemoryPageTreeResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/memory/pages/tree`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/gateway/workspace/lane/tree",
-            GatewayWorkspaceTreeResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/pages/tree",
+            GatewayMemoryPageTreeResponseV1,
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def read_managed_agent_gateway_workspace_file(
+    def resolve_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceFileResponseV1:
-        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/read`."""
+        request_model: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPagePathResolutionV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/memory/pages/resolve`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/gateway/workspace/lane/read",
-            GatewayWorkspaceFileResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/pages/resolve",
+            GatewayMemoryPagePathResolutionV1,
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def write_managed_agent_gateway_workspace_file(
+    def read_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/write`."""
+        request_model: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPageResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/memory/pages/read`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/gateway/workspace/lane/write",
-            GatewayWorkspaceActionResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/pages/read",
+            GatewayMemoryPageResponseV1,
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def append_managed_agent_gateway_workspace_file(
+    def write_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/append`."""
+        request_model: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/memory/pages/write`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/gateway/workspace/lane/append",
-            GatewayWorkspaceActionResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/pages/write",
+            GatewayMemoryActionResponseV1,
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def delete_managed_agent_gateway_workspace_path(
+    def append_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/delete`."""
+        request_model: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/memory/pages/append`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/gateway/workspace/lane/delete",
-            GatewayWorkspaceActionResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/pages/append",
+            GatewayMemoryActionResponseV1,
             json_body=request_model.model_dump(mode="json"),
         )
 
-    def clear_managed_agent_gateway_workspace_lane(
+    def delete_managed_agent_gateway_memory_page(
         self,
         agent_ref: str,
-        request_model: GatewayWorkspaceLaneRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /houmao/agents/{agent_ref}/gateway/workspace/lane/clear`."""
+        request_model: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Call `POST /houmao/agents/{agent_ref}/gateway/memory/pages/delete`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/gateway/workspace/lane/clear",
-            GatewayWorkspaceActionResponseV1,
+            f"/houmao/agents/{escaped}/gateway/memory/pages/delete",
+            GatewayMemoryActionResponseV1,
             json_body=request_model.model_dump(mode="json"),
         )
 

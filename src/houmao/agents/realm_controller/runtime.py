@@ -16,15 +16,13 @@ from pathlib import Path
 from typing import Any, Callable, Literal, cast
 
 from houmao.agents.agent_workspace import (
+    HOUMAO_AGENT_MEMORY_DIR_ENV_VAR,
     HOUMAO_AGENT_MEMO_FILE_ENV_VAR,
-    HOUMAO_AGENT_PERSIST_DIR_ENV_VAR,
-    HOUMAO_AGENT_SCRATCH_DIR_ENV_VAR,
-    HOUMAO_AGENT_STATE_DIR_ENV_VAR,
-    AgentWorkspacePaths,
-    ResolvedPersistBinding,
-    ensure_agent_workspace,
-    resolve_agent_workspace,
-    workspace_env,
+    HOUMAO_AGENT_PAGES_DIR_ENV_VAR,
+    AgentMemoryPaths,
+    ensure_agent_memory,
+    memory_env,
+    resolve_agent_memory,
 )
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
@@ -268,13 +266,20 @@ _GATEWAY_TMUX_PANE_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_PANE_ID"
 _BRAIN_ONLY_ROLE_NAME = "brain-only"
 _JOINED_SESSION_ORIGIN = "joined_tmux"
 _LOGGER = logging.getLogger(__name__)
-_RETIRED_WORKSPACE_ENV_VARS = frozenset({"HOUMAO_JOB_DIR", "HOUMAO_MEMORY_DIR"})
-_WORKSPACE_ENV_VARS = frozenset(
+_RETIRED_MEMORY_ENV_VARS = frozenset(
     {
-        HOUMAO_AGENT_STATE_DIR_ENV_VAR,
+        "HOUMAO_JOB_DIR",
+        "HOUMAO_MEMORY_DIR",
+        "HOUMAO_AGENT_STATE_DIR",
+        "HOUMAO_AGENT_SCRATCH_DIR",
+        "HOUMAO_AGENT_PERSIST_DIR",
+    }
+)
+_MEMORY_ENV_VARS = frozenset(
+    {
+        HOUMAO_AGENT_MEMORY_DIR_ENV_VAR,
         HOUMAO_AGENT_MEMO_FILE_ENV_VAR,
-        HOUMAO_AGENT_SCRATCH_DIR_ENV_VAR,
-        HOUMAO_AGENT_PERSIST_DIR_ENV_VAR,
+        HOUMAO_AGENT_PAGES_DIR_ENV_VAR,
     }
 )
 _RETIRED_MAILBOX_METADATA_KEYS = frozenset(
@@ -355,11 +360,9 @@ class RuntimeSessionController:
     agent_identity: str | None = None
     agent_id: str | None = None
     tmux_session_name: str | None = None
-    workspace_root: Path | None = None
+    memory_root: Path | None = None
     memo_file: Path | None = None
-    scratch_dir: Path | None = None
-    persist_binding: Literal["auto", "exact", "disabled"] | None = None
-    persist_dir: Path | None = None
+    pages_dir: Path | None = None
     agent_identity_warnings: tuple[str, ...] = ()
     startup_warnings: tuple[str, ...] = ()
     parsing_mode: CaoParsingMode | None = None
@@ -798,11 +801,9 @@ class RuntimeSessionController:
                 agent_id=self.agent_id,
                 tmux_session_name=self.tmux_session_name,
                 session_id=_runtime_session_id_from_manifest_path(self.manifest_path),
-                workspace_root=self.workspace_root,
+                memory_root=self.memory_root,
                 memo_file=self.memo_file,
-                scratch_dir=self.scratch_dir,
-                persist_binding=self.persist_binding,
-                persist_dir=self.persist_dir,
+                pages_dir=self.pages_dir,
                 agent_def_dir=self.agent_def_dir,
                 registry_generation_id=self.registry_generation_id,
                 registry_launch_authority=self.registry_launch_authority,
@@ -865,9 +866,9 @@ class RuntimeSessionController:
         }
         if self.agent_id is not None:
             stable_discovery_env[AGENT_ID_ENV_VAR] = self.agent_id
-        workspace = _workspace_from_controller(self)
-        if workspace is not None:
-            stable_discovery_env.update(workspace_env(workspace))
+        memory = _memory_from_controller(self)
+        if memory is not None:
+            stable_discovery_env.update(memory_env(memory))
         set_tmux_session_environment_shared(
             session_name=session_name,
             env_vars=stable_discovery_env,
@@ -881,12 +882,7 @@ class RuntimeSessionController:
                             AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
                             AGENT_GATEWAY_ROOT_ENV_VAR,
                         ]
-                        + sorted(_RETIRED_WORKSPACE_ENV_VARS)
-                        + (
-                            [HOUMAO_AGENT_PERSIST_DIR_ENV_VAR]
-                            if workspace is None or workspace.persist_dir is None
-                            else []
-                        )
+                        + sorted(_RETIRED_MEMORY_ENV_VARS)
                     ),
                 )
             except TmuxCommandError:
@@ -1099,8 +1095,7 @@ def start_runtime_session(
     role_name: str | None,
     runtime_root: Path | None = None,
     jobs_root: Path | None = None,
-    workspace_paths: AgentWorkspacePaths | None = None,
-    persist_binding: ResolvedPersistBinding | None = None,
+    memory_paths: AgentMemoryPaths | None = None,
     backend: BackendKind | None = None,
     working_directory: Path | None = None,
     api_base_url: str = "http://localhost:9889",
@@ -1217,18 +1212,15 @@ def start_runtime_session(
         )
 
     _ = jobs_root
-    resolved_workspace = workspace_paths
+    resolved_memory = memory_paths
     if selected_backend in _TMUX_BACKED_BACKENDS and resolved_runtime_identity is not None:
-        if resolved_workspace is None:
+        if resolved_memory is None:
             source_roots = resolve_project_aware_local_roots(cwd=selected_workdir)
-            resolved_workspace = resolve_agent_workspace(
+            resolved_memory = resolve_agent_memory(
                 overlay_root=source_roots.overlay_root,
                 agent_id=resolved_runtime_identity.agent_id,
-                explicit_persist_dir=None,
-                disable_persist_dir=False,
-                persist_binding=persist_binding,
             )
-        ensure_agent_workspace(resolved_workspace)
+        ensure_agent_memory(resolved_memory)
 
     declared_mailbox = _declared_mailbox_from_manifest(
         manifest,
@@ -1279,9 +1271,9 @@ def start_runtime_session(
             mailbox=resolved_mailbox,
         )
     )
-    launch_plan = _launch_plan_with_workspace(
+    launch_plan = _launch_plan_with_memory(
         launch_plan,
-        workspace=resolved_workspace,
+        memory=resolved_memory,
     )
     launch_plan = _launch_plan_with_transient_env_overrides(
         launch_plan,
@@ -1340,15 +1332,9 @@ def start_runtime_session(
         if resolved_runtime_identity is not None
         else None,
         tmux_session_name=resolved_tmux_session_name,
-        workspace_root=resolved_workspace.workspace_root
-        if resolved_workspace is not None
-        else None,
-        memo_file=resolved_workspace.memo_file if resolved_workspace is not None else None,
-        scratch_dir=resolved_workspace.scratch_dir if resolved_workspace is not None else None,
-        persist_binding=resolved_workspace.persist_binding
-        if resolved_workspace is not None
-        else None,
-        persist_dir=resolved_workspace.persist_dir if resolved_workspace is not None else None,
+        memory_root=resolved_memory.memory_root if resolved_memory is not None else None,
+        memo_file=resolved_memory.memo_file if resolved_memory is not None else None,
+        pages_dir=resolved_memory.pages_dir if resolved_memory is not None else None,
         agent_identity_warnings=agent_identity_warnings,
         startup_warnings=startup_warnings,
         parsing_mode=resolved_parsing_mode,
@@ -1464,9 +1450,9 @@ def resume_runtime_session(
     role_name = manifest_payload.role_name
     brain_manifest_path = Path(manifest_payload.brain_manifest_path).resolve()
     role_package = load_role_package(agent_def_dir, role_name)
-    workspace = _workspace_from_manifest_payload(payload=manifest_payload)
-    if workspace is not None:
-        ensure_agent_workspace(workspace)
+    memory = _memory_from_manifest_payload(payload=manifest_payload)
+    if memory is not None:
+        ensure_agent_memory(memory)
 
     resolved_mailbox = _resolved_mailbox_from_manifest_payload(
         manifest_payload,
@@ -1504,7 +1490,7 @@ def resume_runtime_session(
                 **dict(manifest_payload.launch_plan.metadata),
             },
         )
-    launch_plan = _launch_plan_with_workspace(launch_plan, workspace=workspace)
+    launch_plan = _launch_plan_with_memory(launch_plan, memory=memory)
 
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
@@ -1538,11 +1524,9 @@ def resume_runtime_session(
         agent_identity=manifest_payload.agent_name,
         agent_id=manifest_payload.agent_id,
         tmux_session_name=resolved_tmux_session_name or manifest_payload.tmux_session_name,
-        workspace_root=workspace.workspace_root if workspace is not None else None,
-        memo_file=workspace.memo_file if workspace is not None else None,
-        scratch_dir=workspace.scratch_dir if workspace is not None else None,
-        persist_binding=workspace.persist_binding if workspace is not None else None,
-        persist_dir=workspace.persist_dir if workspace is not None else None,
+        memory_root=memory.memory_root if memory is not None else None,
+        memo_file=memory.memo_file if memory is not None else None,
+        pages_dir=memory.pages_dir if memory is not None else None,
         parsing_mode=(
             backend_session.state.parsing_mode
             if isinstance(backend_session, CaoRestSession)
@@ -2507,23 +2491,23 @@ def _normalize_optional_mailbox_text(value: str | None, *, field_name: str) -> s
     return stripped
 
 
-def _launch_plan_with_workspace(
+def _launch_plan_with_memory(
     launch_plan: LaunchPlan,
     *,
-    workspace: AgentWorkspacePaths | None,
+    memory: AgentMemoryPaths | None,
 ) -> LaunchPlan:
-    """Return a launch plan with the effective workspace env binding injected."""
+    """Return a launch plan with the effective memory env binding injected."""
 
     updated_env = dict(launch_plan.env)
-    for env_var_name in _WORKSPACE_ENV_VARS | _RETIRED_WORKSPACE_ENV_VARS:
+    for env_var_name in _MEMORY_ENV_VARS | _RETIRED_MEMORY_ENV_VARS:
         updated_env.pop(env_var_name, None)
     updated_env_var_names = set(launch_plan.env_var_names)
-    updated_env_var_names.difference_update(_WORKSPACE_ENV_VARS)
-    updated_env_var_names.difference_update(_RETIRED_WORKSPACE_ENV_VARS)
-    if workspace is not None:
-        workspace_values = workspace_env(workspace)
-        updated_env.update(workspace_values)
-        updated_env_var_names.update(workspace_values)
+    updated_env_var_names.difference_update(_MEMORY_ENV_VARS)
+    updated_env_var_names.difference_update(_RETIRED_MEMORY_ENV_VARS)
+    if memory is not None:
+        memory_values = memory_env(memory)
+        updated_env.update(memory_values)
+        updated_env_var_names.update(memory_values)
     return replace(
         launch_plan,
         env=updated_env,
@@ -2617,9 +2601,9 @@ def _build_provider_start_launch_plan_for_relaunch(
                     session_manifest_path=controller.manifest_path,
                 ),
             )
-            updated_launch_plan = _launch_plan_with_workspace(
+            updated_launch_plan = _launch_plan_with_memory(
                 updated_launch_plan,
-                workspace=_workspace_from_controller(controller),
+                memory=_memory_from_controller(controller),
             )
             return updated_launch_plan
 
@@ -2631,6 +2615,7 @@ def _build_provider_start_launch_plan_for_relaunch(
     manifest = load_brain_manifest(controller.brain_manifest_path)
     role_package = load_role_package(controller.agent_def_dir, controller.role_name)
     stored_role_prompt = _stored_role_prompt_from_brain_manifest(manifest)
+    controller_memory = _memory_from_controller(controller)
     if stored_role_prompt is not None:
         role_package = replace(role_package, system_prompt=stored_role_prompt)
     else:
@@ -2669,6 +2654,9 @@ def _build_provider_start_launch_plan_for_relaunch(
                 managed_header_enabled=managed_header_decision.enabled,
                 agent_name=resolved_agent_name,
                 agent_id=resolved_agent_id,
+                memo_file=(
+                    str(controller_memory.memo_file) if controller_memory is not None else None
+                ),
             ),
         )
     updated_launch_plan = build_launch_plan(
@@ -2681,9 +2669,9 @@ def _build_provider_start_launch_plan_for_relaunch(
             intent="provider_start",
         )
     )
-    updated_launch_plan = _launch_plan_with_workspace(
+    updated_launch_plan = _launch_plan_with_memory(
         updated_launch_plan,
-        workspace=_workspace_from_controller(controller),
+        memory=controller_memory,
     )
     return _launch_plan_with_headless_display_controls(
         updated_launch_plan,
@@ -2696,48 +2684,40 @@ def _build_provider_start_launch_plan_for_relaunch(
     )
 
 
-def _workspace_from_controller(
+def _memory_from_controller(
     controller: RuntimeSessionController,
-) -> AgentWorkspacePaths | None:
-    """Return the controller's resolved workspace when one exists."""
+) -> AgentMemoryPaths | None:
+    """Return the controller's resolved memory paths when they exist."""
 
     if (
-        controller.workspace_root is None
+        controller.memory_root is None
         or controller.memo_file is None
-        or controller.scratch_dir is None
-        or controller.persist_binding is None
+        or controller.pages_dir is None
     ):
         return None
-    return AgentWorkspacePaths(
-        workspace_root=controller.workspace_root,
+    return AgentMemoryPaths(
+        memory_root=controller.memory_root,
         memo_file=controller.memo_file,
-        scratch_dir=controller.scratch_dir,
-        persist_binding=controller.persist_binding,
-        persist_dir=controller.persist_dir,
+        pages_dir=controller.pages_dir,
     )
 
 
-def _workspace_from_manifest_payload(
+def _memory_from_manifest_payload(
     *,
     payload: SessionManifestPayloadV4,
-) -> AgentWorkspacePaths | None:
-    """Return the resolved workspace stored in one session manifest."""
+) -> AgentMemoryPaths | None:
+    """Return the resolved memory paths stored in one session manifest."""
 
     if (
-        payload.runtime.workspace_root is None
+        payload.runtime.memory_root is None
         or payload.runtime.memo_file is None
-        or payload.runtime.scratch_dir is None
-        or payload.runtime.persist_binding is None
+        or payload.runtime.pages_dir is None
     ):
         return None
-    return AgentWorkspacePaths(
-        workspace_root=Path(payload.runtime.workspace_root).resolve(),
+    return AgentMemoryPaths(
+        memory_root=Path(payload.runtime.memory_root).resolve(),
         memo_file=Path(payload.runtime.memo_file).resolve(),
-        scratch_dir=Path(payload.runtime.scratch_dir).resolve(),
-        persist_binding=payload.runtime.persist_binding,
-        persist_dir=Path(payload.runtime.persist_dir).resolve()
-        if payload.runtime.persist_dir is not None
-        else None,
+        pages_dir=Path(payload.runtime.pages_dir).resolve(),
     )
 
 

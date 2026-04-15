@@ -897,27 +897,6 @@ def _resolve_managed_header_section_policy_for_storage(
     return resolved
 
 
-def _resolve_persist_dir_option_or_click(
-    *,
-    persist_dir: Path | None,
-    no_persist_dir: bool,
-    clear_persist_dir: bool = False,
-) -> tuple[Path | None, bool, bool]:
-    """Resolve normalized persist-lane CLI inputs."""
-
-    if persist_dir is not None and no_persist_dir:
-        raise click.ClickException("`--persist-dir` and `--no-persist-dir` are mutually exclusive.")
-    if clear_persist_dir and (persist_dir is not None or no_persist_dir):
-        raise click.ClickException(
-            "`--persist-dir`, `--no-persist-dir`, and `--clear-persist-dir` are mutually exclusive."
-        )
-    return (
-        persist_dir.expanduser().resolve() if persist_dir is not None else None,
-        no_persist_dir,
-        clear_persist_dir,
-    )
-
-
 def _build_profile_mailbox_mapping_or_click(
     *,
     mail_transport: str | None,
@@ -1042,9 +1021,6 @@ def _store_launch_profile_from_cli(
     agent_id: str | None,
     workdir: str | None,
     auth: str | None,
-    persist_dir: Path | None,
-    no_persist_dir: bool,
-    clear_persist_dir: bool,
     model: str | None,
     reasoning_level: int | None,
     prompt_mode: str | None,
@@ -1138,13 +1114,6 @@ def _store_launch_profile_from_cli(
             prompt_overlay_file=prompt_overlay_file,
         )
     )
-    resolved_persist_dir_option, resolved_no_persist_dir, resolved_clear_persist_dir = (
-        _resolve_persist_dir_option_or_click(
-            persist_dir=persist_dir,
-            no_persist_dir=no_persist_dir,
-            clear_persist_dir=clear_persist_dir,
-        )
-    )
     env_mapping = (
         {}
         if clear_env
@@ -1170,10 +1139,6 @@ def _store_launch_profile_from_cli(
         resolved_agent_id = _optional_non_empty_value(agent_id)
         resolved_workdir = _optional_non_empty_value(workdir)
         resolved_auth = _optional_non_empty_value(auth)
-        resolved_persist_dir = (
-            str(resolved_persist_dir_option) if resolved_persist_dir_option is not None else None
-        )
-        resolved_persist_disabled = resolved_no_persist_dir
         resolved_model_config = _build_model_config_or_click(
             model_name=resolved_model_input,
             reasoning_level=reasoning_level,
@@ -1231,18 +1196,6 @@ def _store_launch_profile_from_cli(
             if clear_auth
             else (_optional_non_empty_value(auth) if auth is not None else current.entry.auth_name)
         )
-        if resolved_clear_persist_dir:
-            resolved_persist_dir = None
-            resolved_persist_disabled = False
-        elif resolved_no_persist_dir:
-            resolved_persist_dir = None
-            resolved_persist_disabled = True
-        elif resolved_persist_dir_option is not None:
-            resolved_persist_dir = str(resolved_persist_dir_option)
-            resolved_persist_disabled = False
-        else:
-            resolved_persist_dir = current.entry.persist_dir
-            resolved_persist_disabled = current.entry.persist_disabled
         if clear_model and model is not None:
             raise click.ClickException("`--model` cannot be combined with `--clear-model`.")
         if clear_reasoning_level and reasoning_level is not None:
@@ -1324,9 +1277,6 @@ def _store_launch_profile_from_cli(
             clear_workdir,
             auth is not None,
             clear_auth,
-            persist_dir is not None,
-            no_persist_dir,
-            clear_persist_dir,
             model is not None,
             clear_model,
             reasoning_level is not None,
@@ -1365,8 +1315,6 @@ def _store_launch_profile_from_cli(
         workdir=resolved_workdir,
         auth_tool=source.tool,
         auth_name=resolved_auth,
-        persist_dir=resolved_persist_dir,
-        persist_disabled=resolved_persist_disabled,
         model_name=resolved_model_config.name if resolved_model_config is not None else None,
         reasoning_level=(
             resolved_model_config.reasoning.level
@@ -1517,19 +1465,13 @@ def _instance_payload(
         "project_agent_def_dir": runtime_payload.get("agent_def_dir")
         if isinstance(runtime_payload, dict)
         else None,
-        "workspace_root": runtime_payload.get("workspace_root")
+        "memory_root": runtime_payload.get("memory_root")
         if isinstance(runtime_payload, dict)
         else None,
         "memo_file": runtime_payload.get("memo_file")
         if isinstance(runtime_payload, dict)
         else None,
-        "scratch_dir": runtime_payload.get("scratch_dir")
-        if isinstance(runtime_payload, dict)
-        else None,
-        "persist_binding": runtime_payload.get("persist_binding")
-        if isinstance(runtime_payload, dict)
-        else None,
-        "persist_dir": runtime_payload.get("persist_dir")
+        "pages_dir": runtime_payload.get("pages_dir")
         if isinstance(runtime_payload, dict)
         else None,
         "mailbox": mailbox_payload,
@@ -1969,7 +1911,6 @@ __all__ = [
     "_managed_header_section_policy_from_options",
     "_managed_header_section_names_from_options",
     "_resolve_managed_header_section_policy_for_storage",
-    "_resolve_persist_dir_option_or_click",
     "_build_profile_mailbox_mapping_or_click",
     "_stored_mailbox_or_click",
     "_resolve_profile_posture_mapping",

@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from click.testing import CliRunner
 
-from houmao.srv_ctrl.commands.agents import workspace as workspace_commands
+from houmao.srv_ctrl.commands.agents import workspace as memory_commands
 from houmao.srv_ctrl.commands.main import cli
 from houmao.srv_ctrl.commands.managed_agents import ManagedAgentTarget
 
@@ -18,23 +18,18 @@ def _json_payload(output: str) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(output))
 
 
-def _local_workspace_target(tmp_path: Path, *, persist_enabled: bool = True) -> ManagedAgentTarget:
-    """Build one local managed-agent target with manifest-backed workspace fields."""
+def _local_memory_target(tmp_path: Path) -> ManagedAgentTarget:
+    """Build one local managed-agent target with manifest-backed memory fields."""
 
-    workspace_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-123").resolve()
-    persist_dir = (workspace_root / "persist").resolve() if persist_enabled else None
+    memory_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-123").resolve()
     controller = SimpleNamespace(
-        workspace_root=workspace_root,
-        memo_file=(workspace_root / "houmao-memo.md").resolve(),
-        scratch_dir=(workspace_root / "scratch").resolve(),
-        persist_binding="auto" if persist_enabled else "disabled",
-        persist_dir=persist_dir,
+        memory_root=memory_root,
+        memo_file=(memory_root / "houmao-memo.md").resolve(),
+        pages_dir=(memory_root / "pages").resolve(),
     )
-    controller.scratch_dir.mkdir(parents=True, exist_ok=True)
+    controller.pages_dir.mkdir(parents=True, exist_ok=True)
     controller.memo_file.parent.mkdir(parents=True, exist_ok=True)
     controller.memo_file.touch()
-    if persist_dir is not None:
-        persist_dir.mkdir(parents=True, exist_ok=True)
     return ManagedAgentTarget(
         mode="local",
         agent_ref="agent-123",
@@ -43,13 +38,10 @@ def _local_workspace_target(tmp_path: Path, *, persist_enabled: bool = True) -> 
     )
 
 
-def test_workspace_cli_memo_and_file_operations(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    target = _local_workspace_target(tmp_path)
+def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path) -> None:
+    target = _local_memory_target(tmp_path)
     monkeypatch.setattr(
-        workspace_commands,
+        memory_commands,
         "resolve_managed_agent_target",
         lambda **kwargs: target,
     )
@@ -57,19 +49,19 @@ def test_workspace_cli_memo_and_file_operations(
 
     path_result = runner.invoke(
         cli,
-        ["--print-json", "agents", "workspace", "path", "--agent-id", "agent-123"],
+        ["--print-json", "agents", "memory", "path", "--agent-id", "agent-123"],
     )
     assert path_result.exit_code == 0
     path_payload = _json_payload(path_result.output)
-    assert path_payload["workspace_root"] == str(target.controller.workspace_root)
-    assert path_payload["persist_binding"] == "auto"
+    assert path_payload["memory_root"] == str(target.controller.memory_root)
+    assert path_payload["pages_dir"] == str(target.controller.pages_dir)
 
     set_result = runner.invoke(
         cli,
         [
             "--print-json",
             "agents",
-            "workspace",
+            "memory",
             "memo",
             "set",
             "--agent-id",
@@ -86,7 +78,7 @@ def test_workspace_cli_memo_and_file_operations(
         [
             "--print-json",
             "agents",
-            "workspace",
+            "memory",
             "memo",
             "append",
             "--agent-id",
@@ -103,12 +95,10 @@ def test_workspace_cli_memo_and_file_operations(
         [
             "--print-json",
             "agents",
-            "workspace",
+            "memory",
             "write",
             "--agent-id",
             "agent-123",
-            "--lane",
-            "scratch",
             "--path",
             "notes/todo.txt",
             "--content",
@@ -116,19 +106,20 @@ def test_workspace_cli_memo_and_file_operations(
         ],
     )
     assert write_result.exit_code == 0
-    assert _json_payload(write_result.output)["action"] == "write_file"
+    write_payload = _json_payload(write_result.output)
+    assert write_payload["action"] == "write_page"
+    assert write_payload["relative_link"] == "pages/notes/todo.txt"
+    assert write_payload["absolute_path"] == str(target.controller.pages_dir / "notes" / "todo.txt")
 
     append_file_result = runner.invoke(
         cli,
         [
             "--print-json",
             "agents",
-            "workspace",
+            "memory",
             "append",
             "--agent-id",
             "agent-123",
-            "--lane",
-            "scratch",
             "--path",
             "notes/todo.txt",
             "--content",
@@ -137,103 +128,77 @@ def test_workspace_cli_memo_and_file_operations(
     )
     assert append_file_result.exit_code == 0
 
+    resolve_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "memory",
+            "resolve",
+            "--agent-id",
+            "agent-123",
+            "--path",
+            "notes/todo.txt",
+        ],
+    )
+    assert resolve_result.exit_code == 0
+    resolve_payload = _json_payload(resolve_result.output)
+    assert resolve_payload["path"] == "notes/todo.txt"
+    assert resolve_payload["relative_link"] == "pages/notes/todo.txt"
+    assert resolve_payload["exists"] is True
+    assert resolve_payload["kind"] == "file"
+
     read_result = runner.invoke(
         cli,
         [
             "--print-json",
             "agents",
-            "workspace",
+            "memory",
             "read",
             "--agent-id",
             "agent-123",
-            "--lane",
-            "scratch",
             "--path",
             "notes/todo.txt",
         ],
     )
     assert read_result.exit_code == 0
-    assert _json_payload(read_result.output)["content"] == "one\ntwo"
+    read_payload = _json_payload(read_result.output)
+    assert read_payload["content"] == "one\ntwo"
+    assert read_payload["relative_link"] == "pages/notes/todo.txt"
 
     tree_result = runner.invoke(
         cli,
-        [
-            "--print-json",
-            "agents",
-            "workspace",
-            "tree",
-            "--agent-id",
-            "agent-123",
-            "--lane",
-            "scratch",
-        ],
+        ["--print-json", "agents", "memory", "tree", "--agent-id", "agent-123"],
     )
     assert tree_result.exit_code == 0
     assert [entry["path"] for entry in _json_payload(tree_result.output)["entries"]] == [
         "notes",
         "notes/todo.txt",
     ]
+    assert _json_payload(tree_result.output)["entries"][1]["relative_link"] == (
+        "pages/notes/todo.txt"
+    )
 
     delete_result = runner.invoke(
         cli,
         [
             "--print-json",
             "agents",
-            "workspace",
+            "memory",
             "delete",
             "--agent-id",
             "agent-123",
-            "--lane",
-            "scratch",
             "--path",
             "notes/todo.txt",
         ],
     )
     assert delete_result.exit_code == 0
-    assert _json_payload(delete_result.output)["action"] == "delete_path"
+    delete_payload = _json_payload(delete_result.output)
+    assert delete_payload["action"] == "delete_page"
+    assert delete_payload["relative_link"] == "pages/notes/todo.txt"
 
-    clear_result = runner.invoke(
+    reindex_result = runner.invoke(
         cli,
-        [
-            "--print-json",
-            "agents",
-            "workspace",
-            "clear",
-            "--agent-id",
-            "agent-123",
-            "--lane",
-            "scratch",
-            "--dry-run",
-        ],
+        ["--print-json", "agents", "memory", "reindex", "--agent-id", "agent-123"],
     )
-    assert clear_result.exit_code == 0
-    assert "would clear workspace lane" in _json_payload(clear_result.output)["detail"]
-
-
-def test_workspace_cli_reports_disabled_persist_lane(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    target = _local_workspace_target(tmp_path, persist_enabled=False)
-    monkeypatch.setattr(
-        workspace_commands,
-        "resolve_managed_agent_target",
-        lambda **kwargs: target,
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "agents",
-            "workspace",
-            "tree",
-            "--agent-id",
-            "agent-123",
-            "--lane",
-            "persist",
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "persist lane is disabled" in result.output
+    assert reindex_result.exit_code != 0

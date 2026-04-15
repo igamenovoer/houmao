@@ -248,7 +248,7 @@ For one resolved local managed session, `houmao-mgr agents cleanup session` SHAL
 
 The command SHALL NOT accept `--include-job-dir`.
 
-The command SHALL NOT remove workspace scratch or persist lanes as an incidental effect of session-envelope cleanup.
+The command SHALL NOT remove the managed-agent memory root, memo file, or pages directory as an incidental effect of session-envelope cleanup.
 
 When the session root is resolved but the manifest is missing or malformed, the command SHALL still classify the session root itself for removal when no available local evidence shows that session as still live.
 
@@ -258,22 +258,10 @@ The command SHALL block removal when the resolved session still appears live rat
 - **WHEN** an operator runs `houmao-mgr agents cleanup session --manifest-path /abs/path/runtime/sessions/local_interactive/session-1/manifest.json`
 - **AND WHEN** the resolved session no longer appears live on the local host
 - **THEN** the cleanup result removes the session root
-- **AND THEN** it does not remove the managed agent workspace scratch lane
+- **AND THEN** it does not remove the managed agent memory root
+- **AND THEN** it does not remove the managed agent pages directory
 
 #### Scenario: Include-job-dir flag is not supported
 - **WHEN** an operator runs `houmao-mgr agents cleanup session --include-job-dir`
 - **THEN** the command fails as an unsupported option
-- **AND THEN** the command does not delete workspace files
-
-### Requirement: Workspace scratch cleanup is an explicit lane-scoped cleanup action
-Houmao SHALL provide a supported cleanup action that clears the addressed managed agent's scratch lane without removing the runtime session envelope or persist lane.
-
-The cleanup action SHALL support dry-run planning with per-artifact actions.
-
-The cleanup action SHALL require explicit managed-agent targeting and SHALL block by default when the addressed scratch lane cannot be resolved safely.
-
-#### Scenario: Scratch cleanup clears only the scratch lane
-- **WHEN** an operator runs a supported scratch cleanup command for managed agent `researcher`
-- **AND WHEN** the command resolves scratch lane `/repo/.houmao/memory/agents/researcher-id/scratch`
-- **THEN** the cleanup result removes contents under that scratch lane
-- **AND THEN** it preserves `/repo/.houmao/memory/agents/researcher-id/persist`
+- **AND THEN** the command does not delete managed memory files

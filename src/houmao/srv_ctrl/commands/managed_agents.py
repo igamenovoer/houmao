@@ -2852,7 +2852,7 @@ def _local_tui_state_response_from_state(
         diagnostics=diagnostics,
         mailbox=_local_mailbox_summary(controller),
         gateway=_local_gateway_summary(controller),
-        **_controller_workspace_state_fields(controller=controller),
+        **_controller_memory_state_fields(controller=controller),
     )
 
 
@@ -2922,23 +2922,19 @@ def _tracked_errors(*, tracked_state: HoumaoTerminalStateResponse) -> list[Houma
     return diagnostics
 
 
-def _controller_workspace_state_fields(
+def _controller_memory_state_fields(
     *,
     controller: RuntimeSessionController,
 ) -> dict[str, str | None]:
-    """Return workspace fields for one managed-agent state response."""
+    """Return memory fields for one managed-agent state response."""
 
-    workspace_root = getattr(controller, "workspace_root", None)
+    memory_root = getattr(controller, "memory_root", None)
     memo_file = getattr(controller, "memo_file", None)
-    scratch_dir = getattr(controller, "scratch_dir", None)
-    persist_dir = getattr(controller, "persist_dir", None)
-    persist_binding = getattr(controller, "persist_binding", None)
+    pages_dir = getattr(controller, "pages_dir", None)
     return {
-        "workspace_root": str(workspace_root) if workspace_root is not None else None,
+        "memory_root": str(memory_root) if memory_root is not None else None,
         "memo_file": str(memo_file) if memo_file is not None else None,
-        "scratch_dir": str(scratch_dir) if scratch_dir is not None else None,
-        "persist_binding": str(persist_binding) if persist_binding is not None else None,
-        "persist_dir": str(persist_dir) if persist_dir is not None else None,
+        "pages_dir": str(pages_dir) if pages_dir is not None else None,
     }
 
 
@@ -2976,7 +2972,7 @@ def _local_headless_state_response(
         diagnostics=[],
         mailbox=mailbox_summary,
         gateway=gateway_summary,
-        **_controller_workspace_state_fields(controller=controller),
+        **_controller_memory_state_fields(controller=controller),
     )
 
 

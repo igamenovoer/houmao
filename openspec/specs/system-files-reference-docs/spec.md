@@ -136,18 +136,27 @@ That explanation SHALL keep the broader mailbox semantics in the mailbox subtree
 - **THEN** the system-files docs identify the relevant path families and their contract level clearly
 - **AND THEN** the operator is not left to infer cleanup or handling expectations solely from source code
 
-### Requirement: System-files reference documents managed workspace lanes
-System-files reference documentation SHALL describe the per-agent workspace envelope, its `houmao-memo.md` file, and its scratch and persist lanes.
+### Requirement: System-files reference documents memo and page ownership
+System-files reference documentation SHALL describe the per-agent memory root, its free-form `houmao-memo.md` file, and its contained `pages/` directory.
 
-The documentation SHALL explain that `HOUMAO_AGENT_SCRATCH_DIR` replaces the old `job_dir` scratch role and that `HOUMAO_AGENT_PERSIST_DIR` replaces the old durable memory role when persistence is enabled.
+The documentation SHALL explain that `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` are the current managed memory environment variables.
 
-The documentation SHALL explain that `HOUMAO_AGENT_MEMO_FILE` points to the per-agent memo file used for live-agent rules and loop initialization material.
+The documentation SHALL explain that `houmao-memo.md` is edited by users or LLMs as ordinary Markdown, and that links to `pages/<path>` are authored references rather than managed metadata.
 
-The documentation SHALL not present `.houmao/jobs/<session-id>/`, `HOUMAO_JOB_DIR`, or `HOUMAO_MEMORY_DIR` as current managed-agent contracts.
+The documentation SHALL not present `.houmao/jobs/<session-id>/`, `HOUMAO_JOB_DIR`, `HOUMAO_MEMORY_DIR`, `HOUMAO_AGENT_SCRATCH_DIR`, or `HOUMAO_AGENT_PERSIST_DIR` as current managed-agent memory contracts.
 
-#### Scenario: Reference reader understands the new workspace layout
+#### Scenario: Reference reader understands the current memory layout
 - **WHEN** an operator reads the system-files reference
-- **THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/scratch/`
-- **AND THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/persist/`
+- **THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/`
 - **AND THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`
-- **AND THEN** the reference explains the scratch and persist lifetime difference
+- **AND THEN** the reference shows `<active-overlay>/memory/agents/<agent-id>/pages/`
+
+### Requirement: System-files reference omits generated index and migration behavior
+System-files reference documentation SHALL NOT describe generated memo index markers, automatic memo reindexing, or migration behavior for old generated index content.
+
+Existing generated marker blocks, if present in a memo, SHALL be documented as ordinary Markdown from the current system's perspective.
+
+#### Scenario: Reference reader does not expect memo reindexing
+- **WHEN** an operator reads the managed memory section
+- **THEN** the docs do not describe a supported reindex operation
+- **AND THEN** the docs direct page discovery to path, tree, read, and resolve operations instead

@@ -268,19 +268,53 @@ The getting-started section of the docs site SHALL include a link to `docs/getti
 - **THEN** they find a link to `getting-started/loop-authoring.md`
 - **AND THEN** the link description makes clear the page covers loop skill selection and the routing-packet model
 
-### Requirement: Getting-started docs explain managed workspace scratch and persist lanes
-Getting-started documentation SHALL explain the default managed-agent workspace layout, the `houmao-memo.md` file, the scratch lane, the optional persist lane, and the new environment variables.
+### Requirement: Getting-started docs explain managed memory memo and pages
+Getting-started documentation SHALL explain the default managed-agent memory layout, the `houmao-memo.md` file, the contained `pages/` directory, and the current memory environment variables.
 
-The docs SHALL show `--persist-dir` and `--no-persist-dir` examples instead of `--memory-dir` and `--no-memory-dir`.
+The docs SHALL describe `houmao-memo.md` as free-form Markdown edited by users or LLMs, and SHALL state that Houmao does not generate or refresh a page index inside that memo.
 
-The docs SHALL direct temporary ledgers and outputs to `HOUMAO_AGENT_SCRATCH_DIR` and durable notes to `HOUMAO_AGENT_PERSIST_DIR` when persistence is enabled.
+The docs SHALL direct durable work artifacts to the launched workdir or explicit operator-designated project paths rather than to managed scratch or persist lanes.
 
-The docs SHALL direct live-agent initialization rules and task-handling notes to `HOUMAO_AGENT_MEMO_FILE`.
+The docs SHALL explain that memory pages live under `HOUMAO_AGENT_PAGES_DIR`, and that interesting pages may be linked from `houmao-memo.md` with authored relative links such as `pages/notes/run.md`.
 
-#### Scenario: New user sees persist-dir launch examples
-- **WHEN** a new user reads the managed workspace getting-started page
+#### Scenario: New user sees memo-pages layout
+- **WHEN** a new user reads the managed memory getting-started page
 - **THEN** the page shows a default launch example
-- **AND THEN** it shows an explicit `--persist-dir` example
-- **AND THEN** it shows a `--no-persist-dir` example
 - **AND THEN** it explains the `houmao-memo.md` memo file
-- **AND THEN** it does not show `--memory-dir` as the current option
+- **AND THEN** it explains the `pages/` directory
+- **AND THEN** it does not show `--persist-dir`, `--no-persist-dir`, `--memory-dir`, or `--no-memory-dir` as current managed-memory options
+
+### Requirement: Getting-started docs explain path discovery
+Getting-started documentation SHALL explain that supported CLI, gateway, and pair-server memory surfaces can return full page paths and memo-relative links for contained page paths.
+
+Path-discovery guidance SHALL not require the page to exist before the path is resolved.
+
+#### Scenario: User discovers a page path for memo linking
+- **WHEN** a reader wants to create or link `notes/run.md`
+- **THEN** the docs show or describe a supported memory resolve operation
+- **AND THEN** the docs explain that the operation returns both an absolute page path and a memo-relative link such as `pages/notes/run.md`
+
+### Requirement: Getting-started memory docs explain memo cue and memory-management skill
+The getting-started managed-memory documentation SHALL explain that managed launches render a default memo cue in the managed prompt header.
+
+That documentation SHALL state that the memo cue includes the resolved absolute path to `houmao-memo.md` and instructs the agent to read that memo at the start of each prompt turn before planning or acting.
+
+That documentation SHALL explain that `houmao-memory-mgr` is the packaged system skill for agent-facing requests to read, edit, add to, remove from, or organize the managed memo and contained pages.
+
+That documentation SHALL preserve the existing memory model:
+
+- `houmao-memo.md` is free-form Markdown,
+- `pages/` contains authored supporting files,
+- page links in the memo are authored references,
+- Houmao does not generate or refresh memo indexes.
+
+#### Scenario: Reader sees how managed agents are cued to use the memo
+- **WHEN** a reader opens the managed-memory getting-started page
+- **THEN** the page explains that the managed prompt header includes a default memo cue
+- **AND THEN** the page states that the cue identifies the absolute memo path and tells agents to read it at the start of each prompt turn
+
+#### Scenario: Reader sees the packaged skill for memo edits
+- **WHEN** a reader wants an agent to add something to or remove something from its Houmao memo
+- **THEN** the getting-started docs identify `houmao-memory-mgr` as the packaged system skill for that request
+- **AND THEN** the docs keep the memo and pages model free-form rather than describing generated indexes
+

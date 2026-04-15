@@ -1240,16 +1240,12 @@ def _write_manifest(
             tmux_session_name="join-sess",
             session_id="joined-session",
             agent_def_dir=(tmp_path / "agent-def").resolve(),
-            workspace_root=(tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve(),
+            memory_root=(tmp_path / ".houmao" / "memory" / "agents" / "agent-joined").resolve(),
             memo_file=(
                 tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "houmao-memo.md"
             ).resolve(),
-            scratch_dir=(
-                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "scratch"
-            ).resolve(),
-            persist_binding="auto",
-            persist_dir=(
-                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "persist"
+            pages_dir=(
+                tmp_path / ".houmao" / "memory" / "agents" / "agent-joined" / "pages"
             ).resolve(),
         )
     )

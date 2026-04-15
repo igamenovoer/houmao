@@ -190,23 +190,39 @@ The v2 runtime handoff guidance SHALL state that intermediate agents use precomp
 - **THEN** the v2 guidance still requires the agent to ensure that packet content follows the authored plan contract
 - **AND THEN** the agent does not treat graph coverage alone as permission to widen delegation, omit forbidden actions, or change result routing
 
-### Requirement: V2 initialization writes participant memo material to houmao-memo
-The packaged `houmao-agent-loop-pairwise-v2` initialization guidance SHALL use each targeted live participant's `houmao-memo.md` file for per-agent initialization memory when the participant exposes a managed workspace.
+### Requirement: Pairwise-v2 initialization treats memo links as authored content
+The packaged `houmao-agent-loop-pairwise-v2` initialization guidance SHALL use each targeted live participant's `houmao-memo.md` file for per-agent initialization memory when the participant exposes managed memory.
 
 The memo material SHALL include the participant's local role, local objective, allowed delegation targets or delegation set, task-handling rules, obligations, forbidden actions, mailbox and result-return expectations, and any routing-packet or child-dispatch references that the participant must keep easy to reopen across turns.
 
-The v2 guidance SHALL direct initialization to write or append this material through the supported workspace memo operation when available, using `HOUMAO_AGENT_MEMO_FILE` as the in-agent pointer and the gateway or pair-server workspace memo endpoint as the operator-side entrypoint.
+The v2 guidance SHALL direct initialization to write or append this material through the supported memory memo operation when available, using `HOUMAO_AGENT_MEMO_FILE` as the in-agent pointer and the gateway or pair-server memory memo endpoint as the operator-side entrypoint.
 
-The v2 guidance SHALL keep `houmao-memo.md` separate from scratch ledgers and optional durable archive notes.
+When initialization material is too large for the memo, the v2 guidance SHALL direct callers to write a contained page under `HOUMAO_AGENT_PAGES_DIR` and add an explicit authored memo link such as `pages/<relative-page>`.
+
+The v2 guidance SHALL treat memo links to pages as user-authored Markdown content rather than generated index entries.
 
 #### Scenario: Initialization writes one participant memo
 - **WHEN** `houmao-agent-loop-pairwise-v2` initializes participant `worker-a`
-- **AND WHEN** `worker-a` exposes managed workspace memo file `/repo/.houmao/memory/agents/worker-a-id/houmao-memo.md`
+- **AND WHEN** `worker-a` exposes managed memo file `/repo/.houmao/memory/agents/worker-a-id/houmao-memo.md`
 - **THEN** initialization records `worker-a`'s role, objective, delegation authority, obligations, forbidden actions, and result-return expectations in that memo file
-- **AND THEN** it does not write that rule material to the scratch ledger
 
-#### Scenario: Memo update uses supported workspace surface
+#### Scenario: Memo update uses supported memory surface
 - **WHEN** the operator-side initialize action needs to update a live participant memo
-- **AND WHEN** the participant has a live gateway or pair-server workspace proxy
-- **THEN** the v2 guidance uses the supported workspace memo endpoint or CLI operation
+- **AND WHEN** the participant has a live gateway or pair-server memory proxy
+- **THEN** the v2 guidance uses the supported memory memo endpoint or CLI operation
 - **AND THEN** it does not ask the participant to infer the initialization rules from prior email alone
+
+#### Scenario: Oversized initialization context is linked explicitly
+- **WHEN** initialization writes page `loop-contexts/worker-a.md`
+- **THEN** the guidance adds an explicit memo link such as `pages/loop-contexts/worker-a.md`
+- **AND THEN** it does not rely on Houmao to generate that link automatically
+
+### Requirement: Pairwise-v2 guidance avoids reindex workflow
+The packaged `houmao-agent-loop-pairwise-v2` guidance SHALL NOT instruct callers to run a memory reindex operation after writing pages.
+
+The guidance SHALL use the supported memory page resolve surface when it needs a precise memo-relative link or absolute page path.
+
+#### Scenario: Initialization does not reindex after page write
+- **WHEN** initialization writes an oversized routing packet page
+- **THEN** the guidance records the returned or resolved `pages/<relative-page>` link where useful
+- **AND THEN** it does not run or recommend a reindex command

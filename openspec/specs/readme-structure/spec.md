@@ -37,7 +37,7 @@ Step 1 SHALL be titled "Drive with Your CLI Agent (Recommended)" and SHALL prese
 
 ### Requirement: project init is step 2
 
-Step 2 SHALL introduce `houmao-mgr project init` and explain the `.houmao/` overlay. The overlay description SHALL include `memory/` as one of the listed subdirectories, described as the per-agent workspace root that holds memo files and scratch/persist lanes.
+Step 2 SHALL introduce `houmao-mgr project init` and explain the `.houmao/` overlay. The overlay description SHALL include `memory/` as one of the listed subdirectories, described as the per-agent memory root family for free-form memo files and contained pages.
 
 #### Scenario: User initializes a project
 - **WHEN** a user reads step 2 and runs `houmao-mgr project init`
@@ -94,13 +94,13 @@ The System Skills table in README.md SHALL list `houmao-specialist-mgr` with a d
 - **WHEN** a reader scans the System Skills table in README.md
 - **THEN** the `houmao-specialist-mgr` row includes "set" in its verb list
 
-### Requirement: agents join capabilities table mentions agents workspace
+### Requirement: agents join capabilities table mentions agents memory
 
-The capabilities table in step 5 (Adopt an Existing Session) SHALL include at least one row describing `houmao-mgr agents workspace` commands, covering workspace path inspection and memo file operations.
+The capabilities table in step 5 (Adopt an Existing Session) SHALL include at least one row describing `houmao-mgr agents memory` commands, covering memory path inspection, memo file operations, and page link/path resolution.
 
-#### Scenario: Reader sees workspace commands in join capabilities table
+#### Scenario: Reader sees memory commands in join capabilities table
 - **WHEN** a reader scans the capabilities table in step 5
-- **THEN** they find a row for workspace inspection or memo operations that references `houmao-mgr agents workspace`
+- **THEN** they find a row for memory inspection, memo operations, or page resolution that references `houmao-mgr agents memory`
 
 ### Requirement: Intro condensed to two sections
 

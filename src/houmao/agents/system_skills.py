@@ -23,6 +23,7 @@ _SYSTEM_SKILL_LEGACY_STATE_SCHEMA_VERSION = 1
 
 SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
 SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
+SYSTEM_SKILL_SET_AGENT_MEMORY = "agent-memory"
 SYSTEM_SKILL_SET_ADVANCED_USAGE = "advanced-usage"
 SYSTEM_SKILL_SET_TOURING = "touring"
 SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
@@ -38,6 +39,7 @@ SYSTEM_SKILL_AGENT_INSTANCE = "houmao-agent-instance"
 SYSTEM_SKILL_AGENT_INSPECT = "houmao-agent-inspect"
 SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
 SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
+SYSTEM_SKILL_MEMORY_MGR = "houmao-memory-mgr"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",

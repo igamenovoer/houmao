@@ -892,32 +892,22 @@ Supplying gateway TUI timing overrides SHALL NOT rewrite the stored specialist o
 - **THEN** the command fails before launch
 - **AND THEN** the error states that gateway TUI timing overrides require launch-time gateway attach
 
-### Requirement: `project easy profile create/get` supports reusable persist-lane defaults
-`houmao-mgr project easy profile create` SHALL accept optional `--persist-dir <path>` and `--no-persist-dir` to store reusable persist-lane configuration on an easy profile.
+### Requirement: `project easy` surfaces use memo-pages managed memory
+`houmao-mgr project easy profile create` and `project easy instance launch` SHALL NOT accept `--persist-dir` or `--no-persist-dir`.
 
-`--persist-dir` and `--no-persist-dir` SHALL be mutually exclusive on this surface.
+`project easy instance get` SHALL report memory root, memo file, and pages directory when available.
 
-`project easy profile get` SHALL report the stored persist-lane configuration.
+`project easy profile get` SHALL NOT report reusable persist-lane defaults.
 
-#### Scenario: Easy profile stores exact persist directory
+#### Scenario: Easy profile create rejects persist-dir
 - **WHEN** an operator runs `houmao-mgr project easy profile create --name alice --specialist cuda-coder --persist-dir ../shared/alice-persist`
-- **THEN** the easy profile stores that resolved persist directory
-- **AND THEN** `project easy profile get --name alice` reports that persist directory
+- **THEN** the command fails before writing the profile
+- **AND THEN** the error identifies `--persist-dir` as unsupported
 
-#### Scenario: Easy profile stores disabled persistence
-- **WHEN** an operator runs `houmao-mgr project easy profile create --name alice --specialist cuda-coder --no-persist-dir`
-- **THEN** the easy profile stores disabled persist binding
-- **AND THEN** `project easy profile get --name alice` reports persistence as disabled
-
-### Requirement: `project easy instance launch/get` supports managed workspace lanes and persist binding
-`houmao-mgr project easy instance launch` SHALL accept optional `--persist-dir <path>` and `--no-persist-dir` as one-off persist-binding controls.
-
-`--persist-dir` and `--no-persist-dir` SHALL be mutually exclusive on this surface.
-
-`project easy instance get` SHALL report workspace root, scratch directory, persist binding, and persist directory when enabled.
-
-#### Scenario: Easy instance launch disables persistence while keeping scratch
-- **WHEN** an operator runs `houmao-mgr project easy instance launch --specialist researcher --name researcher-1 --no-persist-dir`
-- **THEN** the launched instance reports disabled persistence
-- **AND THEN** later `project easy instance get --name researcher-1` reports `persist_dir: null`
-- **AND THEN** later `project easy instance get --name researcher-1` reports a scratch directory
+#### Scenario: Easy instance get reports memory pages
+- **WHEN** an operator runs `houmao-mgr project easy instance get --name researcher-1`
+- **AND WHEN** the instance exposes managed memory metadata
+- **THEN** the output reports the memory root
+- **AND THEN** the output reports the memo file
+- **AND THEN** the output reports the pages directory
+- **AND THEN** the output does not report `persist_dir`

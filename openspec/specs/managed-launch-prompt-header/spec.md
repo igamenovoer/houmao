@@ -13,12 +13,21 @@ When managed-header policy resolves to enabled, the rendered prompt SHALL place 
 That managed prompt header SHALL render deterministic named subsections in this order when the corresponding section policy resolves to enabled:
 
 - `<identity>`
+- `<memo_cue>`
 - `<houmao_runtime_guidance>`
 - `<automation_notice>`
 - `<task_reminder>`
 - `<mail_ack>`
 
 The identity section SHALL identify the launched agent as Houmao-managed and include the resolved managed-agent name and id when those identities exist for the launch.
+
+The memo cue section SHALL be included by default whenever the whole managed header is enabled unless a stronger section-level policy disables it.
+
+The memo cue section SHALL include the resolved absolute path to the launched managed agent's fixed `houmao-memo.md` file.
+
+The memo cue section SHALL tell the agent to read that memo file at the start of each prompt turn before planning or acting.
+
+The memo cue section SHALL tell the agent to treat the memo as durable operator/agent context for the current managed agent and to follow relevant authored `pages/` links when needed.
 
 The Houmao runtime guidance section SHALL:
 
@@ -46,9 +55,15 @@ When enabled, the mail acknowledgement section SHALL state that, for mailbox-dri
 #### Scenario: Managed launch gets the default Houmao-owned header
 - **WHEN** an operator launches a managed agent through a maintained Houmao launch surface without disabling the managed header or any managed-header section
 - **THEN** the effective launch prompt is rooted at `<houmao_system_prompt>` and includes `<managed_header>` ahead of `<prompt_body>`
-- **AND THEN** that header includes `<identity>`, `<houmao_runtime_guidance>`, and `<automation_notice>` sections in deterministic order
+- **AND THEN** that header includes `<identity>`, `<memo_cue>`, `<houmao_runtime_guidance>`, and `<automation_notice>` sections in deterministic order
 - **AND THEN** that header does not include `<task_reminder>` or `<mail_ack>` by default
-- **AND THEN** the header identifies the agent as Houmao-managed and names `houmao-mgr` as the canonical direct Houmao interface
+- **AND THEN** the header identifies the agent as Houmao-managed, names the absolute memo file path, and names `houmao-mgr` as the canonical direct Houmao interface
+
+#### Scenario: Memo cue can be disabled independently
+- **WHEN** an operator launches a managed agent with managed-header section policy `memo-cue=disabled`
+- **AND WHEN** the whole managed header resolves to enabled
+- **THEN** the effective launch prompt does not include the `<memo_cue>` section
+- **AND THEN** other default-enabled sections still render unless their own policy disables them
 
 #### Scenario: Task reminder is default-off but can be enabled
 - **WHEN** an operator launches a managed agent with managed-header section policy `task-reminder=enabled`
@@ -131,10 +146,11 @@ Within `<houmao_system_prompt>`, section order SHALL be:
 Within `<managed_header>`, section order SHALL be:
 
 1. `<identity>` when enabled,
-2. `<houmao_runtime_guidance>` when enabled,
-3. `<automation_notice>` when enabled,
-4. `<task_reminder>` when enabled,
-5. `<mail_ack>` when enabled.
+2. `<memo_cue>` when enabled,
+3. `<houmao_runtime_guidance>` when enabled,
+4. `<automation_notice>` when enabled,
+5. `<task_reminder>` when enabled,
+6. `<mail_ack>` when enabled.
 
 Within `<prompt_body>`, section order SHALL be:
 
@@ -146,14 +162,14 @@ When launch-profile overlay mode is `replace`, the renderer SHALL omit `<role_pr
 
 For launches created after this capability is implemented, the system SHALL persist the resulting effective launch prompt together with managed-header decision metadata, managed-header section decision metadata, and structured prompt-layout metadata so later relaunch and resume can reuse one coherent launch-prompt contract.
 
-For older managed manifests that do not already persist the structured layout metadata, managed relaunch SHALL recompute managed-header behavior using the current managed identity, the default-enabled whole-header policy, and current section defaults unless a stronger persisted whole-header disable decision exists.
+For older managed manifests that do not already persist the structured layout metadata, managed relaunch SHALL recompute managed-header behavior using the current managed identity, current managed memory paths when available, the default-enabled whole-header policy, and current section defaults unless a stronger persisted whole-header disable decision exists.
 
 #### Scenario: Managed header renders ahead of the structured prompt body
 - **WHEN** a managed launch uses a source role prompt, a launch-profile-owned prompt overlay, and a launch-owned appendix
 - **AND WHEN** managed-header policy resolves to enabled
 - **AND WHEN** all managed-header sections resolve to enabled
 - **THEN** the effective launch prompt renders as `<houmao_system_prompt>` with `<managed_header>` before `<prompt_body>`
-- **AND THEN** `<managed_header>` contains `<identity>`, `<houmao_runtime_guidance>`, `<automation_notice>`, `<task_reminder>`, and `<mail_ack>` before backend-specific prompt injection receives one composed prompt
+- **AND THEN** `<managed_header>` contains `<identity>`, `<memo_cue>`, `<houmao_runtime_guidance>`, `<automation_notice>`, `<task_reminder>`, and `<mail_ack>` before backend-specific prompt injection receives one composed prompt
 
 #### Scenario: Replace overlay removes the role section from the structured prompt body
 - **WHEN** a managed launch uses launch-profile overlay mode `replace`
@@ -187,6 +203,7 @@ Each managed-header section SHALL resolve through this precedence order:
 The system default for each defined managed-header section SHALL be:
 
 - `identity`: enabled
+- `memo-cue`: enabled
 - `houmao-runtime-guidance`: enabled
 - `automation-notice`: enabled
 - `task-reminder`: disabled
@@ -205,7 +222,7 @@ Missing section policy SHALL mean the section's default. Existing stored launch 
 - **WHEN** a reusable launch profile stores automation notice section policy `disabled`
 - **AND WHEN** the whole managed header resolves to enabled
 - **AND WHEN** an operator launches from that profile without any direct section override
-- **THEN** the resulting managed launch includes `<identity>` and `<houmao_runtime_guidance>`
+- **THEN** the resulting managed launch includes `<identity>`, `<memo_cue>`, and `<houmao_runtime_guidance>`
 - **AND THEN** the resulting managed launch does not include `<automation_notice>`
 
 #### Scenario: Direct section override wins for one launch
@@ -217,6 +234,7 @@ Missing section policy SHALL mean the section's default. Existing stored launch 
 #### Scenario: Existing profile uses section defaults
 - **WHEN** a stored launch profile has no managed-header section policy
 - **AND WHEN** the whole managed header resolves to enabled
-- **THEN** the resulting managed launch includes the default-enabled `<identity>`, `<houmao_runtime_guidance>`, and `<automation_notice>` sections
+- **THEN** the resulting managed launch includes the default-enabled `<identity>`, `<memo_cue>`, `<houmao_runtime_guidance>`, and `<automation_notice>` sections
 - **AND THEN** the resulting managed launch omits the default-disabled `<task_reminder>` and `<mail_ack>` sections
 - **AND THEN** the missing section policy does not behave like a stored disable
+

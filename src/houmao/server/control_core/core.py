@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib import parse
 
+from houmao.agents.agent_workspace import resolve_agent_memory
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.managed_prompt_header import (
     compose_managed_launch_prompt_payload,
@@ -25,6 +26,7 @@ from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_
 from houmao.agents.realm_controller.loaders import RolePackage, load_brain_manifest
 from houmao.agents.realm_controller.models import LaunchPlan
 from houmao.cao.models import CaoInboxMessageStatus
+from houmao.project.overlay import resolve_project_aware_local_roots
 from houmao.server.config import HoumaoServerConfig
 
 from .models import (
@@ -561,6 +563,11 @@ class CompatibilityControlCore:
                 requested_agent_name=None,
                 requested_agent_id=None,
             )
+            project_roots = resolve_project_aware_local_roots(cwd=working_directory)
+            memory = resolve_agent_memory(
+                overlay_root=project_roots.overlay_root,
+                agent_id=managed_launch_identity.agent_id,
+            )
             prompt_payload = compose_managed_launch_prompt_payload(
                 base_prompt=resolved_target.role_prompt,
                 overlay_mode=None,
@@ -568,6 +575,7 @@ class CompatibilityControlCore:
                 managed_header_enabled=managed_header_decision.enabled,
                 agent_name=managed_launch_identity.agent_name,
                 agent_id=managed_launch_identity.agent_id,
+                memo_file=str(memory.memo_file),
             )
             build_result = build_brain_home(
                 BuildRequest(

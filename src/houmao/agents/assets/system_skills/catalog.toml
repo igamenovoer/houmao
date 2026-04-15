@@ -20,6 +20,10 @@ description = "Manual guided touring skill for first-time or re-orienting Houmao
 asset_subpath = "houmao-mailbox-mgr"
 description = "Filesystem mailbox administration and late mailbox-binding skill."
 
+[skills.houmao-memory-mgr]
+asset_subpath = "houmao-memory-mgr"
+description = "Managed-agent memo and contained pages memory skill."
+
 [skills.houmao-project-mgr]
 asset_subpath = "houmao-project-mgr"
 description = "Project overlay lifecycle, layout, and project-scoped launch-profile or easy-instance management skill."
@@ -79,6 +83,12 @@ skills = [
   "houmao-mailbox-mgr",
 ]
 
+[sets.agent-memory]
+description = "Managed-agent memo and pages memory system skills."
+skills = [
+  "houmao-memory-mgr",
+]
+
 [sets.advanced-usage]
 description = "Advanced multi-skill Houmao workflow patterns."
 skills = [
@@ -128,6 +138,6 @@ skills = [
 ]
 
 [auto_install]
-managed_launch_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
-managed_join_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
-cli_default_sets = ["mailbox-full", "advanced-usage", "touring", "user-control", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway"]
+managed_launch_sets = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+managed_join_sets = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
+cli_default_sets = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway"]
