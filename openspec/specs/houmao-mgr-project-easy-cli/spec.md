@@ -928,7 +928,7 @@ Supplying gateway TUI timing overrides SHALL NOT rewrite the stored specialist o
 
 `project easy profile get --name <profile>` SHALL report memo seed presence, source kind, policy, and managed content reference metadata without printing full memo or page contents by default.
 
-`project easy instance launch --profile <profile>` SHALL apply the selected easy profile's memo seed during managed launch when the profile stores one.
+`project easy instance launch --profile <profile>` SHALL apply the selected easy profile's memo seed during managed launch when the profile stores one, using the component-scoped memo seed policy semantics from managed launch runtime.
 
 #### Scenario: Easy profile create stores memo seed text
 - **WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-default --specialist reviewer --memo-seed-text "Read pages/review.md first."`
@@ -944,9 +944,16 @@ Supplying gateway TUI timing overrides SHALL NOT rewrite the stored specialist o
 #### Scenario: Easy profile launch applies memo seed
 - **WHEN** easy profile `reviewer-default` stores a memo seed
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-default`
-- **THEN** Houmao applies the memo seed to the launched managed agent's resolved `houmao-memo.md` and `pages/` before provider startup
+- **THEN** Houmao applies the memo seed to represented managed-memory components before provider startup
+
+#### Scenario: Easy memo-only replace preserves pages
+- **WHEN** easy profile `reviewer-default` stores memo-only seed text with policy `replace`
+- **AND WHEN** managed agent `reviewer-default` already has pages
+- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-default`
+- **THEN** Houmao replaces only the launched agent's `houmao-memo.md`
+- **AND THEN** it leaves the launched agent's pages unchanged
 
 #### Scenario: Easy profile set rejects clear combined with source
 - **WHEN** an operator runs `houmao-mgr project easy profile set --name reviewer-default --clear-memo-seed --memo-seed-file docs/reviewer.md`
-- **THEN** the command fails clearly before mutating the stored profile
+- **THEN** the command fails clearly before mutating the easy profile
 

@@ -206,7 +206,11 @@ The guide SHALL explain:
 - supported seed sources: inline text, Markdown file, and memo-shaped directory,
 - accepted directory shape: `houmao-memo.md` and `pages/`,
 - seed policies `initialize`, `replace`, and `fail-if-nonempty`,
-- that the default `initialize` policy preserves non-empty existing memo/page state,
+- that memo seed policies apply only to managed-memory components represented by the seed source,
+- that the default `initialize` policy preserves non-empty existing represented state,
+- that memo-only `replace` updates `houmao-memo.md` without clearing pages,
+- that a directory seed containing `pages/` with policy `replace` replaces the contained pages tree,
+- that `--clear-memo-seed` removes stored profile seed configuration rather than seeding an empty memo,
 - that prompt overlays remain prompt shaping while memo seeds materialize durable memo/page content before launch.
 
 #### Scenario: Reader finds memo seed terminology
@@ -217,5 +221,10 @@ The guide SHALL explain:
 #### Scenario: Reader understands memo seed versus prompt overlay
 - **WHEN** a reader compares prompt overlays and memo seeds
 - **THEN** the guide states that prompt overlays affect launch prompt composition
-- **AND THEN** the guide states that memo seeds write `houmao-memo.md` and contained `pages/` before provider startup
+- **AND THEN** the guide states that memo seeds write represented `houmao-memo.md` and contained `pages/` content before provider startup
+
+#### Scenario: Reader understands memo-only replace
+- **WHEN** a reader checks memo seed policy behavior for `--memo-seed-text "note" --memo-seed-policy replace`
+- **THEN** the guide states that the launch replaces `houmao-memo.md`
+- **AND THEN** the guide states that the launch does not clear existing pages
 
