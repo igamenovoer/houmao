@@ -38,6 +38,10 @@ from houmao.agents.mailbox_runtime_support import (
     replaceable_mailbox_cleanup_paths,
     resolved_mailbox_config_from_payload,
 )
+from houmao.agents.launch_profile_memo_seeds import (
+    LaunchProfileMemoSeedApplication,
+    apply_launch_profile_memo_seed,
+)
 from houmao.agents.agent_workspace import AgentMemoryPaths, resolve_agent_memory
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.native_launch_resolver import (
@@ -84,7 +88,7 @@ from houmao.project.overlay import (
     materialize_project_agent_catalog_projection,
     resolve_project_aware_local_roots,
 )
-from houmao.project.launch_profiles import resolve_launch_profile
+from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed, resolve_launch_profile
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
@@ -167,6 +171,7 @@ class LocalManagedAgentLaunchResult:
     overlay_root_detail: str
     project_overlay_bootstrapped: bool
     overlay_bootstrap_detail: str
+    memo_seed_application: LaunchProfileMemoSeedApplication | None = None
 
 
 @dataclass(frozen=True)
@@ -499,6 +504,7 @@ def launch_managed_agent_locally(
     ]
     | None = None,
     launch_profile_provenance: dict[str, Any] | None = None,
+    launch_profile_memo_seed: ResolvedLaunchProfileMemoSeed | None = None,
     force_mode: str | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
@@ -523,6 +529,7 @@ def launch_managed_agent_locally(
     resolved_backend_name = "unknown"
     takeover_context: _ManagedForceTakeoverContext | None = None
     takeover_completed = False
+    memo_seed_application: LaunchProfileMemoSeedApplication | None = None
     try:
         if resolved_source_agent_def_dir is None and _is_path_like_launch_selector(agents):
             invocation_agent_def_dir = resolve_effective_agent_def_dir(
@@ -588,6 +595,11 @@ def launch_managed_agent_locally(
         if takeover_context is not None:
             _perform_managed_force_takeover(takeover_context)
             takeover_completed = True
+        if launch_profile_memo_seed is not None:
+            memo_seed_application = apply_launch_profile_memo_seed(
+                paths=memory,
+                memo_seed=launch_profile_memo_seed,
+            )
         prompt_payload = compose_managed_launch_prompt_payload(
             base_prompt=target.role_prompt,
             overlay_mode=prompt_overlay_mode,
@@ -707,6 +719,7 @@ def launch_managed_agent_locally(
         overlay_bootstrap_detail=describe_overlay_bootstrap(
             created_overlay=project_roots.created_overlay
         ),
+        memo_seed_application=memo_seed_application,
     )
 
 
@@ -739,6 +752,8 @@ def emit_local_launch_completion(
         "project_overlay_bootstrapped": launch_result.project_overlay_bootstrapped,
         "overlay_bootstrap_detail": launch_result.overlay_bootstrap_detail,
     }
+    if launch_result.memo_seed_application is not None:
+        payload["memo_seed"] = launch_result.memo_seed_application.to_payload()
     gateway_host = getattr(controller, "gateway_host", None)
     if gateway_host is not None:
         payload["gateway_host"] = gateway_host
@@ -900,6 +915,7 @@ def launch_agents_command(
         dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None
     ) = None
     launch_profile_provenance = None
+    launch_profile_memo_seed = None
     gateway_auto_attach = False
     gateway_host = None
     gateway_port = None
@@ -978,7 +994,22 @@ def launch_agents_command(
                 "mode": resolved_profile.entry.prompt_overlay_mode,
                 "present": resolved_profile.prompt_overlay_text is not None,
             },
+            "memo_seed": (
+                {
+                    "present": True,
+                    "source_kind": resolved_profile.memo_seed.source_kind,
+                    "policy": resolved_profile.memo_seed.policy,
+                    "content_ref": {
+                        "content_kind": resolved_profile.memo_seed.content_ref.content_kind,
+                        "storage_kind": resolved_profile.memo_seed.content_ref.storage_kind,
+                        "relative_path": resolved_profile.memo_seed.content_ref.relative_path,
+                    },
+                }
+                if resolved_profile.memo_seed is not None
+                else {"present": False}
+            ),
         }
+        launch_profile_memo_seed = resolved_profile.memo_seed
         declared_mailbox = _parse_stored_launch_profile_mailbox_or_click(
             resolved_profile.entry.mailbox_payload,
             profile_name=resolved_profile.entry.name,
@@ -1039,6 +1070,7 @@ def launch_agents_command(
         managed_header_section_overrides=managed_header_section_overrides,
         launch_profile_managed_header_section_policy=(launch_profile_managed_header_section_policy),
         launch_profile_provenance=launch_profile_provenance,
+        launch_profile_memo_seed=launch_profile_memo_seed,
         force_mode=force_mode,
     )
 

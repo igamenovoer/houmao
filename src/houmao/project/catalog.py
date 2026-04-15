@@ -13,7 +13,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import tomllib
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterator, Literal, cast
 from uuid import uuid4
 
 from houmao.agents.model_selection import parse_reasoning_level
@@ -28,7 +28,7 @@ from houmao.agents.managed_prompt_header import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 9
+CATALOG_SCHEMA_VERSION = 10
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -38,11 +38,13 @@ _CONTENT_KIND_PROMPT = "prompt_blob"
 _CONTENT_KIND_AUTH = "auth_tree"
 _CONTENT_KIND_SKILL = "skill_tree"
 _CONTENT_KIND_SETUP = "setup_tree"
+_CONTENT_KIND_MEMO_SEED = "memo_seed"
 _CONTENT_KIND_VALUES = (
     _CONTENT_KIND_PROMPT,
     _CONTENT_KIND_AUTH,
     _CONTENT_KIND_SKILL,
     _CONTENT_KIND_SETUP,
+    _CONTENT_KIND_MEMO_SEED,
 )
 _STORAGE_KIND_FILE = "file"
 _STORAGE_KIND_TREE = "tree"
@@ -53,11 +55,24 @@ _PROFILE_LANE_VALUES = (_PROFILE_LANE_EASY, _PROFILE_LANE_EXPLICIT)
 _SOURCE_KIND_SPECIALIST = "specialist"
 _SOURCE_KIND_RECIPE = "recipe"
 _SOURCE_KIND_VALUES = (_SOURCE_KIND_SPECIALIST, _SOURCE_KIND_RECIPE)
+_MEMO_SEED_SOURCE_KIND_MEMO = "memo"
+_MEMO_SEED_SOURCE_KIND_TREE = "tree"
+_MEMO_SEED_SOURCE_KIND_VALUES = (_MEMO_SEED_SOURCE_KIND_MEMO, _MEMO_SEED_SOURCE_KIND_TREE)
+_MEMO_SEED_POLICY_INITIALIZE = "initialize"
+_MEMO_SEED_POLICY_REPLACE = "replace"
+_MEMO_SEED_POLICY_FAIL_IF_NONEMPTY = "fail-if-nonempty"
+_MEMO_SEED_POLICY_VALUES = (
+    _MEMO_SEED_POLICY_INITIALIZE,
+    _MEMO_SEED_POLICY_REPLACE,
+    _MEMO_SEED_POLICY_FAIL_IF_NONEMPTY,
+)
+_MEMO_SEED_TOP_LEVEL_MEMO_FILE = "houmao-memo.md"
+_MEMO_SEED_TOP_LEVEL_PAGES_DIR = "pages"
 
 
 @dataclass(frozen=True)
 class ManagedContentRef:
-    """Reference one managed file-backed content payload."""
+    """Reference one managed content payload."""
 
     content_kind: str
     storage_kind: str
@@ -120,6 +135,15 @@ class SpecialistCatalogEntry:
 
 
 @dataclass(frozen=True)
+class LaunchProfileMemoSeed:
+    """Managed memo-seed metadata stored on one launch profile."""
+
+    source_kind: Literal["memo", "tree"]
+    policy: Literal["initialize", "replace", "fail-if-nonempty"]
+    content_ref: ManagedContentRef
+
+
+@dataclass(frozen=True)
 class LaunchProfileCatalogEntry:
     """Resolved project-local launch-profile semantics loaded from the catalog."""
 
@@ -142,6 +166,7 @@ class LaunchProfileCatalogEntry:
     managed_header_policy: ManagedHeaderPolicy | None
     prompt_overlay_mode: str | None
     prompt_overlay_ref: ManagedContentRef | None
+    memo_seed: LaunchProfileMemoSeed | None = None
     managed_header_section_policy: dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] = (
         field(default_factory=dict)
     )
@@ -820,13 +845,20 @@ class ProjectCatalog:
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
+                    launch_profiles.memo_seed_policy,
+                    launch_profiles.memo_seed_source_kind,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
-                    prompt_refs.relative_path AS prompt_relative_path
+                    prompt_refs.relative_path AS prompt_relative_path,
+                    memo_refs.content_kind AS memo_kind,
+                    memo_refs.storage_kind AS memo_storage_kind,
+                    memo_refs.relative_path AS memo_relative_path
                 FROM launch_profiles
                 LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
                 LEFT JOIN content_refs AS prompt_refs
                     ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+                LEFT JOIN content_refs AS memo_refs
+                    ON memo_refs.id = launch_profiles.memo_seed_content_ref_id
                 ORDER BY launch_profiles.name
                 """
             ).fetchall()
@@ -859,13 +891,20 @@ class ProjectCatalog:
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
+                    launch_profiles.memo_seed_policy,
+                    launch_profiles.memo_seed_source_kind,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
-                    prompt_refs.relative_path AS prompt_relative_path
+                    prompt_refs.relative_path AS prompt_relative_path,
+                    memo_refs.content_kind AS memo_kind,
+                    memo_refs.storage_kind AS memo_storage_kind,
+                    memo_refs.relative_path AS memo_relative_path
                 FROM launch_profiles
                 LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
                 LEFT JOIN content_refs AS prompt_refs
                     ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+                LEFT JOIN content_refs AS memo_refs
+                    ON memo_refs.id = launch_profiles.memo_seed_content_ref_id
                 WHERE launch_profiles.name = ?
                 LIMIT 1
                 """,
@@ -895,6 +934,10 @@ class ProjectCatalog:
         managed_header_section_policy: dict[Any, Any] | None = None,
         prompt_overlay_mode: str | None,
         prompt_overlay_text: str | None,
+        memo_seed_source_kind: str | None = None,
+        memo_seed_policy: str | None = None,
+        memo_seed_text: str | None = None,
+        memo_seed_source_path: Path | None = None,
         model_name: str | None = None,
         reasoning_level: int | None = None,
     ) -> LaunchProfileCatalogEntry:
@@ -917,6 +960,28 @@ class ProjectCatalog:
             raise ValueError("Prompt-overlay mode must be `append` or `replace` when provided.")
         if prompt_overlay_mode is not None and prompt_overlay_text is None:
             raise ValueError("Prompt-overlay mode requires prompt-overlay text.")
+        if memo_seed_source_kind is not None and memo_seed_source_kind not in _MEMO_SEED_SOURCE_KIND_VALUES:
+            raise ValueError(
+                f"Memo-seed source kind must be one of {sorted(_MEMO_SEED_SOURCE_KIND_VALUES)}."
+            )
+        resolved_memo_seed_policy: str | None = None
+        if memo_seed_source_kind is None:
+            if (
+                memo_seed_policy is not None
+                or memo_seed_text is not None
+                or memo_seed_source_path is not None
+            ):
+                raise ValueError("Memo-seed policy or content requires a memo-seed source kind.")
+        else:
+            resolved_memo_seed_policy = memo_seed_policy or _MEMO_SEED_POLICY_INITIALIZE
+            if resolved_memo_seed_policy not in _MEMO_SEED_POLICY_VALUES:
+                raise ValueError(
+                    f"Memo-seed policy must be one of {sorted(_MEMO_SEED_POLICY_VALUES)}."
+                )
+            if (memo_seed_text is None) == (memo_seed_source_path is None):
+                raise ValueError(
+                    "Provide exactly one memo-seed text payload or memo-seed source path."
+                )
         resolved_model_name = (
             model_name.strip() if model_name is not None and model_name.strip() else None
         )
@@ -941,6 +1006,14 @@ class ProjectCatalog:
                 content_kind=_CONTENT_KIND_PROMPT,
                 relative_path=f"prompts/launch-profiles/{name}.md",
             )
+        memo_seed_ref: ManagedContentRef | None = None
+        if memo_seed_source_kind is not None:
+            memo_seed_ref = self._snapshot_launch_profile_memo_seed(
+                name=name,
+                source_kind=memo_seed_source_kind,
+                memo_seed_text=memo_seed_text,
+                memo_seed_source_path=memo_seed_source_path,
+            )
 
         with self._connect() as connection:
             auth_profile_id = (
@@ -955,6 +1028,11 @@ class ProjectCatalog:
             prompt_overlay_ref_id = (
                 self._upsert_content_ref(connection, prompt_overlay_ref)
                 if prompt_overlay_ref is not None
+                else None
+            )
+            memo_seed_ref_id = (
+                self._upsert_content_ref(connection, memo_seed_ref)
+                if memo_seed_ref is not None
                 else None
             )
             timestamp = _utcnow_iso()
@@ -981,9 +1059,12 @@ class ProjectCatalog:
                     managed_header_section_policy,
                     prompt_overlay_mode,
                     prompt_overlay_content_ref_id,
+                    memo_seed_policy,
+                    memo_seed_source_kind,
+                    memo_seed_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -1004,6 +1085,9 @@ class ProjectCatalog:
                     managed_header_section_policy = excluded.managed_header_section_policy,
                     prompt_overlay_mode = excluded.prompt_overlay_mode,
                     prompt_overlay_content_ref_id = excluded.prompt_overlay_content_ref_id,
+                    memo_seed_policy = excluded.memo_seed_policy,
+                    memo_seed_source_kind = excluded.memo_seed_source_kind,
+                    memo_seed_content_ref_id = excluded.memo_seed_content_ref_id,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -1027,6 +1111,9 @@ class ProjectCatalog:
                     json.dumps(resolved_managed_header_section_policy, sort_keys=True),
                     prompt_overlay_mode,
                     prompt_overlay_ref_id,
+                    resolved_memo_seed_policy,
+                    memo_seed_source_kind,
+                    memo_seed_ref_id,
                     timestamp,
                     timestamp,
                 ),
@@ -1142,6 +1229,8 @@ class ProjectCatalog:
                     SELECT content_ref_id FROM setup_profiles
                     UNION
                     SELECT prompt_overlay_content_ref_id FROM launch_profiles
+                    UNION
+                    SELECT memo_seed_content_ref_id FROM launch_profiles
                     """
                 ).fetchall()
                 if row[0] is not None
@@ -1170,6 +1259,7 @@ class ProjectCatalog:
             self.m_content_root / "auth",
             self.m_content_root / "skills",
             self.m_content_root / "setups",
+            self.m_content_root / "memo-seeds",
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -1298,6 +1388,50 @@ class ProjectCatalog:
                 connection.execute(
                     "ALTER TABLE launch_profiles RENAME COLUMN memory_disabled TO persist_disabled"
                 )
+            current_version = 9
+        if current_version == 9:
+            if not _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="memo_seed_policy",
+            ):
+                memo_seed_policy_check = ", ".join(
+                    f"'{value}'" for value in _MEMO_SEED_POLICY_VALUES
+                )
+                connection.execute(
+                    f"""
+                    ALTER TABLE launch_profiles
+                    ADD COLUMN memo_seed_policy TEXT
+                    CHECK(memo_seed_policy IN ({memo_seed_policy_check}))
+                    """
+                )
+            if not _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="memo_seed_source_kind",
+            ):
+                memo_seed_source_kind_check = ", ".join(
+                    f"'{value}'" for value in _MEMO_SEED_SOURCE_KIND_VALUES
+                )
+                connection.execute(
+                    f"""
+                    ALTER TABLE launch_profiles
+                    ADD COLUMN memo_seed_source_kind TEXT
+                    CHECK(memo_seed_source_kind IN ({memo_seed_source_kind_check}))
+                    """
+                )
+            if not _table_has_column(
+                connection,
+                table_name="launch_profiles",
+                column_name="memo_seed_content_ref_id",
+            ):
+                connection.execute(
+                    """
+                    ALTER TABLE launch_profiles
+                    ADD COLUMN memo_seed_content_ref_id INTEGER
+                    REFERENCES content_refs(id) ON DELETE SET NULL
+                    """
+                )
             return
         raise ValueError(
             "Unsupported project catalog schema. Reinitialize the project overlay to adopt the "
@@ -1392,6 +1526,78 @@ class ProjectCatalog:
         _replace_tree(source=resolved_source, destination=destination)
         return ManagedContentRef(
             content_kind=content_kind,
+            storage_kind=_STORAGE_KIND_TREE,
+            relative_path=relative_path,
+        )
+
+    def _snapshot_launch_profile_memo_seed(
+        self,
+        *,
+        name: str,
+        source_kind: str,
+        memo_seed_text: str | None,
+        memo_seed_source_path: Path | None,
+    ) -> ManagedContentRef:
+        """Snapshot one launch-profile memo seed into managed content storage."""
+
+        relative_path = f"memo-seeds/launch-profiles/{name}/seed"
+        if source_kind == _MEMO_SEED_SOURCE_KIND_MEMO:
+            if memo_seed_text is not None:
+                return self._snapshot_memo_seed_text(
+                    text=memo_seed_text,
+                    relative_path=relative_path,
+                )
+            assert memo_seed_source_path is not None
+            return self._snapshot_memo_seed_file(
+                source_path=memo_seed_source_path,
+                relative_path=relative_path,
+            )
+        if source_kind == _MEMO_SEED_SOURCE_KIND_TREE:
+            if memo_seed_text is not None:
+                raise ValueError("Directory memo seeds do not accept inline memo text.")
+            if memo_seed_source_path is None:
+                raise ValueError("Directory memo seeds require a source path.")
+            return self._snapshot_memo_seed_tree(
+                source_path=memo_seed_source_path,
+                relative_path=relative_path,
+            )
+        raise ValueError(
+            f"Unsupported memo-seed source kind {source_kind!r}; expected one of "
+            f"{sorted(_MEMO_SEED_SOURCE_KIND_VALUES)}."
+        )
+
+    def _snapshot_memo_seed_text(self, *, text: str, relative_path: str) -> ManagedContentRef:
+        """Write one inline memo-seed text payload into managed content storage."""
+
+        _validate_memo_seed_text_content(text, source="inline memo seed")
+        destination = (self.m_content_root / relative_path).resolve()
+        _replace_path_with_text(destination=destination, text=text)
+        return ManagedContentRef(
+            content_kind=_CONTENT_KIND_MEMO_SEED,
+            storage_kind=_STORAGE_KIND_FILE,
+            relative_path=relative_path,
+        )
+
+    def _snapshot_memo_seed_file(self, *, source_path: Path, relative_path: str) -> ManagedContentRef:
+        """Copy one memo-seed Markdown file into managed content storage."""
+
+        text = _read_memo_seed_text_file(source_path, source=str(source_path))
+        destination = (self.m_content_root / relative_path).resolve()
+        _replace_path_with_text(destination=destination, text=text)
+        return ManagedContentRef(
+            content_kind=_CONTENT_KIND_MEMO_SEED,
+            storage_kind=_STORAGE_KIND_FILE,
+            relative_path=relative_path,
+        )
+
+    def _snapshot_memo_seed_tree(self, *, source_path: Path, relative_path: str) -> ManagedContentRef:
+        """Copy one validated memo-seed directory into managed content storage."""
+
+        _validate_memo_seed_tree(source_path)
+        destination = (self.m_content_root / relative_path).resolve()
+        _replace_tree(source=source_path.resolve(), destination=destination)
+        return ManagedContentRef(
+            content_kind=_CONTENT_KIND_MEMO_SEED,
             storage_kind=_STORAGE_KIND_TREE,
             relative_path=relative_path,
         )
@@ -1801,6 +2007,27 @@ class ProjectCatalog:
                 storage_kind=str(row["prompt_storage_kind"]),
                 relative_path=str(prompt_relative_path),
             )
+        memo_seed: LaunchProfileMemoSeed | None = None
+        memo_relative_path = row["memo_relative_path"]
+        if memo_relative_path is not None:
+            memo_source_kind = row["memo_seed_source_kind"]
+            memo_policy = row["memo_seed_policy"]
+            if memo_source_kind is None or memo_policy is None:
+                raise ValueError(
+                    f"Launch profile `{row['name']}` stores incomplete memo-seed metadata."
+                )
+            memo_seed = LaunchProfileMemoSeed(
+                source_kind=cast(Literal["memo", "tree"], str(memo_source_kind)),
+                policy=cast(
+                    Literal["initialize", "replace", "fail-if-nonempty"],
+                    str(memo_policy),
+                ),
+                content_ref=ManagedContentRef(
+                    content_kind=str(row["memo_kind"]),
+                    storage_kind=str(row["memo_storage_kind"]),
+                    relative_path=str(memo_relative_path),
+                ),
+            )
         env_payload = _load_json_mapping(str(row["env_payload"]))
         mailbox_payload = _load_json_mapping(str(row["mailbox_payload"]))
         posture_payload = _load_json_mapping(str(row["posture_payload"]))
@@ -1856,6 +2083,7 @@ class ProjectCatalog:
                 str(row["prompt_overlay_mode"]) if row["prompt_overlay_mode"] is not None else None
             ),
             prompt_overlay_ref=prompt_overlay_ref,
+            memo_seed=memo_seed,
             managed_header_section_policy=managed_header_section_policy,
             metadata_path=self.m_catalog_path,
         )
@@ -1878,6 +2106,10 @@ def _table_schema_sql() -> str:
 
     content_kind_check = ", ".join(f"'{value}'" for value in _CONTENT_KIND_VALUES)
     storage_kind_check = ", ".join(f"'{value}'" for value in _STORAGE_KIND_VALUES)
+    memo_seed_policy_check = ", ".join(f"'{value}'" for value in _MEMO_SEED_POLICY_VALUES)
+    memo_seed_source_kind_check = ", ".join(
+        f"'{value}'" for value in _MEMO_SEED_SOURCE_KIND_VALUES
+    )
     return f"""
     CREATE TABLE IF NOT EXISTS catalog_meta (
         key TEXT PRIMARY KEY,
@@ -1985,6 +2217,11 @@ def _table_schema_sql() -> str:
         managed_header_section_policy TEXT NOT NULL DEFAULT '{{}}',
         prompt_overlay_mode TEXT,
         prompt_overlay_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
+        memo_seed_policy TEXT CHECK(memo_seed_policy IN ({memo_seed_policy_check})),
+        memo_seed_source_kind TEXT CHECK(
+            memo_seed_source_kind IN ({memo_seed_source_kind_check})
+        ),
+        memo_seed_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
@@ -2071,11 +2308,16 @@ def _view_sql() -> str:
         launch_profiles.managed_header_policy AS managed_header_policy,
         launch_profiles.managed_header_section_policy AS managed_header_section_policy,
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
-        prompt_refs.relative_path AS prompt_overlay_relative_path
+        prompt_refs.relative_path AS prompt_overlay_relative_path,
+        launch_profiles.memo_seed_policy AS memo_seed_policy,
+        launch_profiles.memo_seed_source_kind AS memo_seed_source_kind,
+        memo_refs.relative_path AS memo_seed_relative_path
     FROM launch_profiles
     LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
     LEFT JOIN content_refs AS prompt_refs
-        ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id;
+        ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+    LEFT JOIN content_refs AS memo_refs
+        ON memo_refs.id = launch_profiles.memo_seed_content_ref_id;
     """
 
 
@@ -2236,6 +2478,18 @@ def _render_launch_profile_yaml(
             "mode": entry.prompt_overlay_mode,
             "text": overlay_path.read_text(encoding="utf-8").rstrip(),
         }
+    if entry.memo_seed is not None:
+        memo_seed_path = entry.memo_seed.content_ref.resolve_under_content_root(content_root)
+        defaults["memo_seed"] = {
+            "source_kind": entry.memo_seed.source_kind,
+            "policy": entry.memo_seed.policy,
+            "content_ref": {
+                "content_kind": entry.memo_seed.content_ref.content_kind,
+                "storage_kind": entry.memo_seed.content_ref.storage_kind,
+                "relative_path": entry.memo_seed.content_ref.relative_path,
+                "path": str(memo_seed_path),
+            },
+        }
     try:
         import yaml
 
@@ -2271,6 +2525,18 @@ def _replace_tree(*, source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, symlinks=True)
 
 
+def _replace_path_with_text(*, destination: Path, text: str) -> None:
+    """Replace one file-or-tree destination with UTF-8 text content."""
+
+    if destination.exists():
+        if destination.is_symlink() or destination.is_file():
+            destination.unlink()
+        else:
+            shutil.rmtree(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(text, encoding="utf-8")
+
+
 def _utcnow_iso() -> str:
     """Return one stable UTC timestamp for catalog writes."""
 
@@ -2302,6 +2568,86 @@ def _load_json_mapping(raw_value: str) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise ValueError("Catalog JSON payload must be a mapping.")
     return cast(dict[str, Any], loaded)
+
+
+def _read_memo_seed_text_file(path: Path, *, source: str) -> str:
+    """Read one memo-seed text file after UTF-8 and NUL validation."""
+
+    resolved_path = path.resolve()
+    if not resolved_path.is_file():
+        raise ValueError(f"{source}: memo-seed file does not exist: {resolved_path}")
+    raw_bytes = resolved_path.read_bytes()
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{source}: memo-seed content must be valid UTF-8 text.") from exc
+    _validate_memo_seed_text_content(text, source=source)
+    return text
+
+
+def _validate_memo_seed_text_content(text: str, *, source: str) -> None:
+    """Reject unsupported memo-seed text content."""
+
+    if "\x00" in text:
+        raise ValueError(f"{source}: memo-seed content must not contain NUL bytes.")
+
+
+def _validate_memo_seed_tree(source_path: Path) -> None:
+    """Validate one memo-shaped launch-profile memo-seed tree."""
+
+    resolved_source = source_path.resolve()
+    if not resolved_source.is_dir():
+        raise ValueError(f"Memo-seed directory does not exist: {resolved_source}")
+    entries = sorted(resolved_source.iterdir(), key=lambda item: item.name)
+    if not entries:
+        raise ValueError(
+            "Memo-seed directories must contain `houmao-memo.md`, `pages/`, or both."
+        )
+    supported_entries = {_MEMO_SEED_TOP_LEVEL_MEMO_FILE, _MEMO_SEED_TOP_LEVEL_PAGES_DIR}
+    has_supported_entry = False
+    for entry in entries:
+        if entry.is_symlink():
+            raise ValueError(f"Memo-seed directories must not contain symlinks: {entry}")
+        if entry.name not in supported_entries:
+            raise ValueError(
+                "Memo-seed directories may contain only `houmao-memo.md` and `pages/` at the "
+                f"top level: {entry}"
+            )
+        if entry.name == _MEMO_SEED_TOP_LEVEL_MEMO_FILE:
+            _read_memo_seed_text_file(entry, source=str(entry))
+            has_supported_entry = True
+            continue
+        if not entry.is_dir():
+            raise ValueError(f"Memo-seed `pages/` must be a directory: {entry}")
+        _validate_memo_seed_pages_tree(entry)
+        has_supported_entry = True
+    if not has_supported_entry:
+        raise ValueError(
+            "Memo-seed directories must contain `houmao-memo.md`, `pages/`, or both."
+        )
+
+
+def _validate_memo_seed_pages_tree(pages_root: Path) -> None:
+    """Validate one contained `pages/` subtree inside a memo seed."""
+
+    resolved_pages_root = pages_root.resolve()
+    for candidate in sorted(resolved_pages_root.rglob("*"), key=lambda item: item.as_posix()):
+        if candidate.is_symlink():
+            raise ValueError(
+                "Memo-seed pages must be regular contained files or directories: "
+                f"{candidate.relative_to(resolved_pages_root).as_posix()}"
+            )
+        if candidate.is_dir():
+            continue
+        if not candidate.is_file():
+            raise ValueError(
+                "Memo-seed pages must be regular contained files or directories: "
+                f"{candidate.relative_to(resolved_pages_root).as_posix()}"
+            )
+        _read_memo_seed_text_file(
+            candidate,
+            source=f"memo-seed page `{candidate.relative_to(resolved_pages_root).as_posix()}`",
+        )
 
 
 def _load_preset_top_level_mapping(path: Path, key: str) -> dict[str, Any] | None:

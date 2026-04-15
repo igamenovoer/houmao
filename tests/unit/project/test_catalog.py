@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+import shutil
 
 from click.testing import CliRunner
 import pytest
@@ -192,6 +193,17 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         display_name="alice-creds",
         source_path=auth_source,
     )
+    memo_seed_dir = (tmp_path / "memo-seed").resolve()
+    memo_seed_dir.mkdir(parents=True, exist_ok=True)
+    (memo_seed_dir / "houmao-memo.md").write_text(
+        "Read pages/review.md before you begin.\n",
+        encoding="utf-8",
+    )
+    (memo_seed_dir / "pages" / "review.md").parent.mkdir(parents=True, exist_ok=True)
+    (memo_seed_dir / "pages" / "review.md").write_text(
+        "Review checklist.\n",
+        encoding="utf-8",
+    )
 
     profile = catalog.store_launch_profile(
         name="alice",
@@ -221,11 +233,15 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         },
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
+        memo_seed_source_kind="tree",
+        memo_seed_policy="initialize",
+        memo_seed_source_path=memo_seed_dir,
     )
 
     assert profile.name == "alice"
     assert profile.source_name == "researcher-codex-default"
     assert profile.prompt_overlay_ref is not None
+    assert profile.memo_seed is not None
 
     projection_root = catalog.materialize_projection()
     projection_path = projection_root / "launch-profiles" / "alice.yaml"
@@ -261,6 +277,18 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 "mode": "append",
                 "text": "Prefer Alice repository conventions.",
             },
+            "memo_seed": {
+                "source_kind": "tree",
+                "policy": "initialize",
+                "content_ref": {
+                    "content_kind": "memo_seed",
+                    "storage_kind": "tree",
+                    "relative_path": "memo-seeds/launch-profiles/alice/seed",
+                    "path": str(
+                        (repo_root / ".houmao" / "content" / "memo-seeds" / "launch-profiles" / "alice" / "seed").resolve()
+                    ),
+                },
+            },
         },
     }
 
@@ -279,7 +307,10 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 reasoning_level,
                 managed_header_policy,
                 managed_header_section_policy,
-                prompt_overlay_mode
+                prompt_overlay_mode,
+                memo_seed_policy,
+                memo_seed_source_kind,
+                memo_seed_relative_path
             FROM v_launch_profiles
             """
         ).fetchone()
@@ -295,6 +326,9 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "inherit",
             '{"automation-notice": "disabled", "task-reminder": "enabled"}',
             "append",
+            "initialize",
+            "tree",
+            "memo-seeds/launch-profiles/alice/seed",
         )
     finally:
         connection.close()
@@ -304,5 +338,73 @@ def test_project_catalog_persists_and_projects_launch_profiles(
 
     assert profile.prompt_overlay_ref is not None
     profile.prompt_overlay_ref.resolve(overlay).unlink()
+    assert profile.memo_seed is not None
+    shutil.rmtree(profile.memo_seed.content_ref.resolve(overlay))
     degraded = catalog.validate_integrity()
-    assert degraded.missing_content == ("prompts/launch-profiles/alice.md",)
+    assert degraded.missing_content == (
+        "memo-seeds/launch-profiles/alice/seed",
+        "prompts/launch-profiles/alice.md",
+    )
+
+
+@pytest.mark.parametrize(
+    ("seed_setup", "expected_message"),
+    [
+        (
+            lambda root: (root / "README.md").write_text("unsupported\n", encoding="utf-8"),
+            "may contain only",
+        ),
+        (
+            lambda root: (root / "pages").mkdir(parents=True, exist_ok=True)
+            or (root / "pages" / "bad.md").write_bytes(b"bad\x00content"),
+            "must not contain NUL bytes",
+        ),
+        (
+            lambda root: (root / "pages").mkdir(parents=True, exist_ok=True)
+            or (root / "pages" / "bad.md").write_bytes(b"\xff\xfe"),
+            "must be valid UTF-8 text",
+        ),
+    ],
+)
+def test_project_catalog_rejects_invalid_memo_seed_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    seed_setup,
+    expected_message: str,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    seed_dir = (tmp_path / "invalid-seed").resolve()
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    seed_setup(seed_dir)
+
+    with pytest.raises(ValueError, match=expected_message):
+        catalog.store_launch_profile(
+            name="bad-seed",
+            profile_lane="launch_profile",
+            source_kind="recipe",
+            source_name="researcher-codex-default",
+            managed_agent_name=None,
+            managed_agent_id=None,
+            workdir=None,
+            auth_tool=None,
+            auth_name=None,
+            model_name=None,
+            reasoning_level=None,
+            operator_prompt_mode=None,
+            env_mapping={},
+            mailbox_mapping=None,
+            posture_mapping={},
+            managed_header_policy="inherit",
+            managed_header_section_policy={},
+            prompt_overlay_mode=None,
+            prompt_overlay_text=None,
+            memo_seed_source_kind="tree",
+            memo_seed_policy="initialize",
+            memo_seed_source_path=seed_dir,
+        )

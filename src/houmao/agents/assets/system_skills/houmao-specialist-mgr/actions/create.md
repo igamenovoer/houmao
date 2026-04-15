@@ -151,6 +151,10 @@ Common optional inputs:
 - `--prompt-overlay-mode append|replace`
 - `--prompt-overlay-text`
 - `--prompt-overlay-file`
+- `--memo-seed-text`
+- `--memo-seed-file`
+- `--memo-seed-dir`
+- `--memo-seed-policy initialize|replace|fail-if-nonempty`
 
 Common clear inputs for `profile set`:
 
@@ -168,6 +172,7 @@ Common clear inputs for `profile set`:
 - `--clear-managed-header-section SECTION`
 - `--clear-managed-header-sections`
 - `--clear-prompt-overlay`
+- `--clear-memo-seed`
 
 Profile authoring rules:
 
@@ -176,6 +181,9 @@ Profile authoring rules:
 - use `project agents launch-profiles set` only for explicit recipe-backed launch profiles, not easy profiles
 - do not mix `--prompt-overlay-text` and `--prompt-overlay-file`
 - prompt-overlay text requires `--prompt-overlay-mode append|replace`
+- do not mix `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`; use at most one source
+- `--memo-seed-policy` on `profile set` requires one new memo-seed source or an existing stored memo seed
+- `--clear-memo-seed` cannot be combined with one new memo-seed source or `--memo-seed-policy`
 - `--mail-transport` is required when any declarative mailbox fields are present
 - `filesystem` mailbox defaults accept `--mail-root` and reject the Stalwart URL flags
 - `stalwart` mailbox defaults accept the Stalwart URL flags and reject `--mail-root`

@@ -53,6 +53,7 @@ Behavior note:
 - `--workdir` changes only the launched agent runtime cwd.
 - The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
+- Profile-backed launch also applies any stored memo seed before prompt composition and provider startup. Direct specialist-backed launch does not apply a stored memo seed because no reusable profile was selected.
 - `--managed-header-section` is a one-shot managed-header section override and never rewrites the selected easy profile.
 - `--no-gateway` and `--gateway-port` cannot be combined.
 - `--no-gateway` cannot be combined with any `--gateway-tui-*` timing override.

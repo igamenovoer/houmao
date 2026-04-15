@@ -13,6 +13,8 @@ from houmao.agents.mailbox_runtime_models import (
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
+from houmao.project.catalog import ManagedContentRef
+from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed
 from houmao.srv_ctrl.commands.agents.core import launch_managed_agent_locally
 
 
@@ -400,6 +402,132 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
     assert build_request.launch_profile_provenance == {
         "name": "alice",
         "lane": "launch_profile",
+    }
+
+
+def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_build(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    runtime_root = (tmp_path / "runtime").resolve()
+    jobs_root = (tmp_path / "jobs").resolve()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    overlay_root = (tmp_path / "overlay").resolve()
+    working_directory = (tmp_path / "workdir").resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    memo_seed_root = (tmp_path / "seed").resolve()
+
+    for path in (
+        repo_root,
+        runtime_root,
+        jobs_root,
+        mailbox_root,
+        overlay_root,
+        working_directory,
+        source_agent_def_dir,
+        memo_seed_root,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    (memo_seed_root / "houmao-memo.md").write_text(
+        "Read the launch memo before doing anything else.\n",
+        encoding="utf-8",
+    )
+    (memo_seed_root / "pages" / "checklists").mkdir(parents=True, exist_ok=True)
+    (memo_seed_root / "pages" / "checklists" / "launch.md").write_text(
+        "Confirm the repo target.\n",
+        encoding="utf-8",
+    )
+
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime_root,
+        jobs_root=jobs_root,
+        mailbox_root=mailbox_root,
+        overlay_root=overlay_root,
+        source_agent_def_dir=source_agent_def_dir,
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_build_brain_home(request: object) -> SimpleNamespace:
+        captured["build_request"] = request
+        agent_id = derive_agent_id_from_name("repo-research-1")
+        expected_memory_root = (overlay_root / "memory" / "agents" / agent_id).resolve()
+        assert (expected_memory_root / "houmao-memo.md").read_text(encoding="utf-8") == (
+            "Read the launch memo before doing anything else.\n"
+        )
+        assert (expected_memory_root / "pages" / "checklists" / "launch.md").read_text(
+            encoding="utf-8"
+        ) == "Confirm the repo target.\n"
+        return SimpleNamespace(manifest_path=manifest_path)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        _fake_build_brain_home,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: SimpleNamespace(
+            agent_identity="repo-research-1",
+            agent_id=derive_agent_id_from_name("repo-research-1"),
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        ),
+    )
+
+    launch_result = launch_managed_agent_locally(
+        agents="researcher",
+        agent_name="repo-research-1",
+        agent_id=None,
+        auth=None,
+        session_name="HOUMAO-repo-research-1",
+        headless=True,
+        provider="codex",
+        working_directory=working_directory,
+        source_working_directory=repo_root,
+        source_agent_def_dir=source_agent_def_dir,
+        headless_display_style="plain",
+        headless_display_detail="concise",
+        launch_profile_memo_seed=ResolvedLaunchProfileMemoSeed(
+            source_kind="tree",
+            policy="initialize",
+            content_ref=ManagedContentRef(
+                content_kind="memo_seed",
+                storage_kind="tree",
+                relative_path="memo-seeds/launch-profiles/alice/seed",
+            ),
+            source_path=memo_seed_root,
+        ),
+    )
+
+    build_request = captured["build_request"]
+    expected_memo_file = (
+        overlay_root
+        / "memory"
+        / "agents"
+        / derive_agent_id_from_name("repo-research-1")
+        / "houmao-memo.md"
+    ).resolve()
+    assert build_request.role_prompt_override == compose_managed_launch_prompt(
+        base_prompt="You are a precise repo researcher.",
+        overlay_mode=None,
+        overlay_text=None,
+        managed_header_enabled=True,
+        agent_name="repo-research-1",
+        agent_id=derive_agent_id_from_name("repo-research-1"),
+        memo_file=str(expected_memo_file),
+    )
+    assert launch_result.memo_seed_application is not None
+    assert launch_result.memo_seed_application.to_payload() == {
+        "status": "applied",
+        "source_kind": "tree",
+        "policy": "initialize",
+        "memo_written": True,
+        "page_file_count": 1,
+        "page_directory_count": 1,
     }
 
 

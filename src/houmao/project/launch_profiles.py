@@ -7,9 +7,24 @@ from pathlib import Path
 from typing import Any
 
 from houmao.agents.definition_parser import AgentPreset, parse_agent_preset
-from houmao.project.catalog import LaunchProfileCatalogEntry, ProjectCatalog
+from houmao.project.catalog import (
+    LaunchProfileCatalogEntry,
+    LaunchProfileMemoSeed,
+    ManagedContentRef,
+    ProjectCatalog,
+)
 from houmao.project.easy import TOOL_PROVIDER_MAP, SpecialistMetadata, load_specialist
 from houmao.project.overlay import HoumaoProjectOverlay
+
+
+@dataclass(frozen=True)
+class ResolvedLaunchProfileMemoSeed:
+    """Resolved launch-profile memo-seed metadata plus managed content path."""
+
+    source_kind: str
+    policy: str
+    content_ref: ManagedContentRef
+    source_path: Path
 
 
 @dataclass(frozen=True)
@@ -25,6 +40,7 @@ class ResolvedProjectLaunchProfile:
     tool: str | None
     provider: str | None
     role_name: str | None
+    memo_seed: ResolvedLaunchProfileMemoSeed | None = None
     specialist: SpecialistMetadata | None = None
     recipe: AgentPreset | None = None
 
@@ -62,6 +78,7 @@ def resolve_launch_profile_entry(
         prompt_path = entry.prompt_overlay_ref.resolve(overlay)
         if prompt_path.is_file():
             prompt_overlay_text = prompt_path.read_text(encoding="utf-8").rstrip()
+    memo_seed = _resolve_launch_profile_memo_seed(overlay=overlay, memo_seed=entry.memo_seed)
 
     if entry.source_kind == "specialist":
         try:
@@ -77,6 +94,7 @@ def resolve_launch_profile_entry(
                 tool=None,
                 provider=None,
                 role_name=None,
+                memo_seed=memo_seed,
             )
         recipe_path = specialist.resolved_preset_path(overlay)
         return ResolvedProjectLaunchProfile(
@@ -89,6 +107,7 @@ def resolve_launch_profile_entry(
             tool=specialist.tool,
             provider=specialist.provider,
             role_name=specialist.role_name,
+            memo_seed=memo_seed,
             specialist=specialist,
             recipe=parse_agent_preset(recipe_path) if recipe_path.is_file() else None,
         )
@@ -105,6 +124,7 @@ def resolve_launch_profile_entry(
             tool=None,
             provider=None,
             role_name=None,
+            memo_seed=memo_seed,
         )
     recipe = parse_agent_preset(recipe_path)
     return ResolvedProjectLaunchProfile(
@@ -117,6 +137,7 @@ def resolve_launch_profile_entry(
         tool=recipe.tool,
         provider=TOOL_PROVIDER_MAP.get(recipe.tool, recipe.tool),
         role_name=recipe.role_name,
+        memo_seed=memo_seed,
         recipe=recipe,
     )
 
@@ -167,6 +188,18 @@ def launch_profile_defaults_payload(
         if include_prompt_overlay_text and profile.prompt_overlay_text is not None:
             overlay_payload["text"] = profile.prompt_overlay_text
         payload["prompt_overlay"] = overlay_payload
+    if profile.memo_seed is not None:
+        payload["memo_seed"] = {
+            "present": True,
+            "source_kind": profile.memo_seed.source_kind,
+            "policy": profile.memo_seed.policy,
+            "content_ref": {
+                "content_kind": profile.memo_seed.content_ref.content_kind,
+                "storage_kind": profile.memo_seed.content_ref.storage_kind,
+                "relative_path": profile.memo_seed.content_ref.relative_path,
+                "path": str(profile.memo_seed.source_path),
+            },
+        }
     return payload
 
 
@@ -191,3 +224,20 @@ def launch_profile_source_payload(profile: ResolvedProjectLaunchProfile) -> dict
     if profile.role_name is not None:
         payload["role_name"] = profile.role_name
     return payload
+
+
+def _resolve_launch_profile_memo_seed(
+    *,
+    overlay: HoumaoProjectOverlay,
+    memo_seed: LaunchProfileMemoSeed | None,
+) -> ResolvedLaunchProfileMemoSeed | None:
+    """Resolve one stored launch-profile memo seed against the current overlay."""
+
+    if memo_seed is None:
+        return None
+    return ResolvedLaunchProfileMemoSeed(
+        source_kind=memo_seed.source_kind,
+        policy=memo_seed.policy,
+        content_ref=memo_seed.content_ref,
+        source_path=memo_seed.content_ref.resolve(overlay),
+    )
