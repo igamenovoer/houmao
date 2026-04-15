@@ -384,7 +384,7 @@ def test_project_init_rejects_relative_overlay_env(
     assert "HOUMAO_PROJECT_OVERLAY_DIR" in result.output
 
 
-def test_project_init_can_opt_into_compatibility_profiles(
+def test_project_init_rejects_compatibility_profiles_flag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -395,8 +395,18 @@ def test_project_init_can_opt_into_compatibility_profiles(
 
     result = runner.invoke(cli, ["project", "init", "--with-compatibility-profiles"])
 
+    assert result.exit_code != 0
+    assert "No such option" in result.output
+    assert not (repo_root / ".houmao").exists()
+
+
+def test_project_init_help_hides_compatibility_profiles_flag() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["project", "init", "--help"])
+
     assert result.exit_code == 0
-    assert (repo_root / ".houmao" / "agents" / "compatibility-profiles").is_dir()
+    assert "--with-compatibility-profiles" not in result.output
 
 
 def test_project_status_reports_discovered_overlay_from_nested_directory(

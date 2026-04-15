@@ -21,21 +21,13 @@ project_group.add_command(project_credentials_group)
 
 
 @project_group.command(name="init")
-@click.option(
-    "--with-compatibility-profiles",
-    is_flag=True,
-    help="Also create the optional `.houmao/agents/compatibility-profiles/` subtree.",
-)
-def init_project_command(with_compatibility_profiles: bool) -> None:
+def init_project_command() -> None:
     """Create or validate the active project overlay, defaulting to `<cwd>/.houmao`."""
 
     cwd = Path.cwd().resolve()
     try:
         overlay_root = resolve_project_init_overlay_root(cwd=cwd)
-        result = bootstrap_project_overlay_at_root(
-            overlay_root,
-            include_compatibility_profiles=with_compatibility_profiles,
-        )
+        result = bootstrap_project_overlay_at_root(overlay_root)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
