@@ -12,6 +12,24 @@ Use this Houmao skill only when the user explicitly asks for `houmao-touring` or
 
 The trigger word `houmao` is intentional. Use the `houmao-touring` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Welcome Message
+
+When the user starts the guided tour, present a concise welcome before or alongside the current-state orientation. Keep it user-facing, adapt it to the current project state, and do not imply that the user must restart from the beginning when Houmao state already exists.
+
+Suggested baseline:
+
+Welcome to Houmao. Houmao is a framework and CLI toolkit for orchestrating teams of loosely coupled CLI-based AI agents such as Claude, Codex, and Gemini. Each agent is a real CLI process with its own disk state, memory, and native TUI; Houmao coordinates the team through reusable specialists, mailbox messaging, per-agent gateways, and loop plans.
+
+A typical first setup path is:
+
+1. Create or inspect a Houmao project and initialize the mailbox root.
+2. Create a specialist: customize its system prompt, choose the provider/tooling posture, and select credentials.
+3. Create an optional launch profile: set the agent name, working directory, launch defaults, and any extra system prompt customization.
+4. Set up and register the agent mail account.
+5. Launch the agent. The default tour posture is a visible TUI managed agent with a foreground gateway sidecar; when mailbox is ready, enable gateway mail-notifier polling every 5 seconds so the agent can process new mail.
+
+Start by checking what already exists here, then suggest the next likely branch instead of restarting from scratch.
+
 ## Scope
 
 This packaged skill covers a branching guided tour for:
@@ -40,27 +58,28 @@ This packaged skill does not cover:
 ## Workflow
 
 1. Confirm that the user explicitly wants the guided touring experience instead of one narrow direct-operation task.
-2. Choose one `houmao-mgr` launcher for the current turn:
+2. Present the welcome message, including the typical first setup path, unless the recent conversation already covered it.
+3. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
    - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-3. Start from current-state orientation rather than assuming the tour begins at project initialization:
+4. Start from current-state orientation rather than assuming the tour begins at project initialization:
    - inspect project posture through `houmao-mgr project status`
    - inspect reusable specialists through `houmao-mgr project easy specialist list` or `houmao-mgr project easy specialist get --name <name>` when the branch needs them
    - inspect reusable profiles through `houmao-mgr project easy profile list` or `houmao-mgr project easy profile get --name <name>` when the branch needs them
    - inspect running managed agents through `houmao-mgr agents list`
    - inspect one live managed agent through `houmao-mgr agents state`, `houmao-mgr agents gateway status`, or `houmao-mgr agents mail resolve-live` when the branch needs live capability
-4. Explain the current posture in plain language and offer the next likely branches.
-5. Load exactly one branch page for the next selected tour branch:
+5. Explain the current posture in plain language and offer the next likely branches.
+6. Load exactly one branch page for the next selected tour branch:
    - `branches/orient.md`
    - `branches/setup-project-and-mailbox.md`
    - `branches/author-and-launch.md`
    - `branches/live-operations.md`
    - `branches/advanced-usage.md`
    - `branches/lifecycle-follow-up.md`
-6. Route execution to the maintained Houmao-owned skill that owns the selected branch.
-7. After that branch completes, summarize the new current state and offer the next likely branches again.
+7. Route execution to the maintained Houmao-owned skill that owns the selected branch.
+8. After that branch completes, summarize the new current state and offer the next likely branches again.
 
 ## Branches
 

@@ -1,0 +1,14 @@
+.houmao/
+.env
+.env.*
+credentials/
+logs/
+*.log
+
+story/run-state.md
+story/chapters/*.md
+!story/chapters/.gitkeep
+story/characters/*.md
+!story/characters/.gitkeep
+story/review/*.md
+!story/review/.gitkeep

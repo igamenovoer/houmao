@@ -154,6 +154,8 @@ See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for skill
 
 **Example: collaborative story writing with 3 specialists**
 
+The reusable template for this team lives in [`examples/writer-team/`](examples/writer-team/); it contains the prompt files, pairwise loop plan, start charter, local setup commands, and ignored artifact directories.
+
 Set up the project and create three specialists:
 
 ```bash
