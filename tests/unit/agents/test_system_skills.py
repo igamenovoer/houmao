@@ -1092,6 +1092,18 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-agent-loop-pairwise" in touring_skill
     assert "houmao-agent-loop-pairwise-v2" in touring_skill
     assert "houmao-agent-instance" in touring_skill
+    assert "## Welcome Message" in touring_skill
+    assert "framework and CLI toolkit for orchestrating teams" in touring_skill
+    assert "loosely coupled CLI-based AI agents" in touring_skill
+    assert "real CLI process with its own disk state, memory, and native TUI" in touring_skill
+    assert "mailbox messaging, per-agent gateways, and loop plans" in touring_skill
+    assert "A typical first setup path is:" in touring_skill
+    assert "initialize the mailbox root" in touring_skill
+    assert "Create a specialist: customize its system prompt" in touring_skill
+    assert "Create an optional launch profile" in touring_skill
+    assert "Set up and register the agent mail account" in touring_skill
+    assert "default tour posture is a visible TUI managed agent" in touring_skill
+    assert "gateway mail-notifier polling every 5 seconds" in touring_skill
     assert "foreground-first gateway posture" in touring_author_launch
     assert "not as detached background gateway execution" in touring_author_launch
     assert "gateway_tmux_window_index" in touring_author_launch
