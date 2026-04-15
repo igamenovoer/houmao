@@ -71,7 +71,7 @@ Within that pair, `houmao-mgr` is split deliberately:
 - `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
 - `credentials` is the first-class credential-management family for the active project overlay or an explicit plain agent-definition directory
-- `system-skills` is the Houmao-owned skill installer for resolved Claude, Codex, or Gemini homes outside managed launch or join
+- `system-skills` is the Houmao-owned skill installer for resolved Claude, Codex, Copilot, or Gemini homes outside managed launch or join
 - `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `easy`, and `mailbox` views
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots
 - `admin` is the local maintenance family

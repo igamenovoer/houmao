@@ -158,9 +158,13 @@ To prepare an external tool home (one that did not come from a `houmao-mgr agent
 
 ```bash
 houmao-mgr system-skills install --tool claude --home ~/.claude
+houmao-mgr system-skills install --tool copilot
+houmao-mgr system-skills install --tool copilot --home ~/.copilot
 ```
 
-When `--home` is omitted, the effective home resolves through `--home` → tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>` for Gemini). The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`.
+When `--home` is omitted, the effective home resolves through `--home` → tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>/.github` for Copilot, `<cwd>` for Gemini). The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`. The default Copilot home is `<cwd>/.github`, so omitted-home Copilot installs land under `<cwd>/.github/skills/`. Use `--home ~/.copilot` when you want a personal Copilot CLI skill install instead of a repository-local Copilot skill install.
+
+Copilot repository skills can be discovered by Copilot surfaces that read `.github/skills/`, but discovery is not the same as runtime reachability. The Houmao system skills still route to `houmao-mgr` and often inspect or mutate local project, tmux, gateway, mailbox, and managed-agent resources; those operations require a local or otherwise provisioned environment where those resources are available.
 
 For named-set or explicit-skill installs, repeat `--set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
 

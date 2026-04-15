@@ -1505,6 +1505,59 @@ def test_install_system_skills_for_home_supports_explicit_symlink_projection(
     _assert_legacy_state_removed(home_path)
 
 
+def test_install_system_skills_for_home_projects_copilot_selected_skills_and_status(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "copilot-home").resolve()
+
+    result = install_system_skills_for_home(
+        tool="copilot",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
+    )
+
+    installed_records = discover_installed_system_skills(tool="copilot", home_path=home_path)
+
+    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
+    assert result.projection_mode == "copy"
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
+        "skills/houmao-specialist-mgr",
+    )
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_legacy_state_removed(home_path)
+
+
+def test_install_system_skills_for_home_supports_copilot_symlink_projection(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "copilot-home").resolve()
+
+    result = install_system_skills_for_home(
+        tool="copilot",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
+        projection_mode="symlink",
+    )
+
+    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
+    installed_records = discover_installed_system_skills(tool="copilot", home_path=home_path)
+
+    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
+    assert result.projection_mode == "symlink"
+    assert installed_skill_dir.is_symlink()
+    assert installed_skill_dir.readlink().is_absolute()
+    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
+    assert (installed_skill_dir / "SKILL.md").is_file()
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
+        "skills/houmao-specialist-mgr",
+    )
+    assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
+    _assert_legacy_state_removed(home_path)
+
+
 def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

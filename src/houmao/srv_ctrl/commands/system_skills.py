@@ -19,11 +19,13 @@ from .output import emit
 _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
+    "copilot": "COPILOT_HOME",
     "gemini": "GEMINI_CLI_HOME",
 }
 _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL: dict[str, Path] = {
     "claude": Path(".claude"),
     "codex": Path(".codex"),
+    "copilot": Path(".github"),
     "gemini": Path("."),
 }
 
@@ -67,7 +69,9 @@ def list_system_skills_command() -> None:
 
 @system_skills_group.command(name="status")
 @click.option(
-    "--tool", required=True, help="Supported tool identifier (`claude`, `codex`, or `gemini`)."
+    "--tool",
+    required=True,
+    help="Supported tool identifier (`claude`, `codex`, `copilot`, or `gemini`).",
 )
 @click.option(
     "--home",
@@ -98,7 +102,9 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
 
 @system_skills_group.command(name="install")
 @click.option(
-    "--tool", required=True, help="Supported tool identifier (`claude`, `codex`, or `gemini`)."
+    "--tool",
+    required=True,
+    help="Supported tool identifier (`claude`, `codex`, `copilot`, or `gemini`).",
 )
 @click.option(
     "--home",

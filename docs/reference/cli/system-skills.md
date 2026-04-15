@@ -1,6 +1,6 @@
 # system-skills
 
-`houmao-mgr system-skills` is the operator-facing surface for installing the current Houmao-owned `houmao-*` skills into resolved Claude, Codex, or Gemini homes.
+`houmao-mgr system-skills` is the operator-facing surface for installing the current Houmao-owned `houmao-*` skills into resolved Claude, Codex, Copilot, or Gemini homes.
 
 > **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
@@ -54,15 +54,19 @@ Supported tool-native home env vars:
 
 - Claude: `CLAUDE_CONFIG_DIR`
 - Codex: `CODEX_HOME`
+- Copilot: `COPILOT_HOME`
 - Gemini: `GEMINI_CLI_HOME`
 
 Project-scoped default homes:
 
 - Claude: `<cwd>/.claude`
 - Codex: `<cwd>/.codex`
+- Copilot: `<cwd>/.github`
 - Gemini: `<cwd>`
 
 Gemini is intentionally different from Claude and Codex. The effective Gemini home root is the project root, which means omitted-home Gemini installs land under `<cwd>/.gemini/skills/` while Gemini provider state remains under `<cwd>/.gemini/`.
+
+Copilot uses the same home-relative `skills/` projection as Claude and Codex, but its project-scoped default home is `<cwd>/.github`. That means omitted-home Copilot installs land under `<cwd>/.github/skills/`. To install the same Houmao-owned skills into a personal Copilot CLI home, pass an explicit home such as `--home ~/.copilot` or set `COPILOT_HOME`; no separate scope flag is required.
 
 ## Packaged Catalog
 
@@ -132,6 +136,7 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 | --- | --- | --- |
 | `claude` | `skills/` | `skills/houmao-agent-email-comms/SKILL.md` |
 | `codex` | `skills/` | `skills/houmao-agent-messaging/SKILL.md` |
+| `copilot` | `skills/` | `.github/skills/houmao-agent-messaging/SKILL.md` for the project default, or `~/.copilot/skills/houmao-agent-messaging/SKILL.md` with `--home ~/.copilot` |
 | `gemini` | `.gemini/skills/` | `.gemini/skills/houmao-agent-email-comms/SKILL.md` |
 
 That means Houmao-owned mailbox, touring, and user-control skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
@@ -206,6 +211,9 @@ pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set age
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-inspect
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-messaging
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-gateway
+pixi run houmao-mgr system-skills install --tool copilot
+pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot
+pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --set user-control
 pixi run houmao-mgr system-skills install --tool gemini --set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-specialist-mgr --symlink
 ```
@@ -276,7 +284,7 @@ CLI-default installation now includes the full three-skill mailbox set, the `age
 
 Use `system-skills` when:
 
-- you want to prepare an external Claude, Codex, or Gemini home before using `houmao-mgr`
+- you want to prepare an external Claude, Codex, Copilot, or Gemini home before using `houmao-mgr`
 - you want to inspect whether Houmao already installed its own skill set into a home
 - you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, messaging/control, gateway-management, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
 
