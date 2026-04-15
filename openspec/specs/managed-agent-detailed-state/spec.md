@@ -169,23 +169,19 @@ This backing-source switch SHALL remain caller-transparent in this phase: the de
 - **THEN** `houmao-server` uses direct fallback detail when that fallback is still supported and safe for that agent
 - **AND THEN** otherwise it returns unavailable semantics instead of treating stale gateway-backed detail as indefinitely authoritative
 
-### Requirement: Managed-agent state reports workspace lanes
-Managed-agent state and detailed-state payloads SHALL report workspace root, memo file, scratch directory, persist binding, and persist directory when available.
+### Requirement: Managed-agent state reports memo-pages memory
+Managed-agent state and detailed-state payloads SHALL report memory root, memo file, and pages directory when available.
 
-When persistence is disabled, managed-agent state SHALL report the disabled persist binding and `persist_dir: null`.
+Managed-agent state SHALL NOT report `scratch_dir`, `persist_binding`, or `persist_dir` as current managed memory fields.
 
-Managed-agent state SHALL NOT report `memory_dir` as the current workspace contract.
-
-#### Scenario: State reports enabled workspace lanes
-- **WHEN** managed agent `researcher` has workspace root `/repo/.houmao/memory/agents/researcher-id`
-- **AND WHEN** persistence is enabled
-- **THEN** managed-agent state reports the workspace root
+#### Scenario: State reports memory pages
+- **WHEN** managed agent `researcher` has memory root `/repo/.houmao/memory/agents/researcher-id`
+- **THEN** managed-agent state reports the memory root
 - **AND THEN** it reports the memo file
-- **AND THEN** it reports the scratch directory
-- **AND THEN** it reports the persist directory
+- **AND THEN** it reports the pages directory
 
-#### Scenario: State reports disabled persist lane
-- **WHEN** managed agent `researcher` has persistence disabled
-- **THEN** managed-agent state reports the workspace root, memo file, and scratch directory
-- **AND THEN** it reports `persist_dir: null`
-- **AND THEN** it does not report `memory_dir`
+#### Scenario: State omits retired lane fields
+- **WHEN** managed agent `researcher` exposes managed memory metadata
+- **THEN** managed-agent state does not report `scratch_dir`
+- **AND THEN** it does not report `persist_binding`
+- **AND THEN** it does not report `persist_dir`

@@ -999,7 +999,7 @@
           "default": null,
           "title": "Session Id"
         },
-        "workspace_root": {
+        "memory_root": {
           "anyOf": [
             {
               "type": "string"
@@ -1009,7 +1009,7 @@
             }
           ],
           "default": null,
-          "title": "Workspace Root"
+          "title": "Memory Root"
         },
         "memo_file": {
           "anyOf": [
@@ -1023,7 +1023,7 @@
           "default": null,
           "title": "Memo File"
         },
-        "scratch_dir": {
+        "pages_dir": {
           "anyOf": [
             {
               "type": "string"
@@ -1033,36 +1033,7 @@
             }
           ],
           "default": null,
-          "title": "Scratch Dir"
-        },
-        "persist_binding": {
-          "anyOf": [
-            {
-              "enum": [
-                "auto",
-                "exact",
-                "disabled"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Persist Binding"
-        },
-        "persist_dir": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Persist Dir"
+          "title": "Pages Dir"
         },
         "agent_def_dir": {
           "anyOf": [

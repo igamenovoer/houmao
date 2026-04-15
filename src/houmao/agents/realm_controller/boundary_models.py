@@ -20,7 +20,6 @@ from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
 OperatorPromptModeV1: TypeAlias = Literal["as_is", "unattended"]
 LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
 RegistryLaunchAuthorityV1: TypeAlias = Literal["runtime", "external"]
-RuntimePersistBindingKindV1: TypeAlias = Literal["auto", "exact", "disabled"]
 SessionOriginV1: TypeAlias = Literal["joined_tmux"]
 AgentLaunchPostureKindV1: TypeAlias = Literal[
     "runtime_launch_plan",
@@ -307,11 +306,9 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
     """Normalized runtime-owned manifest authority for one tmux-backed session."""
 
     session_id: str | None = None
-    workspace_root: str | None = None
+    memory_root: str | None = None
     memo_file: str | None = None
-    scratch_dir: str | None = None
-    persist_binding: RuntimePersistBindingKindV1 | None = None
-    persist_dir: str | None = None
+    pages_dir: str | None = None
     agent_def_dir: str | None = None
     agent_pid: int | None = None
     registry_generation_id: str | None = None
@@ -319,11 +316,9 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
 
     @field_validator(
         "session_id",
-        "workspace_root",
+        "memory_root",
         "memo_file",
-        "scratch_dir",
-        "persist_binding",
-        "persist_dir",
+        "pages_dir",
         "agent_def_dir",
         "registry_generation_id",
         "registry_launch_authority",
@@ -346,23 +341,15 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_workspace_binding(self) -> "SessionManifestRuntimeSectionV1":
-        workspace_fields = (self.workspace_root, self.memo_file, self.scratch_dir)
-        if any(value is not None for value in workspace_fields) and not all(
-            value is not None for value in workspace_fields
+    def _validate_memory_binding(self) -> "SessionManifestRuntimeSectionV1":
+        memory_fields = (self.memory_root, self.memo_file, self.pages_dir)
+        if any(value is not None for value in memory_fields) and not all(
+            value is not None for value in memory_fields
         ):
             raise ValueError(
-                "runtime.workspace_root, runtime.memo_file, and runtime.scratch_dir must be "
+                "runtime.memory_root, runtime.memo_file, and runtime.pages_dir must be "
                 "stored together"
             )
-        if self.persist_binding in {"auto", "exact"} and self.persist_dir is None:
-            raise ValueError("persist_dir is required when runtime.persist_binding enables persist")
-        if self.persist_binding == "disabled" and self.persist_dir is not None:
-            raise ValueError(
-                "runtime.persist_dir must be omitted when runtime.persist_binding is disabled"
-            )
-        if self.persist_binding is None and self.persist_dir is not None:
-            raise ValueError("runtime.persist_binding is required when runtime.persist_dir is set")
         return self
 
 

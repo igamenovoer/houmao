@@ -37,30 +37,28 @@ The default per-user shared Houmao root that remains global SHALL be:
 For maintained local project-aware command flows, the default overlay-owned roots SHALL be:
 - runtime root: `<active-overlay>/runtime`
 - mailbox root: `<active-overlay>/mailbox`
-- agent workspace root family: `<active-overlay>/memory/agents/<agent-id>/`
+- agent memory root family: `<active-overlay>/memory/agents/<agent-id>/`
 - easy root: `<active-overlay>/easy`
 
-For each tmux-backed managed agent, the default workspace lanes SHALL be derived as:
+For each tmux-backed managed agent, the default managed memory paths SHALL be derived as:
 - memo file: `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`
-- scratch lane: `<active-overlay>/memory/agents/<agent-id>/scratch/`
-- persist lane: `<active-overlay>/memory/agents/<agent-id>/persist/` when persistence is enabled
+- pages directory: `<active-overlay>/memory/agents/<agent-id>/pages/`
 
-The system SHALL NOT derive current managed-agent scratch state from `<active-overlay>/jobs/<session-id>/`.
+The system SHALL NOT derive current managed-agent memory paths from `<active-overlay>/jobs/<session-id>/`.
 
-The system SHALL continue to support stronger override surfaces for global registry, runtime, mailbox, and exact persist locations where supported.
+The system SHALL continue to support stronger override surfaces for global registry, runtime, and mailbox locations where supported.
 
 When both an explicit CLI/config override and an env-var override exist for the same effective location, the explicit override SHALL win.
 When no explicit override exists but a supported env-var override is set, the env-var override SHALL win.
 When neither explicit override nor env-var override is supplied for a maintained local project-aware flow, the system SHALL use the overlay-derived defaults above.
 
-#### Scenario: Project-aware local roots resolve workspace lanes under the active overlay
+#### Scenario: Project-aware local roots resolve managed memory under the active overlay
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
 - **AND WHEN** a maintained local Houmao launch flow starts managed agent id `researcher-id` without stronger root overrides
 - **THEN** the effective runtime root is `/repo/.houmao/runtime`
 - **AND THEN** the effective mailbox root is `/repo/.houmao/mailbox`
 - **AND THEN** the effective memo file is `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
-- **AND THEN** the effective scratch lane is `/repo/.houmao/memory/agents/researcher-id/scratch`
-- **AND THEN** the effective persist lane is `/repo/.houmao/memory/agents/researcher-id/persist` when persistence is enabled
+- **AND THEN** the effective pages directory is `/repo/.houmao/memory/agents/researcher-id/pages`
 
 #### Scenario: Shared registry remains under the user home by default
 - **WHEN** an operator runs maintained local Houmao commands in project context without a registry override
@@ -72,7 +70,7 @@ When neither explicit override nor env-var override is supplied for a maintained
 - **AND WHEN** `/repo/.houmao/houmao-config.toml` sets `paths.agent_def_dir = "custom-agents"`
 - **AND WHEN** a maintained local Houmao launch flow starts managed agent id `researcher-id` without stronger root overrides
 - **THEN** the effective runtime root remains `/repo/.houmao/runtime`
-- **AND THEN** the effective mailbox root, workspace root family, and easy root remain `/repo/.houmao/mailbox`, `/repo/.houmao/memory/agents/researcher-id`, and `/repo/.houmao/easy`
+- **AND THEN** the effective mailbox root, memory root family, and easy root remain `/repo/.houmao/mailbox`, `/repo/.houmao/memory/agents/researcher-id`, and `/repo/.houmao/easy`
 
 ### Requirement: Houmao-owned directory layout does not require family-based agent bucketing
 The system SHALL NOT require Houmao-owned directory hierarchy to encode agent grouping through tool names, family names, or other taxonomy buckets in order to associate runtime-owned state with one agent.
@@ -106,34 +104,34 @@ When the system bootstraps an initial `agent_id` from canonical agent name, it S
 - **WHEN** two different agents both use canonical agent name `HOUMAO-chris`
 - **THEN** name-based lookup for `HOUMAO-chris` may require disambiguation by `agent_id` or another persisted metadata surface
 
-### Requirement: Houmao-owned zones keep discovery, durable state, shared mailbox state, and destructive scratch separate
+### Requirement: Managed memory pages remain distinct from artifacts, runtime, and mailbox state
 The system SHALL preserve distinct mutability and ownership boundaries across the Houmao-owned zones.
 
 At minimum:
 - the registry root SHALL contain discovery-oriented metadata only,
 - the runtime root SHALL contain durable Houmao-managed runtime and launcher state,
 - the mailbox root SHALL contain shared mailbox transport state,
-- the per-agent workspace memo file SHALL contain live-agent instruction and loop initialization state,
-- the per-agent workspace scratch lane SHALL contain temporary files, transient outputs, retry ledgers, and destructive scratch work,
-- the per-agent workspace persist lane SHALL contain durable agent memory when persistence is enabled.
+- the per-agent memory memo file SHALL contain caller-authored Markdown notes,
+- the per-agent memory pages directory SHALL contain small contained Markdown pages and related text context selected by users or LLMs.
 
 Mutable runtime session state, launcher-managed CAO home state, task-specific logs or outputs, and mailbox contents MUST NOT be relocated into the shared registry root as part of this directory model.
 
-Mailbox state MUST remain independently relocatable and MUST NOT be implicitly nested under the runtime root or a per-agent workspace lane just because those other zones exist.
+Mailbox state MUST remain independently relocatable and MUST NOT be implicitly nested under the runtime root or a per-agent memory pages directory just because those other zones exist.
+
+Managed memory pages MUST NOT be treated as the default scratch ledger, build output location, or durable artifact repository for arbitrary work products; such artifacts belong in the launched workdir or explicit operator-designated paths.
 
 #### Scenario: Registry root is not used as mutable CAO or runtime storage
 - **WHEN** the system publishes live-agent discovery metadata and also starts a launcher-managed CAO service
 - **THEN** the shared registry contains only registry-owned discovery records
 - **AND THEN** launcher-managed CAO home state and durable runtime session state are stored outside the registry root
 
-#### Scenario: Scratch lane does not replace shared mailbox or durable runtime state
-- **WHEN** a started session writes scratch files while also using mailbox support and runtime-managed manifest persistence
-- **THEN** scratch files and temporary outputs live under that agent's scratch lane
+#### Scenario: Memory pages do not replace shared mailbox or durable runtime state
+- **WHEN** a started session writes task artifacts while also using mailbox support and runtime-managed manifest persistence
+- **THEN** task artifacts live in the launched workdir or another operator-designated path
 - **AND THEN** mailbox content and durable runtime session state remain in their own independent zones
 
-#### Scenario: Memo file stays separate from scratch and persist lanes
+#### Scenario: Memo file stays separate from page content
 - **WHEN** a loop initialization records live-agent rules for managed agent `researcher`
-- **THEN** the rules live in `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
-- **AND THEN** temporary outputs remain in the scratch lane
-- **AND THEN** durable archive notes remain in the persist lane when persistence is enabled
-
+- **THEN** concise rules may live in `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
+- **AND THEN** larger readable context may live under `/repo/.houmao/memory/agents/researcher-id/pages/`
+- **AND THEN** large task artifacts remain outside managed memory unless the operator explicitly chooses a small page summary or pointer

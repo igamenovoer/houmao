@@ -227,15 +227,13 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     assert captured["gateway_port"] == 0
     assert captured["gateway_execution_mode_override"] == "tmux_auxiliary_window"
     assert captured["gateway_tui_tracking_timing_overrides"] == timing_overrides
-    workspace_paths = captured["workspace_paths"]
-    persist_binding = getattr(workspace_paths, "persist")
-    assert persist_binding.kind == "auto"
-    assert (
-        persist_binding.directory
-        == (
-            overlay_root / "memory" / "agents" / "6ee1c825367e868092eda76cb18a96e0" / "persist"
-        ).resolve()
-    )
+    memory_paths = captured["memory_paths"]
+    expected_memory_root = (
+        overlay_root / "memory" / "agents" / "6ee1c825367e868092eda76cb18a96e0"
+    ).resolve()
+    assert getattr(memory_paths, "memory_root") == expected_memory_root
+    assert getattr(memory_paths, "memo_file") == (expected_memory_root / "houmao-memo.md").resolve()
+    assert getattr(memory_paths, "pages_dir") == (expected_memory_root / "pages").resolve()
     assert launch_result.controller.agent_identity == "repo-research-1"
 
 

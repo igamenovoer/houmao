@@ -18,7 +18,6 @@ from houmao.agents.realm_controller.agent_identity import (
 from .boundary_models import (
     LaunchPlanPayloadV1,
     RegistryLaunchAuthorityV1,
-    RuntimePersistBindingKindV1,
     SessionManifestAgentLaunchAuthorityV1,
     SessionManifestPayloadV2,
     SessionManifestPayloadV3,
@@ -45,11 +44,9 @@ class SessionManifestRequest:
     agent_id: str | None = None
     tmux_session_name: str | None = None
     session_id: str | None = None
-    workspace_root: Path | None = None
+    memory_root: Path | None = None
     memo_file: Path | None = None
-    scratch_dir: Path | None = None
-    persist_binding: RuntimePersistBindingKindV1 | None = None
-    persist_dir: Path | None = None
+    pages_dir: Path | None = None
     agent_def_dir: Path | None = None
     agent_pid: int | None = None
     created_at_utc: str | None = None
@@ -451,17 +448,11 @@ def _build_manifest_runtime_section(
         agent_pid = raw_agent_pid if isinstance(raw_agent_pid, int) and raw_agent_pid > 0 else None
     return {
         "session_id": session_id,
-        "workspace_root": (
-            str(request.workspace_root.resolve()) if request.workspace_root is not None else None
+        "memory_root": (
+            str(request.memory_root.resolve()) if request.memory_root is not None else None
         ),
         "memo_file": str(request.memo_file.resolve()) if request.memo_file is not None else None,
-        "scratch_dir": (
-            str(request.scratch_dir.resolve()) if request.scratch_dir is not None else None
-        ),
-        "persist_binding": request.persist_binding,
-        "persist_dir": (
-            str(request.persist_dir.resolve()) if request.persist_dir is not None else None
-        ),
+        "pages_dir": (str(request.pages_dir.resolve()) if request.pages_dir is not None else None),
         "agent_def_dir": (
             str(request.agent_def_dir.resolve()) if request.agent_def_dir is not None else None
         ),
@@ -664,14 +655,12 @@ def _upgrade_v3_manifest_payload(*, payload: SessionManifestPayloadV3) -> dict[s
         or payload.agent_id
         or payload.agent_name
     )
-    workspace_root, memo_file, scratch_dir = _legacy_workspace_fields(payload=payload)
+    memory_root, memo_file, pages_dir = _legacy_memory_fields(payload=payload)
     upgraded["runtime"] = {
         "session_id": session_id,
-        "workspace_root": workspace_root,
+        "memory_root": memory_root,
         "memo_file": memo_file,
-        "scratch_dir": scratch_dir,
-        "persist_binding": None,
-        "persist_dir": None,
+        "pages_dir": pages_dir,
         "agent_def_dir": None,
         "agent_pid": payload.codex.pid if payload.codex is not None else None,
         "registry_generation_id": payload.registry_generation_id,
@@ -778,15 +767,15 @@ def _legacy_job_dir(*, payload: SessionManifestPayloadV2, source: str) -> str | 
     return str((working_directory / ".houmao" / "jobs" / session_id).resolve())
 
 
-def _legacy_workspace_fields(
+def _legacy_memory_fields(
     *,
     payload: SessionManifestPayloadV3,
 ) -> tuple[str | None, str | None, str | None]:
-    """Best-effort workspace derivation for older manifest payloads."""
+    """Best-effort memory path derivation for older manifest payloads."""
 
     if payload.agent_id is None:
         return None, None, None
-    workspace_root = (
+    memory_root = (
         Path(payload.working_directory).resolve()
         / ".houmao"
         / "memory"
@@ -794,9 +783,9 @@ def _legacy_workspace_fields(
         / payload.agent_id
     ).resolve()
     return (
-        str(workspace_root),
-        str((workspace_root / "houmao-memo.md").resolve()),
-        str((workspace_root / "scratch").resolve()),
+        str(memory_root),
+        str((memory_root / "houmao-memo.md").resolve()),
+        str((memory_root / "pages").resolve()),
     )
 
 

@@ -2740,19 +2740,16 @@ def _seed_local_interactive_gateway_root(tmp_path: Path) -> Path:
     return paths.gateway_root
 
 
-def _seed_workspace_gateway_root(tmp_path: Path, *, persist_enabled: bool = True) -> Path:
-    """Seed one gateway root whose manifest exposes workspace metadata."""
+def _seed_memory_gateway_root(tmp_path: Path) -> Path:
+    """Seed one gateway root whose manifest exposes memory metadata."""
 
     manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
-    workspace_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-workspace").resolve()
-    persist_dir = (workspace_root / "persist").resolve() if persist_enabled else None
-    scratch_dir = (workspace_root / "scratch").resolve()
-    memo_file = (workspace_root / "houmao-memo.md").resolve()
-    workspace_root.mkdir(parents=True, exist_ok=True)
-    scratch_dir.mkdir(parents=True, exist_ok=True)
+    memory_root = (tmp_path / ".houmao" / "memory" / "agents" / "agent-memory").resolve()
+    pages_dir = (memory_root / "pages").resolve()
+    memo_file = (memory_root / "houmao-memo.md").resolve()
+    memory_root.mkdir(parents=True, exist_ok=True)
+    pages_dir.mkdir(parents=True, exist_ok=True)
     memo_file.touch()
-    if persist_dir is not None:
-        persist_dir.mkdir(parents=True, exist_ok=True)
 
     payload = build_session_manifest_payload(
         SessionManifestRequest(
@@ -2764,11 +2761,9 @@ def _seed_workspace_gateway_root(tmp_path: Path, *, persist_enabled: bool = True
             tmux_session_name="HOUMAO-workspace",
             session_id="claude-headless-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
-            workspace_root=workspace_root,
+            memory_root=memory_root,
             memo_file=memo_file,
-            scratch_dir=scratch_dir,
-            persist_binding="auto" if persist_enabled else "disabled",
-            persist_dir=persist_dir,
+            pages_dir=pages_dir,
             backend_state={"session_id": "claude-session-1"},
         )
     )
@@ -2788,8 +2783,8 @@ def _seed_workspace_gateway_root(tmp_path: Path, *, persist_enabled: bool = True
     return paths.gateway_root
 
 
-def test_gateway_workspace_routes_round_trip_memo_and_lane_operations(tmp_path: Path) -> None:
-    gateway_root = _seed_workspace_gateway_root(tmp_path)
+def test_gateway_memory_routes_round_trip_memo_and_page_operations(tmp_path: Path) -> None:
+    gateway_root = _seed_memory_gateway_root(tmp_path)
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
@@ -2797,82 +2792,77 @@ def test_gateway_workspace_routes_round_trip_memo_and_lane_operations(tmp_path: 
     )
     client = TestClient(create_app(runtime=runtime))
 
-    summary = client.get("/v1/workspace")
+    summary = client.get("/v1/memory")
     assert summary.status_code == 200
     summary_payload = summary.json()
-    assert summary_payload["workspace_root"].endswith(".houmao/memory/agents/agent-workspace")
-    assert summary_payload["persist_binding"] == "auto"
+    assert summary_payload["memory_root"].endswith(".houmao/memory/agents/agent-memory")
+    assert summary_payload["pages_dir"].endswith(".houmao/memory/agents/agent-memory/pages")
 
-    memo_put = client.put("/v1/workspace/memo", json={"content": "memo"})
+    memo_put = client.put("/v1/memory/memo", json={"content": "memo"})
     assert memo_put.status_code == 200
     assert memo_put.json()["content"] == "memo"
-    memo_append = client.post("/v1/workspace/memo/append", json={"content": "\nmore"})
+    memo_append = client.post("/v1/memory/memo/append", json={"content": "\nmore"})
     assert memo_append.status_code == 200
     assert memo_append.json()["content"] == "memo\nmore"
 
     write_response = client.post(
-        "/v1/workspace/lane/write",
-        json={"lane": "scratch", "path": "notes/todo.txt", "content": "one"},
+        "/v1/memory/pages/write",
+        json={"path": "notes/todo.txt", "content": "one"},
     )
     assert write_response.status_code == 200
+    assert write_response.json()["relative_link"] == "pages/notes/todo.txt"
     append_response = client.post(
-        "/v1/workspace/lane/append",
-        json={"lane": "scratch", "path": "notes/todo.txt", "content": "\ntwo"},
+        "/v1/memory/pages/append",
+        json={"path": "notes/todo.txt", "content": "\ntwo"},
     )
     assert append_response.status_code == 200
 
+    resolve_response = client.post(
+        "/v1/memory/pages/resolve",
+        json={"path": "notes/todo.txt"},
+    )
+    assert resolve_response.status_code == 200
+    resolve_payload = resolve_response.json()
+    assert resolve_payload["path"] == "notes/todo.txt"
+    assert resolve_payload["relative_link"] == "pages/notes/todo.txt"
+    assert resolve_payload["absolute_path"].endswith("pages/notes/todo.txt")
+    assert resolve_payload["exists"] is True
+    assert resolve_payload["kind"] == "file"
+
     read_response = client.post(
-        "/v1/workspace/lane/read",
-        json={"lane": "scratch", "path": "notes/todo.txt"},
+        "/v1/memory/pages/read",
+        json={"path": "notes/todo.txt"},
     )
     assert read_response.status_code == 200
     assert read_response.json()["content"] == "one\ntwo"
+    assert read_response.json()["relative_link"] == "pages/notes/todo.txt"
 
     tree_response = client.post(
-        "/v1/workspace/lane/tree",
-        json={"lane": "scratch", "path": "."},
+        "/v1/memory/pages/tree",
+        json={"path": "."},
     )
     assert tree_response.status_code == 200
     assert [entry["path"] for entry in tree_response.json()["entries"]] == [
         "notes",
         "notes/todo.txt",
     ]
+    assert tree_response.json()["entries"][1]["relative_link"] == "pages/notes/todo.txt"
 
     delete_response = client.post(
-        "/v1/workspace/lane/delete",
-        json={"lane": "scratch", "path": "notes/todo.txt"},
+        "/v1/memory/pages/delete",
+        json={"path": "notes/todo.txt"},
     )
     assert delete_response.status_code == 200
-    assert delete_response.json()["action"] == "delete_path"
+    assert delete_response.json()["action"] == "delete_page"
+    assert delete_response.json()["relative_link"] == "pages/notes/todo.txt"
 
-    client.post(
-        "/v1/workspace/lane/write",
-        json={"lane": "scratch", "path": "tmp/file.txt", "content": "x"},
+    reindex_response = client.post(
+        "/v1/memory/reindex",
+        json={},
     )
-    clear_response = client.post("/v1/workspace/lane/clear", json={"lane": "scratch"})
-    assert clear_response.status_code == 200
-    scratch_dir = Path(summary_payload["scratch_dir"])
-    assert scratch_dir.is_dir()
-    assert list(scratch_dir.iterdir()) == []
-
-
-def test_gateway_workspace_routes_reject_disabled_persist_lane(tmp_path: Path) -> None:
-    gateway_root = _seed_workspace_gateway_root(tmp_path, persist_enabled=False)
-    runtime = GatewayServiceRuntime.from_gateway_root(
-        gateway_root=gateway_root,
-        host="127.0.0.1",
-        port=43123,
-    )
-    client = TestClient(create_app(runtime=runtime))
-
-    response = client.post(
-        "/v1/workspace/lane/write",
-        json={"lane": "persist", "path": "notes.txt", "content": "nope"},
-    )
-
-    assert response.status_code == 400
-    assert "persist lane is disabled" in response.json()["detail"]
-    assert not (tmp_path / ".houmao" / "memory" / "agents" / "agent-workspace" / "persist").exists()
+    assert reindex_response.status_code == 404
+    pages_dir = Path(summary_payload["pages_dir"])
+    assert pages_dir.is_dir()
 
 
 class _FakeGatewayHeadlessSession:

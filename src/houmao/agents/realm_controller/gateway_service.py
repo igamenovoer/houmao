@@ -22,15 +22,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
 from houmao.agents.agent_workspace import (
-    AgentWorkspacePaths,
-    clear_workspace_lane as clear_workspace_lane_contents,
-    delete_workspace_path,
-    lane_root,
-    list_workspace_tree,
+    AgentMemoryPaths,
+    delete_memory_page,
+    list_memory_pages,
     read_memo,
-    read_workspace_file,
+    read_memory_page,
+    resolve_memory_page_path,
     write_memo,
-    write_workspace_file,
+    write_memory_page,
 )
 from houmao.agents.mailbox_runtime_support import (
     mailbox_processing_skill_name,
@@ -114,17 +113,17 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingConfigV1,
     GatewayTuiTrackingTimingOverridesV1,
-    GatewayWorkspaceActionResponseV1,
-    GatewayWorkspaceFileResponseV1,
-    GatewayWorkspaceFileWriteRequestV1,
-    GatewayWorkspaceLanePathRequestV1,
-    GatewayWorkspaceLaneRequestV1,
-    GatewayWorkspaceMemoResponseV1,
-    GatewayWorkspaceMemoWriteRequestV1,
-    GatewayWorkspaceSummaryV1,
-    GatewayWorkspaceTreeEntryV1,
-    GatewayWorkspaceTreeRequestV1,
-    GatewayWorkspaceTreeResponseV1,
+    GatewayMemoryActionResponseV1,
+    GatewayMemoryMemoResponseV1,
+    GatewayMemoryMemoWriteRequestV1,
+    GatewayMemoryPageEntryV1,
+    GatewayMemoryPagePathRequestV1,
+    GatewayMemoryPagePathResolutionV1,
+    GatewayMemoryPageResponseV1,
+    GatewayMemoryPageTreeRequestV1,
+    GatewayMemoryPageTreeResponseV1,
+    GatewayMemoryPageWriteRequestV1,
+    GatewayMemorySummaryV1,
     resolve_gateway_tui_tracking_timing_config,
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
@@ -184,7 +183,7 @@ _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
 _GatewayRequestTerminalState = Literal["completed", "failed"]
-_WorkspaceResponseT = TypeVar("_WorkspaceResponseT")
+_MemoryResponseT = TypeVar("_MemoryResponseT")
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
@@ -1068,143 +1067,159 @@ class GatewayServiceRuntime:
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
 
-    def workspace(self) -> GatewayWorkspaceSummaryV1:
-        """Return the managed-agent workspace summary."""
+    def memory(self) -> GatewayMemorySummaryV1:
+        """Return the managed-agent memory summary."""
 
-        paths = self._workspace_paths()
-        return GatewayWorkspaceSummaryV1(
-            workspace_root=str(paths.workspace_root),
+        paths = self._memory_paths()
+        return GatewayMemorySummaryV1(
+            memory_root=str(paths.memory_root),
             memo_file=str(paths.memo_file),
-            scratch_dir=str(paths.scratch_dir),
-            persist_binding=paths.persist_binding,
-            persist_dir=str(paths.persist_dir) if paths.persist_dir is not None else None,
+            pages_dir=str(paths.pages_dir),
         )
 
-    def read_workspace_memo(self) -> GatewayWorkspaceMemoResponseV1:
-        """Return the fixed managed-agent workspace memo."""
+    def read_memory_memo(self) -> GatewayMemoryMemoResponseV1:
+        """Return the fixed managed-agent memory memo."""
 
-        paths = self._workspace_paths()
-        return GatewayWorkspaceMemoResponseV1(
+        paths = self._memory_paths()
+        return GatewayMemoryMemoResponseV1(
             memo_file=str(paths.memo_file),
             content=read_memo(paths),
         )
 
-    def write_workspace_memo(
+    def write_memory_memo(
         self,
-        request_payload: GatewayWorkspaceMemoWriteRequestV1,
+        request_payload: GatewayMemoryMemoWriteRequestV1,
         *,
         append: bool = False,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Write or append the fixed managed-agent workspace memo."""
+    ) -> GatewayMemoryMemoResponseV1:
+        """Write or append the fixed managed-agent memory memo."""
 
-        paths = self._workspace_paths()
+        paths = self._memory_paths()
         write_memo(paths, request_payload.content, append=append)
-        return GatewayWorkspaceMemoResponseV1(
+        return GatewayMemoryMemoResponseV1(
             memo_file=str(paths.memo_file),
             content=read_memo(paths),
         )
 
-    def list_workspace_lane(
+    def list_memory_pages(
         self,
-        request_payload: GatewayWorkspaceTreeRequestV1,
-    ) -> GatewayWorkspaceTreeResponseV1:
-        """Return a contained tree listing for one workspace lane."""
+        request_payload: GatewayMemoryPageTreeRequestV1,
+    ) -> GatewayMemoryPageTreeResponseV1:
+        """Return a contained tree listing for the pages directory."""
 
-        paths = self._workspace_paths()
+        paths = self._memory_paths()
         entries = [
-            GatewayWorkspaceTreeEntryV1(
+            GatewayMemoryPageEntryV1(
                 path=entry.path,
+                relative_link=entry.relative_link,
+                absolute_path=str(entry.absolute_path),
                 kind=entry.kind,
                 size_bytes=entry.size_bytes,
             )
-            for entry in list_workspace_tree(
+            for entry in list_memory_pages(
                 paths,
-                lane=request_payload.lane,
                 relative_path=request_payload.path,
             )
         ]
-        return GatewayWorkspaceTreeResponseV1(
-            lane=request_payload.lane,
-            root=str(lane_root(paths, request_payload.lane)),
+        return GatewayMemoryPageTreeResponseV1(
+            root=str(paths.pages_dir),
             path=request_payload.path,
             entries=entries,
         )
 
-    def read_workspace_lane_file(
+    def resolve_memory_page_path(
         self,
-        request_payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceFileResponseV1:
-        """Read a contained file from one workspace lane."""
+        request_payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPagePathResolutionV1:
+        """Return contained path-discovery metadata for one pages path."""
 
-        paths = self._workspace_paths()
-        return GatewayWorkspaceFileResponseV1(
-            lane=request_payload.lane,
-            path=request_payload.path,
-            content=read_workspace_file(
+        paths = self._memory_paths()
+        resolved = resolve_memory_page_path(
+            paths,
+            relative_path=request_payload.path,
+        )
+        return GatewayMemoryPagePathResolutionV1(
+            path=resolved.path,
+            relative_link=resolved.relative_link,
+            absolute_path=str(resolved.absolute_path),
+            exists=resolved.exists,
+            kind=resolved.kind,
+            size_bytes=resolved.size_bytes,
+        )
+
+    def read_memory_page(
+        self,
+        request_payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPageResponseV1:
+        """Read a contained file from the pages directory."""
+
+        paths = self._memory_paths()
+        resolved = resolve_memory_page_path(
+            paths,
+            relative_path=request_payload.path,
+        )
+        return GatewayMemoryPageResponseV1(
+            path=resolved.path,
+            relative_link=resolved.relative_link,
+            absolute_path=str(resolved.absolute_path),
+            content=read_memory_page(
                 paths,
-                lane=request_payload.lane,
                 relative_path=request_payload.path,
             ),
         )
 
-    def write_workspace_lane_file(
+    def write_memory_page(
         self,
-        request_payload: GatewayWorkspaceFileWriteRequestV1,
+        request_payload: GatewayMemoryPageWriteRequestV1,
         *,
         append: bool = False,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Write or append a contained file in one workspace lane."""
+    ) -> GatewayMemoryActionResponseV1:
+        """Write or append a contained file in the pages directory."""
 
-        paths = self._workspace_paths()
-        write_workspace_file(
+        paths = self._memory_paths()
+        write_memory_page(
             paths,
-            lane=request_payload.lane,
             relative_path=request_payload.path,
             content=request_payload.content,
             append=append,
         )
-        return GatewayWorkspaceActionResponseV1(
-            action="append_file" if append else "write_file",
-            lane=request_payload.lane,
-            path=request_payload.path,
-            detail="Workspace file appended." if append else "Workspace file written.",
-        )
-
-    def delete_workspace_lane_path(
-        self,
-        request_payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Delete a contained file or directory in one workspace lane."""
-
-        paths = self._workspace_paths()
-        delete_workspace_path(
+        resolved = resolve_memory_page_path(
             paths,
-            lane=request_payload.lane,
             relative_path=request_payload.path,
         )
-        return GatewayWorkspaceActionResponseV1(
-            action="delete_path",
-            lane=request_payload.lane,
-            path=request_payload.path,
-            detail="Workspace path deleted.",
+        return GatewayMemoryActionResponseV1(
+            action="append_page" if append else "write_page",
+            path=resolved.path,
+            relative_link=resolved.relative_link,
+            absolute_path=str(resolved.absolute_path),
+            detail="Memory page appended." if append else "Memory page written.",
         )
 
-    def clear_workspace_lane(
+    def delete_memory_page(
         self,
-        request_payload: GatewayWorkspaceLaneRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Clear one workspace lane while preserving the lane directory."""
+        request_payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Delete a contained file or directory from the pages directory."""
 
-        paths = self._workspace_paths()
-        clear_workspace_lane_contents(paths, lane=request_payload.lane)
-        return GatewayWorkspaceActionResponseV1(
-            action="clear_lane",
-            lane=request_payload.lane,
-            detail="Workspace lane cleared.",
+        paths = self._memory_paths()
+        delete_memory_page(
+            paths,
+            relative_path=request_payload.path,
+        )
+        resolved = resolve_memory_page_path(
+            paths,
+            relative_path=request_payload.path,
+        )
+        return GatewayMemoryActionResponseV1(
+            action="delete_page",
+            path=resolved.path,
+            relative_link=resolved.relative_link,
+            absolute_path=str(resolved.absolute_path),
+            detail="Memory page deleted.",
         )
 
-    def _workspace_paths(self) -> AgentWorkspacePaths:
-        """Load manifest-backed workspace paths for this gateway runtime."""
+    def _memory_paths(self) -> AgentMemoryPaths:
+        """Load manifest-backed memory paths for this gateway runtime."""
 
         manifest_path = self.m_attach_contract.manifest_path
         if manifest_path is None:
@@ -1212,23 +1227,12 @@ class GatewayServiceRuntime:
         handle = load_session_manifest(Path(manifest_path).expanduser().resolve())
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
         runtime = payload.runtime
-        if (
-            runtime.workspace_root is None
-            or runtime.memo_file is None
-            or runtime.scratch_dir is None
-            or runtime.persist_binding is None
-        ):
-            raise ValueError("Session manifest does not expose managed workspace metadata.")
-        return AgentWorkspacePaths(
-            workspace_root=Path(runtime.workspace_root).expanduser().resolve(),
+        if runtime.memory_root is None or runtime.memo_file is None or runtime.pages_dir is None:
+            raise ValueError("Session manifest does not expose managed memory metadata.")
+        return AgentMemoryPaths(
+            memory_root=Path(runtime.memory_root).expanduser().resolve(),
             memo_file=Path(runtime.memo_file).expanduser().resolve(),
-            scratch_dir=Path(runtime.scratch_dir).expanduser().resolve(),
-            persist_binding=runtime.persist_binding,
-            persist_dir=(
-                Path(runtime.persist_dir).expanduser().resolve()
-                if runtime.persist_dir is not None
-                else None
-            ),
+            pages_dir=Path(runtime.pages_dir).expanduser().resolve(),
         )
 
     def get_tui_state(self) -> HoumaoTerminalStateResponse:
@@ -3991,8 +3995,8 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.status()
 
-    def _workspace_call(callback: Callable[[], _WorkspaceResponseT]) -> _WorkspaceResponseT:
-        """Translate workspace service failures into HTTP status codes."""
+    def _memory_call(callback: Callable[[], _MemoryResponseT]) -> _MemoryResponseT:
+        """Translate memory service failures into HTTP status codes."""
 
         try:
             return callback()
@@ -4003,83 +4007,81 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         except OSError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get("/v1/workspace", response_model=GatewayWorkspaceSummaryV1)
-    def _workspace() -> GatewayWorkspaceSummaryV1:
-        """Serve the managed workspace summary."""
+    @app.get("/v1/memory", response_model=GatewayMemorySummaryV1)
+    def _memory() -> GatewayMemorySummaryV1:
+        """Serve the managed memory summary."""
 
-        return _workspace_call(runtime.workspace)
+        return _memory_call(runtime.memory)
 
-    @app.get("/v1/workspace/memo", response_model=GatewayWorkspaceMemoResponseV1)
-    def _workspace_memo() -> GatewayWorkspaceMemoResponseV1:
-        """Serve the fixed managed workspace memo."""
+    @app.get("/v1/memory/memo", response_model=GatewayMemoryMemoResponseV1)
+    def _memory_memo() -> GatewayMemoryMemoResponseV1:
+        """Serve the fixed managed memory memo."""
 
-        return _workspace_call(runtime.read_workspace_memo)
+        return _memory_call(runtime.read_memory_memo)
 
-    @app.put("/v1/workspace/memo", response_model=GatewayWorkspaceMemoResponseV1)
-    def _workspace_memo_put(
-        request_payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Replace the fixed managed workspace memo."""
+    @app.put("/v1/memory/memo", response_model=GatewayMemoryMemoResponseV1)
+    def _memory_memo_put(
+        request_payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Replace the fixed managed memory memo."""
 
-        return _workspace_call(lambda: runtime.write_workspace_memo(request_payload))
+        return _memory_call(lambda: runtime.write_memory_memo(request_payload))
 
-    @app.post("/v1/workspace/memo/append", response_model=GatewayWorkspaceMemoResponseV1)
-    def _workspace_memo_append(
-        request_payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Append to the fixed managed workspace memo."""
+    @app.post("/v1/memory/memo/append", response_model=GatewayMemoryMemoResponseV1)
+    def _memory_memo_append(
+        request_payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Append to the fixed managed memory memo."""
 
-        return _workspace_call(lambda: runtime.write_workspace_memo(request_payload, append=True))
+        return _memory_call(lambda: runtime.write_memory_memo(request_payload, append=True))
 
-    @app.post("/v1/workspace/lane/tree", response_model=GatewayWorkspaceTreeResponseV1)
-    def _workspace_lane_tree(
-        request_payload: GatewayWorkspaceTreeRequestV1,
-    ) -> GatewayWorkspaceTreeResponseV1:
-        """Serve one workspace lane tree listing."""
+    @app.post("/v1/memory/pages/tree", response_model=GatewayMemoryPageTreeResponseV1)
+    def _memory_pages_tree(
+        request_payload: GatewayMemoryPageTreeRequestV1,
+    ) -> GatewayMemoryPageTreeResponseV1:
+        """Serve a pages-directory tree listing."""
 
-        return _workspace_call(lambda: runtime.list_workspace_lane(request_payload))
+        return _memory_call(lambda: runtime.list_memory_pages(request_payload))
 
-    @app.post("/v1/workspace/lane/read", response_model=GatewayWorkspaceFileResponseV1)
-    def _workspace_lane_read(
-        request_payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceFileResponseV1:
-        """Read one contained workspace lane file."""
+    @app.post("/v1/memory/pages/resolve", response_model=GatewayMemoryPagePathResolutionV1)
+    def _memory_page_resolve(
+        request_payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPagePathResolutionV1:
+        """Resolve one contained memory page path."""
 
-        return _workspace_call(lambda: runtime.read_workspace_lane_file(request_payload))
+        return _memory_call(lambda: runtime.resolve_memory_page_path(request_payload))
 
-    @app.post("/v1/workspace/lane/write", response_model=GatewayWorkspaceActionResponseV1)
-    def _workspace_lane_write(
-        request_payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Write one contained workspace lane file."""
+    @app.post("/v1/memory/pages/read", response_model=GatewayMemoryPageResponseV1)
+    def _memory_page_read(
+        request_payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPageResponseV1:
+        """Read one contained memory page."""
 
-        return _workspace_call(lambda: runtime.write_workspace_lane_file(request_payload))
+        return _memory_call(lambda: runtime.read_memory_page(request_payload))
 
-    @app.post("/v1/workspace/lane/append", response_model=GatewayWorkspaceActionResponseV1)
-    def _workspace_lane_append(
-        request_payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Append to one contained workspace lane file."""
+    @app.post("/v1/memory/pages/write", response_model=GatewayMemoryActionResponseV1)
+    def _memory_page_write(
+        request_payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Write one contained memory page."""
 
-        return _workspace_call(
-            lambda: runtime.write_workspace_lane_file(request_payload, append=True)
-        )
+        return _memory_call(lambda: runtime.write_memory_page(request_payload))
 
-    @app.post("/v1/workspace/lane/delete", response_model=GatewayWorkspaceActionResponseV1)
-    def _workspace_lane_delete(
-        request_payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Delete one contained workspace lane path."""
+    @app.post("/v1/memory/pages/append", response_model=GatewayMemoryActionResponseV1)
+    def _memory_page_append(
+        request_payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Append to one contained memory page."""
 
-        return _workspace_call(lambda: runtime.delete_workspace_lane_path(request_payload))
+        return _memory_call(lambda: runtime.write_memory_page(request_payload, append=True))
 
-    @app.post("/v1/workspace/lane/clear", response_model=GatewayWorkspaceActionResponseV1)
-    def _workspace_lane_clear(
-        request_payload: GatewayWorkspaceLaneRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Clear one workspace lane."""
+    @app.post("/v1/memory/pages/delete", response_model=GatewayMemoryActionResponseV1)
+    def _memory_page_delete(
+        request_payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Delete one contained memory page path."""
 
-        return _workspace_call(lambda: runtime.clear_workspace_lane(request_payload))
+        return _memory_call(lambda: runtime.delete_memory_page(request_payload))
 
     @app.get("/v1/control/tui/state", response_model=HoumaoTerminalStateResponse)
     def _tui_state() -> HoumaoTerminalStateResponse:

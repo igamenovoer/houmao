@@ -79,7 +79,7 @@ GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION = 1
 GATEWAY_REMINDER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
-GATEWAY_WORKSPACE_SCHEMA_VERSION = 1
+GATEWAY_MEMORY_SCHEMA_VERSION = 1
 DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE: GatewayMailNotifierMode = "any_inbox"
 DEFAULT_GATEWAY_TUI_WATCH_POLL_INTERVAL_SECONDS = 0.5
 DEFAULT_GATEWAY_TUI_STABILITY_THRESHOLD_SECONDS = 1.0
@@ -2092,50 +2092,44 @@ class GatewayHeadlessControlStateV1(_StrictGatewayModel):
         return self
 
 
-GatewayWorkspaceLane = Literal["scratch", "persist"]
-GatewayWorkspaceEntryKind = Literal["file", "directory", "symlink", "other"]
-GatewayWorkspaceActionKind = Literal[
-    "write_file",
-    "append_file",
-    "delete_path",
-    "clear_lane",
+GatewayMemoryEntryKind = Literal["file", "directory", "symlink", "other"]
+GatewayMemoryActionKind = Literal[
+    "write_page",
+    "append_page",
+    "delete_page",
 ]
 
 
-class GatewayWorkspaceSummaryV1(_StrictGatewayModel):
-    """`GET /v1/workspace` response body."""
+class GatewayMemorySummaryV1(_StrictGatewayModel):
+    """`GET /v1/memory` response body."""
 
-    schema_version: int = Field(default=GATEWAY_WORKSPACE_SCHEMA_VERSION)
-    workspace_root: str
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
+    memory_root: str
     memo_file: str
-    scratch_dir: str
-    persist_binding: str
-    persist_dir: str | None = None
+    pages_dir: str
 
-    @field_validator("workspace_root", "memo_file", "scratch_dir", "persist_binding", "persist_dir")
+    @field_validator("memory_root", "memo_file", "pages_dir")
     @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        """Validate required and optional workspace summary strings."""
+    def _not_blank(cls, value: str) -> str:
+        """Validate required memory summary strings."""
 
-        if value is None:
-            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value
 
     @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayWorkspaceSummaryV1":
-        """Validate the workspace schema version."""
+    def _validate_schema(self) -> "GatewayMemorySummaryV1":
+        """Validate the memory schema version."""
 
-        if self.schema_version != GATEWAY_WORKSPACE_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_WORKSPACE_SCHEMA_VERSION}")
+        if self.schema_version != GATEWAY_MEMORY_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {GATEWAY_MEMORY_SCHEMA_VERSION}")
         return self
 
 
-class GatewayWorkspaceMemoResponseV1(_StrictGatewayModel):
-    """Workspace memo response body."""
+class GatewayMemoryMemoResponseV1(_StrictGatewayModel):
+    """Memory memo response body."""
 
-    schema_version: int = Field(default=GATEWAY_WORKSPACE_SCHEMA_VERSION)
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
     memo_file: str
     content: str
 
@@ -2149,67 +2143,64 @@ class GatewayWorkspaceMemoResponseV1(_StrictGatewayModel):
         return value
 
 
-class GatewayWorkspaceMemoWriteRequestV1(_StrictGatewayModel):
-    """Workspace memo write or append request body."""
+class GatewayMemoryMemoWriteRequestV1(_StrictGatewayModel):
+    """Memory memo write or append request body."""
 
-    schema_version: int = Field(default=GATEWAY_WORKSPACE_SCHEMA_VERSION)
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
     content: str
 
 
-class GatewayWorkspaceLaneRequestV1(_StrictGatewayModel):
-    """Lane-only workspace request body."""
+class GatewayMemoryPagePathRequestV1(_StrictGatewayModel):
+    """Pages-directory path request body."""
 
-    schema_version: int = Field(default=GATEWAY_WORKSPACE_SCHEMA_VERSION)
-    lane: GatewayWorkspaceLane
-
-
-class GatewayWorkspaceLanePathRequestV1(GatewayWorkspaceLaneRequestV1):
-    """Lane path workspace request body."""
-
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
     path: str
 
     @field_validator("path")
     @classmethod
     def _path_not_blank(cls, value: str) -> str:
-        """Validate one lane-relative path string."""
+        """Validate one page-relative path string."""
 
         if not value.strip():
             raise ValueError("must not be empty")
         return value
 
 
-class GatewayWorkspaceTreeRequestV1(GatewayWorkspaceLaneRequestV1):
-    """Workspace lane tree request body."""
+class GatewayMemoryPageTreeRequestV1(_StrictGatewayModel):
+    """Pages-directory tree request body."""
 
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
     path: str = "."
 
     @field_validator("path")
     @classmethod
     def _path_not_blank(cls, value: str) -> str:
-        """Validate one optional lane-relative tree path string."""
+        """Validate one optional page-relative tree path string."""
 
         if not value.strip():
             raise ValueError("must not be empty")
         return value
 
 
-class GatewayWorkspaceFileWriteRequestV1(GatewayWorkspaceLanePathRequestV1):
-    """Workspace lane file write or append request body."""
+class GatewayMemoryPageWriteRequestV1(GatewayMemoryPagePathRequestV1):
+    """Pages-directory file write or append request body."""
 
     content: str
 
 
-class GatewayWorkspaceTreeEntryV1(_StrictGatewayModel):
-    """One lane tree entry returned by workspace routes."""
+class GatewayMemoryPageEntryV1(_StrictGatewayModel):
+    """One pages-directory entry returned by memory routes."""
 
     path: str
-    kind: GatewayWorkspaceEntryKind
+    relative_link: str
+    absolute_path: str
+    kind: GatewayMemoryEntryKind
     size_bytes: int | None = None
 
-    @field_validator("path")
+    @field_validator("path", "relative_link", "absolute_path")
     @classmethod
     def _path_not_blank(cls, value: str) -> str:
-        """Validate one lane-relative tree entry path."""
+        """Validate one page entry path string."""
 
         if not value.strip():
             raise ValueError("must not be empty")
@@ -2227,14 +2218,45 @@ class GatewayWorkspaceTreeEntryV1(_StrictGatewayModel):
         return value
 
 
-class GatewayWorkspaceTreeResponseV1(_StrictGatewayModel):
-    """Workspace lane tree response body."""
+class GatewayMemoryPagePathResolutionV1(_StrictGatewayModel):
+    """Pages-directory path resolution response body."""
 
-    schema_version: int = Field(default=GATEWAY_WORKSPACE_SCHEMA_VERSION)
-    lane: GatewayWorkspaceLane
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
+    path: str
+    relative_link: str
+    absolute_path: str
+    exists: bool
+    kind: GatewayMemoryEntryKind | None = None
+    size_bytes: int | None = None
+
+    @field_validator("path", "relative_link", "absolute_path")
+    @classmethod
+    def _path_not_blank(cls, value: str) -> str:
+        """Validate one page path-resolution string."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("size_bytes")
+    @classmethod
+    def _optional_non_negative_size(cls, value: int | None) -> int | None:
+        """Validate optional file size."""
+
+        if value is None:
+            return None
+        if value < 0:
+            raise ValueError("must be >= 0")
+        return value
+
+
+class GatewayMemoryPageTreeResponseV1(_StrictGatewayModel):
+    """Pages-directory tree response body."""
+
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
     root: str
     path: str
-    entries: list[GatewayWorkspaceTreeEntryV1]
+    entries: list[GatewayMemoryPageEntryV1]
 
     @field_validator("root", "path")
     @classmethod
@@ -2246,38 +2268,40 @@ class GatewayWorkspaceTreeResponseV1(_StrictGatewayModel):
         return value
 
 
-class GatewayWorkspaceFileResponseV1(_StrictGatewayModel):
-    """Workspace lane file read response body."""
+class GatewayMemoryPageResponseV1(_StrictGatewayModel):
+    """Pages-directory file read response body."""
 
-    schema_version: int = Field(default=GATEWAY_WORKSPACE_SCHEMA_VERSION)
-    lane: GatewayWorkspaceLane
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
     path: str
+    relative_link: str
+    absolute_path: str
     content: str
 
-    @field_validator("path")
+    @field_validator("path", "relative_link", "absolute_path")
     @classmethod
     def _path_not_blank(cls, value: str) -> str:
-        """Validate one lane-relative file path string."""
+        """Validate one page file path string."""
 
         if not value.strip():
             raise ValueError("must not be empty")
         return value
 
 
-class GatewayWorkspaceActionResponseV1(_StrictGatewayModel):
-    """Workspace mutation response body."""
+class GatewayMemoryActionResponseV1(_StrictGatewayModel):
+    """Memory mutation response body."""
 
-    schema_version: int = Field(default=GATEWAY_WORKSPACE_SCHEMA_VERSION)
+    schema_version: int = Field(default=GATEWAY_MEMORY_SCHEMA_VERSION)
     success: bool = True
-    action: GatewayWorkspaceActionKind
-    lane: GatewayWorkspaceLane
+    action: GatewayMemoryActionKind
     path: str | None = None
+    relative_link: str | None = None
+    absolute_path: str | None = None
     detail: str
 
-    @field_validator("path", "detail")
+    @field_validator("path", "relative_link", "absolute_path", "detail")
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
-        """Validate optional action path and required detail strings."""
+        """Validate optional action path strings and required detail."""
 
         if value is None:
             return None

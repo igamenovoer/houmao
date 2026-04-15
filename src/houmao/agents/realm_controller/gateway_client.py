@@ -45,16 +45,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderPutV1,
     GatewayReminderV1,
     GatewayStatusV1,
-    GatewayWorkspaceActionResponseV1,
-    GatewayWorkspaceFileResponseV1,
-    GatewayWorkspaceFileWriteRequestV1,
-    GatewayWorkspaceLanePathRequestV1,
-    GatewayWorkspaceLaneRequestV1,
-    GatewayWorkspaceMemoResponseV1,
-    GatewayWorkspaceMemoWriteRequestV1,
-    GatewayWorkspaceSummaryV1,
-    GatewayWorkspaceTreeRequestV1,
-    GatewayWorkspaceTreeResponseV1,
+    GatewayMemoryActionResponseV1,
+    GatewayMemoryMemoResponseV1,
+    GatewayMemoryMemoWriteRequestV1,
+    GatewayMemoryPagePathRequestV1,
+    GatewayMemoryPagePathResolutionV1,
+    GatewayMemoryPageResponseV1,
+    GatewayMemoryPageTreeRequestV1,
+    GatewayMemoryPageTreeResponseV1,
+    GatewayMemoryPageWriteRequestV1,
+    GatewayMemorySummaryV1,
 )
 from houmao.server.models import (
     HoumaoTerminalSnapshotHistoryResponse,
@@ -107,117 +107,117 @@ class GatewayClient:
 
         return self._request_model("GET", "/v1/status", GatewayStatusV1)
 
-    def workspace(self) -> GatewayWorkspaceSummaryV1:
-        """Call `GET /v1/workspace`."""
+    def memory(self) -> GatewayMemorySummaryV1:
+        """Call `GET /v1/memory`."""
 
-        return self._request_model("GET", "/v1/workspace", GatewayWorkspaceSummaryV1)
+        return self._request_model("GET", "/v1/memory", GatewayMemorySummaryV1)
 
-    def read_workspace_memo(self) -> GatewayWorkspaceMemoResponseV1:
-        """Call `GET /v1/workspace/memo`."""
+    def read_memory_memo(self) -> GatewayMemoryMemoResponseV1:
+        """Call `GET /v1/memory/memo`."""
 
-        return self._request_model("GET", "/v1/workspace/memo", GatewayWorkspaceMemoResponseV1)
+        return self._request_model("GET", "/v1/memory/memo", GatewayMemoryMemoResponseV1)
 
-    def write_workspace_memo(
+    def write_memory_memo(
         self,
-        payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Call `PUT /v1/workspace/memo`."""
+        payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Call `PUT /v1/memory/memo`."""
 
         return self._request_model(
             "PUT",
-            "/v1/workspace/memo",
-            GatewayWorkspaceMemoResponseV1,
+            "/v1/memory/memo",
+            GatewayMemoryMemoResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def append_workspace_memo(
+    def append_memory_memo(
         self,
-        payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1:
-        """Call `POST /v1/workspace/memo/append`."""
+        payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1:
+        """Call `POST /v1/memory/memo/append`."""
 
         return self._request_model(
             "POST",
-            "/v1/workspace/memo/append",
-            GatewayWorkspaceMemoResponseV1,
+            "/v1/memory/memo/append",
+            GatewayMemoryMemoResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def list_workspace_tree(
+    def list_memory_pages(
         self,
-        payload: GatewayWorkspaceTreeRequestV1,
-    ) -> GatewayWorkspaceTreeResponseV1:
-        """Call `POST /v1/workspace/lane/tree`."""
+        payload: GatewayMemoryPageTreeRequestV1,
+    ) -> GatewayMemoryPageTreeResponseV1:
+        """Call `POST /v1/memory/pages/tree`."""
 
         return self._request_model(
             "POST",
-            "/v1/workspace/lane/tree",
-            GatewayWorkspaceTreeResponseV1,
+            "/v1/memory/pages/tree",
+            GatewayMemoryPageTreeResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def read_workspace_file(
+    def resolve_memory_page_path(
         self,
-        payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceFileResponseV1:
-        """Call `POST /v1/workspace/lane/read`."""
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPagePathResolutionV1:
+        """Call `POST /v1/memory/pages/resolve`."""
 
         return self._request_model(
             "POST",
-            "/v1/workspace/lane/read",
-            GatewayWorkspaceFileResponseV1,
+            "/v1/memory/pages/resolve",
+            GatewayMemoryPagePathResolutionV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def write_workspace_file(
+    def read_memory_page(
         self,
-        payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /v1/workspace/lane/write`."""
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPageResponseV1:
+        """Call `POST /v1/memory/pages/read`."""
 
         return self._request_model(
             "POST",
-            "/v1/workspace/lane/write",
-            GatewayWorkspaceActionResponseV1,
+            "/v1/memory/pages/read",
+            GatewayMemoryPageResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def append_workspace_file(
+    def write_memory_page(
         self,
-        payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /v1/workspace/lane/append`."""
+        payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Call `POST /v1/memory/pages/write`."""
 
         return self._request_model(
             "POST",
-            "/v1/workspace/lane/append",
-            GatewayWorkspaceActionResponseV1,
+            "/v1/memory/pages/write",
+            GatewayMemoryActionResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def delete_workspace_path(
+    def append_memory_page(
         self,
-        payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /v1/workspace/lane/delete`."""
+        payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Call `POST /v1/memory/pages/append`."""
 
         return self._request_model(
             "POST",
-            "/v1/workspace/lane/delete",
-            GatewayWorkspaceActionResponseV1,
+            "/v1/memory/pages/append",
+            GatewayMemoryActionResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def clear_workspace_lane(
+    def delete_memory_page(
         self,
-        payload: GatewayWorkspaceLaneRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1:
-        """Call `POST /v1/workspace/lane/clear`."""
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryActionResponseV1:
+        """Call `POST /v1/memory/pages/delete`."""
 
         return self._request_model(
             "POST",
-            "/v1/workspace/lane/clear",
-            GatewayWorkspaceActionResponseV1,
+            "/v1/memory/pages/delete",
+            GatewayMemoryActionResponseV1,
             body=payload.model_dump(mode="json"),
         )
 

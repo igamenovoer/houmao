@@ -38,7 +38,7 @@ from houmao.agents.mailbox_runtime_support import (
     replaceable_mailbox_cleanup_paths,
     resolved_mailbox_config_from_payload,
 )
-from houmao.agents.agent_workspace import AgentWorkspacePaths, resolve_agent_workspace
+from houmao.agents.agent_workspace import AgentMemoryPaths, resolve_agent_memory
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.native_launch_resolver import (
     infer_launch_source_directory_from_agent_def_dir,
@@ -97,7 +97,7 @@ from .gateway import (
 from .mail import mail_group
 from .mailbox import mailbox_group
 from .turn import turn_group
-from .workspace import workspace_group
+from .workspace import memory_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
     managed_agent_selector_options,
@@ -158,7 +158,7 @@ class LocalManagedAgentLaunchResult:
     """Resolved local launch controller plus project-aware root detail fields."""
 
     controller: Any
-    workspace: AgentWorkspacePaths
+    memory: AgentMemoryPaths
     runtime_root: Path
     mailbox_root: Path
     runtime_root_detail: str
@@ -428,18 +428,6 @@ def _normalize_model_name_or_click(value: str | None) -> str | None:
     return stripped
 
 
-def _resolve_persist_dir_option_or_click(
-    *,
-    persist_dir: Path | None,
-    no_persist_dir: bool,
-) -> Path | None:
-    """Resolve one optional exact persist-lane override."""
-
-    if persist_dir is not None and no_persist_dir:
-        raise click.ClickException("`--persist-dir` and `--no-persist-dir` are mutually exclusive.")
-    return persist_dir.expanduser().resolve() if persist_dir is not None else None
-
-
 def _resolve_operator_prompt_mode_or_click(
     value: str | None,
     *,
@@ -481,10 +469,6 @@ def launch_managed_agent_locally(
     headless: bool,
     provider: str,
     working_directory: Path,
-    persist_dir: Path | None = None,
-    no_persist_dir: bool = False,
-    launch_profile_persist_dir: str | None = None,
-    launch_profile_persist_disabled: bool = False,
     source_working_directory: Path | None = None,
     source_agent_def_dir: Path | None = None,
     source_env: Mapping[str, str] | None = None,
@@ -592,13 +576,9 @@ def launch_managed_agent_locally(
             requested_agent_name=agent_name,
             requested_agent_id=agent_id,
         )
-        workspace = resolve_agent_workspace(
+        memory = resolve_agent_memory(
             overlay_root=project_roots.overlay_root,
             agent_id=managed_launch_identity.agent_id,
-            explicit_persist_dir=persist_dir,
-            disable_persist_dir=no_persist_dir,
-            stored_persist_dir=launch_profile_persist_dir,
-            stored_persist_disabled=launch_profile_persist_disabled,
         )
         takeover_context = _prepare_managed_force_takeover_context(
             managed_launch_identity=managed_launch_identity,
@@ -660,7 +640,7 @@ def launch_managed_agent_locally(
             brain_manifest_path=build_result.manifest_path.resolve(),
             role_name=target.role_name,
             runtime_root=resolved_runtime_root,
-            workspace_paths=workspace,
+            memory_paths=memory,
             backend=resolved_backend,
             working_directory=resolved_working_directory,
             agent_name=agent_name,
@@ -712,7 +692,7 @@ def launch_managed_agent_locally(
 
     return LocalManagedAgentLaunchResult(
         controller=controller,
-        workspace=workspace,
+        memory=memory,
         runtime_root=resolved_runtime_root,
         mailbox_root=resolved_mailbox_root,
         runtime_root_detail=describe_runtime_root_selection(explicit_root=None),
@@ -739,7 +719,7 @@ def emit_local_launch_completion(
     """Print one successful local launch result and hand off to tmux when appropriate."""
 
     controller = launch_result.controller
-    workspace = launch_result.workspace
+    memory = launch_result.memory
     payload = {
         "status": "Managed agent launch complete",
         "agent_name": controller.agent_identity or agent_name,
@@ -748,11 +728,9 @@ def emit_local_launch_completion(
         "manifest_path": str(controller.manifest_path),
         "runtime_root": str(launch_result.runtime_root),
         "runtime_root_detail": launch_result.runtime_root_detail,
-        "workspace_root": str(workspace.workspace_root),
-        "memo_file": str(workspace.memo_file),
-        "scratch_dir": str(workspace.scratch_dir),
-        "persist_binding": workspace.persist_binding,
-        "persist_dir": str(workspace.persist_dir) if workspace.persist_dir is not None else None,
+        "memory_root": str(memory.memory_root),
+        "memo_file": str(memory.memo_file),
+        "pages_dir": str(memory.pages_dir),
         "mailbox_root": str(launch_result.mailbox_root),
         "mailbox_root_detail": launch_result.mailbox_root_detail,
         "overlay_root": str(launch_result.overlay_root),
@@ -853,17 +831,6 @@ def agents_group() -> None:
     help="Optional runtime working directory override; defaults to the invocation cwd.",
 )
 @click.option(
-    "--persist-dir",
-    type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=False),
-    default=None,
-    help="Optional exact durable persist-lane directory override for this managed launch.",
-)
-@click.option(
-    "--no-persist-dir",
-    is_flag=True,
-    help="Disable durable persist-lane binding for this managed launch.",
-)
-@click.option(
     "--headless-display-style",
     type=click.Choice(["plain", "json", "fancy"]),
     default="plain",
@@ -899,8 +866,6 @@ def launch_agents_command(
     managed_header: bool | None,
     managed_header_section: tuple[str, ...],
     workdir: Path | None,
-    persist_dir: Path | None,
-    no_persist_dir: bool,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     provider: str | None,
@@ -920,10 +885,6 @@ def launch_agents_command(
     resolved_auth = auth
     resolved_provider = provider
     resolved_working_directory = (workdir or source_working_directory).resolve()
-    resolved_persist_dir = _resolve_persist_dir_option_or_click(
-        persist_dir=persist_dir,
-        no_persist_dir=no_persist_dir,
-    )
     resolved_source_working_directory = source_working_directory
     resolved_source_agent_def_dir: Path | None = None
     resolved_headless = headless
@@ -933,8 +894,6 @@ def launch_agents_command(
     launch_profile_model_config: ModelConfig | None = None
     prompt_overlay_mode = None
     prompt_overlay_text = None
-    launch_profile_persist_dir: str | None = None
-    launch_profile_persist_disabled = False
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
     launch_profile_managed_header_section_policy: (
         dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None
@@ -995,10 +954,6 @@ def launch_agents_command(
             source=f"launch profile `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
-        launch_profile_persist_dir = getattr(resolved_profile.entry, "persist_dir", None)
-        launch_profile_persist_disabled = bool(
-            getattr(resolved_profile.entry, "persist_disabled", False)
-        )
         launch_profile_model_config = normalize_model_config(
             name=resolved_profile.entry.model_name,
             reasoning_level=resolved_profile.entry.reasoning_level,
@@ -1064,10 +1019,6 @@ def launch_agents_command(
         headless=resolved_headless,
         provider=resolved_provider,
         working_directory=resolved_working_directory,
-        persist_dir=resolved_persist_dir,
-        no_persist_dir=no_persist_dir,
-        launch_profile_persist_dir=launch_profile_persist_dir,
-        launch_profile_persist_disabled=launch_profile_persist_disabled,
         source_working_directory=resolved_source_working_directory,
         source_agent_def_dir=resolved_source_agent_def_dir,
         headless_display_style=headless_display_style,
@@ -1124,17 +1075,6 @@ def launch_agents_command(
     help="Optional working directory override; defaults from tmux window `0`, pane `0`.",
 )
 @click.option(
-    "--persist-dir",
-    type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=False),
-    default=None,
-    help="Optional exact durable persist-lane directory override for the adopted session.",
-)
-@click.option(
-    "--no-persist-dir",
-    is_flag=True,
-    help="Disable durable persist-lane binding for the adopted session.",
-)
-@click.option(
     "--resume-id",
     default=None,
     help="Optional headless resume selector: omitted, `last`, or an exact provider session id.",
@@ -1152,8 +1092,6 @@ def join_agents_command(
     launch_args: tuple[str, ...],
     launch_env: tuple[str, ...],
     workdir: Path | None,
-    persist_dir: Path | None,
-    no_persist_dir: bool,
     resume_id: str | None,
     no_install_houmao_skills: bool,
 ) -> None:
@@ -1169,10 +1107,6 @@ def join_agents_command(
         raise click.ClickException("Headless join requires `--provider`.")
     if headless and not launch_args:
         raise click.ClickException("Headless join requires at least one `--launch-args` value.")
-    resolved_persist_dir = _resolve_persist_dir_option_or_click(
-        persist_dir=persist_dir,
-        no_persist_dir=no_persist_dir,
-    )
 
     tmux_session_name = _require_current_tmux_session_name()
     pane = _require_join_primary_pane(tmux_session_name)
@@ -1201,8 +1135,6 @@ def join_agents_command(
             runtime_root=None,
             agent_name=agent_name,
             agent_id=agent_id,
-            persist_dir=resolved_persist_dir,
-            no_persist_dir=no_persist_dir,
             provider=effective_provider,
             headless=headless,
             tmux_session_name=tmux_session_name,
@@ -1378,7 +1310,7 @@ agents_group.add_command(cleanup_group)
 agents_group.add_command(mail_group)
 agents_group.add_command(mailbox_group)
 agents_group.add_command(turn_group)
-agents_group.add_command(workspace_group)
+agents_group.add_command(memory_group)
 
 
 def _parse_join_launch_env(values: tuple[str, ...]) -> tuple[JoinedLaunchEnvBinding, ...]:
@@ -1537,11 +1469,9 @@ def _emit_join_result(
             "manifest_path": str(result.manifest_path),
             "runtime_root": str(result.runtime_root),
             "runtime_root_detail": result.runtime_root_detail,
-            "workspace_root": str(result.workspace_root),
+            "memory_root": str(result.memory_root),
             "memo_file": str(result.memo_file),
-            "scratch_dir": str(result.scratch_dir),
-            "persist_binding": result.persist_binding,
-            "persist_dir": str(result.persist_dir) if result.persist_dir is not None else None,
+            "pages_dir": str(result.pages_dir),
             "overlay_root": str(result.overlay_root),
             "overlay_root_detail": result.overlay_root_detail,
             "project_overlay_bootstrapped": result.project_overlay_bootstrapped,

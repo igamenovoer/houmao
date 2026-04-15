@@ -6,10 +6,9 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.agent_workspace import (
+    HOUMAO_AGENT_MEMORY_DIR_ENV_VAR,
     HOUMAO_AGENT_MEMO_FILE_ENV_VAR,
-    HOUMAO_AGENT_PERSIST_DIR_ENV_VAR,
-    HOUMAO_AGENT_SCRATCH_DIR_ENV_VAR,
-    HOUMAO_AGENT_STATE_DIR_ENV_VAR,
+    HOUMAO_AGENT_PAGES_DIR_ENV_VAR,
 )
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -70,8 +69,6 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
         runtime_root=tmp_path,
         agent_name="coder",
         agent_id=None,
-        persist_dir=None,
-        no_persist_dir=False,
         provider="codex",
         headless=False,
         tmux_session_name="join-sess",
@@ -98,15 +95,11 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
     )
     assert result.overlay_root == (tmp_path / ".houmao").resolve()
     assert (
-        result.workspace_root
+        result.memory_root
         == (tmp_path / ".houmao" / "memory" / "agents" / result.agent_id).resolve()
     )
-    assert result.memo_file == (result.workspace_root / "houmao-memo.md").resolve()
-    assert result.scratch_dir == (result.workspace_root / "scratch").resolve()
-    assert (
-        result.persist_dir
-        == (tmp_path / ".houmao" / "memory" / "agents" / result.agent_id / "persist").resolve()
-    )
+    assert result.memo_file == (result.memory_root / "houmao-memo.md").resolve()
+    assert result.pages_dir == (result.memory_root / "pages").resolve()
     assert result.project_overlay_bootstrapped is False
     assert (
         result.overlay_bootstrap_detail
@@ -119,121 +112,12 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
     assert lease_expires_at - published_at == JOINED_REGISTRY_SENTINEL_LEASE_TTL
     assert published_env["HOUMAO_MANIFEST_PATH"] == str(result.manifest_path)
     assert published_env["HOUMAO_AGENT_ID"] == result.agent_id
-    assert published_env[HOUMAO_AGENT_STATE_DIR_ENV_VAR] == str(result.workspace_root)
+    assert published_env[HOUMAO_AGENT_MEMORY_DIR_ENV_VAR] == str(result.memory_root)
     assert published_env[HOUMAO_AGENT_MEMO_FILE_ENV_VAR] == str(result.memo_file)
-    assert published_env[HOUMAO_AGENT_SCRATCH_DIR_ENV_VAR] == str(result.scratch_dir)
-    assert published_env[HOUMAO_AGENT_PERSIST_DIR_ENV_VAR] == str(result.persist_dir)
-    assert payload.runtime.workspace_root == str(result.workspace_root)
+    assert published_env[HOUMAO_AGENT_PAGES_DIR_ENV_VAR] == str(result.pages_dir)
+    assert payload.runtime.memory_root == str(result.memory_root)
     assert payload.runtime.memo_file == str(result.memo_file)
-    assert payload.runtime.scratch_dir == str(result.scratch_dir)
-    assert payload.runtime.persist_binding == "auto"
-    assert payload.runtime.persist_dir == str(result.persist_dir)
-
-
-def test_materialize_joined_launch_persists_exact_persist_dir(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    published_env: dict[str, str] = {}
-    explicit_persist_dir = (tmp_path / "shared-persist" / "reviewer").resolve()
-
-    monkeypatch.setattr(
-        runtime_artifacts_module, "ensure_gateway_capability", lambda publication: None
-    )
-    monkeypatch.setattr(
-        runtime_artifacts_module,
-        "set_tmux_session_environment",
-        lambda *, session_name, env_vars: published_env.update(env_vars),
-    )
-    monkeypatch.setattr(
-        runtime_artifacts_module, "publish_live_agent_record", lambda record: record
-    )
-    monkeypatch.setattr(
-        runtime_artifacts_module,
-        "read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: None,
-    )
-
-    result = runtime_artifacts_module.materialize_joined_launch(
-        runtime_root=tmp_path,
-        agent_name="reviewer",
-        agent_id=None,
-        persist_dir=explicit_persist_dir,
-        no_persist_dir=False,
-        provider="codex",
-        headless=False,
-        tmux_session_name="join-sess",
-        tmux_window_name="manual",
-        working_directory=tmp_path,
-        launch_args=(),
-        launch_env=(),
-        resume_selection=None,
-    )
-
-    payload = parse_session_manifest_payload(
-        load_session_manifest(result.manifest_path).payload,
-        source=str(result.manifest_path),
-    )
-    assert result.persist_dir == explicit_persist_dir
-    assert payload.runtime.persist_binding == "exact"
-    assert payload.runtime.persist_dir == str(explicit_persist_dir)
-    assert published_env[HOUMAO_AGENT_PERSIST_DIR_ENV_VAR] == str(explicit_persist_dir)
-
-
-def test_materialize_joined_launch_can_disable_persist_dir(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    published_env: dict[str, str] = {}
-    unset_calls: list[str] = []
-
-    monkeypatch.setattr(
-        runtime_artifacts_module, "ensure_gateway_capability", lambda publication: None
-    )
-    monkeypatch.setattr(
-        runtime_artifacts_module,
-        "set_tmux_session_environment",
-        lambda *, session_name, env_vars: published_env.update(env_vars),
-    )
-    monkeypatch.setattr(
-        runtime_artifacts_module,
-        "unset_tmux_session_environment",
-        lambda *, session_name, variable_names: unset_calls.extend(variable_names),
-    )
-    monkeypatch.setattr(
-        runtime_artifacts_module, "publish_live_agent_record", lambda record: record
-    )
-    monkeypatch.setattr(
-        runtime_artifacts_module,
-        "read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: None,
-    )
-
-    result = runtime_artifacts_module.materialize_joined_launch(
-        runtime_root=tmp_path,
-        agent_name="reviewer",
-        agent_id=None,
-        persist_dir=None,
-        no_persist_dir=True,
-        provider="codex",
-        headless=False,
-        tmux_session_name="join-sess",
-        tmux_window_name="manual",
-        working_directory=tmp_path,
-        launch_args=(),
-        launch_env=(),
-        resume_selection=None,
-    )
-
-    payload = parse_session_manifest_payload(
-        load_session_manifest(result.manifest_path).payload,
-        source=str(result.manifest_path),
-    )
-    assert result.persist_dir is None
-    assert HOUMAO_AGENT_PERSIST_DIR_ENV_VAR not in published_env
-    assert HOUMAO_AGENT_PERSIST_DIR_ENV_VAR in unset_calls
-    assert payload.runtime.persist_binding == "disabled"
-    assert payload.runtime.persist_dir is None
+    assert payload.runtime.pages_dir == str(result.pages_dir)
 
 
 @pytest.mark.parametrize(
@@ -278,8 +162,6 @@ def test_materialize_joined_headless_persists_resume_selection(
         runtime_root=tmp_path,
         agent_name="reviewer",
         agent_id=None,
-        persist_dir=None,
-        no_persist_dir=False,
         provider="codex",
         headless=True,
         tmux_session_name="join-sess",
@@ -354,8 +236,6 @@ def test_joined_tui_relaunch_respects_unavailable_vs_launchable_posture(
         runtime_root=tmp_path,
         agent_name="coder",
         agent_id=None,
-        persist_dir=None,
-        no_persist_dir=False,
         provider="codex",
         headless=False,
         tmux_session_name="join-sess",
@@ -451,8 +331,6 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         runtime_root=tmp_path,
         agent_name="coder",
         agent_id=None,
-        persist_dir=None,
-        no_persist_dir=False,
         provider="codex",
         headless=False,
         tmux_session_name="join-sess",
@@ -538,8 +416,6 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
         runtime_root=tmp_path,
         agent_name="claude-coder",
         agent_id=None,
-        persist_dir=None,
-        no_persist_dir=False,
         provider="claude_code",
         headless=False,
         tmux_session_name="join-sess",
@@ -601,8 +477,6 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
         runtime_root=tmp_path,
         agent_name="gemini-coder",
         agent_id=None,
-        persist_dir=None,
-        no_persist_dir=False,
         provider="gemini_cli",
         headless=False,
         tmux_session_name="join-sess",
@@ -662,8 +536,6 @@ def test_materialize_joined_launch_skips_houmao_skill_install_when_opted_out(
         runtime_root=tmp_path,
         agent_name="coder",
         agent_id=None,
-        persist_dir=None,
-        no_persist_dir=False,
         provider="codex",
         headless=False,
         tmux_session_name="join-sess",
@@ -714,8 +586,6 @@ def test_materialize_joined_launch_fails_closed_when_tool_home_cannot_be_updated
             runtime_root=tmp_path,
             agent_name="coder",
             agent_id=None,
-            persist_dir=None,
-            no_persist_dir=False,
             provider="codex",
             headless=False,
             tmux_session_name="join-sess",

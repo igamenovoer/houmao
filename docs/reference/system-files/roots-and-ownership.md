@@ -15,7 +15,7 @@ Current implementation detail that matters operationally: explicit overrides may
 There are now two main `.houmao` anchors to keep straight in maintained operator workflows:
 
 - `~/.houmao/` is the per-user shared Houmao home anchor. Registry still defaults there, and operators can still point runtime or mailbox back there explicitly.
-- `<active-overlay>/` means the selected project overlay root itself, usually `<repo>/.houmao/`. Maintained project-aware local-state commands now derive runtime, memory/workspace, mailbox, and easy roots from that one overlay.
+- `<active-overlay>/` means the selected project overlay root itself, usually `<repo>/.houmao/`. Maintained project-aware local-state commands now derive runtime, managed-agent memory, mailbox, and easy roots from that one overlay.
 
 ## Ownership Categories
 
@@ -24,7 +24,7 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 | Houmao-owned | Houmao creates the path family and owns the persisted contract for its contents. | Runtime session manifests, shared-registry `record.json`, launcher `ownership.json` |
 | Houmao-selected | Houmao chooses the root path, but another tool owns the detailed contents under that root. | CAO `HOME` when launcher config omits `home_dir` |
 | Repo-local project overlay | Houmao creates or discovers local operator state under one repo-local `.houmao/` root. | `.houmao/houmao-config.toml`, `.houmao/content/auth/<tool>/<bundle-ref>/`, `.houmao/agents/tools/<tool>/auth/<bundle-ref>/` |
-| Managed-agent workspace | Houmao creates the workspace root, fixed memo file, and scratch lane under the selected active overlay for one managed agent. | `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`, `<active-overlay>/memory/agents/<agent-id>/scratch/` |
+| Managed-agent memory | Houmao creates the memory root, fixed memo file, and `pages/` directory under the selected active overlay for one managed agent. | `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`, `<active-overlay>/memory/agents/<agent-id>/pages/` |
 
 ## Root Families
 
@@ -34,7 +34,7 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 | Project-local overlay | `<project-root>/.houmao` when initialized | nearest-ancestor `.houmao/houmao-config.toml`; explicit `--agent-def-dir` and `HOUMAO_AGENT_DEF_DIR` still outrank discovery for agent-definition resolution | Repo-local project overlay | Stable local operator workflow |
 | Runtime root | `<active-overlay>/runtime` for maintained project-aware command surfaces | explicit CLI/API/config override where supported, then `HOUMAO_GLOBAL_RUNTIME_DIR` | Houmao-owned | Stable root family |
 | Registry root | `~/.houmao/registry` | current operator-facing override `HOUMAO_GLOBAL_REGISTRY_DIR` | Houmao-owned | Stable root family |
-| Project memory root | `<active-overlay>/memory` for maintained project-aware command surfaces | selected project overlay only | Managed-agent workspace | Stable root family |
+| Project memory root | `<active-overlay>/memory` for maintained project-aware command surfaces | selected project overlay only | Managed-agent memory | Stable root family |
 | Launcher-selected CAO home | `<runtime-root>/cao_servers/<host>-<port>/home/` when `home_dir` is omitted | explicit launcher config or CLI `home_dir` override | Houmao-selected | Stable placement, opaque CAO-owned contents |
 | Mailbox root | `<active-overlay>/mailbox` for maintained project-aware command surfaces | `HOUMAO_GLOBAL_MAILBOX_DIR` or explicit mailbox-root override | Separate mailbox subsystem | Out of scope for this subtree |
 
@@ -59,18 +59,17 @@ The runtime root is where Houmao stores generated homes, generated manifests, ru
 
 Current operator-facing registry relocation happens through `HOUMAO_GLOBAL_REGISTRY_DIR`. The internal shared-path helper also supports explicit roots, but the main operational contract today is the env-var override and the default `~/.houmao/registry`.
 
-### Project memory root and agent workspace roots
+### Project memory root and agent memory roots
 
-The project memory root is derived from the selected active overlay, not from the runtime root. Managed-agent workspace roots are allocated below it by agent id:
+The project memory root is derived from the selected active overlay, not from the runtime root. Managed-agent memory roots are allocated below it by agent id:
 
 ```text
 <active-overlay>/memory/agents/<agent-id>/
   houmao-memo.md
-  scratch/
-  persist/
+  pages/
 ```
 
-When the runtime starts, joins, resumes, or relaunches a managed session, it publishes `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, `HOUMAO_AGENT_SCRATCH_DIR`, and, when persistence is enabled, `HOUMAO_AGENT_PERSIST_DIR`.
+When the runtime starts, joins, resumes, or relaunches a managed session, it publishes `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`.
 
 If no overlay exists yet and a maintained local-state command needs one, Houmao bootstraps `<cwd>/.houmao/memory/` along with the rest of the overlay.
 

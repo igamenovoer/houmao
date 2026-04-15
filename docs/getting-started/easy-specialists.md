@@ -255,7 +255,7 @@ Key options:
 
 Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project easy instance launch`.
 
-`--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, managed-agent workspace, and mailbox defaults.
+`--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, managed-agent memory, and mailbox defaults.
 
 `--no-gateway` and `--gateway-port` are mutually exclusive because one launch cannot both skip gateway attach and request a listener port. `--no-gateway` also cannot be combined with any `--gateway-tui-*` override because those timings only affect an attached gateway sidecar.
 

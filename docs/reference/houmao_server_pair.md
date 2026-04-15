@@ -204,8 +204,8 @@ houmao-mgr agents join --headless \
 
 Operational behavior after a successful join:
 
-- Houmao creates the normal runtime envelope: session root, `manifest.json`, placeholder artifacts, `gateway/`, and per-agent workspace metadata
-- the tmux session publishes the same discovery pointers as a native launch: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, `HOUMAO_AGENT_SCRATCH_DIR`, and `HOUMAO_AGENT_PERSIST_DIR` when persistence is enabled
+- Houmao creates the normal runtime envelope: session root, `manifest.json`, placeholder artifacts, `gateway/`, and per-agent memory metadata
+- the tmux session publishes the same discovery pointers as a native launch: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`
 - the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
 
 Relaunch posture is explicit:

@@ -47,16 +47,16 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
-    GatewayWorkspaceActionResponseV1,
-    GatewayWorkspaceFileResponseV1,
-    GatewayWorkspaceFileWriteRequestV1,
-    GatewayWorkspaceLanePathRequestV1,
-    GatewayWorkspaceLaneRequestV1,
-    GatewayWorkspaceMemoResponseV1,
-    GatewayWorkspaceMemoWriteRequestV1,
-    GatewayWorkspaceSummaryV1,
-    GatewayWorkspaceTreeRequestV1,
-    GatewayWorkspaceTreeResponseV1,
+    GatewayMemoryActionResponseV1,
+    GatewayMemoryMemoResponseV1,
+    GatewayMemoryMemoWriteRequestV1,
+    GatewayMemoryPagePathRequestV1,
+    GatewayMemoryPagePathResolutionV1,
+    GatewayMemoryPageResponseV1,
+    GatewayMemoryPageTreeRequestV1,
+    GatewayMemoryPageTreeResponseV1,
+    GatewayMemoryPageWriteRequestV1,
+    GatewayMemorySummaryV1,
 )
 from houmao.agents.realm_controller.registry_storage import (
     remove_live_agent_record,
@@ -248,116 +248,116 @@ class PassiveServerService:
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
 
-    def gateway_workspace(
+    def gateway_memory(
         self,
         agent_ref: str,
-    ) -> GatewayWorkspaceSummaryV1 | tuple[int, dict[str, Any]]:
-        """Proxy `GET /v1/workspace` to the agent's gateway."""
+    ) -> GatewayMemorySummaryV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/memory` to the agent's gateway."""
 
-        return self._gateway_proxy(agent_ref, lambda client: client.workspace())
+        return self._gateway_proxy(agent_ref, lambda client: client.memory())
 
-    def gateway_workspace_memo(
+    def gateway_memory_memo(
         self,
         agent_ref: str,
-    ) -> GatewayWorkspaceMemoResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `GET /v1/workspace/memo` to the agent's gateway."""
+    ) -> GatewayMemoryMemoResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `GET /v1/memory/memo` to the agent's gateway."""
 
-        return self._gateway_proxy(agent_ref, lambda client: client.read_workspace_memo())
+        return self._gateway_proxy(agent_ref, lambda client: client.read_memory_memo())
 
-    def gateway_workspace_memo_put(
+    def gateway_memory_memo_put(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `PUT /v1/workspace/memo` to the agent's gateway."""
+        payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `PUT /v1/memory/memo` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.write_workspace_memo(payload),
+            lambda client: client.write_memory_memo(payload),
         )
 
-    def gateway_workspace_memo_append(
+    def gateway_memory_memo_append(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceMemoWriteRequestV1,
-    ) -> GatewayWorkspaceMemoResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `POST /v1/workspace/memo/append` to the agent's gateway."""
+        payload: GatewayMemoryMemoWriteRequestV1,
+    ) -> GatewayMemoryMemoResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/memory/memo/append` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.append_workspace_memo(payload),
+            lambda client: client.append_memory_memo(payload),
         )
 
-    def gateway_workspace_tree(
+    def gateway_memory_pages(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceTreeRequestV1,
-    ) -> GatewayWorkspaceTreeResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `POST /v1/workspace/lane/tree` to the agent's gateway."""
+        payload: GatewayMemoryPageTreeRequestV1,
+    ) -> GatewayMemoryPageTreeResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/memory/pages/tree` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.list_workspace_tree(payload),
+            lambda client: client.list_memory_pages(payload),
         )
 
-    def gateway_workspace_file_read(
+    def gateway_memory_page_resolve(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceFileResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `POST /v1/workspace/lane/read` to the agent's gateway."""
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPagePathResolutionV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/memory/pages/resolve` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.read_workspace_file(payload),
+            lambda client: client.resolve_memory_page_path(payload),
         )
 
-    def gateway_workspace_file_write(
+    def gateway_memory_page_read(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `POST /v1/workspace/lane/write` to the agent's gateway."""
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryPageResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/memory/pages/read` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.write_workspace_file(payload),
+            lambda client: client.read_memory_page(payload),
         )
 
-    def gateway_workspace_file_append(
+    def gateway_memory_page_write(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceFileWriteRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `POST /v1/workspace/lane/append` to the agent's gateway."""
+        payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/memory/pages/write` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.append_workspace_file(payload),
+            lambda client: client.write_memory_page(payload),
         )
 
-    def gateway_workspace_path_delete(
+    def gateway_memory_page_append(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceLanePathRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `POST /v1/workspace/lane/delete` to the agent's gateway."""
+        payload: GatewayMemoryPageWriteRequestV1,
+    ) -> GatewayMemoryActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/memory/pages/append` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.delete_workspace_path(payload),
+            lambda client: client.append_memory_page(payload),
         )
 
-    def gateway_workspace_lane_clear(
+    def gateway_memory_page_delete(
         self,
         agent_ref: str,
-        payload: GatewayWorkspaceLaneRequestV1,
-    ) -> GatewayWorkspaceActionResponseV1 | tuple[int, dict[str, Any]]:
-        """Proxy `POST /v1/workspace/lane/clear` to the agent's gateway."""
+        payload: GatewayMemoryPagePathRequestV1,
+    ) -> GatewayMemoryActionResponseV1 | tuple[int, dict[str, Any]]:
+        """Proxy `POST /v1/memory/pages/delete` to the agent's gateway."""
 
         return self._gateway_proxy(
             agent_ref,
-            lambda client: client.clear_workspace_lane(payload),
+            lambda client: client.delete_memory_page(payload),
         )
 
     def gateway_tui_state(

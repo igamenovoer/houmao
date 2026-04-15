@@ -24,6 +24,29 @@ The `docs/index.md` file SHALL serve as the single entry point for all Houmao do
 - **WHEN** inspecting `docs/index.md` content
 - **THEN** the file contains zero references to `agents_brains.md`, `brain-builder.md`, or `recipes-and-adapters.md`
 
+### Requirement: Docs index opens with a brief intro and audience navigation
+
+The `docs/index.md` file SHALL open with a short introductory block of 2-3 sentences describing what Houmao is and who the site is for.
+
+Immediately after the intro, the file SHALL include a "where to start" table with at minimum rows for installed users, from-source developers, and contributors. Each row SHALL identify the audience and point to its recommended starting resource.
+
+#### Scenario: Installed user lands on docs index
+- **WHEN** an installed user opens `docs/index.md`
+- **THEN** they read a short description of what Houmao is before encountering the link lists
+- **AND THEN** they see a "where to start" entry pointing them toward getting-started guides or the skill-driven `houmao-touring` path
+
+#### Scenario: From-source developer lands on docs index
+- **WHEN** a developer working from a source checkout opens `docs/index.md`
+- **THEN** the "where to start" table identifies them and points them to the quickstart guide
+
+#### Scenario: Contributor lands on docs index
+- **WHEN** a contributor opens `docs/index.md`
+- **THEN** the "where to start" table identifies them and points them to `CLAUDE.md` or `AGENTS.md`
+
+#### Scenario: Existing link sections are preserved
+- **WHEN** a reader scrolls past the intro block
+- **THEN** the Getting Started, Reference, and Developer Guides link sections remain available
+
 ### Requirement: Directory structure mirrors source packages
 
 The `docs/` directory structure SHALL organize reference content by system phase and subsystem, mirroring the source package layout: `reference/cli/`, `reference/build-phase/`, `reference/run-phase/`, `reference/gateway/`, `reference/mailbox/`, `reference/tui-tracking/`, `reference/lifecycle/`, `reference/registry/`, `reference/terminal-record/`, and `reference/system-files/`. The `reference/build-phase/` directory SHALL contain `launch-overrides.md` and `launch-policy.md` after the three deleted files are removed. The `mkdocs.yml` navigation SHALL reflect these deletions with no dangling entries.

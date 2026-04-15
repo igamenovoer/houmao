@@ -107,7 +107,7 @@ This creates a `.houmao/` overlay in your project directory. The overlay holds:
 - **agents/** — specialist definitions, roles, recipes, launch profiles
 - **content/** — projected credentials, prompts, setups, skills
 - **mailbox/** — filesystem mailbox root for inter-agent messaging
-- **memory/** — per-agent workspace roots, memo files, and scratch/persist lanes
+- **memory/** — per-agent memory roots, free-form memo files, and pages
 - **catalog.sqlite** — specialist and profile catalog
 - **houmao-config.toml** — project configuration
 
@@ -134,7 +134,7 @@ houmao-mgr agents state  --agent-name my-coder
 houmao-mgr agents stop   --agent-name my-coder
 ```
 
-For reusable birth-time defaults (fixed agent name, working directory, mailbox, auth lane), create an **easy profile** over a specialist with `houmao-mgr project easy profile create --specialist my-coder --name my-coder-default ...`. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full easy lane, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared conceptual model, and the [Managed Agent Workspaces guide](docs/getting-started/managed-memory-dirs.md) for per-agent workspace roots, memo files, and scratch/persist lanes.
+For reusable birth-time defaults (fixed agent name, working directory, mailbox, auth lane), create an **easy profile** over a specialist with `houmao-mgr project easy profile create --specialist my-coder --name my-coder-default ...`. See the [Easy Specialists guide](docs/getting-started/easy-specialists.md) for the full easy lane, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared conceptual model, and the [Managed Agent Memory guide](docs/getting-started/managed-memory-dirs.md) for per-agent memory roots, free-form memo files, and pages.
 
 ### 4. Agent Loop: Multi-Agent Coordination
 
@@ -343,7 +343,7 @@ Once `agents join` completes, the adopted session has the same management capabi
 | Interrupt a running turn | `houmao-mgr agents interrupt --agent-name <name>` |
 | Attach to a gateway | `houmao-mgr agents gateway attach --agent-name <name>` |
 | Send / receive mailbox messages | `houmao-mgr agents mail send --agent-name <name>` |
-| Inspect workspace path and memo | `houmao-mgr agents workspace path --agent-name <name>` / `memo show` |
+| Inspect memory paths, memo, and page links | `houmao-mgr agents memory path --agent-name <name>` / `memo show` / `resolve --path <page>` |
 | Stop the agent | `houmao-mgr agents stop --agent-name <name>` |
 
 The only difference: a joined agent has a *placeholder* brain manifest (no skills/configs were projected), and relaunch support depends on whether you provided `--launch-args` at join time.

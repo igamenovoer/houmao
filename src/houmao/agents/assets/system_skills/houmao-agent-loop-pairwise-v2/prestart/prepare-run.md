@@ -42,6 +42,8 @@ Use `require_ack` only when the authored plan or user explicitly asks for acknow
    - advise the participant to use email/mailbox for job communication by default, including in-loop pairwise edge requests, receipts, and results
    - include the participant's exact routing packet or exact routing packet reference when routing packets are part of the plan
    - instruct the participant to write the initialization content they receive into `houmao-memo.md` via `HOUMAO_AGENT_MEMO_FILE`, including delegation rules, task-handling rules, obligations, and forbidden actions
+   - when operator-side gateway or pair-server memory access is available, prefer the supported memory memo operation (`houmao-mgr agents memory memo append` or the gateway/pair memory memo endpoint) so initialization lands in the managed memo before the participant needs it
+   - when the readable initialization material is too large for the memo, write a contained page under `HOUMAO_AGENT_PAGES_DIR`, then add an explicit authored memo link such as `pages/<relative-page>` or use the supported memory page resolve surface to report the exact memo-relative link
    - do not assume the participant already knows which upstream participant may later contact it
 9. Match operator-origin reply policy to the acknowledgement posture:
    - `fire_and_proceed` -> `reply_policy=none`
@@ -86,6 +88,8 @@ Each initialization mail should make these items easy to find for the targeted r
 - default job communication channel: email/mailbox for pairwise edge requests, receipts, and results
 - forbidden actions
 - instruction to copy the participant initialization memo content, delegation rules, task-handling rules, obligations, and forbidden actions into `houmao-memo.md` through `HOUMAO_AGENT_MEMO_FILE`
+- when available, confirmation that the operator already wrote or appended that same initialization material through the supported memory memo surface
+- optional page path under `HOUMAO_AGENT_PAGES_DIR` for oversized readable initialization context, plus an explicit memo-relative link such as `pages/<relative-page>` or path-discovery output from the memory page resolve surface
 - reply instructions when acknowledgement is required
 
 ## Initialize Contract

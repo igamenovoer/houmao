@@ -302,6 +302,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
     pairwise_loop_skill = pairwise_loop_skill_path.read_text(encoding="utf-8")
     pairwise_loop_v2_skill = pairwise_loop_v2_skill_path.read_text(encoding="utf-8")
+    pairwise_loop_v2_prepare_run = (pairwise_loop_v2_prestart / "prepare-run.md").read_text(
+        encoding="utf-8"
+    )
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
@@ -593,6 +596,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "houmao-mgr internals graph high" in pairwise_loop_v2_skill
     assert "houmao-agent-inspect" in pairwise_loop_v2_skill
+    assert "memo page index" not in pairwise_loop_v2_prepare_run
+    assert "pages/<relative-page>" in pairwise_loop_v2_prepare_run
+    assert "path-discovery output" in pairwise_loop_v2_prepare_run
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill
@@ -1239,8 +1245,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ask the user for that value" in pairwise_edge_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in pairwise_edge_loop_pattern
     assert "Subject: [edge-result] edge_loop=<edge_loop_id>" in pairwise_edge_loop_pattern
-    assert "HOUMAO_AGENT_SCRATCH_DIR" in relay_loop_pattern
-    assert "Do not use `HOUMAO_AGENT_PERSIST_DIR` as the default home" in relay_loop_pattern
+    assert "operator-designated work artifact path" in relay_loop_pattern
+    assert "Do not use Houmao managed memory pages as the default home" in relay_loop_pattern
     assert "ask the user for that parameter" in relay_loop_pattern
     assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
     assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern

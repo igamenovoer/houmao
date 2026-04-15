@@ -1224,6 +1224,26 @@ def test_root_cao_routes_are_removed_from_public_inventory() -> None:
     assert with_root_terminals is False
 
 
+def test_managed_gateway_memory_routes_expose_resolve_without_reindex() -> None:
+    app = create_app(service=_AppServiceDouble())
+    routes = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert (
+        "POST",
+        "/houmao/agents/{agent_ref}/gateway/memory/pages/resolve",
+    ) in routes
+    assert (
+        "POST",
+        "/houmao/agents/{agent_ref}/gateway/memory/reindex",
+    ) not in routes
+
+
 def test_managed_agent_routes_delegate_to_service_methods() -> None:
     service = _AppServiceDouble()
     app = create_app(service=service)

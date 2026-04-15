@@ -11,7 +11,7 @@ Choose this pattern when:
 - one driver sends one request to exactly one worker for one elemental edge-loop round,
 - the agent that sends the request should also be the agent that receives the final result for that same loop round,
 - the sender needs robust resend and deduplication behavior under ambiguous network outcomes,
-- the sender can keep a small mutable loop ledger under `HOUMAO_AGENT_SCRATCH_DIR`.
+- the sender can maintain a small mutable loop ledger through mailbox/reminder state or an operator-designated work artifact path.
 
 Use the forward relay-loop pattern instead when ownership should keep moving forward across agents and a later downstream loop egress should return the final result directly to a more distant origin.
 
@@ -52,14 +52,14 @@ Unlike the forward relay-loop pattern, the worker for one edge-loop round is als
 
 This page intentionally covers only the elemental two-node round. Use a dedicated pairwise loop-planning skill for recursive child edge-loops, multiple pairwise edges, or a rendered control graph.
 
-## Mutable Local Ledger
+## Mutable Loop State
 
-Each agent that drives or owns pairwise edge-loop work keeps a small mutable ledger under `HOUMAO_AGENT_SCRATCH_DIR`. Treat this as scratch bookkeeping, not long-term persist-lane memory.
+Each agent that drives or owns pairwise edge-loop work keeps a small mutable ledger outside Houmao managed memory. Treat this as pattern bookkeeping, not operator-facing memo/page memory.
 
-Recommended location:
+Location guidance:
 
 ```text
-$HOUMAO_AGENT_SCRATCH_DIR/edge-loops/ledger.json
+Use mailbox records, reminder state, runtime state, or an operator-designated work artifact path for mutable counters and dedupe state. If operators need a readable checkpoint, write a concise summary page under $HOUMAO_AGENT_PAGES_DIR/edge-loops/.
 ```
 
 Minimum fields to record for each active outbound or owned edge-loop:
@@ -81,7 +81,7 @@ Minimum fields to record for each active outbound or owned edge-loop:
 
 Workers also need a durable-enough per-session record of seen inbound `edge_loop_id` values so they can deduplicate repeated requests.
 
-Do not use `HOUMAO_AGENT_PERSIST_DIR` as the default home for this bookkeeping. The persist lane is the long-term notebook or archive lane, not the normal place for short-lived retry counters, due times, and seen-request markers.
+Do not use Houmao managed memory pages as the default home for short-lived retry counters, due times, and seen-request markers. Pages are for readable operator-facing context.
 
 ## Driver Workflow
 
@@ -152,7 +152,7 @@ The supervisor reminder should reopen the loop ledger, check mailbox first, adva
 
 ## Optional Self-Mail Checkpoint
 
-If the agent wants a durable backlog marker in addition to the live supervisor reminder, one open self-mail checkpoint per agent is acceptable. Use it as a pointer back to the `HOUMAO_AGENT_SCRATCH_DIR` ledger, not as the authoritative mutable edge-loop ledger itself.
+If the agent wants a durable backlog marker in addition to the live supervisor reminder, one open self-mail checkpoint per agent is acceptable. Use it as a pointer back to the active ledger location or a readable summary page, not as the authoritative mutable edge-loop ledger itself.
 
 If unchanged open self-mail remains in the mailbox, later notifier cycles may still re-enqueue wake prompts while it remains unarchived. Keep the checkpoint idempotent and prune it when no longer needed.
 
@@ -248,7 +248,7 @@ You may mark the worker row complete and stop follow-up for this edge-loop.
 
 ```text
 Title: [edge-supervisor] review active edge loops
-Prompt: Reopen `$HOUMAO_AGENT_SCRATCH_DIR/edge-loops/ledger.json`, check mailbox first for edge-loop receipts, results, and result acknowledgements, advance completed rows, use `houmao-agent-inspect` to peek workers for due rows, use a narrow active status probe only as the last resort when read-only inspection is inconclusive, resend only due rows whose workers cannot be observed or confirmed as still working, reuse the same edge_loop_id for any resend, update next_review_at and attempt_count, then stop.
+Prompt: Reopen the active edge-loop ledger, check mailbox first for edge-loop receipts, results, and result acknowledgements, advance completed rows, use `houmao-agent-inspect` to peek workers for due rows, use a narrow active status probe only as the last resort when read-only inspection is inconclusive, resend only due rows whose workers cannot be observed or confirmed as still working, reuse the same edge_loop_id for any resend, update next_review_at and attempt_count, then stop.
 Ranking: <smaller value = higher priority>
 Mode: repeat
 Start after: <context-derived delay>
@@ -264,7 +264,7 @@ Reason:
 This unread self-mail is only a durable checkpoint pointer for active edge-loops.
 
 Reopen:
-$HOUMAO_AGENT_SCRATCH_DIR/edge-loops/ledger.json
+the active edge-loop ledger or its readable summary page
 
 Required review:
 Check mailbox first for matching edge-loop receipts, results, and result acknowledgements, peek due workers through `houmao-agent-inspect`, and use active status probes only as the last resort before resending any request.
@@ -280,5 +280,5 @@ Delete or mark this checkpoint complete once the edge-loop ledger is empty.
 - Do not invent a fresh `edge_loop_id` for ordinary resend of the same round.
 - Do not teach recursive child edge-loops, parent edge-loop identifiers, or multi-edge graph planning as part of this elemental pattern.
 - Do not use one live reminder per active edge-loop row as the default supervision strategy.
-- Do not store mutable edge-loop bookkeeping in `HOUMAO_AGENT_PERSIST_DIR`.
+- Do not store mutable edge-loop bookkeeping in Houmao managed memory pages.
 - Do not guess materially important timing thresholds when the user needs to set them.

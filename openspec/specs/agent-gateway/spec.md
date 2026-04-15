@@ -1454,44 +1454,68 @@ That automatic reply state update SHALL NOT archive the replied message.
 - **THEN** the gateway response reflects that the parent message is answered for the current principal
 - **AND THEN** the parent message remains open inbox work until an archive or move operation closes it
 
-### Requirement: Gateway exposes lane-scoped managed workspace endpoints
-The live gateway SHALL expose HTTP endpoints for managed workspace inspection and lane-scoped file operations.
+### Requirement: Gateway exposes managed memory memo and page endpoints
+The live gateway SHALL expose HTTP endpoints for managed memory inspection and memo/page operations.
 
-The gateway workspace surface SHALL include:
-- a workspace summary endpoint that reports workspace root, scratch directory, persist binding, and persist directory when enabled,
+The gateway memory surface SHALL include:
+- a memory summary endpoint that reports memory root, memo file, and pages directory,
 - memo read, replace, and append endpoints for the fixed `houmao-memo.md` file,
-- a lane tree endpoint,
-- lane file read, write, append, delete endpoints,
-- a lane clear endpoint.
+- page tree, read, write, append, delete, and path-resolution endpoints.
 
-The gateway SHALL support only `scratch` and `persist` lane identifiers on this surface.
+The gateway SHALL NOT expose `scratch` or `persist` lane identifiers on this surface.
 
-#### Scenario: Gateway workspace summary reports available lanes
+The gateway SHALL NOT expose a memory reindex route or action.
+
+#### Scenario: Gateway memory summary reports memo-pages paths
 - **WHEN** a live gateway is attached to managed agent `researcher`
-- **THEN** `GET /v1/workspace` returns the workspace root
+- **THEN** the memory summary returns the memory root
 - **AND THEN** it returns the memo file path
-- **AND THEN** it returns the scratch directory
-- **AND THEN** it returns the persist directory when persistence is enabled
+- **AND THEN** it returns the pages directory
+- **AND THEN** it does not return a scratch directory or persist directory
 
-#### Scenario: Gateway rejects unsupported lane
-- **WHEN** a live gateway receives a workspace request for lane `runtime`
+#### Scenario: Gateway rejects lane-style request
+- **WHEN** a live gateway receives a workspace lane request for lane `scratch`
 - **THEN** the request fails before touching the filesystem
-- **AND THEN** the response identifies the lane as unsupported
+- **AND THEN** the response identifies the lane workspace surface as unsupported
 
-### Requirement: Gateway workspace endpoints enforce path containment
-Gateway workspace file operations SHALL accept relative paths only and SHALL verify that each resolved target remains within the selected workspace lane.
+#### Scenario: Gateway does not expose reindex
+- **WHEN** a caller uses the supported gateway memory API
+- **THEN** there is no supported route for rebuilding a memo page index
 
-Gateway workspace file operations SHALL reject absolute paths, parent traversal, and symlink escapes.
+### Requirement: Gateway memory endpoints enforce page containment
+Gateway page file and path-resolution operations SHALL accept relative page paths only and SHALL verify that each resolved target remains within the managed pages directory.
 
-Gateway memo operations SHALL operate only on the resolved fixed memo file and SHALL NOT accept arbitrary root-level target paths.
+Gateway page file and path-resolution operations SHALL reject absolute paths, parent traversal, symlink escapes, and content containing NUL bytes where content is supplied.
 
-#### Scenario: Gateway rejects symlink escape
-- **WHEN** a scratch lane contains a symlink whose target resolves outside the scratch lane
-- **AND WHEN** a gateway workspace read request addresses that symlink
+Gateway memo operations SHALL operate only on the resolved fixed memo file and SHALL NOT accept arbitrary memory-root target paths.
+
+Gateway page operations SHALL NOT mutate `houmao-memo.md`.
+
+#### Scenario: Gateway rejects page symlink escape
+- **WHEN** the pages directory contains a symlink whose target resolves outside the pages directory
+- **AND WHEN** a gateway memory read request addresses that symlink
 - **THEN** the gateway rejects the request
-- **AND THEN** it does not read the target outside the scratch lane
+- **AND THEN** it does not read the target outside the pages directory
 
-#### Scenario: Gateway memo append uses fixed memo target
-- **WHEN** a gateway memo append request is accepted for managed agent `researcher`
-- **THEN** the gateway appends to the manifest-backed memo file path
-- **AND THEN** the request cannot redirect the append to another workspace-root file
+#### Scenario: Gateway page write leaves memo unchanged
+- **WHEN** a gateway memory page write request is accepted for page `operator-rules.md`
+- **THEN** the gateway writes to the contained page path
+- **AND THEN** it does not update `houmao-memo.md`
+
+### Requirement: Gateway resolves memory page paths
+The live gateway memory API SHALL expose a contained page path-resolution operation.
+
+The response SHALL include the page-relative path, the memo-relative link string, the absolute filesystem path, existence state, and existing path kind when available.
+
+The gateway SHALL reject path-resolution inputs that fail the managed page containment rules.
+
+#### Scenario: Gateway resolves a contained future page
+- **WHEN** a live gateway receives a path-resolution request for `notes/run.md`
+- **AND WHEN** the path is contained under `pages/`
+- **THEN** the gateway returns the absolute path for that page under the managed pages directory
+- **AND THEN** the gateway returns `relative_link: pages/notes/run.md`
+
+#### Scenario: Gateway rejects path escape resolution
+- **WHEN** a live gateway receives a path-resolution request for `../secrets.md`
+- **THEN** the gateway rejects the request
+- **AND THEN** the gateway does not return an absolute escaped path
