@@ -406,6 +406,94 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
     assert not (workspace / ".agents/skills").exists()
 
 
+def test_system_skills_install_uses_project_scoped_copilot_default_home(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path.resolve()
+    expected_home = workspace / ".github"
+    monkeypatch.delenv("COPILOT_HOME", raising=False)
+    monkeypatch.chdir(workspace)
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "copilot",
+            "--set",
+            "user-control",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["home_path"] == str(expected_home)
+    assert (expected_home / "skills/houmao-project-mgr/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-credential-mgr/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-agent-definition/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-agent-loop-generic/SKILL.md").is_file()
+
+
+def test_system_skills_install_uses_copilot_env_redirect_when_home_is_omitted(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "copilot-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "copilot",
+            "--skill",
+            "houmao-specialist-mgr",
+        ],
+        env={"COPILOT_HOME": str(home_path)},
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["home_path"] == str(home_path)
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+
+
+def test_system_skills_install_uses_explicit_copilot_home_over_env_redirect(
+    tmp_path: Path,
+) -> None:
+    env_home = (tmp_path / "env-copilot-home").resolve()
+    user_home = (tmp_path / "user-home").resolve()
+    explicit_home = user_home / ".copilot"
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "copilot",
+            "--home",
+            "~/.copilot",
+            "--skill",
+            "houmao-agent-messaging",
+        ],
+        env={"COPILOT_HOME": str(env_home), "HOME": str(user_home)},
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["home_path"] == str(explicit_home)
+    assert (explicit_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert not (env_home / "skills/houmao-agent-messaging").exists()
+
+
 def test_system_skills_status_reports_missing_state_for_project_default_home(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -427,6 +515,32 @@ def test_system_skills_status_reports_missing_state_for_project_default_home(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["tool"] == "codex"
+    assert payload["home_path"] == str(expected_home)
+    assert payload["installed_skills"] == []
+    assert payload["installed_skill_records"] == []
+
+
+def test_system_skills_status_reports_project_scoped_copilot_default_home(
+    tmp_path: Path, monkeypatch
+) -> None:
+    expected_home = (tmp_path / ".github").resolve()
+    monkeypatch.delenv("COPILOT_HOME", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "copilot",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["tool"] == "copilot"
     assert payload["home_path"] == str(expected_home)
     assert payload["installed_skills"] == []
     assert payload["installed_skill_records"] == []
