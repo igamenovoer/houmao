@@ -1,12 +1,21 @@
 ---
 name: houmao-memory-mgr
-description: Use Houmao's managed-agent memory skill to inspect or edit a managed agent's `houmao-memo.md` file and contained `pages/` files.
+description: "Use when the user's intent is to read or write a Houmao-managed agent's `houmao-memo.md` file. Necessary trigger: `memo` is mentioned. Sufficient trigger: the prompt or context says `houmao memo`, or says `agent memo` where the agent clearly refers to a Houmao-managed agent. An explicit reference to `houmao-memo.md` is a very strong hint to call this skill."
 license: MIT
 ---
 
 # Houmao Memory Manager
 
-Use this Houmao skill when the user asks to edit, add something to, remove something from, inspect, or otherwise manage a Houmao/agent memo or managed-agent memory pages.
+Use this Houmao skill only when the necessary trigger condition is met:
+
+- the prompt or recent context mentions `memo`
+
+The sufficient trigger conditions are:
+
+- the prompt or recent context says `houmao memo`
+- the prompt or recent context says `agent memo`, and that agent clearly refers to a Houmao-managed agent
+
+When triggered, handle requests to edit, add something to, remove something from, inspect, or otherwise manage the Houmao/agent memo or memo-linked managed-agent memory pages.
 
 ## Scope
 

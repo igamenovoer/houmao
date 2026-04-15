@@ -863,6 +863,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
     mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
+    assert "description: \"Use when the user's intent is to read or write" in memory_mgr_skill
+    assert "Necessary trigger: `memo` is mentioned." in memory_mgr_skill
+    assert "Sufficient trigger: the prompt or context says `houmao memo`" in memory_mgr_skill
+    assert "prompt or recent context mentions `memo`" in memory_mgr_skill
+    assert "says `houmao memo`" in memory_mgr_skill
+    assert "says `agent memo`" in memory_mgr_skill
+    assert "read or write a Houmao-managed agent's `houmao-memo.md` file" in memory_mgr_skill
+    assert "explicit reference to `houmao-memo.md` is a very strong hint" in memory_mgr_skill
     assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
     assert "agents memory memo show|set|append" in memory_mgr_skill
     assert "agents memory tree|resolve|read|write|append|delete" in memory_mgr_skill
