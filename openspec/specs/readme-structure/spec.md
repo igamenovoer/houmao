@@ -108,6 +108,25 @@ The introductory content SHALL be condensed from four subsections (What It Is, C
 - **WHEN** a reader finishes the intro sections
 - **THEN** they have read no more than ~20 lines of prose before reaching Quick Start
 
+### Requirement: README What It Is section acknowledges Copilot system-skills target
+
+The README opening "What It Is" paragraph SHALL mention Copilot as a supported system-skills install target alongside the three launch-capable tools (`claude`, `codex`, `gemini`). The mention SHALL use a qualifier that makes clear Copilot is a skill-install surface, not a launch backend.
+
+#### Scenario: Reader understands Copilot scope
+
+- **WHEN** a reader reads the README "What It Is" section
+- **THEN** they see that Houmao manages `claude`, `codex`, and `gemini` as launch backends and additionally supports `copilot` for system-skill installation
+- **AND THEN** they do not conclude that Copilot is a launch backend
+
+### Requirement: README demos section includes writer-team example
+
+The README SHALL include a reference to the `examples/writer-team/` template in or adjacent to the "Runnable Demos" section so that the multi-agent loop example is discoverable alongside the demo scripts.
+
+#### Scenario: Reader finds writer-team in demos area
+
+- **WHEN** a reader scans the "Runnable Demos" section of the README
+- **THEN** they find a reference to `examples/writer-team/` with a description of what the example demonstrates
+
 ### Requirement: README links to the reusable writer-team example
 
 When the repository contains `examples/writer-team/`, the README agent-loop story-writing section SHALL link to that example as the reusable template for the three-agent writing team.
@@ -119,4 +138,3 @@ The README SHALL distinguish the reusable example from the inline quick-start na
 - **WHEN** a reader finishes the README story-writing loop section
 - **THEN** they find a link to `examples/writer-team/`
 - **AND THEN** they understand that the linked example is the reusable template for creating the three-agent writing team locally
-

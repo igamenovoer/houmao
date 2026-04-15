@@ -1077,3 +1077,41 @@ If CLI reference content mentions internal CAO compatibility elsewhere, that con
 - **WHEN** a reader scans CLI reference project-layout notes
 - **THEN** the reference does not present `.houmao/agents/compatibility-profiles/` as a maintained local project directory
 
+### Requirement: System-skills reference documents Copilot support
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL document Copilot as a supported explicit `system-skills install|status --tool` target.
+
+That page SHALL document:
+
+- Copilot's tool-native home env var as `COPILOT_HOME`,
+- Copilot's project-scoped default home as `<cwd>/.github`,
+- Copilot's visible projection root as `skills/`, yielding `.github/skills/<houmao-skill>/` for omitted-home project installs,
+- explicit personal Copilot installs through `--home ~/.copilot`, yielding `~/.copilot/skills/<houmao-skill>/`,
+- that no `--scope` flag is required or supported for Copilot system-skill installation.
+
+#### Scenario: Reader sees Copilot in system-skills home resolution
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page lists Copilot alongside Claude, Codex, and Gemini in the supported tool-home resolution coverage
+- **AND THEN** it identifies `COPILOT_HOME` and `<cwd>/.github` as Copilot's env and project-default home inputs
+
+#### Scenario: Reader understands Copilot projection paths
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that Copilot skills project under `skills/<houmao-skill>/` relative to the resolved Copilot home
+- **AND THEN** it gives examples for both `.github/skills/<houmao-skill>/` and `~/.copilot/skills/<houmao-skill>/`
+
+### Requirement: CLI reference explains component-scoped memo seed policies
+The `houmao-mgr` CLI reference SHALL explain that `--memo-seed-policy initialize|replace|fail-if-nonempty` applies only to the managed-memory components represented by the supplied memo seed source.
+
+When the reference documents `--memo-seed-text` or `--memo-seed-file`, it SHALL NOT imply that policy `replace` clears memory pages.
+
+When the reference documents `--clear-memo-seed`, it SHALL distinguish removing stored seed configuration from storing an empty memo seed.
+
+#### Scenario: Reader distinguishes empty memo seed from clearing seed config
+- **WHEN** a reader looks up memo seed flags for launch profiles or easy profiles
+- **THEN** the CLI reference states that `--clear-memo-seed` removes stored seed configuration
+- **AND THEN** the CLI reference states that `--memo-seed-text '' --memo-seed-policy replace` stores an intentional empty memo seed
+
+#### Scenario: Reader sees memo-only replace preserves pages
+- **WHEN** a reader looks up `--memo-seed-text` with policy `replace`
+- **THEN** the CLI reference states that the launch replaces `houmao-memo.md`
+- **AND THEN** it does not state that pages are cleared for memo-only seeds
+
