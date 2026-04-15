@@ -14,9 +14,11 @@ The trigger word `houmao` is intentional. Use the `houmao-touring` skill name di
 
 ## Welcome Message
 
-When the user starts the guided tour, present a concise welcome before or alongside the current-state orientation. Keep it user-facing, adapt it to the current project state, and do not imply that the user must restart from the beginning when Houmao state already exists.
+When the user starts the guided tour, present a welcome message that adapts to the inspected current Houmao state. Keep the welcome user-facing and never imply that the user must restart from the beginning when Houmao state already exists. Do not repeat the welcome on every turn; if the recent conversation already covered it, skip it and proceed with the current-state orientation.
 
-Suggested baseline:
+### Full welcome (blank-slate workspace)
+
+Present the full welcome only when the workspace has no project overlay, no reusable specialists, and no running managed agents. Use the following baseline:
 
 Welcome to Houmao. Houmao is a framework and CLI toolkit for orchestrating teams of loosely coupled CLI-based AI agents such as Claude, Codex, and Gemini. Each agent is a real CLI process with its own disk state, memory, and native TUI; Houmao coordinates the team through reusable specialists, mailbox messaging, per-agent gateways, and loop plans.
 
@@ -29,6 +31,10 @@ A typical first setup path is:
 5. Launch the agent. The default tour posture is a visible TUI managed agent with a foreground gateway sidecar; when mailbox is ready, enable gateway mail-notifier polling every 5 seconds so the agent can process new mail.
 
 Start by checking what already exists here, then suggest the next likely branch instead of restarting from scratch.
+
+### Short acknowledgement (workspace already has state)
+
+Present a short one-to-two-sentence acknowledgement in place of the full welcome whenever the inspected workspace already has any of: a project overlay, one or more reusable specialists, one or more running managed agents. Follow it immediately with the current-state orientation and the offered next branches from the orient branch's posture-to-branch matrix. Do not push the user back into the full initial setup sequence in that case.
 
 ## Scope
 
@@ -73,6 +79,7 @@ This packaged skill does not cover:
 5. Explain the current posture in plain language and offer the next likely branches.
 6. Load exactly one branch page for the next selected tour branch:
    - `branches/orient.md`
+   - `branches/quickstart.md`
    - `branches/setup-project-and-mailbox.md`
    - `branches/author-and-launch.md`
    - `branches/live-operations.md`
@@ -83,16 +90,18 @@ This packaged skill does not cover:
 
 ## Branches
 
-- Read [branches/orient.md](branches/orient.md) to inspect current Houmao posture and present the next likely tour branches.
+- Read [branches/orient.md](branches/orient.md) to inspect current Houmao posture and present the next likely tour branches from the posture-to-branch routing table.
+- Read [branches/quickstart.md](branches/quickstart.md) when the user wants a minimum-viable path to one running managed agent; the branch detects available host tool CLIs and routes authoring and launch through the maintained skills.
 - Read [branches/setup-project-and-mailbox.md](branches/setup-project-and-mailbox.md) when the user wants project overlay setup or optional project-local mailbox setup.
 - Read [branches/author-and-launch.md](branches/author-and-launch.md) when the user wants to create specialists or profiles, or launch another agent.
 - Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, inspect live state or screen posture, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
-- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants tour-level guidance for advanced pairwise agent-loop creation through `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2`.
+- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including the pairwise and generic loop skills, the advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
 - Read [branches/lifecycle-follow-up.md](branches/lifecycle-follow-up.md) when the user wants to inspect, stop, relaunch, or clean up managed-agent sessions.
 
 ## References
 
 - Read [references/question-style.md](references/question-style.md) when the tour needs to ask for user input in a first-time-user-friendly way with explanations, examples, and recommended defaults or skip options.
+- Read [references/concepts.md](references/concepts.md) when the tour needs a compact self-contained glossary for the vocabulary used across branches (specialist, easy profile, launch profile, managed agent, recipe, tool adapter, gateway, gateway sidecar, mailbox root, mailbox account, principal id, user agent, master, loop plan, relaunch, cleanup).
 
 ## Routing Guidance
 
@@ -119,3 +128,4 @@ This packaged skill does not cover:
 - Do not silently auto-route generic pairwise loop planning or pairwise run-control requests into `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2`; ask the user to select or explicitly invoke the desired pairwise skill.
 - Do not restate composed pairwise topology, run-control details, or elemental pairwise edge-loop protocol inline; keep those on the selected pairwise loop skill and `houmao-adv-usage-pattern`.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
+- Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.
