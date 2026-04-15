@@ -275,3 +275,42 @@ The launch guidance SHALL distinguish managed-agent `--headless` or `--no-headle
 - **THEN** the guidance may include `--gateway-background` when the command surface supports it
 - **AND THEN** it describes that flag as an explicit override rather than the normal launch posture
 
+### Requirement: `houmao-specialist-mgr` ships per-tool credential kinds references and cites them when asking the user for missing auth inputs
+
+The packaged `houmao-specialist-mgr` skill SHALL ship three per-tool credential kinds reference pages under `references/`:
+
+- `claude-credential-kinds.md`
+- `codex-credential-kinds.md`
+- `gemini-credential-kinds.md`
+
+Each kinds reference page SHALL enumerate the user-facing credential kinds the selected tool accepts through `project easy specialist create`, including at minimum:
+
+- Claude: API key, auth token, OAuth token, and a vendor-login config-directory kind that carries `.credentials.json` plus companion `.claude.json` when present.
+- Codex: API key, and a cached login state kind that carries an `auth.json` file.
+- Gemini: API key, a Vertex AI kind that pairs a Google API key with the Vertex AI selector, and an OAuth creds kind that carries an `.gemini/oauth_creds.json` file.
+
+Each kinds reference page SHALL for every enumerated kind state a plain-language name, a description of what the user provides, the `project easy specialist create` flag it maps to, and a short guidance line on when to pick that kind.
+
+Each kinds reference page SHALL name discovery shortcuts (auto credentials, env lookup, directory scan) as alternatives to picking an explicit kind, and SHALL cite the matching `*-credential-lookup.md` reference for discovery-mode details rather than restating discovery rules inline.
+
+The create action within the packaged skill SHALL cite the kinds reference for the currently selected tool when the skill presents auth-input options to the user.
+
+The `SKILL.md` References section SHALL list the three credential kinds references alongside the existing lookup references.
+
+The kinds reference pages SHALL NOT replace the existing `*-credential-lookup.md` references or remove discovery-mode behavior from the create action.
+
+#### Scenario: Selected tool loads only its own kinds reference when asking the user
+- **WHEN** the create action needs to present auth-input options to the user for one selected tool
+- **THEN** the skill loads the kinds reference for that tool and presents the enumerated kinds as a menu
+- **AND THEN** it does not load the kinds references for the other two tools in the same turn
+
+#### Scenario: Kinds reference enumerates selectable kinds in user-facing language
+- **WHEN** an agent reads one of the packaged credential kinds references
+- **THEN** the page lists each kind by a plain-language name, what the user provides, the mapping flag, and when to pick that kind
+- **AND THEN** the page does not collapse the menu into a bare flag table
+
+#### Scenario: Kinds reference cites the existing lookup reference for discovery shortcuts
+- **WHEN** an agent reads one of the packaged credential kinds references
+- **THEN** the page describes discovery shortcuts as alternatives to picking an explicit kind
+- **AND THEN** the page cites the corresponding `*-credential-lookup.md` reference for discovery-mode detail
+

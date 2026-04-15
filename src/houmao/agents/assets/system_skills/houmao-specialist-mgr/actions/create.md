@@ -44,6 +44,10 @@ Use this action only when the user wants to create or patch one reusable easy sp
 8. If the active mode is No Discovery Mode and auth inputs are not present, confirm whether that credential bundle already exists for the selected tool. Use the same chosen `houmao-mgr` launcher for `project credentials <tool> get --name <credential>` or `list` when you need that confirmation.
 9. If the credential bundle is not confirmed to exist and required auth inputs are still missing after checking current prompt and recent chat context:
    - do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless one of the supported credential-source modes is explicitly active
+   - load the kinds reference for the selected tool and present the enumerated kinds as a menu to the user:
+     - Claude: `references/claude-credential-kinds.md`
+     - Codex: `references/codex-credential-kinds.md`
+     - Gemini: `references/gemini-credential-kinds.md`
    - ask the user in Markdown for the missing auth inputs instead of guessing
    - mention that they can either provide auth explicitly, point you at env names or patterns, point you at a directory, or ask for `auto credentials`
 10. Run `project easy specialist create` through the chosen `houmao-mgr` launcher.

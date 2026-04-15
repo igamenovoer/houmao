@@ -6,7 +6,10 @@ Use this action only when the user wants to create one new credential.
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family, credential name, target, and supported credential inputs from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the tool family, credential name, target, or required supported inputs are still missing, ask the user before proceeding.
+3. If the tool family, credential name, target, or required supported inputs are still missing, load the kinds reference for the selected tool and present the enumerated kinds as a menu to the user before proceeding:
+   - Claude: `references/claude-credential-kinds.md`
+   - Codex: `references/codex-credential-kinds.md`
+   - Gemini: `references/gemini-credential-kinds.md`
 4. Run the selected command.
 5. Report the created credential name, written env vars, and written auth-file paths returned by the command.
 

@@ -83,3 +83,12 @@ This packaged skill does not cover:
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for specialist management.
+
+## References
+
+- `references/claude-credential-kinds.md` — user-facing credential kinds menu for Claude
+- `references/codex-credential-kinds.md` — user-facing credential kinds menu for Codex
+- `references/gemini-credential-kinds.md` — user-facing credential kinds menu for Gemini
+- `references/claude-credential-lookup.md` — discovery-mode lookup rules for Claude
+- `references/codex-credential-lookup.md` — discovery-mode lookup rules for Codex
+- `references/gemini-credential-lookup.md` — discovery-mode lookup rules for Gemini
