@@ -1,8 +1,5 @@
-# managed-launch-prompt-header Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-managed-prompt-header. Update Purpose after archive.
-## Requirements
 ### Requirement: Managed launches prepend a Houmao-owned prompt header by default
 Houmao-managed launch surfaces SHALL render the managed prompt header as a Houmao-owned section of the effective launch prompt by default.
 
@@ -91,42 +88,6 @@ When enabled, the mail acknowledgement section SHALL state that, for mailbox-dri
 - **AND THEN** the notice tells the agent to use a focused mailbox-thread reply for mailbox-driven clarification when the thread is reply-enabled
 - **AND THEN** the notice tells the agent to decide on its own with available context when the mailbox thread is not reply-enabled
 
-### Requirement: Managed-header policy resolves through launch override, profile policy, and default
-The whole managed prompt header SHALL resolve through this precedence order:
-
-1. explicit one-shot launch override,
-2. stored launch-profile policy when present,
-3. system default.
-
-The system default for this capability SHALL be enabled.
-
-Stored launch-profile policy SHALL support the three states:
-
-- inherit,
-- enabled,
-- disabled.
-
-When whole managed-header policy resolves to disabled, no managed-header subsections SHALL render, even if a section-level policy would otherwise resolve to enabled.
-
-#### Scenario: Direct disable wins over stored enabled policy
-- **WHEN** a reusable launch profile stores managed-header policy `enabled`
-- **AND WHEN** an operator launches from that profile with an explicit one-shot disable override
-- **THEN** the resulting managed launch does not prepend the managed prompt header
-- **AND THEN** the stored launch profile still records policy `enabled`
-
-#### Scenario: Stored disabled policy wins when no direct override is supplied
-- **WHEN** a reusable launch profile stores managed-header policy `disabled`
-- **AND WHEN** an operator launches from that profile without any direct managed-header override
-- **THEN** the resulting managed launch does not prepend the managed prompt header
-- **AND THEN** the launch does not silently fall back to the default enabled behavior
-
-#### Scenario: Whole-header disable suppresses enabled section policy
-- **WHEN** a reusable launch profile stores managed-header policy `disabled`
-- **AND WHEN** that profile also stores automation notice section policy `enabled`
-- **AND WHEN** an operator launches from that profile without any direct managed-header override
-- **THEN** the resulting managed launch does not prepend `<managed_header>`
-- **AND THEN** the automation notice does not render because the whole header is disabled
-
 ### Requirement: Managed header participates in effective launch-prompt composition
 When managed-header policy resolves to enabled, the system SHALL treat the managed prompt header as part of the effective launch prompt rather than as a separate bootstrap-only prompt.
 
@@ -183,15 +144,6 @@ For older managed manifests that do not already persist the structured layout me
 - **THEN** the relaunched effective launch prompt is recomputed with the default managed prompt header enabled
 - **AND THEN** the relaunched effective launch prompt includes default-enabled managed-header sections and omits default-disabled sections
 - **AND THEN** the relaunch does not remain permanently exempt only because the original manifest predates this capability
-
-### Requirement: Compatibility-generated launch prompts share the managed-header composition contract
-When Houmao generates provider-facing launch prompts or compatibility profiles for managed launch, it SHALL derive those prompts from the same effective `<houmao_system_prompt>` composition contract used by local managed launch.
-
-#### Scenario: Compatibility-generated profile uses the same managed header as local launch
-- **WHEN** Houmao generates a provider-facing compatibility profile for a managed launch context whose managed-header policy resolves to enabled
-- **AND WHEN** that launch context also includes a launch-owned appendix
-- **THEN** the generated provider-facing system prompt includes the same `<houmao_system_prompt>` structure, including `<managed_header>` and `<launch_appendix>`, that local managed launch would use
-- **AND THEN** compatibility launch prompt generation does not drift to a raw role-only prompt contract
 
 ### Requirement: Managed-header sections resolve through launch override, profile policy, and default
 Each managed-header section SHALL resolve through this precedence order:

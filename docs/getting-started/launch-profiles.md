@@ -69,7 +69,7 @@ A launch profile may store, with no inline secrets:
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
-- a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
+- a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
 - a prompt overlay (mode plus inline text or a referenced file).
 
 Inline prompt-overlay text is stored inline. File-referenced overlays are kept as managed file-backed content under the overlay-owned content roots, and the catalog stores only the reference. This keeps long prompt overlays out of the catalog database itself.
@@ -112,7 +112,7 @@ Prompt overlays are inline text or a referenced file. File-backed overlays remai
 
 ## Managed Prompt Header
 
-Managed launches render one short Houmao-owned prompt header by default. For current managed launches, the final prompt is rooted at `<houmao_system_prompt>`, the header appears in `<managed_header>`, and the remaining prompt content appears in `<prompt_body>`. The header tells the agent that it is Houmao-managed, includes the resolved managed-agent name and id, points the agent toward `houmao-mgr` and other supported Houmao system interfaces for Houmao-related work, and tells it to avoid unsupported ad hoc probing when a supported Houmao interface exists. The header stays general-purpose and does not name individual packaged guidance entries.
+Managed launches render one short Houmao-owned prompt header by default. For current managed launches, the final prompt is rooted at `<houmao_system_prompt>`, the header appears in `<managed_header>`, and the remaining prompt content appears in `<prompt_body>`. The header tells the agent that it is Houmao-managed, includes the resolved managed-agent name and id, points the agent at the resolved absolute `houmao-memo.md` file to read at the start of each prompt turn, points the agent toward `houmao-mgr` and other supported Houmao system interfaces for Houmao-related work, and tells it to avoid unsupported ad hoc probing when a supported Houmao interface exists. The header stays general-purpose and does not name individual packaged guidance entries.
 
 Prompt composition order is:
 
@@ -134,7 +134,7 @@ The managed header is controlled by the same precedence model as other birth-tim
 
 `inherit` means "use the default enabled behavior." If you need a role to stay effectively promptless or you want one launch to skip the Houmao-owned prelude, use `--no-managed-header` for that launch or store `disabled` on the relevant launch profile.
 
-Individual header sections are controlled separately with repeatable `--managed-header-section SECTION=enabled|disabled` on `houmao-mgr agents launch`, `houmao-mgr project easy instance launch`, `houmao-mgr project agents launch-profiles add|set`, and `houmao-mgr project easy profile create|set`. Stored profile section policy is sparse: omitted sections use their defaults, `identity`, `houmao-runtime-guidance`, and `automation-notice` default enabled, and `task-reminder` plus `mail-ack` default disabled. `--clear-managed-header-section SECTION` removes one stored section policy entry on profile `set`, and `--clear-managed-header-sections` removes all stored section policy entries. Whole-header policy remains the outer gate, so `--no-managed-header` suppresses rendering even if one or more sections resolve enabled.
+Individual header sections are controlled separately with repeatable `--managed-header-section SECTION=enabled|disabled` on `houmao-mgr agents launch`, `houmao-mgr project easy instance launch`, `houmao-mgr project agents launch-profiles add|set`, and `houmao-mgr project easy profile create|set`. Stored profile section policy is sparse: omitted sections use their defaults, `identity`, `memo-cue`, `houmao-runtime-guidance`, and `automation-notice` default enabled, and `task-reminder` plus `mail-ack` default disabled. `--clear-managed-header-section SECTION` removes one stored section policy entry on profile `set`, and `--clear-managed-header-sections` removes all stored section policy entries. Whole-header policy remains the outer gate, so `--no-managed-header` suppresses rendering even if one or more sections resolve enabled.
 
 ## Launch-Profile Provenance In Inspection Output
 

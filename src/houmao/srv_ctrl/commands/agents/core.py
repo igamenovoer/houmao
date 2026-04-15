@@ -595,6 +595,7 @@ def launch_managed_agent_locally(
             managed_header_enabled=managed_header_decision.enabled,
             agent_name=managed_launch_identity.agent_name,
             agent_id=managed_launch_identity.agent_id,
+            memo_file=str(memory.memo_file),
             managed_header_section_decisions=managed_header_section_decisions,
         )
         build_result = build_brain_home(

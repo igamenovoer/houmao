@@ -7,6 +7,7 @@ import pytest
 
 import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
+    SYSTEM_SKILL_SET_AGENT_MEMORY,
     SYSTEM_SKILL_SET_AGENT_GATEWAY,
     SYSTEM_SKILL_SET_AGENT_INSPECT,
     SYSTEM_SKILL_SET_AGENT_MESSAGING,
@@ -62,6 +63,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-adv-usage-pattern",
         "houmao-touring",
         "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -77,6 +79,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert tuple(catalog.sets.keys()) == (
         "mailbox-core",
         "mailbox-full",
+        "agent-memory",
         "advanced-usage",
         "touring",
         "user-control",
@@ -87,6 +90,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     )
     assert catalog.auto_install.managed_launch_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
+        SYSTEM_SKILL_SET_AGENT_MEMORY,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
         SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
@@ -96,6 +100,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     )
     assert catalog.auto_install.managed_join_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
+        SYSTEM_SKILL_SET_AGENT_MEMORY,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
         SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
@@ -105,6 +110,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     )
     assert catalog.auto_install.cli_default_sets == (
         SYSTEM_SKILL_SET_MAILBOX_FULL,
+        SYSTEM_SKILL_SET_AGENT_MEMORY,
         SYSTEM_SKILL_SET_ADVANCED_USAGE,
         SYSTEM_SKILL_SET_TOURING,
         SYSTEM_SKILL_SET_USER_CONTROL,
@@ -123,6 +129,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         set_names=(
             "mailbox-core",
             "mailbox-full",
+            "agent-memory",
             "advanced-usage",
             "touring",
             "user-control",
@@ -137,6 +144,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
         "houmao-adv-usage-pattern",
         "houmao-touring",
         "houmao-project-mgr",
@@ -164,6 +172,7 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
         "houmao-adv-usage-pattern",
         "houmao-touring",
         "houmao-project-mgr",
@@ -670,6 +679,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_mgr_path = home_path / "skills/houmao-mailbox-mgr/SKILL.md"
     mailbox_mgr_actions = home_path / "skills/houmao-mailbox-mgr/actions"
     mailbox_mgr_references = home_path / "skills/houmao-mailbox-mgr/references"
+    memory_mgr_path = home_path / "skills/houmao-memory-mgr/SKILL.md"
     agent_messaging_path = home_path / "skills/houmao-agent-messaging/SKILL.md"
     agent_messaging_actions = home_path / "skills/houmao-agent-messaging/actions"
     agent_messaging_references = home_path / "skills/houmao-agent-messaging/references"
@@ -698,6 +708,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
 
     assert result.selected_set_names == (
         "mailbox-full",
+        "agent-memory",
         "advanced-usage",
         "touring",
         "user-control",
@@ -711,6 +722,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
         "houmao-adv-usage-pattern",
         "houmao-touring",
         "houmao-project-mgr",
@@ -728,6 +740,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
+    assert memory_mgr_path.is_file()
     assert advanced_usage_path.is_file()
     assert touring_path.is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
@@ -740,6 +753,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_path.is_file()
     assert relay_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
+    memory_mgr_skill = memory_mgr_path.read_text(encoding="utf-8")
     manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
     agent_inspect_skill = agent_inspect_path.read_text(encoding="utf-8")
     agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
@@ -849,6 +863,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
     mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
+    assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
+    assert "agents memory memo show|set|append" in memory_mgr_skill
+    assert "agents memory tree|resolve|read|write|append|delete" in memory_mgr_skill
+    assert "free-form Markdown" in memory_mgr_skill
+    assert "pages/" in memory_mgr_skill
     mailbox_export_action = mailbox_export_action_path.read_text(encoding="utf-8")
     touring_setup = touring_setup_path.read_text(encoding="utf-8")
     discover_action = discover_action_path.read_text(encoding="utf-8")

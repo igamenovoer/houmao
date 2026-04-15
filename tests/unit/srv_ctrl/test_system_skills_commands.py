@@ -14,6 +14,7 @@ from houmao.version import get_version
 
 _DEFAULT_SET_NAMES = [
     "mailbox-full",
+    "agent-memory",
     "advanced-usage",
     "touring",
     "user-control",
@@ -28,6 +29,7 @@ _CATALOG_SKILLS = [
     "houmao-adv-usage-pattern",
     "houmao-touring",
     "houmao-mailbox-mgr",
+    "houmao-memory-mgr",
     "houmao-project-mgr",
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
@@ -44,6 +46,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-mailbox-mgr",
+    "houmao-memory-mgr",
     "houmao-adv-usage-pattern",
     "houmao-touring",
     "houmao-project-mgr",
@@ -142,6 +145,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert [record["name"] for record in payload["sets"]] == [
         "mailbox-core",
         "mailbox-full",
+        "agent-memory",
         "advanced-usage",
         "touring",
         "user-control",
@@ -153,6 +157,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
     assert payload["auto_install"]["managed_launch_sets"] == [
         "mailbox-full",
+        "agent-memory",
         "advanced-usage",
         "touring",
         "user-control",
@@ -162,6 +167,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     ]
     assert payload["auto_install"]["managed_join_sets"] == [
         "mailbox-full",
+        "agent-memory",
         "advanced-usage",
         "touring",
         "user-control",
@@ -184,6 +190,10 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "houmao-agent-email-comms",
         "houmao-mailbox-mgr",
     ]
+    agent_memory_record = next(
+        record for record in payload["sets"] if record["name"] == "agent-memory"
+    )
+    assert agent_memory_record["skills"] == ["houmao-memory-mgr"]
     advanced_usage_record = next(
         record for record in payload["sets"] if record["name"] == "advanced-usage"
     )
@@ -243,6 +253,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-memory-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (home_path / "skills/houmao-touring/SKILL.md").is_file()
     assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
@@ -359,6 +370,7 @@ def test_system_skills_install_uses_project_scoped_codex_default_home(
     assert (expected_home / "skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-memory-mgr/SKILL.md").is_file()
 
 
 def test_system_skills_install_uses_project_root_for_gemini_default_home(

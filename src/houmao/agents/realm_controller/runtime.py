@@ -2615,6 +2615,7 @@ def _build_provider_start_launch_plan_for_relaunch(
     manifest = load_brain_manifest(controller.brain_manifest_path)
     role_package = load_role_package(controller.agent_def_dir, controller.role_name)
     stored_role_prompt = _stored_role_prompt_from_brain_manifest(manifest)
+    controller_memory = _memory_from_controller(controller)
     if stored_role_prompt is not None:
         role_package = replace(role_package, system_prompt=stored_role_prompt)
     else:
@@ -2653,6 +2654,9 @@ def _build_provider_start_launch_plan_for_relaunch(
                 managed_header_enabled=managed_header_decision.enabled,
                 agent_name=resolved_agent_name,
                 agent_id=resolved_agent_id,
+                memo_file=(
+                    str(controller_memory.memo_file) if controller_memory is not None else None
+                ),
             ),
         )
     updated_launch_plan = build_launch_plan(
@@ -2667,7 +2671,7 @@ def _build_provider_start_launch_plan_for_relaunch(
     )
     updated_launch_plan = _launch_plan_with_memory(
         updated_launch_plan,
-        memory=_memory_from_controller(controller),
+        memory=controller_memory,
     )
     return _launch_plan_with_headless_display_controls(
         updated_launch_plan,

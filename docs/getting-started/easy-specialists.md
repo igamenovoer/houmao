@@ -179,7 +179,7 @@ Key options:
 | `--no-gateway` | False | Persist gateway auto-attach disabled. |
 | `--gateway-port` | None | Persist one fixed loopback gateway port for launches from this profile. |
 | `--managed-header`, `--no-managed-header` | `inherit` | Store managed prompt-header policy for launches from this profile. |
-| `--managed-header-section SECTION=enabled|disabled` | Section defaults | Repeatable stored policy for one managed-header section. Supported sections are `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`. |
+| `--managed-header-section SECTION=enabled|disabled` | Section defaults | Repeatable stored policy for one managed-header section. Supported sections are `identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`. |
 | `--prompt-overlay-mode` | None | Optional `append` or `replace` prompt overlay. |
 | `--prompt-overlay-text` | None | Inline prompt-overlay text. |
 | `--prompt-overlay-file` | None | Path to a prompt-overlay text file (stored as managed file-backed content). |

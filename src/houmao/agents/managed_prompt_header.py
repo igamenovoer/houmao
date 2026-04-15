@@ -17,6 +17,7 @@ ManagedHeaderPolicy = Literal["inherit", "enabled", "disabled"]
 ManagedHeaderResolutionSource = Literal["default", "launch_profile", "launch_override"]
 ManagedHeaderSectionName = Literal[
     "identity",
+    "memo-cue",
     "houmao-runtime-guidance",
     "automation-notice",
     "task-reminder",
@@ -28,6 +29,7 @@ MANAGED_PROMPT_HEADER_VERSION = 1
 HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1
 MANAGED_HEADER_SECTION_ORDER: tuple[ManagedHeaderSectionName, ...] = (
     "identity",
+    "memo-cue",
     "houmao-runtime-guidance",
     "automation-notice",
     "task-reminder",
@@ -35,6 +37,7 @@ MANAGED_HEADER_SECTION_ORDER: tuple[ManagedHeaderSectionName, ...] = (
 )
 MANAGED_HEADER_SECTION_DEFAULTS: dict[ManagedHeaderSectionName, bool] = {
     "identity": True,
+    "memo-cue": True,
     "houmao-runtime-guidance": True,
     "automation-notice": True,
     "task-reminder": False,
@@ -42,6 +45,7 @@ MANAGED_HEADER_SECTION_DEFAULTS: dict[ManagedHeaderSectionName, bool] = {
 }
 MANAGED_HEADER_SECTION_TAGS: dict[ManagedHeaderSectionName, str] = {
     "identity": "identity",
+    "memo-cue": "memo_cue",
     "houmao-runtime-guidance": "houmao_runtime_guidance",
     "automation-notice": "automation_notice",
     "task-reminder": "task_reminder",
@@ -422,6 +426,24 @@ def _identity_section(*, agent_name: str, agent_id: str) -> ManagedLaunchPromptS
     )
 
 
+def _memo_cue_section(*, memo_file: str) -> ManagedLaunchPromptSection:
+    """Render the managed-agent memo cue subsection."""
+
+    normalized_memo_file = memo_file.strip()
+    if not normalized_memo_file:
+        raise ValueError("Managed prompt-header `memo-cue` requires a memo file path.")
+    return ManagedLaunchPromptSection(
+        tag="memo_cue",
+        text=(
+            "At the start of each prompt turn, read this Houmao-managed agent memo before "
+            "planning or acting:\n"
+            f"{normalized_memo_file}\n\n"
+            "Treat the memo as durable operator/agent context for this managed agent. If it "
+            "links to relevant files under `pages/`, read those pages when needed."
+        ),
+    )
+
+
 def _houmao_runtime_guidance_section() -> ManagedLaunchPromptSection:
     """Render the Houmao runtime guidance managed-header subsection."""
 
@@ -495,11 +517,16 @@ def _render_section_for_decision(
     decision: ManagedHeaderSectionDecision,
     agent_name: str,
     agent_id: str,
+    memo_file: str | None,
 ) -> ManagedLaunchPromptSection:
     """Render one enabled managed-header subsection for a resolved decision."""
 
     if decision.name == "identity":
         return _identity_section(agent_name=agent_name, agent_id=agent_id)
+    if decision.name == "memo-cue":
+        if memo_file is None:
+            raise ValueError("Managed prompt-header `memo-cue` requires a memo file path.")
+        return _memo_cue_section(memo_file=memo_file)
     if decision.name == "houmao-runtime-guidance":
         return _houmao_runtime_guidance_section()
     if decision.name == "automation-notice":
@@ -515,6 +542,7 @@ def _managed_prompt_header_sections(
     *,
     agent_name: str,
     agent_id: str,
+    memo_file: str | None,
     section_decisions: Mapping[ManagedHeaderSectionName, ManagedHeaderSectionDecision] | None,
 ) -> tuple[ManagedLaunchPromptSection, ...]:
     """Render enabled managed-header subsections in deterministic order."""
@@ -528,6 +556,7 @@ def _managed_prompt_header_sections(
                 decision=decision,
                 agent_name=agent_name,
                 agent_id=agent_id,
+                memo_file=memo_file,
             )
         )
     return tuple(sections)
@@ -537,6 +566,7 @@ def render_managed_prompt_header(
     *,
     agent_name: str,
     agent_id: str,
+    memo_file: str | None = None,
     section_decisions: Mapping[ManagedHeaderSectionName, ManagedHeaderSectionDecision]
     | None = None,
 ) -> str:
@@ -547,6 +577,7 @@ def render_managed_prompt_header(
         for section in _managed_prompt_header_sections(
             agent_name=agent_name,
             agent_id=agent_id,
+            memo_file=memo_file,
             section_decisions=section_decisions,
         )
     )
@@ -594,6 +625,7 @@ def compose_managed_launch_prompt_payload(
     managed_header_enabled: bool,
     agent_name: str,
     agent_id: str,
+    memo_file: str | None = None,
     managed_header_section_decisions: Mapping[
         ManagedHeaderSectionName, ManagedHeaderSectionDecision
     ]
@@ -641,12 +673,15 @@ def compose_managed_launch_prompt_payload(
         )
 
     root_sections: list[ManagedLaunchPromptSection] = []
-    managed_header_sections = _managed_prompt_header_sections(
-        agent_name=agent_name,
-        agent_id=agent_id,
-        section_decisions=managed_header_section_decisions,
-    )
-    if managed_header_enabled and managed_header_sections:
+    managed_header_sections: tuple[ManagedLaunchPromptSection, ...] = ()
+    if managed_header_enabled:
+        managed_header_sections = _managed_prompt_header_sections(
+            agent_name=agent_name,
+            agent_id=agent_id,
+            memo_file=memo_file,
+            section_decisions=managed_header_section_decisions,
+        )
+    if managed_header_sections:
         root_sections.append(
             ManagedLaunchPromptSection(
                 tag="managed_header",
@@ -699,6 +734,7 @@ def compose_managed_launch_prompt(
     managed_header_enabled: bool,
     agent_name: str,
     agent_id: str,
+    memo_file: str | None = None,
     managed_header_section_decisions: Mapping[
         ManagedHeaderSectionName, ManagedHeaderSectionDecision
     ]
@@ -714,6 +750,7 @@ def compose_managed_launch_prompt(
         managed_header_enabled=managed_header_enabled,
         agent_name=agent_name,
         agent_id=agent_id,
+        memo_file=memo_file,
         managed_header_section_decisions=managed_header_section_decisions,
     ).prompt
 

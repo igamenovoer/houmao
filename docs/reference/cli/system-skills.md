@@ -16,6 +16,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-adv-usage-pattern` for supported multi-skill mailbox and gateway workflow compositions such as self-wakeup through self-mail plus notifier-driven rounds
 - `houmao-touring` for a manual guided tour that helps first-time or re-orienting users branch across project setup, mailbox setup, specialist/profile authoring, live-agent operations, and lifecycle follow-up
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
+- `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files
 - `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing
 - `houmao-specialist-mgr` for reusable specialist and easy-profile authoring plus easy-workflow launch and stop entry
 - `houmao-credential-mgr` for project-local and plain-agent-definition-directory credential management
@@ -82,6 +83,7 @@ Current sets:
 
 - `mailbox-core`
 - `mailbox-full`
+- `agent-memory`
 - `advanced-usage`
 - `touring`
 - `user-control`
@@ -92,9 +94,9 @@ Current sets:
 
 Current fixed auto-install selections:
 
-- managed launch: `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, `agent-gateway`
-- managed join: `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, `agent-gateway`
-- CLI default: `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-instance`, `agent-inspect`, `agent-messaging`, `agent-gateway`
+- managed launch: `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, `agent-gateway`
+- managed join: `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, `agent-gateway`
+- CLI default: `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-instance`, `agent-inspect`, `agent-messaging`, `agent-gateway`
 
 ## Current Skill Inventory
 
@@ -105,6 +107,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-adv-usage-pattern`
 - `houmao-touring`
 - `houmao-mailbox-mgr`
+- `houmao-memory-mgr`
 - `houmao-project-mgr`
 - `houmao-specialist-mgr`
 - `houmao-credential-mgr`
@@ -194,6 +197,7 @@ Use `install` when you want the current Houmao-owned skill surface in a resolved
 pixi run houmao-mgr system-skills install --tool codex
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-memory
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set advanced-usage
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core --skill houmao-agent-email-comms
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set user-control
@@ -240,12 +244,13 @@ Managed homes and joined homes use the same installer and catalog:
 
 Those managed flows continue to use copied projection in this change even though explicit `system-skills install` now supports `--symlink`.
 
-This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in named sets such as `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-instance`, `agent-inspect`, and `agent-messaging`.
+This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in named sets such as `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-instance`, `agent-inspect`, and `agent-messaging`.
 
 Today the packaged mailbox sets are intentionally compact:
 
 - `mailbox-core` installs `houmao-process-emails-via-gateway` plus `houmao-agent-email-comms`
 - `mailbox-full` installs that mailbox worker pair plus `houmao-mailbox-mgr`
+- `agent-memory` installs `houmao-memory-mgr`
 - `advanced-usage` installs `houmao-adv-usage-pattern`
 - `touring` installs `houmao-touring`
 
@@ -261,9 +266,11 @@ For the `agent-messaging` set, the packaged skill is `houmao-agent-messaging`. I
 
 For the `agent-gateway` set, the packaged skill is `houmao-agent-gateway`. Its top-level `SKILL.md` is the Houmao-owned router for live gateway lifecycle and gateway-only services across `agents gateway attach|detach|status`, current-session manifest-first discovery, explicit gateway control, direct `/v1/reminders`, and `agents gateway mail-notifier ...`. It is explicit about the supported discovery boundary: current-session targeting resolves through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` second, shared mailbox work should still obtain the exact current `gateway.base_url` through `agents mail resolve-live`, `/v1/reminders` remains non-durable live gateway state rather than a persisted recovery queue, there is no supported `agents gateway reminders ...` CLI family or managed-agent `/houmao/agents/{agent_ref}/gateway/reminders` projection, and generic managed-agent inspection belongs on `houmao-agent-inspect` instead.
 
+For the `agent-memory` set, the packaged skill is `houmao-memory-mgr`. Its top-level `SKILL.md` is the Houmao-owned router for supported managed-agent memory operations across `agents memory path|status`, `agents memory memo show|set|append`, and `agents memory tree|resolve|read|write|append|delete`. It keeps the fixed `houmao-memo.md` file free-form, treats `pages/` links as authored Markdown, rejects traversal outside `pages/`, and keeps live runtime bookkeeping out of managed memory pages.
+
 For the mailbox sets, the packaged mailbox-admin skill is `houmao-mailbox-mgr`. It is the Houmao-owned entrypoint for `houmao-mgr mailbox ...`, `houmao-mgr project mailbox ...`, and `houmao-mgr agents mailbox ...`, covering filesystem mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents. The packaged ordinary mailbox skill remains `houmao-agent-email-comms`, which is the unified router for shared `/v1/mail/*` work, mailbox transport-aware fallback, and mailbox binding inspection after `agents mail resolve-live`, while `houmao-process-emails-via-gateway` remains the separate notifier-round workflow skill. The dedicated `advanced-usage` set adds `houmao-adv-usage-pattern` as the supported workflow-composition layer above those direct mailbox and gateway skills.
 
-CLI-default installation now includes the full three-skill mailbox set, the dedicated `advanced-usage` and `touring` skills, the `user-control` set (project-mgr, specialist-mgr, credential-mgr, agent-definition, the restored stable pairwise skill, the versioned enriched pairwise-v2 skill, and the generic loop graph-planning skill), and the dedicated `agent-instance`, `agent-inspect`, `agent-messaging`, and `agent-gateway` skills. Managed launch and managed join auto-install `mailbox-full`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway`, which means they install every packaged skill in the catalog except the lifecycle-only `houmao-agent-instance` and pick up both pairwise variants plus the generic loop planner through the shared `user-control` set.
+CLI-default installation now includes the full three-skill mailbox set, the `agent-memory` set, the dedicated `advanced-usage` and `touring` skills, the `user-control` set (project-mgr, specialist-mgr, credential-mgr, agent-definition, the restored stable pairwise skill, the versioned enriched pairwise-v2 skill, and the generic loop graph-planning skill), and the dedicated `agent-instance`, `agent-inspect`, `agent-messaging`, and `agent-gateway` skills. Managed launch and managed join auto-install `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway`, which means they install every packaged skill in the catalog except the lifecycle-only `houmao-agent-instance` and pick up both pairwise variants plus the generic loop planner through the shared `user-control` set.
 
 ## When To Use This Surface
 

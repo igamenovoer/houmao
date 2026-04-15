@@ -180,7 +180,7 @@ Profile authoring rules:
 - `filesystem` mailbox defaults accept `--mail-root` and reject the Stalwart URL flags
 - `stalwart` mailbox defaults accept the Stalwart URL flags and reject `--mail-root`
 - `--no-gateway` and `--gateway-port` cannot be combined
-- `--managed-header-section` stores sparse per-section policy for the supported sections `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`
+- `--managed-header-section` stores sparse per-section policy for the supported sections `identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`
 - `--clear-managed-header-section` removes one stored section policy entry, and `--clear-managed-header-sections` removes all stored section policy entries
 - `--auth` is only the stored auth display-name override for later launches; it does not create credentials, and the stored relationship continues to resolve after auth rename
 

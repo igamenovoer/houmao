@@ -344,10 +344,12 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     processing_skill_path = codex_home / "skills/houmao-process-emails-via-gateway/SKILL.md"
     gateway_skill_path = codex_home / "skills/houmao-agent-email-comms/SKILL.md"
     mailbox_mgr_skill_path = codex_home / "skills/houmao-mailbox-mgr/SKILL.md"
+    memory_mgr_skill_path = codex_home / "skills/houmao-memory-mgr/SKILL.md"
     advanced_skill_path = codex_home / "skills/houmao-adv-usage-pattern/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert mailbox_mgr_skill_path.is_file()
+    assert memory_mgr_skill_path.is_file()
     assert advanced_skill_path.is_file()
     assert (codex_home / "skills/houmao-project-mgr/SKILL.md").is_file()
     assert (codex_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
@@ -371,6 +373,7 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
         "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
         "houmao-project-mgr",
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
@@ -429,10 +432,12 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
     processing_skill_path = claude_home / "skills/houmao-process-emails-via-gateway/SKILL.md"
     gateway_skill_path = claude_home / "skills/houmao-agent-email-comms/SKILL.md"
     mailbox_mgr_skill_path = claude_home / "skills/houmao-mailbox-mgr/SKILL.md"
+    memory_mgr_skill_path = claude_home / "skills/houmao-memory-mgr/SKILL.md"
     advanced_skill_path = claude_home / "skills/houmao-adv-usage-pattern/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert mailbox_mgr_skill_path.is_file()
+    assert memory_mgr_skill_path.is_file()
     assert advanced_skill_path.is_file()
     assert (claude_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (claude_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
@@ -492,10 +497,12 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
     )
     gateway_skill_path = gemini_home / ".gemini/skills/houmao-agent-email-comms/SKILL.md"
     mailbox_mgr_skill_path = gemini_home / ".gemini/skills/houmao-mailbox-mgr/SKILL.md"
+    memory_mgr_skill_path = gemini_home / ".gemini/skills/houmao-memory-mgr/SKILL.md"
     advanced_skill_path = gemini_home / ".gemini/skills/houmao-adv-usage-pattern/SKILL.md"
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert mailbox_mgr_skill_path.is_file()
+    assert memory_mgr_skill_path.is_file()
     assert advanced_skill_path.is_file()
     assert (gemini_home / ".gemini/skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (gemini_home / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()

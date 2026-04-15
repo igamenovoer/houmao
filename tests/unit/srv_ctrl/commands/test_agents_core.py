@@ -28,6 +28,14 @@ def _expected_default_section_metadata(*, header_enabled: bool) -> dict[str, obj
             "stored_policy": None,
             "default_enabled": True,
         },
+        "memo-cue": {
+            "tag": "memo_cue",
+            "enabled": True,
+            "rendered": header_enabled,
+            "resolution_source": "default",
+            "stored_policy": None,
+            "default_enabled": True,
+        },
         "houmao-runtime-guidance": {
             "tag": "houmao_runtime_guidance",
             "enabled": True,
@@ -360,6 +368,13 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         "OPENAI_BASE_URL": "https://profile.example/v1",
         "OPENAI_ORG_ID": "org-alice",
     }
+    expected_memo_file = (
+        overlay_root
+        / "memory"
+        / "agents"
+        / "6ee1c825367e868092eda76cb18a96e0"
+        / "houmao-memo.md"
+    ).resolve()
     assert build_request.role_prompt_override == compose_managed_launch_prompt(
         base_prompt="You are a precise repo researcher.",
         overlay_mode="append",
@@ -367,6 +382,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         managed_header_enabled=True,
         agent_name="repo-research-1",
         agent_id="6ee1c825367e868092eda76cb18a96e0",
+        memo_file=str(expected_memo_file),
     )
     assert build_request.managed_prompt_header == {
         "version": 1,

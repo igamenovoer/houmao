@@ -2916,6 +2916,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
         managed_header_enabled=True,
         agent_name="gpu",
         agent_id="0aa0be2a866411d9ff03515227454947",
+        memo_file=str(expected_memory_root / "houmao-memo.md"),
     )
     assert captured["start_kwargs"]["backend"] == "local_interactive"
     assert captured["start_kwargs"]["agent_name"] == "gpu"
