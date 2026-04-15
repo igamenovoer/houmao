@@ -31,7 +31,6 @@ The getting-started section SHALL include a page documenting the default Houmao 
 - `.houmao/agents/tools/<tool>/adapter.yaml`
 - `.houmao/agents/tools/<tool>/setups/<setup>/`
 - `.houmao/agents/tools/<tool>/auth/<auth>/`
-- optional `.houmao/agents/compatibility-profiles/`
 - optional `.houmao/mailbox/`
 
 That page SHALL explain the purpose of each subdirectory and SHALL make clear that the `.houmao/` overlay is local-only by default.
@@ -48,7 +47,7 @@ That page SHALL explain that the canonical low-level source object is the named 
 
 That page SHALL explain that reusable birth-time launch profiles project under `.houmao/agents/launch-profiles/<profile>.yaml`, that easy profiles and explicit launch profiles share the same underlying catalog model, and that the explicit lane is administered through `project agents launch-profiles ...`.
 
-That page SHALL make clear that `.houmao/agents/compatibility-profiles/` is optional specialized metadata and is not created by default during `project init`.
+That page SHALL NOT document `.houmao/agents/compatibility-profiles/` as a user-facing project-layout directory or project-init option.
 
 That page SHALL link to `docs/getting-started/launch-profiles.md` for the shared conceptual model when readers want to understand the easy-versus-explicit lane split rather than just the directory layout.
 
@@ -59,9 +58,9 @@ That page SHALL link to `docs/getting-started/launch-profiles.md` for the shared
 - **AND THEN** they understand that `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` can keep ambient overlay discovery scoped to the current working directory
 - **AND THEN** they understand that recipe files projected under `.houmao/agents/presets/` carry `role`, `tool`, and `setup` in their content, that `project agents recipes ...` is the canonical authoring surface, and that `project agents presets ...` remains a compatibility alias
 - **AND THEN** they understand that launch-profile files projected under `.houmao/agents/launch-profiles/` are reusable birth-time configuration shared between easy and explicit authoring lanes
-- **AND THEN** they understand that `.houmao/agents/compatibility-profiles/` is created only when explicitly enabled
 - **AND THEN** they understand that `.houmao/mailbox/` is a project-local mailbox root created only when mailbox workflows are enabled explicitly
 - **AND THEN** they understand which files are local-only, including the whole `.houmao/` overlay and `tools/<tool>/auth/`
+- **AND THEN** they do not see compatibility-profile bootstrap guidance as part of the maintained project-init workflow
 
 #### Scenario: Reader is sent to the launch-profiles guide for the conceptual model
 - **WHEN** a reader needs to understand the easy-versus-explicit launch-profile lane split rather than the projection layout

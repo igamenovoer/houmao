@@ -71,7 +71,7 @@ The generated `houmao-config.toml` SHALL carry `paths.agent_def_dir` as compatib
 The generated project-local content roots SHALL provide the managed file-backed storage needed for large text and tree-shaped payloads such as prompts, auth files, setup bundles, and skill packages.
 
 When the target project overlay already exists and remains compatible, `project init` SHALL validate the existing overlay and preserve compatible local payload content rather than overwriting it.
-When `houmao-config.toml` already exists and remains compatible, `project init` SHALL resolve `paths.agent_def_dir` relative to the selected overlay root and use that resolved compatibility-projection root for validation and optional compatibility-profile bootstrap instead of assuming only `<overlay-root>/agents/`.
+When `houmao-config.toml` already exists and remains compatible, `project init` SHALL resolve `paths.agent_def_dir` relative to the selected overlay root for validation instead of assuming only `<overlay-root>/agents/`.
 
 #### Scenario: Operator initializes the default local Houmao overlay
 - **WHEN** an operator runs `houmao-mgr project init` inside `/repo/app`
@@ -105,7 +105,7 @@ When `houmao-config.toml` already exists and remains compatible, `project init` 
 - **AND THEN** it does not delete or overwrite that existing local auth bundle only because init was re-run
 
 ### Requirement: `houmao-mgr project init` bootstraps project source roots but does not create optional project workflow state by default
-`houmao-mgr project init` SHALL bootstrap the base project overlay, the project-local catalog, and the managed content roots required by the catalog-backed project contract without creating optional compatibility metadata or mailbox state by default.
+`houmao-mgr project init` SHALL bootstrap the base project overlay, the project-local catalog, and the managed content roots required by the catalog-backed project contract without creating optional compatibility metadata or mailbox state.
 
 At minimum, `project init` SHALL NOT create:
 
@@ -115,7 +115,9 @@ At minimum, `project init` SHALL NOT create:
 
 The catalog-backed overlay MAY create the managed content roots required by the base project-local storage contract even though those roots are not optional workflow state.
 
-#### Scenario: Project init leaves optional roots opt-in
+`houmao-mgr project init` SHALL NOT expose a public flag, option, or documented workflow for pre-creating `.houmao/agents/compatibility-profiles/`.
+
+#### Scenario: Project init leaves optional roots uncreated
 - **WHEN** an operator runs `houmao-mgr project init` inside `/repo/app`
 - **THEN** the command creates the base `.houmao/` overlay, the project-local catalog, and the managed content roots required by that overlay contract
 - **AND THEN** it does not create `/repo/app/.houmao/agents/compatibility-profiles/` only because init was run
@@ -129,11 +131,11 @@ The catalog-backed overlay MAY create the managed content roots required by the 
 - **THEN** the command uses `/repo/app/.houmao/custom-agents/` as the resolved compatibility-projection root for validation
 - **AND THEN** it does not silently replace that configured root with `/repo/app/.houmao/agents/`
 
-#### Scenario: Operator explicitly enables compatibility-profile bootstrap
-- **WHEN** an operator runs `houmao-mgr project init --with-compatibility-profiles` inside `/repo/app`
-- **AND WHEN** `/repo/app/.houmao/houmao-config.toml` resolves `paths.agent_def_dir = "custom-agents"`
-- **THEN** the command creates `compatibility-profiles/` under `/repo/app/.houmao/custom-agents/`
-- **AND THEN** it still creates the default `skills/`, `roles/`, and `tools/` roots there
+#### Scenario: Compatibility-profile bootstrap flag is not a public project init option
+- **WHEN** an operator runs `houmao-mgr project init --help`
+- **THEN** the help output does not list `--with-compatibility-profiles`
+- **AND WHEN** an operator runs `houmao-mgr project init --with-compatibility-profiles`
+- **THEN** the command fails as an unsupported option
 
 ### Requirement: Project-aware agent-definition defaults discover the nearest project config
 Project-aware command paths that need an effective local Houmao project overlay or an effective filesystem agent-definition root and are invoked without explicit local-root overrides SHALL resolve that state in this order:
@@ -361,3 +363,4 @@ Operator-facing wording for maintained project commands SHALL use `selected over
 - **WHEN** a maintained stateful `houmao-mgr project ...` command bootstraps the selected overlay during the current invocation
 - **THEN** the resulting operator-facing text or payload identifies the selected overlay root that was created
 - **AND THEN** the result does not require the operator to infer that bootstrap solely from later filesystem state
+

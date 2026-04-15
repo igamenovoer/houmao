@@ -2,15 +2,15 @@
 
 ## Purpose
 Define the free-form ownership contract for managed-agent memo files and the page path-discovery metadata that lets callers author memo links explicitly.
-
 ## Requirements
-
 ### Requirement: Managed memory memo is free-form caller-owned Markdown
 For each managed-agent memory root, Houmao SHALL treat `houmao-memo.md` as free-form Markdown owned by users and LLMs.
 
 Houmao SHALL create `houmao-memo.md` when missing.
 
-Houmao SHALL read, replace, or append `houmao-memo.md` only when the caller explicitly invokes a memo read, replace, or append operation.
+Houmao SHALL read, replace, or append `houmao-memo.md` only when the caller explicitly invokes a memo read, replace, or append operation, or when the caller explicitly selects a launch profile that stores a memo seed.
+
+When applying a launch-profile memo seed, Houmao SHALL treat the seed content as caller-authored memo content and SHALL follow the stored memo seed policy for whether existing memo/page content may be written.
 
 Houmao SHALL NOT insert, update, remove, preserve, or interpret generated sections, marker comments, page indexes, headings, metadata blocks, or page links inside `houmao-memo.md`.
 
@@ -23,7 +23,13 @@ Houmao SHALL NOT insert, update, remove, preserve, or interpret generated sectio
 #### Scenario: Page mutation does not modify memo
 - **WHEN** a caller writes memory page `notes/run.md`
 - **THEN** Houmao writes only the contained page under `pages/notes/run.md`
-- **AND THEN** Houmao does not append, replace, reformat, or otherwise mutate `houmao-memo.md`
+- **AND THEN** it does not append, replace, reformat, or otherwise mutate `houmao-memo.md`
+
+#### Scenario: Launch-profile memo seed is an explicit memo write
+- **WHEN** an operator launches from profile `researcher` that stores a memo seed
+- **AND WHEN** the memo seed policy allows applying the seed
+- **THEN** Houmao writes the seed content to `houmao-memo.md`
+- **AND THEN** Houmao treats that write as explicit profile-owned memo initialization rather than as generated memo indexing
 
 ### Requirement: Memo links to pages are authored references
 References from `houmao-memo.md` to files under `pages/` SHALL be ordinary Markdown content authored by a user or LLM.
@@ -86,3 +92,4 @@ Existing content in `houmao-memo.md`, including old generated marker comments or
 - **AND WHEN** Houmao reads the memo or mutates pages
 - **THEN** Houmao treats those comments as ordinary memo text
 - **AND THEN** Houmao does not remove, refresh, or specially preserve that block
+
