@@ -5,7 +5,7 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 
 ## What It Is
 
-`Houmao` is a framework and CLI toolkit for building and running **teams of CLI-based AI agents** (`claude`, `codex`, `gemini`). Every agent is a real CLI process with its own isolated disk state, memory, and native TUI — not an in-process object graph. You define agents as **specialists** with roles and credentials, and coordinate them through mailbox-based messaging, per-agent gateways, and structured **loop plans**.
+`Houmao` is a framework and CLI toolkit for building and running **teams of CLI-based AI agents** (`claude`, `codex`, `gemini`, with system-skill support for `copilot`). Every agent is a real CLI process with its own isolated disk state, memory, and native TUI — not an in-process object graph. You define agents as **specialists** with roles and credentials, and coordinate them through mailbox-based messaging, per-agent gateways, and structured **loop plans**.
 
 > **Name Origin:** `Houmao` (猴毛, "monkey hair") is inspired by the classic tale *Journey to the West*. Just as Sun Wukong (The Monkey King) plucks strands of his magical hair to create independent, capable clones of himself, this framework allows you to multiply your capabilities by spinning up numerous autonomous helpers.
 
@@ -444,6 +444,10 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
   ```bash
   scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh
   ```
+
+### Examples
+
+- **[`examples/writer-team/`](examples/writer-team/)** — Complete pairwise loop template for a three-agent story-writing team (story-writer, character-designer, reviewer). Contains role prompts, a pairwise loop plan, start charter, and local setup commands. This is the team shown in the "See it in action" video above.
 
 ## CLI Entry Points
 

@@ -147,6 +147,14 @@ Reply and mark-read guidance:
 - Replies to operator-origin parent messages succeed when the parent was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts.
 - If `mark-read` returns `authoritative: false`, verify through `agents mail check`, filesystem inspection, or transport-native mailbox state before assuming the message was marked read.
 
+## Answered Archive Lifecycle
+
+The filesystem mailbox tracks an `answered` state on each message, independent of `read`. When a message is marked answered, it moves to an `answered/` archive lane, keeping the active inbox clean without deleting processed messages.
+
+The `answered` flag is a per-recipient mutable state field stored in `index.sqlite`, alongside `read`, `starred`, `archived`, and `deleted`. The gateway mail-notifier filters use `answered_state` when resolving the eligible inbox set (both `any_inbox` and `unread_only` modes accept any answered state by default).
+
+Marking a message answered is a separate action from marking it read. A message can be read but not yet answered, or answered without being explicitly marked read first. Use the answered state when the processing workflow has a distinct "reply sent" or "action taken" stage that should remove the message from further notification-driven wakeup cycles without archiving it in the broader sense.
+
 ## When `rules/` Inspection Is Mandatory
 
 Inspect mailbox-local `rules/` before:
