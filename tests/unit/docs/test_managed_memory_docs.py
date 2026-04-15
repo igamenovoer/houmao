@@ -48,3 +48,59 @@ def test_managed_header_and_system_skill_docs_describe_memory_cue_and_skill() ->
     assert "`agent-memory`" in system_skills
     assert "`houmao-memory-mgr`" in cli_reference
     assert "`agent-memory`" in cli_reference
+
+
+def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
+    """Guard memo-seed terminology and option coverage across docs and skill guides."""
+
+    launch_profiles = (REPO_ROOT / "docs/getting-started/launch-profiles.md").read_text(
+        encoding="utf-8"
+    )
+    easy_specialists = (REPO_ROOT / "docs/getting-started/easy-specialists.md").read_text(
+        encoding="utf-8"
+    )
+    quickstart = (REPO_ROOT / "docs/getting-started/quickstart.md").read_text(
+        encoding="utf-8"
+    )
+    cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(
+        encoding="utf-8"
+    )
+    project_launch_profiles_skill = (
+        REPO_ROOT
+        / "src/houmao/agents/assets/system_skills/houmao-project-mgr/actions/launch-profiles.md"
+    ).read_text(encoding="utf-8")
+    easy_profile_create_skill = (
+        REPO_ROOT
+        / "src/houmao/agents/assets/system_skills/houmao-specialist-mgr/actions/create.md"
+    ).read_text(encoding="utf-8")
+    easy_launch_skill = (
+        REPO_ROOT
+        / "src/houmao/agents/assets/system_skills/houmao-specialist-mgr/actions/launch.md"
+    ).read_text(encoding="utf-8")
+
+    assert "## Memo Seeds" in launch_profiles
+    assert "`initialize`" in launch_profiles
+    assert "`replace`" in launch_profiles
+    assert "`fail-if-nonempty`" in launch_profiles
+    assert "prompt composition" in launch_profiles
+    assert "provider startup" in launch_profiles
+    assert "--memo-seed-text" in easy_specialists
+    assert "--memo-seed-dir" in easy_specialists
+    assert "--clear-memo-seed" in easy_specialists
+    assert "--memo-seed-text" in quickstart
+    assert "--memo-seed-policy" in cli_reference
+    assert "--clear-memo-seed" in cli_reference
+    assert "--memo-seed-dir" in project_launch_profiles_skill
+    assert "--memo-seed-policy" in easy_profile_create_skill
+    assert "stored memo seed" in easy_launch_skill
+
+    for text in (
+        launch_profiles,
+        easy_specialists,
+        quickstart,
+        cli_reference,
+        project_launch_profiles_skill,
+        easy_profile_create_skill,
+        easy_launch_skill,
+    ):
+        assert "memory seed" not in text.lower()

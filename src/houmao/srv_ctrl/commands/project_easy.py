@@ -94,6 +94,25 @@ def easy_profile_group() -> None:
     default=None,
     help="Path to a prompt-overlay text file.",
 )
+@click.option("--memo-seed-text", default=None, help="Inline easy-profile memo seed text.")
+@click.option(
+    "--memo-seed-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a Markdown memo-seed file.",
+)
+@click.option(
+    "--memo-seed-dir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
+)
+@click.option(
+    "--memo-seed-policy",
+    type=click.Choice(_MEMO_SEED_POLICY_CHOICES),
+    default=None,
+    help="Optional memo-seed launch policy.",
+)
 @overwrite_confirm_option
 def create_easy_profile_command(
     name: str,
@@ -121,6 +140,10 @@ def create_easy_profile_command(
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
+    memo_seed_text: str | None,
+    memo_seed_file: Path | None,
+    memo_seed_dir: Path | None,
+    memo_seed_policy: str | None,
     yes: bool,
 ) -> None:
     """Create one specialist-backed easy profile."""
@@ -167,6 +190,11 @@ def create_easy_profile_command(
         prompt_overlay_text=prompt_overlay_text,
         prompt_overlay_file=prompt_overlay_file,
         clear_prompt_overlay=False,
+        memo_seed_text=memo_seed_text,
+        memo_seed_file=memo_seed_file,
+        memo_seed_dir=memo_seed_dir,
+        memo_seed_policy=memo_seed_policy,
+        clear_memo_seed=False,
         clear_mailbox=False,
         clear_env=False,
         clear_agent_name=False,
@@ -293,6 +321,26 @@ def create_easy_profile_command(
     help="Path to a prompt-overlay text file.",
 )
 @click.option("--clear-prompt-overlay", is_flag=True, help="Clear the stored prompt overlay.")
+@click.option("--memo-seed-text", default=None, help="Inline easy-profile memo seed text.")
+@click.option(
+    "--memo-seed-file",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a Markdown memo-seed file.",
+)
+@click.option(
+    "--memo-seed-dir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
+)
+@click.option(
+    "--memo-seed-policy",
+    type=click.Choice(_MEMO_SEED_POLICY_CHOICES),
+    default=None,
+    help="Optional memo-seed launch policy override.",
+)
+@click.option("--clear-memo-seed", is_flag=True, help="Clear the stored memo seed.")
 def set_easy_profile_command(
     name: str,
     agent_name: str | None,
@@ -332,6 +380,11 @@ def set_easy_profile_command(
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
     clear_prompt_overlay: bool,
+    memo_seed_text: str | None,
+    memo_seed_file: Path | None,
+    memo_seed_dir: Path | None,
+    memo_seed_policy: str | None,
+    clear_memo_seed: bool,
 ) -> None:
     """Update one specialist-backed easy profile."""
 
@@ -376,6 +429,11 @@ def set_easy_profile_command(
         prompt_overlay_text=prompt_overlay_text,
         prompt_overlay_file=prompt_overlay_file,
         clear_prompt_overlay=clear_prompt_overlay,
+        memo_seed_text=memo_seed_text,
+        memo_seed_file=memo_seed_file,
+        memo_seed_dir=memo_seed_dir,
+        memo_seed_policy=memo_seed_policy,
+        clear_memo_seed=clear_memo_seed,
         clear_mailbox=clear_mailbox,
         clear_env=clear_env,
         clear_agent_name=clear_agent_name,
@@ -1386,6 +1444,7 @@ def launch_easy_instance_command(
         dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] | None
     ) = None
     launch_profile_provenance = None
+    launch_profile_memo_seed = None
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
@@ -1428,6 +1487,7 @@ def launch_easy_instance_command(
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
+        launch_profile_memo_seed = resolved_profile.memo_seed
         posture_payload = dict(resolved_profile.entry.posture_payload)
         if posture_payload.get("gateway_auto_attach") is False:
             default_gateway_auto_attach = False
@@ -1581,6 +1641,7 @@ def launch_easy_instance_command(
         managed_header_section_overrides=managed_header_section_overrides,
         launch_profile_managed_header_section_policy=(launch_profile_managed_header_section_policy),
         launch_profile_provenance=launch_profile_provenance,
+        launch_profile_memo_seed=launch_profile_memo_seed,
         force_mode=force_mode,
     )
     emit_local_launch_completion(

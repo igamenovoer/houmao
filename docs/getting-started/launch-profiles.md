@@ -6,7 +6,7 @@ This page is the conceptual home for the launch-profile model. Other docs link h
 
 ## Why Launch Profiles Exist
 
-A specialist or a recipe answers the question *what is this agent?* — its role prompt, its tool, its skills, its setup, its default credentials. But the same specialist usually needs the same recurring **launch context**: the managed-agent name, the working directory, the credential override for this lane, the mailbox binding, the gateway posture, durable env records, an optional prompt overlay.
+A specialist or a recipe answers the question *what is this agent?* — its role prompt, its tool, its skills, its setup, its default credentials. But the same specialist usually needs the same recurring **launch context**: the managed-agent name, the working directory, the credential override for this lane, the mailbox binding, the gateway posture, durable env records, an optional prompt overlay, and sometimes a reusable managed-memory memo seed.
 
 Without a stored launch profile, an operator has to remember and re-type that launch context every time. With one, the launch context becomes a named, persisted, project-local object that both `houmao-mgr` and the system-skill-driven agent surfaces can reference by name.
 
@@ -70,7 +70,8 @@ A launch profile may store, with no inline secrets:
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
 - a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
-- a prompt overlay (mode plus inline text or a referenced file).
+- a prompt overlay (mode plus inline text or a referenced file),
+- an optional memo seed for managed memory (`houmao-memo.md` and/or contained `pages/`) plus one apply policy.
 
 Inline prompt-overlay text is stored inline. File-referenced overlays are kept as managed file-backed content under the overlay-owned content roots, and the catalog stores only the reference. This keeps long prompt overlays out of the catalog database itself.
 
@@ -109,6 +110,28 @@ A launch profile may declare a prompt overlay. The supported modes are:
 The effective role prompt is composed once, **before** backend-specific role injection planning begins. Resumed turns do not replay the overlay as a separate second bootstrap step. From the backend's perspective, the prompt overlay is part of the role prompt that role injection plans against.
 
 Prompt overlays are inline text or a referenced file. File-backed overlays remain managed content under the overlay-owned content roots, and the catalog stores only the reference; the catalog does not duplicate large overlay payloads inside the SQLite store itself.
+
+## Memo Seeds
+
+A launch profile may also declare a **memo seed**. Unlike a prompt overlay, a memo seed does not change the role prompt. Instead it writes managed-memory content into the launched agent's fixed `houmao-memo.md` file and/or contained `pages/` tree.
+
+Memo seeds are applied **before** prompt composition and provider startup. That means the managed prompt header, prompt overlay, and provider bootstrap all see the already-seeded `houmao-memo.md` path and page tree. Launch-time direct overrides such as `--agent-name`, `--auth`, `--workdir`, or prompt appendix flags do not rewrite the stored memo seed, and direct `agents launch --agents ...` or `project easy instance launch --specialist ...` launches do not apply one because no reusable launch profile was selected.
+
+Supported seed source forms are:
+
+- `--memo-seed-text` — inline memo text stored as managed file-backed content.
+- `--memo-seed-file` — one UTF-8 text file stored as managed file-backed content.
+- `--memo-seed-dir` — one directory tree stored as managed tree-backed content.
+
+Directory seeds are intentionally narrow. The top level may contain only `houmao-memo.md` and/or `pages/`. `houmao-memo.md` seeds the fixed memo file. `pages/` seeds contained memory pages. All files must be UTF-8 text without NUL bytes, and symlinks are rejected.
+
+The stored apply policy controls what happens when the target managed memory already contains authored state:
+
+- `initialize` — apply only when both the memo file and the `pages/` tree are empty. This is the default.
+- `replace` — replace the memo file and clear then rewrite the `pages/` tree from the stored seed.
+- `fail-if-nonempty` — abort the launch instead of mutating existing managed memory.
+
+Memo seeds and prompt overlays are complementary. Use a prompt overlay when you want to change the launch prompt seen by the provider. Use a memo seed when you want durable managed-memory state available inside the agent workspace from the first turn onward.
 
 ## Managed Prompt Header
 
@@ -180,7 +203,7 @@ houmao-mgr project easy profile set --name <profile> --workdir /repos/next-targe
 houmao-mgr project agents launch-profiles set --name <profile> --workdir /repos/next-target
 ```
 
-Patch commands preserve unspecified stored fields, so existing mailbox config, prompt overlay, managed-header whole-header policy, managed-header section policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
+Patch commands preserve unspecified stored fields, so existing mailbox config, prompt overlay, memo seed, managed-header whole-header policy, managed-header section policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
 
 Use same-name replacement only when you want recreate semantics:
 
@@ -192,7 +215,7 @@ houmao-mgr project easy profile create --name <profile> --specialist <specialist
 houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> --yes
 ```
 
-Replacement is lane-bounded and clears omitted optional fields. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
+Replacement is lane-bounded and clears omitted optional fields, including any previously stored memo seed. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
 
 ## CLI Surfaces
 

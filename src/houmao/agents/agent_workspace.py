@@ -91,6 +91,22 @@ def ensure_agent_memory(paths: AgentMemoryPaths) -> None:
     paths.pages_dir.mkdir(parents=True, exist_ok=True)
 
 
+def memo_has_content(paths: AgentMemoryPaths) -> bool:
+    """Return whether the fixed memo file contains non-whitespace text."""
+
+    if not paths.memo_file.is_file():
+        return False
+    return bool(paths.memo_file.read_text(encoding="utf-8").strip())
+
+
+def pages_have_content(paths: AgentMemoryPaths) -> bool:
+    """Return whether the contained `pages/` tree has any authored entries."""
+
+    if not paths.pages_dir.is_dir():
+        return False
+    return any(paths.pages_dir.iterdir())
+
+
 def memory_env(paths: AgentMemoryPaths) -> dict[str, str]:
     """Return live-session environment values for one resolved memory root."""
 
@@ -207,6 +223,17 @@ def write_memory_page(
         handle.write(content)
 
 
+def ensure_memory_page_directory(paths: AgentMemoryPaths, *, relative_path: str) -> None:
+    """Create one contained memory page directory."""
+
+    normalized = relative_path.strip()
+    if normalized in {"", "."}:
+        raise ValueError("Memory page directory path must not be empty.")
+    target = contained_page_path(paths, relative_path=normalized)
+    _require_parent_within_pages(paths, target=target)
+    target.mkdir(parents=True, exist_ok=True)
+
+
 def delete_memory_page(paths: AgentMemoryPaths, *, relative_path: str) -> None:
     """Delete one contained memory page file or directory."""
 
@@ -222,6 +249,28 @@ def delete_memory_page(paths: AgentMemoryPaths, *, relative_path: str) -> None:
         target.rmdir()
     else:
         target.unlink(missing_ok=True)
+
+
+def clear_memory_pages(paths: AgentMemoryPaths) -> None:
+    """Remove all authored content under the contained `pages/` directory."""
+
+    root = paths.pages_dir.resolve()
+    if not root.exists():
+        return
+    if not root.is_dir():
+        raise ValueError("Memory pages root must be a directory.")
+    for child in sorted(root.iterdir(), reverse=True):
+        _require_path_within_pages(paths, target=child)
+        if child.is_dir() and not child.is_symlink():
+            for nested in sorted(child.rglob("*"), reverse=True):
+                _require_path_within_pages(paths, target=nested)
+                if nested.is_dir() and not nested.is_symlink():
+                    nested.rmdir()
+                else:
+                    nested.unlink(missing_ok=True)
+            child.rmdir()
+        else:
+            child.unlink(missing_ok=True)
 
 
 def read_memo(paths: AgentMemoryPaths) -> str:

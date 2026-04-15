@@ -9,6 +9,7 @@ from click.testing import CliRunner
 import pytest
 import yaml
 
+from houmao.agents.launch_profile_memo_seeds import LaunchProfileMemoSeedApplication
 from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingOverridesV1,
@@ -142,6 +143,25 @@ def _bootstrap_codex_researcher_project(
         auth_json_path=auth_json_path,
     )
     return runner, repo_root, auth_json_path
+
+
+def _assert_memo_seed_payload(
+    payload: dict[str, object],
+    *,
+    source_kind: str,
+    policy: str,
+    relative_path: str,
+) -> None:
+    """Assert one operator-facing memo-seed payload."""
+
+    assert payload["present"] is True
+    assert payload["source_kind"] == source_kind
+    assert payload["policy"] == policy
+    content_ref = payload["content_ref"]
+    assert isinstance(content_ref, dict)
+    assert content_ref["content_kind"] == "memo_seed"
+    assert content_ref["relative_path"] == relative_path
+    assert Path(str(content_ref["path"])).as_posix().endswith(relative_path)
 
 
 def test_project_help_mentions_agents_credentials_easy_and_mailbox() -> None:
@@ -3197,6 +3217,10 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "append",
             "--prompt-overlay-text",
             "Prefer Alice repository conventions.",
+            "--memo-seed-text",
+            "Read the Alice memo before you start.",
+            "--memo-seed-policy",
+            "initialize",
         ],
     )
 
@@ -3204,7 +3228,7 @@ def test_project_agents_launch_profiles_crud_round_trip(
     add_payload = json.loads(add_result.output)
     assert add_payload["profile_lane"] == "launch-profile"
     assert add_payload["recipe"] == "researcher-codex-default"
-    assert add_payload["defaults"] == {
+    assert {key: value for key, value in add_payload["defaults"].items() if key != "memo_seed"} == {
         "agent_name": "alice",
         "agent_id": "agent-alice",
         "workdir": "/repos/alice",
@@ -3229,6 +3253,12 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "present": True,
         },
     }
+    _assert_memo_seed_payload(
+        add_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="initialize",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
     assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
 
     get_result = runner.invoke(
@@ -3255,6 +3285,12 @@ def test_project_agents_launch_profiles_crud_round_trip(
         "provider": "codex",
         "role_name": "researcher",
     }
+    _assert_memo_seed_payload(
+        get_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="initialize",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
 
     list_result = runner.invoke(
         cli,
@@ -3312,6 +3348,12 @@ def test_project_agents_launch_profiles_crud_round_trip(
     assert set_payload["defaults"]["model"] == {"reasoning": {"level": 4}}
     assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
     assert set_payload["defaults"]["prompt_overlay"]["present"] is True
+    _assert_memo_seed_payload(
+        set_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="initialize",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
 
     remove_result = runner.invoke(
         cli, ["project", "agents", "launch-profiles", "remove", "--name", "alice"]
@@ -3323,6 +3365,115 @@ def test_project_agents_launch_profiles_crud_round_trip(
     assert (
         repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
     ).is_file()
+
+
+def test_project_agents_launch_profiles_set_updates_and_clears_memo_seed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    memo_seed_path = (tmp_path / "launch-seed.md").resolve()
+    memo_seed_path.write_text("Review the launch checklist first.\n", encoding="utf-8")
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "researcher-codex-default",
+            "--memo-seed-file",
+            str(memo_seed_path),
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--memo-seed-policy",
+            "fail-if-nonempty",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    _assert_memo_seed_payload(
+        set_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="fail-if-nonempty",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
+
+    projection = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection["defaults"]["memo_seed"]["policy"] == "fail-if-nonempty"
+    seed_path = Path(projection["defaults"]["memo_seed"]["content_ref"]["path"])
+    assert seed_path.read_text(encoding="utf-8") == "Review the launch checklist first.\n"
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--clear-memo-seed",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+    clear_payload = json.loads(clear_result.output)
+    assert "memo_seed" not in clear_payload["defaults"]
+
+
+def test_project_agents_launch_profiles_reject_conflicting_memo_seed_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    memo_seed_path = (tmp_path / "launch-seed.md").resolve()
+    memo_seed_path.write_text("Review the launch checklist first.\n", encoding="utf-8")
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "researcher-codex-default",
+            "--memo-seed-text",
+            "memo",
+            "--memo-seed-file",
+            str(memo_seed_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Provide at most one of `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`." in result.output
 
 
 def test_project_easy_profile_crud_round_trip(
@@ -3404,6 +3555,8 @@ def test_project_easy_profile_crud_round_trip(
             "replace",
             "--prompt-overlay-text",
             "Operate only on Alice-owned repositories.",
+            "--memo-seed-text",
+            "Review Alice notes before taking action.",
         ],
     )
 
@@ -3421,6 +3574,12 @@ def test_project_easy_profile_crud_round_trip(
         "mode": "replace",
         "present": True,
     }
+    _assert_memo_seed_payload(
+        create_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="initialize",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
 
     list_result = runner.invoke(cli, ["project", "easy", "profile", "list"])
     assert list_result.exit_code == 0, list_result.output
@@ -3433,6 +3592,12 @@ def test_project_easy_profile_crud_round_trip(
     assert get_payload["profile_lane"] == "easy-profile"
     assert get_payload["specialist"] == "researcher"
     assert get_payload["defaults"]["auth"] == "alice-creds"
+    _assert_memo_seed_payload(
+        get_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="initialize",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
 
     remove_result = runner.invoke(cli, ["project", "easy", "profile", "remove", "--name", "alice"])
     assert remove_result.exit_code == 0, remove_result.output
@@ -3501,6 +3666,8 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
             "append",
             "--prompt-overlay-text",
             "Prefer Alice repository conventions.",
+            "--memo-seed-text",
+            "Read the Alice memo before you start.",
         ],
     )
     assert create_result.exit_code == 0, create_result.output
@@ -3530,6 +3697,12 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         "mode": "append",
         "present": True,
     }
+    _assert_memo_seed_payload(
+        set_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="initialize",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
 
     projection = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
@@ -3541,6 +3714,124 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         "mode": "append",
         "text": "Prefer Alice repository conventions.",
     }
+    assert projection["defaults"]["memo_seed"]["source_kind"] == "memo"
+    assert projection["defaults"]["memo_seed"]["policy"] == "initialize"
+
+
+def test_project_easy_profile_set_updates_and_clears_memo_seed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    memo_seed_path = (tmp_path / "easy-seed.md").resolve()
+    memo_seed_path.write_text("Read the easy profile memo first.\n", encoding="utf-8")
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--memo-seed-file",
+            str(memo_seed_path),
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--memo-seed-policy",
+            "replace",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    _assert_memo_seed_payload(
+        set_payload["defaults"]["memo_seed"],
+        source_kind="memo",
+        policy="replace",
+        relative_path="memo-seeds/launch-profiles/alice/seed",
+    )
+
+    projection = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection["defaults"]["memo_seed"]["policy"] == "replace"
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--clear-memo-seed",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+    clear_payload = json.loads(clear_result.output)
+    assert "memo_seed" not in clear_payload["defaults"]
+
+
+def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--clear-memo-seed",
+            "--memo-seed-policy",
+            "initialize",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "`--clear-memo-seed` cannot be combined with a memo-seed source or `--memo-seed-policy`." in result.output
 
 
 def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
@@ -3582,6 +3873,8 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
             "replace",
             "--prompt-overlay-text",
             "Operate only on Alice-owned repositories.",
+            "--memo-seed-text",
+            "Read the Alice memo before you start.",
         ],
     )
     assert create_result.exit_code == 0, create_result.output
@@ -3609,6 +3902,7 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert replace_payload["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
+    assert "memo_seed" not in replace_payload["defaults"]
 
     projection = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
@@ -3619,6 +3913,7 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert projection["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
+    assert "memo_seed" not in projection["defaults"]
 
 
 def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
@@ -3660,6 +3955,8 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
             "append",
             "--prompt-overlay-text",
             "Prefer Alice repository conventions.",
+            "--memo-seed-text",
+            "Read the Alice memo before you start.",
         ],
     )
     assert add_result.exit_code == 0, add_result.output
@@ -3687,6 +3984,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert replace_payload["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
+    assert "memo_seed" not in replace_payload["defaults"]
 
     projection = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
@@ -3697,6 +3995,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert projection["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
+    assert "memo_seed" not in projection["defaults"]
 
 
 def test_project_launch_profile_replacement_requires_yes_noninteractive(
@@ -4195,6 +4494,9 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
         "prompt_overlay": {
             "mode": "append",
             "present": True,
+        },
+        "memo_seed": {
+            "present": False,
         },
     }
     assert captured["declared_mailbox"].transport == "filesystem"
@@ -5479,6 +5781,7 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
         overlay_root_detail="overlay-root-detail",
         project_overlay_bootstrapped=False,
         overlay_bootstrap_detail="overlay-bootstrap-detail",
+        memo_seed_application=None,
     )
 
     emit_local_launch_completion(
@@ -5510,6 +5813,90 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "gateway_port": 43123,
             "gateway_execution_mode": "tmux_auxiliary_window",
             "gateway_tmux_window_index": "2",
+        }
+    ]
+
+
+def test_emit_local_launch_completion_reports_memo_seed_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    emitted: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit",
+        lambda payload, **kwargs: emitted.append(dict(payload)),
+    )
+
+    memory = SimpleNamespace(
+        memory_root=(tmp_path / "memory" / "agents" / "agent-123").resolve(),
+        memo_file=(tmp_path / "memory" / "agents" / "agent-123" / "houmao-memo.md").resolve(),
+        pages_dir=(tmp_path / "memory" / "agents" / "agent-123" / "pages").resolve(),
+    )
+    launch_result = SimpleNamespace(
+        controller=SimpleNamespace(
+            agent_identity="repo-research-1",
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+            gateway_host=None,
+            gateway_port=None,
+            gateway_auto_attach_error=None,
+        ),
+        memory=memory,
+        runtime_root=(tmp_path / "runtime").resolve(),
+        runtime_root_detail="runtime-root-detail",
+        mailbox_root=(tmp_path / "mailbox").resolve(),
+        mailbox_root_detail="mailbox-root-detail",
+        overlay_root=(tmp_path / "overlay").resolve(),
+        overlay_root_detail="overlay-root-detail",
+        project_overlay_bootstrapped=False,
+        overlay_bootstrap_detail="overlay-bootstrap-detail",
+        memo_seed_application=LaunchProfileMemoSeedApplication(
+            status="applied",
+            source_kind="tree",
+            policy="initialize",
+            memo_written=True,
+            page_file_count=1,
+            page_directory_count=1,
+        ),
+    )
+
+    emit_local_launch_completion(
+        launch_result=launch_result,
+        agent_name="repo-research-1",
+        session_name="HOUMAO-repo-research-1",
+        headless=True,
+    )
+
+    assert emitted == [
+        {
+            "status": "Managed agent launch complete",
+            "agent_name": "repo-research-1",
+            "agent_id": "agent-123",
+            "tmux_session_name": "HOUMAO-repo-research-1",
+            "manifest_path": str(manifest_path),
+            "runtime_root": str((tmp_path / "runtime").resolve()),
+            "runtime_root_detail": "runtime-root-detail",
+            "memory_root": str(memory.memory_root),
+            "memo_file": str(memory.memo_file),
+            "pages_dir": str(memory.pages_dir),
+            "mailbox_root": str((tmp_path / "mailbox").resolve()),
+            "mailbox_root_detail": "mailbox-root-detail",
+            "overlay_root": str((tmp_path / "overlay").resolve()),
+            "overlay_root_detail": "overlay-root-detail",
+            "project_overlay_bootstrapped": False,
+            "overlay_bootstrap_detail": "overlay-bootstrap-detail",
+            "memo_seed": {
+                "status": "applied",
+                "source_kind": "tree",
+                "policy": "initialize",
+                "memo_written": True,
+                "page_file_count": 1,
+                "page_directory_count": 1,
+            },
         }
     ]
 
@@ -5551,6 +5938,7 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
         overlay_root_detail="overlay-root-detail",
         project_overlay_bootstrapped=False,
         overlay_bootstrap_detail="overlay-bootstrap-detail",
+        memo_seed_application=None,
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -5879,6 +6267,7 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
         source_exists=True,
         recipe_name="researcher",
         prompt_overlay_text=None,
+        memo_seed=None,
         entry=SimpleNamespace(
             name="alice",
             profile_lane="easy_profile",

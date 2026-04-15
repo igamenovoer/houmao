@@ -97,6 +97,11 @@ from .project_aware_wording import (
 )
 
 _SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
+_MEMO_SEED_POLICY_CHOICES: tuple[str, ...] = (
+    "initialize",
+    "replace",
+    "fail-if-nonempty",
+)
 _LaunchProfileStoreOperation = Literal["create", "patch", "replace"]
 
 
@@ -826,6 +831,44 @@ def _resolve_prompt_overlay_text_or_click(
     return prompt_overlay_mode, resolved_text
 
 
+def _resolve_memo_seed_input_or_click(
+    *,
+    memo_seed_text: str | None,
+    memo_seed_file: Path | None,
+    memo_seed_dir: Path | None,
+    memo_seed_policy: str | None,
+    clear_memo_seed: bool,
+) -> tuple[str | None, str | None, str | None, Path | None]:
+    """Resolve one optional launch-profile memo seed from CLI inputs."""
+
+    requested_sources = sum(
+        (
+            memo_seed_text is not None,
+            memo_seed_file is not None,
+            memo_seed_dir is not None,
+        )
+    )
+    if requested_sources > 1:
+        raise click.ClickException(
+            "Provide at most one of `--memo-seed-text`, `--memo-seed-file`, or "
+            "`--memo-seed-dir`."
+        )
+    if clear_memo_seed and (
+        requested_sources > 0 or memo_seed_policy is not None
+    ):
+        raise click.ClickException(
+            "`--clear-memo-seed` cannot be combined with a memo-seed source or "
+            "`--memo-seed-policy`."
+        )
+    if memo_seed_text is not None:
+        return "memo", memo_seed_policy, memo_seed_text, None
+    if memo_seed_file is not None:
+        return "memo", memo_seed_policy, None, memo_seed_file
+    if memo_seed_dir is not None:
+        return "tree", memo_seed_policy, None, memo_seed_dir
+    return None, memo_seed_policy, None, None
+
+
 def _managed_header_policy_from_override(value: bool | None) -> ManagedHeaderPolicy | None:
     """Return one stored managed-header policy from a tri-state CLI override."""
 
@@ -1045,6 +1088,11 @@ def _store_launch_profile_from_cli(
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
     clear_prompt_overlay: bool,
+    memo_seed_text: str | None,
+    memo_seed_file: Path | None,
+    memo_seed_dir: Path | None,
+    memo_seed_policy: str | None,
+    clear_memo_seed: bool,
     clear_mailbox: bool,
     clear_env: bool,
     clear_agent_name: bool,
@@ -1114,6 +1162,18 @@ def _store_launch_profile_from_cli(
             prompt_overlay_file=prompt_overlay_file,
         )
     )
+    (
+        requested_memo_seed_source_kind,
+        requested_memo_seed_policy,
+        requested_memo_seed_text,
+        requested_memo_seed_source_path,
+    ) = _resolve_memo_seed_input_or_click(
+        memo_seed_text=memo_seed_text,
+        memo_seed_file=memo_seed_file,
+        memo_seed_dir=memo_seed_dir,
+        memo_seed_policy=memo_seed_policy,
+        clear_memo_seed=clear_memo_seed,
+    )
     env_mapping = (
         {}
         if clear_env
@@ -1163,6 +1223,22 @@ def _store_launch_profile_from_cli(
             clear_all_sections=clear_managed_header_sections,
         )
         resolved_prompt_overlay_mode, resolved_prompt_overlay_text = prompt_overlay
+        if clear_memo_seed:
+            raise click.ClickException("`--clear-memo-seed` requires an existing memo seed.")
+        if requested_memo_seed_source_kind is None:
+            if requested_memo_seed_policy is not None:
+                raise click.ClickException(
+                    "`--memo-seed-policy` requires a memo seed source or an existing memo seed."
+                )
+            resolved_memo_seed_source_kind = None
+            resolved_memo_seed_policy = None
+            resolved_memo_seed_text = None
+            resolved_memo_seed_source_path = None
+        else:
+            resolved_memo_seed_source_kind = requested_memo_seed_source_kind
+            resolved_memo_seed_policy = requested_memo_seed_policy or "initialize"
+            resolved_memo_seed_text = requested_memo_seed_text
+            resolved_memo_seed_source_path = requested_memo_seed_source_path
     else:
         resolved_agent_name = (
             None
@@ -1265,6 +1341,39 @@ def _store_launch_profile_from_cli(
         else:
             resolved_prompt_overlay_mode = current.entry.prompt_overlay_mode
             resolved_prompt_overlay_text = current.prompt_overlay_text
+        if clear_memo_seed:
+            if current.memo_seed is None:
+                raise click.ClickException(
+                    f"Launch profile `{profile_name}` does not store a memo seed."
+                )
+            resolved_memo_seed_source_kind = None
+            resolved_memo_seed_policy = None
+            resolved_memo_seed_text = None
+            resolved_memo_seed_source_path = None
+        elif requested_memo_seed_source_kind is not None:
+            resolved_memo_seed_source_kind = requested_memo_seed_source_kind
+            resolved_memo_seed_policy = requested_memo_seed_policy or "initialize"
+            resolved_memo_seed_text = requested_memo_seed_text
+            resolved_memo_seed_source_path = requested_memo_seed_source_path
+        elif requested_memo_seed_policy is not None:
+            if current.memo_seed is None:
+                raise click.ClickException(
+                    f"Launch profile `{profile_name}` does not store a memo seed."
+                )
+            resolved_memo_seed_source_kind = current.memo_seed.source_kind
+            resolved_memo_seed_policy = requested_memo_seed_policy
+            resolved_memo_seed_text = None
+            resolved_memo_seed_source_path = current.memo_seed.source_path
+        elif current.memo_seed is not None:
+            resolved_memo_seed_source_kind = current.memo_seed.source_kind
+            resolved_memo_seed_policy = current.memo_seed.policy
+            resolved_memo_seed_text = None
+            resolved_memo_seed_source_path = current.memo_seed.source_path
+        else:
+            resolved_memo_seed_source_kind = None
+            resolved_memo_seed_policy = None
+            resolved_memo_seed_text = None
+            resolved_memo_seed_source_path = None
 
     mutation_requested = any(
         (
@@ -1300,6 +1409,11 @@ def _store_launch_profile_from_cli(
             prompt_overlay_text is not None,
             prompt_overlay_file is not None,
             clear_prompt_overlay,
+            memo_seed_text is not None,
+            memo_seed_file is not None,
+            memo_seed_dir is not None,
+            memo_seed_policy is not None,
+            clear_memo_seed,
         )
     )
     if not mutation_requested:
@@ -1329,6 +1443,10 @@ def _store_launch_profile_from_cli(
         managed_header_section_policy=resolved_managed_header_section_policy,
         prompt_overlay_mode=resolved_prompt_overlay_mode,
         prompt_overlay_text=resolved_prompt_overlay_text,
+        memo_seed_source_kind=resolved_memo_seed_source_kind,
+        memo_seed_policy=resolved_memo_seed_policy,
+        memo_seed_text=resolved_memo_seed_text,
+        memo_seed_source_path=resolved_memo_seed_source_path,
     )
     materialize_project_agent_catalog_projection(overlay)
     return _launch_profile_payload(
@@ -1351,6 +1469,20 @@ def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
             "mode": resolved.entry.prompt_overlay_mode,
             "present": resolved.prompt_overlay_text is not None,
         },
+        "memo_seed": (
+            {
+                "present": True,
+                "source_kind": resolved.memo_seed.source_kind,
+                "policy": resolved.memo_seed.policy,
+                "content_ref": {
+                    "content_kind": resolved.memo_seed.content_ref.content_kind,
+                    "storage_kind": resolved.memo_seed.content_ref.storage_kind,
+                    "relative_path": resolved.memo_seed.content_ref.relative_path,
+                },
+            }
+            if resolved.memo_seed is not None
+            else {"present": False}
+        ),
     }
 
 
@@ -1862,6 +1994,7 @@ __all__ = [
     "describe_overlay_discovery_mode",
     "describe_overlay_root_selection_source",
     "_SUPPORTED_PROJECT_TOOLS",
+    "_MEMO_SEED_POLICY_CHOICES",
     "_LaunchProfileStoreOperation",
     "_ensure_project_roots",
     "_ensure_project_overlay",

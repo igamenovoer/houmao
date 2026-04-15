@@ -2409,6 +2409,7 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
         provider="codex",
         recipe_name="researcher-codex-default",
         prompt_overlay_text="Prefer Alice repository conventions.",
+        memo_seed=None,
     )
     captured: dict[str, object] = {}
 
@@ -2493,6 +2494,9 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
             "mode": "append",
             "present": True,
         },
+        "memo_seed": {
+            "present": False,
+        },
     }
 
 
@@ -2532,11 +2536,12 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
             ),
             source_exists=True,
             recipe_path=(tmp_path / "recipe.yaml").resolve(),
-            provider="codex",
-            recipe_name="researcher-codex-default",
-            prompt_overlay_text=None,
-        ),
-    )
+                provider="codex",
+                recipe_name="researcher-codex-default",
+                prompt_overlay_text=None,
+                memo_seed=None,
+            ),
+        )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
         lambda project_overlay: (tmp_path / "agents").resolve(),
@@ -2597,11 +2602,12 @@ def test_agents_launch_rejects_removed_persist_dir_option(
             ),
             source_exists=True,
             recipe_path=recipe_path,
-            provider="codex",
-            recipe_name="researcher-codex-default",
-            prompt_overlay_text=None,
-        ),
-    )
+                provider="codex",
+                recipe_name="researcher-codex-default",
+                prompt_overlay_text=None,
+                memo_seed=None,
+            ),
+        )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
         lambda project_overlay: source_agent_def_dir,
@@ -2756,11 +2762,12 @@ def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
             ),
             source_exists=True,
             recipe_path=recipe_path,
-            provider="codex",
-            recipe_name="researcher-codex-default",
-            prompt_overlay_text=None,
-        ),
-    )
+                provider="codex",
+                recipe_name="researcher-codex-default",
+                prompt_overlay_text=None,
+                memo_seed=None,
+            ),
+        )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
         lambda project_overlay: source_agent_def_dir,
