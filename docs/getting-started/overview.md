@@ -10,7 +10,7 @@ flowchart TD
     SRC --> CAT["Canonical Parsed Catalog"]
     CAT --> RLS["Resolved Launch Spec<br/>(tool, role, setup, skills, auth,<br/>launch-profile defaults)"]
     RLS --> BB["BrainBuilder"]
-    BB --> BM["Brain Manifest<br/>(schema_version=3,<br/>launch-profile provenance)"]
+    BB --> BM["Brain Manifest<br/>(schema_version=4,<br/>launch-profile provenance)"]
     BM --> LP["LaunchPlanRequest<br/>(manifest + role)"]
     LP --> RT["Runtime Session<br/>Controller"]
 ```

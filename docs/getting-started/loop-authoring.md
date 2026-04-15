@@ -16,6 +16,8 @@ Houmao ships three packaged loop skills. This page helps you choose the right on
 
 **Use `houmao-agent-loop-generic`** when your communication graph has both pairwise components (immediate driver-worker local-close edges) and relay lanes (agent that receives from one side and forwards to another). Generic decomposes your intent into typed components and manages them in one graph.
 
+> **Runnable example:** The [`examples/writer-team/`](../../examples/writer-team/) template contains a complete pairwise loop plan, role prompts, start charter, and local setup commands for a three-agent story-writing team (writer + character-designer + reviewer). Use it as a starting point for authoring your own loop plans.
+
 ---
 
 ## Pairwise-v2: Routing Packets

@@ -8,7 +8,7 @@ The mailbox system separates durable message content from per-recipient mailbox 
 
 - The canonical message is an immutable Markdown file with YAML front matter.
 - The file captures who sent the message, who received it, how it threads, and what attachments it refers to.
-- Read, starred, archived, deleted, and thread summary state do not rewrite that canonical file. They live in `index.sqlite`.
+- Read, answered, starred, archived, deleted, and thread summary state do not rewrite that canonical file. They live in `index.sqlite`.
 
 That split matters because repair can rebuild projections and mutable state around canonical messages, but it cannot invent missing canonical content.
 
