@@ -65,11 +65,10 @@ Maintained project-aware local-state commands reuse that same active overlay for
     │   │       │   └── <setup>/...
     │   │       └── auth/
     │   │           └── <opaque-bundle-ref>/...
-    │   └── compatibility-profiles/   # optional, created only when explicitly enabled
     └── mailbox/                      # optional, created only when mailbox workflows are enabled
 ```
 
-`houmao-mgr project init` seeds the managed content roots and the SQLite catalog. It does not create `.houmao/agents/`, `compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` unless you opt into workflows that need those paths explicitly.
+`houmao-mgr project init` seeds the managed content roots and the SQLite catalog. It does not create `.houmao/agents/`, `.houmao/mailbox/`, or `.houmao/easy/` unless you opt into workflows that need those paths explicitly.
 
 The repo-local project surface is intentionally split into three views:
 
@@ -129,10 +128,6 @@ Secret-free setup bundles for one tool. The canonical file-backed payloads live 
 
 Local-only auth bundles for one tool. The canonical file-backed payloads live under `.houmao/content/auth/<tool>/<bundle-ref>/`; the `.houmao/agents/tools/<tool>/auth/<bundle-ref>/` tree is the compatibility projection that legacy file-based flows still read. The operator-facing auth name is stored separately in the catalog and can be renamed without changing these directory basenames.
 
-### `compatibility-profiles/`
-
-Optional compatibility metadata for specialized CAO or server-facing flows. `houmao-mgr project init` does not create this subtree by default; use `houmao-mgr project init --with-compatibility-profiles` when you want the optional root pre-created.
-
 ### `.houmao/mailbox/`
 
 Optional project-local mailbox root. `houmao-mgr project init` does not create it by default. Enable it only when you want repo-scoped mailbox registrations and direct mailbox reads through `houmao-mgr project mailbox ...`.
@@ -150,7 +145,6 @@ Optional project-local mailbox root. `houmao-mgr project init` does not create i
 | `.houmao/agents/tools/<tool>/adapter.yaml` | ❌ No | Local copy of the tool projection and launch contract |
 | `.houmao/agents/tools/<tool>/setups/` | ❌ No | Local copy of secret-free setup bundles |
 | `.houmao/agents/tools/<tool>/auth/` | ❌ No | Local-only auth bundles projected by opaque bundle ref |
-| `.houmao/agents/compatibility-profiles/` | ❌ No | Optional local compatibility metadata, not created by default |
 | `.houmao/mailbox/` | ❌ No | Optional project-local mailbox root |
 
 Generated runtime homes, manifests, mailbox state, and managed-agent memory are also local-only operator state. When maintained build and launch flows place runtime artifacts under `.houmao/runtime`, mailbox state under `.houmao/mailbox`, and memory roots under `.houmao/memory/agents/<agent-id>/`, those subtrees remain overlay-local runtime state rather than tracked project source.

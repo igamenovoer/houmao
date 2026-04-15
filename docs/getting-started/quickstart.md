@@ -73,13 +73,7 @@ pixi run houmao-mgr project init
 - `.houmao/.gitignore`
 - `.houmao/catalog.sqlite`
 - managed `.houmao/content/prompts/`, `.houmao/content/auth/`, `.houmao/content/skills/`, and `.houmao/content/setups/`
-- no `.houmao/agents/`, `.houmao/agents/compatibility-profiles/`, `.houmao/mailbox/`, or `.houmao/easy/` state until you opt into those workflows explicitly
-
-If you need the optional compatibility metadata root pre-created, use:
-
-```bash
-pixi run houmao-mgr project init --with-compatibility-profiles
-```
+- no `.houmao/agents/`, `.houmao/mailbox/`, or `.houmao/easy/` state until you opt into those workflows explicitly
 
 If you later run maintained project-aware commands from a nested subdirectory, the default behavior is still to reuse the nearest ancestor overlay you just initialized. Use `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want a nested directory to behave as an independent Houmao project root and bootstrap its own `.houmao/` instead of inheriting the parent one.
 

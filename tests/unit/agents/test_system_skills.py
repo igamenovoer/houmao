@@ -386,7 +386,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in project_init_action
     )
     assert "<chosen houmao-mgr launcher>" in project_init_action
-    assert "--with-compatibility-profiles" in project_init_action
+    assert "--with-compatibility-profiles" not in project_init_action
     assert "would_bootstrap_overlay" in project_status_action
     assert (
         "project agents launch-profiles add --name <profile> --recipe <recipe>"

@@ -442,8 +442,7 @@ Project overlay notes:
 - The selected overlay root gets a local `.gitignore` containing `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
 - `project status` resolves the active overlay root from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, and reports the effective discovery mode in its JSON payload.
 - `project init` creates `catalog.sqlite` plus managed `content/prompts/`, `content/auth/`, `content/skills/`, and `content/setups/` under the selected overlay root.
-- `project init` does not create `agents/`, `agents/compatibility-profiles/`, `mailbox/`, or `easy/` under the selected overlay root by default.
-- `project init --with-compatibility-profiles` opts into pre-creating `agents/compatibility-profiles/` under the selected overlay root.
+- `project init` does not create `agents/`, `mailbox/`, or `easy/` under the selected overlay root by default.
 
 #### `project agents`
 

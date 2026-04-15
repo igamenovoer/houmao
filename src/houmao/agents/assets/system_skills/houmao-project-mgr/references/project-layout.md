@@ -33,7 +33,6 @@ Use this reference when the question is how project-local Houmao files are organ
 
 - `project init` creates `houmao-config.toml`, `.gitignore`, `catalog.sqlite`, and the managed `content/` roots.
 - `project init` does not create `.houmao/mailbox/`, `.houmao/easy/`, or the compatibility projection tree unconditionally.
-- `project init --with-compatibility-profiles` additionally pre-creates `.houmao/agents/compatibility-profiles/`.
 
 ## Interpretation
 

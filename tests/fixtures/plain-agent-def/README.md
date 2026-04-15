@@ -11,7 +11,6 @@ tests/fixtures/plain-agent-def/
   tools/<tool>/adapter.yaml
   tools/<tool>/setups/<setup>/...
   tools/<tool>/auth/
-  compatibility-profiles/   # optional compatibility metadata retained for specialized flows
 ```
 
 ## Use This Lane When
