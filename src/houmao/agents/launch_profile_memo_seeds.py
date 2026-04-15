@@ -50,6 +50,22 @@ class LaunchProfileMemoSeedError(RuntimeError):
     """Raised when a launch-profile memo seed cannot be applied safely."""
 
 
+@dataclass(frozen=True)
+class _LaunchProfileMemoSeedPayload:
+    """Loaded memo-seed content plus the managed-memory components it represents."""
+
+    memo_text: str | None
+    pages_present: bool
+    page_directories: list[str]
+    page_files: list[tuple[str, str]]
+
+    @property
+    def has_memo(self) -> bool:
+        """Return whether the seed explicitly represents the fixed memo file."""
+
+        return self.memo_text is not None
+
+
 def apply_launch_profile_memo_seed(
     *,
     paths: AgentMemoryPaths,
@@ -57,65 +73,93 @@ def apply_launch_profile_memo_seed(
 ) -> LaunchProfileMemoSeedApplication:
     """Apply one resolved launch-profile memo seed to managed memory paths."""
 
-    current_memo_has_content = memo_has_content(paths)
-    current_pages_have_content = pages_have_content(paths)
+    payload = _load_memo_seed_payload(memo_seed)
     if memo_seed.policy == "initialize":
-        if current_memo_has_content or current_pages_have_content:
+        if _represented_targets_have_content(paths=paths, payload=payload):
             return LaunchProfileMemoSeedApplication(
                 status="skipped",
                 source_kind=memo_seed.source_kind,
                 policy=memo_seed.policy,
                 reason="existing memo state present",
             )
-        return _materialize_memo_seed(paths=paths, memo_seed=memo_seed, replace_existing=False)
+        return _materialize_memo_seed(
+            paths=paths,
+            memo_seed=memo_seed,
+            payload=payload,
+            replace_existing=False,
+        )
     if memo_seed.policy == "replace":
-        return _materialize_memo_seed(paths=paths, memo_seed=memo_seed, replace_existing=True)
+        return _materialize_memo_seed(
+            paths=paths,
+            memo_seed=memo_seed,
+            payload=payload,
+            replace_existing=True,
+        )
     if memo_seed.policy == "fail-if-nonempty":
-        if current_memo_has_content or current_pages_have_content:
+        if _represented_targets_have_content(paths=paths, payload=payload):
             raise LaunchProfileMemoSeedError(
                 "Launch-profile memo seed policy `fail-if-nonempty` aborted launch because "
                 "existing memo state is present."
             )
-        return _materialize_memo_seed(paths=paths, memo_seed=memo_seed, replace_existing=False)
+        return _materialize_memo_seed(
+            paths=paths,
+            memo_seed=memo_seed,
+            payload=payload,
+            replace_existing=False,
+        )
     raise LaunchProfileMemoSeedError(
         f"Unsupported launch-profile memo seed policy: {memo_seed.policy!r}"
     )
+
+
+def _represented_targets_have_content(
+    *,
+    paths: AgentMemoryPaths,
+    payload: _LaunchProfileMemoSeedPayload,
+) -> bool:
+    """Return whether any target represented by the seed already has authored content."""
+
+    if payload.has_memo and memo_has_content(paths):
+        return True
+    if payload.pages_present and pages_have_content(paths):
+        return True
+    return False
 
 
 def _materialize_memo_seed(
     *,
     paths: AgentMemoryPaths,
     memo_seed: ResolvedLaunchProfileMemoSeed,
+    payload: _LaunchProfileMemoSeedPayload,
     replace_existing: bool,
 ) -> LaunchProfileMemoSeedApplication:
     """Write one resolved memo-seed payload into the target memory paths."""
 
-    memo_text, page_directories, page_files = _load_memo_seed_payload(memo_seed)
     ensure_agent_memory(paths)
-    if replace_existing:
+    if replace_existing and payload.pages_present:
         clear_memory_pages(paths)
-        write_memo(paths, memo_text or "", append=False)
-    elif memo_text is not None:
-        write_memo(paths, memo_text, append=False)
+    if payload.has_memo:
+        assert payload.memo_text is not None
+        write_memo(paths, payload.memo_text, append=False)
 
-    for relative_dir in page_directories:
+    for relative_dir in payload.page_directories:
         ensure_memory_page_directory(paths, relative_path=relative_dir)
-    for relative_path, page_text in page_files:
+    for relative_path, page_text in payload.page_files:
         write_memory_page(paths, relative_path=relative_path, content=page_text, append=False)
 
     return LaunchProfileMemoSeedApplication(
         status="applied",
         source_kind=memo_seed.source_kind,
         policy=memo_seed.policy,
-        memo_written=memo_text is not None or replace_existing,
-        page_file_count=len(page_files),
-        page_directory_count=len(page_directories),
+        memo_written=payload.has_memo,
+        page_file_count=len(payload.page_files),
+        page_directory_count=len(payload.page_directories),
     )
 
 
 def _load_memo_seed_payload(
     memo_seed: ResolvedLaunchProfileMemoSeed,
-) -> tuple[str | None, list[str], list[tuple[str, str]]]:
+) -> _LaunchProfileMemoSeedPayload:
     """Load one resolved memo seed into memo text plus contained page payloads."""
 
     if memo_seed.source_kind == "memo":
@@ -123,7 +167,12 @@ def _load_memo_seed_payload(
             raise LaunchProfileMemoSeedError(
                 f"Launch-profile memo seed content is missing: {memo_seed.source_path}"
             )
-        return memo_seed.source_path.read_text(encoding="utf-8"), [], []
+        return _LaunchProfileMemoSeedPayload(
+            memo_text=memo_seed.source_path.read_text(encoding="utf-8"),
+            pages_present=False,
+            page_directories=[],
+            page_files=[],
+        )
     if memo_seed.source_kind != "tree":
         raise LaunchProfileMemoSeedError(
             f"Unsupported launch-profile memo seed source kind: {memo_seed.source_kind!r}"
@@ -158,4 +207,9 @@ def _load_memo_seed_payload(
                     f"Launch-profile memo seed page path is invalid: {candidate}"
                 )
             page_files.append((relative_path, candidate.read_text(encoding="utf-8")))
-    return memo_text, page_directories, page_files
+    return _LaunchProfileMemoSeedPayload(
+        memo_text=memo_text,
+        pages_present=pages_root.exists(),
+        page_directories=page_directories,
+        page_files=page_files,
+    )

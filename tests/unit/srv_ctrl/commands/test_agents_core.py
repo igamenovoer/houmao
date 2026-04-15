@@ -371,11 +371,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         "OPENAI_ORG_ID": "org-alice",
     }
     expected_memo_file = (
-        overlay_root
-        / "memory"
-        / "agents"
-        / "6ee1c825367e868092eda76cb18a96e0"
-        / "houmao-memo.md"
+        overlay_root / "memory" / "agents" / "6ee1c825367e868092eda76cb18a96e0" / "houmao-memo.md"
     ).resolve()
     assert build_request.role_prompt_override == compose_managed_launch_prompt(
         base_prompt="You are a precise repo researcher.",
@@ -528,6 +524,111 @@ def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_bu
         "memo_written": True,
         "page_file_count": 1,
         "page_directory_count": 1,
+    }
+
+
+def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    runtime_root = (tmp_path / "runtime").resolve()
+    jobs_root = (tmp_path / "jobs").resolve()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    overlay_root = (tmp_path / "overlay").resolve()
+    working_directory = (tmp_path / "workdir").resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    memo_seed_path = (tmp_path / "seed.md").resolve()
+
+    for path in (
+        repo_root,
+        runtime_root,
+        jobs_root,
+        mailbox_root,
+        overlay_root,
+        working_directory,
+        source_agent_def_dir,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    memo_seed_path.write_text("Replacement launch memo.\n", encoding="utf-8")
+
+    agent_id = derive_agent_id_from_name("repo-research-1")
+    expected_memory_root = (overlay_root / "memory" / "agents" / agent_id).resolve()
+    expected_memory_root.mkdir(parents=True, exist_ok=True)
+    (expected_memory_root / "houmao-memo.md").write_text("Existing memo.\n", encoding="utf-8")
+    (expected_memory_root / "pages").mkdir(parents=True, exist_ok=True)
+    (expected_memory_root / "pages" / "notes.md").write_text(
+        "Existing page.\n",
+        encoding="utf-8",
+    )
+
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime_root,
+        jobs_root=jobs_root,
+        mailbox_root=mailbox_root,
+        overlay_root=overlay_root,
+        source_agent_def_dir=source_agent_def_dir,
+    )
+
+    def _fake_build_brain_home(request: object) -> SimpleNamespace:
+        assert (expected_memory_root / "houmao-memo.md").read_text(encoding="utf-8") == (
+            "Replacement launch memo.\n"
+        )
+        assert (expected_memory_root / "pages" / "notes.md").read_text(encoding="utf-8") == (
+            "Existing page.\n"
+        )
+        return SimpleNamespace(manifest_path=manifest_path)
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        _fake_build_brain_home,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: SimpleNamespace(
+            agent_identity="repo-research-1",
+            agent_id=agent_id,
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        ),
+    )
+
+    launch_result = launch_managed_agent_locally(
+        agents="researcher",
+        agent_name="repo-research-1",
+        agent_id=None,
+        auth=None,
+        session_name="HOUMAO-repo-research-1",
+        headless=True,
+        provider="codex",
+        working_directory=working_directory,
+        source_working_directory=repo_root,
+        source_agent_def_dir=source_agent_def_dir,
+        headless_display_style="plain",
+        headless_display_detail="concise",
+        launch_profile_memo_seed=ResolvedLaunchProfileMemoSeed(
+            source_kind="memo",
+            policy="replace",
+            content_ref=ManagedContentRef(
+                content_kind="memo_seed",
+                storage_kind="file",
+                relative_path="memo-seeds/launch-profiles/alice/seed",
+            ),
+            source_path=memo_seed_path,
+        ),
+    )
+
+    assert launch_result.memo_seed_application is not None
+    assert launch_result.memo_seed_application.to_payload() == {
+        "status": "applied",
+        "source_kind": "memo",
+        "policy": "replace",
+        "memo_written": True,
+        "page_file_count": 0,
+        "page_directory_count": 0,
     }
 
 
