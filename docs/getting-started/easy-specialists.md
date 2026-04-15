@@ -184,13 +184,13 @@ Key options:
 | `--prompt-overlay-text` | None | Inline prompt-overlay text. |
 | `--prompt-overlay-file` | None | Path to a prompt-overlay text file (stored as managed file-backed content). |
 | `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir` | None | Optional managed-memory memo seed. Use text or file for one memo file, or a directory containing `houmao-memo.md` and/or `pages/`. |
-| `--memo-seed-policy` | `initialize` when a seed is supplied | Optional memo-seed apply policy: `initialize`, `replace`, or `fail-if-nonempty`. |
+| `--memo-seed-policy` | `initialize` when a seed is supplied | Optional memo-seed apply policy: `initialize`, `replace`, or `fail-if-nonempty`; policy effects are scoped to the memo/pages components represented by the seed source. |
 
 Easy profiles are stored as the same kind of catalog object that backs explicit recipe-backed launch profiles, but the easy lane keeps the authoring surface smaller and intentionally specialist-backed. The persisted profile lives in the catalog with `profile_lane=easy_profile` and `source_kind=specialist`, and projects into `.houmao/agents/launch-profiles/<name>.yaml` for low-level inspection.
 
 Easy profile creation may also store managed prompt-header policy. `--managed-header` stores whole-header `enabled`, `--no-managed-header` stores whole-header `disabled`, and omitting both stores `inherit`, which falls back to Houmao's default enabled managed-header behavior later at launch time. Repeatable `--managed-header-section SECTION=enabled|disabled` stores sparse section policy; omitted sections use their section defaults.
 
-Easy profiles may also store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacement, `--memo-seed-policy` for policy-only updates when a seed already exists, and `--clear-memo-seed` to remove the stored seed. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
+Easy profiles may also store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacement, `--memo-seed-policy` for policy-only updates when a seed already exists, and `--clear-memo-seed` to remove the stored seed. Memo seed policies apply only to components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and touch pages only when `pages/` is present. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
 
 Manage existing easy profiles with:
 
@@ -226,7 +226,7 @@ houmao-mgr project easy instance launch --profile reviewer-default
 
 When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, prompt overlay, and any stored memo seed), and uses the active project overlay as the authoritative source context. Auth remains user-facing by display name even though the stored profile resolves it through auth-profile identity. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
 
-Stored memo seeds are applied before prompt composition and provider startup, so the launched agent begins with the seeded `houmao-memo.md` and `pages/` state already present. Direct specialist launches do not apply a stored memo seed because there is no profile-backed seed to resolve.
+Stored memo seeds are applied before prompt composition and provider startup, so the launched agent begins with the represented `houmao-memo.md` and/or `pages/` state already present. Direct specialist launches do not apply a stored memo seed because there is no profile-backed seed to resolve.
 
 Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, `--managed-header` or `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`, and `--append-system-prompt-text` or `--append-system-prompt-file` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 
