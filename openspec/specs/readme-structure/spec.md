@@ -1,8 +1,6 @@
 ## Purpose
 Define the README structure and onboarding order for the primary Houmao project documentation entry point.
-
 ## Requirements
-
 ### Requirement: README section ordering follows specialist-first onboarding
 
 The README SHALL present sections in this order: title/intro, What It Is, Quick Start (steps 0–6), Typical Use Cases, System Skills, Subsystems, Runnable Demos, CLI Entry Points, Full Documentation, Development. The Quick Start steps SHALL be numbered 0 through 6.
@@ -109,3 +107,16 @@ The introductory content SHALL be condensed from four subsections (What It Is, C
 #### Scenario: Intro brevity
 - **WHEN** a reader finishes the intro sections
 - **THEN** they have read no more than ~20 lines of prose before reaching Quick Start
+
+### Requirement: README links to the reusable writer-team example
+
+When the repository contains `examples/writer-team/`, the README agent-loop story-writing section SHALL link to that example as the reusable template for the three-agent writing team.
+
+The README SHALL distinguish the reusable example from the inline quick-start narrative by making clear that the example contains the prompt files, loop plan, start charter, and local setup instructions.
+
+#### Scenario: Reader wants to reuse the story-writing team
+
+- **WHEN** a reader finishes the README story-writing loop section
+- **THEN** they find a link to `examples/writer-team/`
+- **AND THEN** they understand that the linked example is the reusable template for creating the three-agent writing team locally
+
