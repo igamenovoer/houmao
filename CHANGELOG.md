@@ -4,6 +4,24 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc3] - 2026-04-15
+
+### Added
+
+- **Copilot system skill installs**: GitHub Copilot CLI is now a supported system-skill install target alongside Claude, Codex, and Gemini.
+- **Per-tool credential kinds reference pages**: `houmao-specialist-mgr` and `houmao-credential-mgr` system skills gain dedicated credential-kinds reference pages for Claude, Codex, and Gemini with cross-linked discovery shortcuts.
+- **Launch profile memo seeds**: launch profiles can now carry `memo_seeds` — a list of policy-driven memo-file seed entries that are materialized into the agent's memory root at launch time.
+- **Writer team example and touring welcome**: new `examples/writer-team/` multi-agent example and an updated `houmao-touring` skill welcome branch.
+
+### Changed
+
+- **Compatibility profile bootstrap hidden**: the legacy compatibility profile bootstrap path is no longer surfaced in default flows.
+- **Docs synced with rc1/rc2 changes**: architecture overview diagram updated to schema_version 4, mailbox answered state documented, writer-team cross-referenced from loop authoring guide and README.
+
+### Fixed
+
+- **Memo seed policies scoped to represented components**: memo seed policies now apply only to the components the launch profile actually represents, preventing unintended seed injection across unrelated agents.
+
 ## [0.7.0rc2] - 2026-04-15
 
 ### Added
