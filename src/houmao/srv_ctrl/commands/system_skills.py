@@ -9,9 +9,11 @@ from typing import Any
 import click
 
 from houmao.agents.system_skills import (
+    SystemSkillInstallResult,
     discover_installed_system_skills,
     install_system_skills_for_home,
     load_system_skill_catalog,
+    resolve_system_skill_selection,
 )
 
 from .output import emit
@@ -112,7 +114,10 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
     help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
 )
 @click.option(
-    "--set", "set_names", multiple=True, help="Repeatable named system-skill set to install."
+    "--skill-set",
+    "skill_set_names",
+    multiple=True,
+    help="Repeatable named system-skill set to install.",
 )
 @click.option(
     "--skill", "skill_names", multiple=True, help="Repeatable explicit skill name to install."
@@ -126,39 +131,116 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
 def install_system_skills_command(
     tool: str,
     home: Path | None,
-    set_names: tuple[str, ...],
+    skill_set_names: tuple[str, ...],
     skill_names: tuple[str, ...],
     use_symlink: bool,
 ) -> None:
-    """Install selected Houmao-owned system skills into one resolved tool home."""
+    """Install selected Houmao-owned system skills into resolved tool homes."""
 
-    resolved_home = _resolve_effective_system_skills_home(tool=tool, home=home)
-    use_cli_default = not set_names and not skill_names
+    tools = _parse_system_skills_tools(tool)
+    _validate_home_scope_for_system_skills_tools(tools=tools, home=home)
+    use_cli_default = not skill_set_names and not skill_names
 
     try:
-        result = install_system_skills_for_home(
-            tool=tool,
-            home_path=resolved_home,
-            set_names=set_names,
+        _preflight_system_skill_selection(
+            skill_set_names=skill_set_names,
             skill_names=skill_names,
-            use_cli_default=use_cli_default,
-            projection_mode="symlink" if use_symlink else "copy",
         )
-        payload = {
-            "tool": result.tool,
-            "home_path": str(result.home_path),
-            "selected_sets": list(result.selected_set_names),
-            "explicit_skills": list(result.explicit_skill_names),
-            "resolved_skills": list(result.resolved_skill_names),
-            "projected_relative_dirs": list(result.projected_relative_dirs),
-            "projection_mode": result.projection_mode,
-        }
+        installation_payloads: list[dict[str, object]] = []
+        for tool_name in tools:
+            resolved_home = _resolve_effective_system_skills_home(tool=tool_name, home=home)
+            result = install_system_skills_for_home(
+                tool=tool_name,
+                home_path=resolved_home,
+                set_names=skill_set_names,
+                skill_names=skill_names,
+                use_cli_default=use_cli_default,
+                projection_mode="symlink" if use_symlink else "copy",
+            )
+            installation_payloads.append(_build_system_skills_install_payload(result))
+
+        if len(installation_payloads) == 1:
+            payload: dict[str, object] = installation_payloads[0]
+        else:
+            payload = {
+                "tools": list(tools),
+                "installations": installation_payloads,
+            }
     except OSError as exc:
         raise click.ClickException(str(exc)) from exc
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
 
     emit(payload, plain_renderer=_render_system_skills_install_plain)
+
+
+def _parse_system_skills_tools(raw_tool: str) -> tuple[str, ...]:
+    """Parse the install command's single or comma-separated tool selector."""
+
+    raw_parts = raw_tool.split(",")
+    tools: list[str] = []
+    seen: set[str] = set()
+    for raw_part in raw_parts:
+        tool = raw_part.strip()
+        if not tool:
+            raise click.ClickException(
+                "Invalid --tool value: comma-separated tool lists cannot contain empty entries."
+            )
+        _validate_supported_system_skills_tool(tool)
+        if tool in seen:
+            raise click.ClickException(
+                f"Duplicate tool `{tool}` in --tool. Select each tool at most once."
+            )
+        seen.add(tool)
+        tools.append(tool)
+
+    return tuple(tools)
+
+
+def _validate_home_scope_for_system_skills_tools(
+    *,
+    tools: tuple[str, ...],
+    home: Path | None,
+) -> None:
+    """Reject explicit home overrides when one invocation targets multiple tools."""
+
+    if len(tools) <= 1 or home is None:
+        return
+    raise click.ClickException(
+        "--home can only be used when --tool names exactly one tool. "
+        "Omit --home for comma-separated tools so each tool uses its own env/default home."
+    )
+
+
+def _preflight_system_skill_selection(
+    *,
+    skill_set_names: tuple[str, ...],
+    skill_names: tuple[str, ...],
+) -> None:
+    """Validate explicit selection before any multi-tool filesystem mutation."""
+
+    if not skill_set_names and not skill_names:
+        return
+    catalog = load_system_skill_catalog()
+    resolve_system_skill_selection(
+        catalog,
+        set_names=skill_set_names,
+        skill_names=skill_names,
+    )
+
+
+def _build_system_skills_install_payload(result: SystemSkillInstallResult) -> dict[str, object]:
+    """Return the structured install result payload for one tool home."""
+
+    return {
+        "tool": result.tool,
+        "home_path": str(result.home_path),
+        "selected_sets": list(result.selected_set_names),
+        "explicit_skills": list(result.explicit_skill_names),
+        "resolved_skills": list(result.resolved_skill_names),
+        "projected_relative_dirs": list(result.projected_relative_dirs),
+        "projection_mode": result.projection_mode,
+    }
 
 
 def _resolve_effective_system_skills_home(*, tool: str, home: Path | None) -> Path:
@@ -247,6 +329,20 @@ def _render_system_skills_install_plain(payload: object) -> None:
     if not isinstance(payload, dict):
         click.echo(str(payload))
         return
+    installations = _coerce_mapping_list(payload.get("installations"))
+    if installations:
+        click.echo("Installed Houmao system skills into resolved tool homes:")
+        for installation in installations:
+            click.echo(f"  - {installation.get('tool')}: {installation.get('home_path')}")
+        projection_modes = {
+            str(installation.get("projection_mode"))
+            for installation in installations
+            if installation.get("projection_mode") is not None
+        }
+        if len(projection_modes) == 1:
+            click.echo(f"Projection mode: {next(iter(projection_modes))}")
+        return
+
     click.echo(
         f"Installed Houmao system skills into {payload.get('home_path')} ({payload.get('tool')})"
     )

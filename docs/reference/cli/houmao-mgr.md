@@ -366,7 +366,7 @@ Notes:
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, or Gemini homes.
+Install or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Copilot, or Gemini homes.
 
 #### Subcommands
 
@@ -374,18 +374,20 @@ Install or inspect the packaged current Houmao-owned `houmao-*` skill set for re
 |---|---|
 | `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
 | `status` | Show which current Houmao-owned system skills are installed in one resolved tool home by scanning the live filesystem. |
-| `install` | Install the CLI-default set list, explicit named sets, explicit skills, or any combination of those into one resolved tool home. |
+| `install` | Install the CLI-default set list, explicit named skill sets, explicit skills, or any combination of those into one or more resolved tool homes. |
 
 Operational notes:
 
-- `system-skills install` requires `--tool` and accepts optional `--home`
+- `system-skills install` requires `--tool`; the value may be one supported tool or a comma-separated list such as `claude,codex,copilot,gemini`
+- `system-skills install --home` is valid only when `--tool` names one tool; comma-separated multi-tool installs resolve each home independently
 - `system-skills status` requires `--tool` and accepts optional `--home`
-- when `--home` is omitted, the effective home resolves with precedence `--home` override, tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`), then the project-scoped default home
-- the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, and `<cwd>` for Gemini
-- omitting both `--set` and `--skill` selects the packaged CLI-default set list
+- when `--home` is omitted, the effective home resolves with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`), then the project-scoped default home
+- the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.github` for Copilot, and `<cwd>` for Gemini
+- omitting both `--skill-set` and `--skill` selects the packaged CLI-default set list
+- repeatable `--skill-set` expands named system-skill sets; `--set` is no longer a supported install flag
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
-- repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
+- repeated skill sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
+- the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
 - install and status are stateless with respect to ownership bookkeeping; they use live current paths plus an explicit legacy migration map
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 

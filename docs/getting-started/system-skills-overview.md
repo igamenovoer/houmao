@@ -154,19 +154,20 @@ When the operator launches or joins through `houmao-mgr`, **the operator already
 
 ### How to install the broader CLI-default set
 
-To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the full CLI-default selection — every catalog skill including the lifecycle-only `houmao-agent-instance` — omit both `--set` and `--skill`:
+To prepare an external tool home (one that did not come from a `houmao-mgr agents launch` or `agents join` flow) with the full CLI-default selection — every catalog skill including the lifecycle-only `houmao-agent-instance` — omit both `--skill-set` and `--skill`:
 
 ```bash
+houmao-mgr system-skills install --tool claude,codex,copilot,gemini
 houmao-mgr system-skills install --tool claude --home ~/.claude
 houmao-mgr system-skills install --tool copilot
 houmao-mgr system-skills install --tool copilot --home ~/.copilot
 ```
 
-When `--home` is omitted, the effective home resolves through `--home` → tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>/.github` for Copilot, `<cwd>` for Gemini). The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`. The default Copilot home is `<cwd>/.github`, so omitted-home Copilot installs land under `<cwd>/.github/skills/`. Use `--home ~/.copilot` when you want a personal Copilot CLI skill install instead of a repository-local Copilot skill install.
+When `--home` is omitted, the effective home resolves through tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>/.github` for Copilot, `<cwd>` for Gemini). Comma-separated multi-tool installs must omit `--home` so each selected tool resolves independently. The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`. The default Copilot home is `<cwd>/.github`, so omitted-home Copilot installs land under `<cwd>/.github/skills/`. Use a single-tool command with `--home ~/.copilot` when you want a personal Copilot CLI skill install instead of a repository-local Copilot skill install.
 
 Copilot repository skills can be discovered by Copilot surfaces that read `.github/skills/`, but discovery is not the same as runtime reachability. The Houmao system skills still route to `houmao-mgr` and often inspect or mutate local project, tmux, gateway, mailbox, and managed-agent resources; those operations require a local or otherwise provisioned environment where those resources are available.
 
-For named-set or explicit-skill installs, repeat `--set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
+For named-set or explicit-skill installs, repeat `--skill-set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
 
 For the full flag surface, see the [`system-skills` CLI reference](../reference/cli/system-skills.md).
 

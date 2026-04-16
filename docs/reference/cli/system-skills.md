@@ -39,16 +39,17 @@ It does not yet generalize to non-skill asset kinds.
 houmao-mgr system-skills
 ├── list
 ├── status --tool <tool> [--home <path>]
-└── install --tool <tool> [--home <path>] [--set <name> ...] [--skill <name> ...] [--symlink]
+└── install --tool <tool>[,<tool>...] [--home <path>] [--skill-set <name> ...] [--skill <name> ...] [--symlink]
 ```
 
 ## Effective Home Resolution
 
-When `--home` is omitted, both `status` and `install` resolve the effective tool home with this precedence:
+For single-tool `install` and `status` commands, explicit `--home` overrides all other home selection. When `--home` is omitted, the command resolves the effective tool home with this precedence:
 
-1. explicit `--home`
-2. tool-native home env var
-3. project-scoped default home
+1. tool-native home env var
+2. project-scoped default home
+
+For comma-separated multi-tool `install`, omit `--home`; each selected tool resolves through its own tool-native env var and project-scoped default home. If you need explicit home overrides, run separate single-tool install commands.
 
 Supported tool-native home env vars:
 
@@ -200,38 +201,46 @@ Use `install` when you want the current Houmao-owned skill surface in a resolved
 
 ```bash
 pixi run houmao-mgr system-skills install --tool codex
+pixi run houmao-mgr system-skills install --tool claude,codex,copilot,gemini
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-memory
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set advanced-usage
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set mailbox-core --skill houmao-agent-email-comms
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set user-control
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set touring
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-instance
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-inspect
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-messaging
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --set agent-gateway
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set mailbox-core
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set agent-memory
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set advanced-usage
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set mailbox-core --skill houmao-agent-email-comms
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set user-control
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set touring
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set agent-instance
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set agent-inspect
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set agent-messaging
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set agent-gateway
 pixi run houmao-mgr system-skills install --tool copilot
 pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot
-pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --set user-control
-pixi run houmao-mgr system-skills install --tool gemini --set user-control
+pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --skill-set user-control
+pixi run houmao-mgr system-skills install --tool gemini --skill-set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-specialist-mgr --symlink
 ```
 
 Selection rules:
 
-- omitting both `--set` and `--skill` expands the catalog's CLI-default set list
-- repeatable `--set` expands named sets in the order given
+- omitting both `--skill-set` and `--skill` expands the catalog's CLI-default set list
+- repeatable `--skill-set` expands named sets in the order given
 - repeatable `--skill` appends explicit skill names after the expanded sets
 - `--symlink` switches the install from copied projection to directory symlink projection
 - the final skill list is deduplicated by first occurrence
 - unknown set names or skill names are errors
+- `--set` is no longer a supported install flag; use `--skill-set` for named system-skill sets
 
 Home-resolution rules:
 
-- `--home` is optional
-- when omitted, the command resolves the effective home using explicit tool-native env redirection first and project-scoped defaults second
+- `--home` is optional for single-tool install commands
+- `--home` cannot be combined with comma-separated multi-tool install commands
+- when omitted, the command resolves the effective home using tool-native env redirection first and project-scoped defaults second
 - omitted-home Gemini installs use the project root as the effective home, so Houmao-owned skills land under `.gemini/skills/`
+
+Structured output rules:
+
+- single-tool JSON output keeps the existing scalar payload shape with `tool`, `home_path`, `selected_sets`, `explicit_skills`, `resolved_skills`, `projected_relative_dirs`, and `projection_mode`
+- multi-tool JSON output returns `tools` plus one single-tool-shaped record per selected tool under `installations`
 
 Projection rules:
 
