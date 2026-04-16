@@ -149,14 +149,13 @@ def _assert_memo_seed_payload(
     payload: dict[str, object],
     *,
     source_kind: str,
-    policy: str,
     relative_path: str,
 ) -> None:
     """Assert one operator-facing memo-seed payload."""
 
     assert payload["present"] is True
     assert payload["source_kind"] == source_kind
-    assert payload["policy"] == policy
+    assert "policy" not in payload
     content_ref = payload["content_ref"]
     assert isinstance(content_ref, dict)
     assert content_ref["content_kind"] == "memo_seed"
@@ -3219,8 +3218,6 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "Prefer Alice repository conventions.",
             "--memo-seed-text",
             "Read the Alice memo before you start.",
-            "--memo-seed-policy",
-            "initialize",
         ],
     )
 
@@ -3256,7 +3253,6 @@ def test_project_agents_launch_profiles_crud_round_trip(
     _assert_memo_seed_payload(
         add_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="initialize",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
     assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
@@ -3288,7 +3284,6 @@ def test_project_agents_launch_profiles_crud_round_trip(
     _assert_memo_seed_payload(
         get_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="initialize",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
@@ -3351,7 +3346,6 @@ def test_project_agents_launch_profiles_crud_round_trip(
     _assert_memo_seed_payload(
         set_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="initialize",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
@@ -3404,8 +3398,8 @@ def test_project_agents_launch_profiles_set_updates_and_clears_memo_seed(
             "set",
             "--name",
             "alice",
-            "--memo-seed-policy",
-            "fail-if-nonempty",
+            "--memo-seed-text",
+            "Updated launch memo.\n",
         ],
     )
     assert set_result.exit_code == 0, set_result.output
@@ -3413,7 +3407,6 @@ def test_project_agents_launch_profiles_set_updates_and_clears_memo_seed(
     _assert_memo_seed_payload(
         set_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="fail-if-nonempty",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
@@ -3422,9 +3415,9 @@ def test_project_agents_launch_profiles_set_updates_and_clears_memo_seed(
             encoding="utf-8"
         )
     )
-    assert projection["defaults"]["memo_seed"]["policy"] == "fail-if-nonempty"
+    assert "policy" not in projection["defaults"]["memo_seed"]
     seed_path = Path(projection["defaults"]["memo_seed"]["content_ref"]["path"])
-    assert seed_path.read_text(encoding="utf-8") == "Review the launch checklist first.\n"
+    assert seed_path.read_text(encoding="utf-8") == "Updated launch memo.\n"
 
     clear_result = runner.invoke(
         cli,
@@ -3473,7 +3466,10 @@ def test_project_agents_launch_profiles_reject_conflicting_memo_seed_inputs(
     )
 
     assert result.exit_code != 0
-    assert "Provide at most one of `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`." in result.output
+    assert (
+        "Provide at most one of `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`."
+        in result.output
+    )
 
 
 def test_project_easy_profile_crud_round_trip(
@@ -3577,7 +3573,6 @@ def test_project_easy_profile_crud_round_trip(
     _assert_memo_seed_payload(
         create_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="initialize",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
@@ -3595,7 +3590,6 @@ def test_project_easy_profile_crud_round_trip(
     _assert_memo_seed_payload(
         get_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="initialize",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
@@ -3700,7 +3694,6 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
     _assert_memo_seed_payload(
         set_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="initialize",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
@@ -3715,7 +3708,7 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         "text": "Prefer Alice repository conventions.",
     }
     assert projection["defaults"]["memo_seed"]["source_kind"] == "memo"
-    assert projection["defaults"]["memo_seed"]["policy"] == "initialize"
+    assert "policy" not in projection["defaults"]["memo_seed"]
 
 
 def test_project_easy_profile_set_updates_and_clears_memo_seed(
@@ -3755,8 +3748,8 @@ def test_project_easy_profile_set_updates_and_clears_memo_seed(
             "set",
             "--name",
             "alice",
-            "--memo-seed-policy",
-            "replace",
+            "--memo-seed-text",
+            "Updated easy profile memo.\n",
         ],
     )
     assert set_result.exit_code == 0, set_result.output
@@ -3764,7 +3757,6 @@ def test_project_easy_profile_set_updates_and_clears_memo_seed(
     _assert_memo_seed_payload(
         set_payload["defaults"]["memo_seed"],
         source_kind="memo",
-        policy="replace",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
@@ -3773,7 +3765,9 @@ def test_project_easy_profile_set_updates_and_clears_memo_seed(
             encoding="utf-8"
         )
     )
-    assert projection["defaults"]["memo_seed"]["policy"] == "replace"
+    assert "policy" not in projection["defaults"]["memo_seed"]
+    seed_path = Path(projection["defaults"]["memo_seed"]["content_ref"]["path"])
+    assert seed_path.read_text(encoding="utf-8") == "Updated easy profile memo.\n"
 
     clear_result = runner.invoke(
         cli,
@@ -3815,7 +3809,7 @@ def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
     )
     assert create_result.exit_code == 0, create_result.output
 
-    result = runner.invoke(
+    conflict_result = runner.invoke(
         cli,
         [
             "project",
@@ -3825,13 +3819,32 @@ def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
             "--name",
             "alice",
             "--clear-memo-seed",
+            "--memo-seed-text",
+            "memo",
+        ],
+    )
+
+    assert conflict_result.exit_code != 0
+    assert (
+        "`--clear-memo-seed` cannot be combined with a memo-seed source." in conflict_result.output
+    )
+
+    removed_option_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
             "--memo-seed-policy",
             "initialize",
         ],
     )
 
-    assert result.exit_code != 0
-    assert "`--clear-memo-seed` cannot be combined with a memo-seed source or `--memo-seed-policy`." in result.output
+    assert removed_option_result.exit_code != 0
+    assert "No such option: --memo-seed-policy" in removed_option_result.output
 
 
 def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
@@ -5857,7 +5870,6 @@ def test_emit_local_launch_completion_reports_memo_seed_status(
         memo_seed_application=LaunchProfileMemoSeedApplication(
             status="applied",
             source_kind="tree",
-            policy="initialize",
             memo_written=True,
             page_file_count=1,
             page_directory_count=1,
@@ -5892,7 +5904,6 @@ def test_emit_local_launch_completion_reports_memo_seed_status(
             "memo_seed": {
                 "status": "applied",
                 "source_kind": "tree",
-                "policy": "initialize",
                 "memo_written": True,
                 "page_file_count": 1,
                 "page_directory_count": 1,

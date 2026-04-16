@@ -68,14 +68,14 @@ Current manifest-level launch-policy artifacts:
 
 Current manifest-level launch-override artifacts:
 
-- build manifests now use `schema_version=2`,
+- build manifests now use `schema_version=4`,
 - `runtime.launch_contract.adapter_defaults` snapshots adapter-owned default args and typed tool-param defaults,
 - `runtime.launch_contract.requested_overrides` stores the secret-free recipe and direct-build `launch_overrides` layers separately,
 - `runtime.launch_contract.tool_metadata` persists the declarative supported optional-launch metadata needed for runtime resolution,
 - `runtime.launch_contract.construction_provenance` records builder-time source metadata without persisting secrets,
 - build manifests intentionally do not store backend-resolved effective args because backend applicability is resolved later, at launch-plan time.
 
-Operational note: the current runtime loader rejects legacy `schema_version=1` brain manifests for this contract. Rebuild older brain homes with the current builder before starting or resuming sessions against them.
+Operational note: the current runtime loader rejects any `schema_version` other than 4. Rebuild older brain homes with the current builder before starting or resuming sessions against them.
 
 ## Runtime-Owned Mailbox Credential Artifacts
 

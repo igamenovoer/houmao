@@ -785,7 +785,7 @@ def build_gateway_manifest(
 
     The publication prefers manifest-backed authority when a valid manifest is
     available, but falls back to the attach contract so runtime capability
-    publication remains resilient during fixture setup and partial migrations.
+    publication remains resilient during fixture setup.
     """
 
     manifest_path = attach_contract.manifest_path
@@ -1305,59 +1305,13 @@ def _ensure_queue_database(sqlite_path: Path) -> None:
 
 
 def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
-    """Create or upgrade the durable gateway queue schema."""
+    """Create or validate the durable gateway queue schema."""
 
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS gateway_requests (
-            request_id TEXT PRIMARY KEY,
-            request_kind TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
-            state TEXT NOT NULL,
-            accepted_at_utc TEXT NOT NULL,
-            started_at_utc TEXT,
-            finished_at_utc TEXT,
-            managed_agent_instance_epoch INTEGER NOT NULL,
-            error_detail TEXT,
-            result_json TEXT
-        )
-        """
-    )
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS gateway_mail_notifier (
-            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-            enabled INTEGER NOT NULL DEFAULT 0,
-            interval_seconds INTEGER,
-            mode TEXT NOT NULL DEFAULT 'any_inbox' CHECK (mode IN ('any_inbox', 'unread_only')),
-            last_poll_at_utc TEXT,
-            last_notification_at_utc TEXT,
-            last_notified_digest TEXT,
-            last_error TEXT,
-            updated_at_utc TEXT NOT NULL
-        )
-        """
-    )
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS gateway_notifier_audit (
-            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            poll_time_utc TEXT NOT NULL,
-            unread_count INTEGER,
-            unread_digest TEXT,
-            unread_summary_json TEXT NOT NULL DEFAULT '[]',
-            request_admission TEXT,
-            active_execution TEXT,
-            queue_depth INTEGER,
-            outcome TEXT NOT NULL CHECK (
-                outcome IN ('empty', 'dedup_skip', 'busy_skip', 'enqueued', 'poll_error')
-            ),
-            enqueued_request_id TEXT,
-            detail TEXT
-        )
-        """
-    )
-    _ensure_gateway_mail_notifier_mode_column(connection)
+    if _has_gateway_queue_tables(connection):
+        _validate_current_gateway_queue_schema(connection)
+    else:
+        connection.executescript(_gateway_queue_schema_sql())
+        _validate_current_gateway_queue_schema(connection)
     connection.execute(
         """
         INSERT OR IGNORE INTO gateway_mail_notifier (
@@ -1377,17 +1331,141 @@ def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
     )
 
 
-def _ensure_gateway_mail_notifier_mode_column(connection: sqlite3.Connection) -> None:
-    """Ensure the singleton notifier table has the current mode column."""
+def _gateway_queue_schema_sql() -> str:
+    """Return the current gateway durable queue SQLite schema."""
 
-    column_names = {
-        str(row[1])
-        for row in connection.execute("PRAGMA table_info(gateway_mail_notifier)").fetchall()
+    return """
+    CREATE TABLE gateway_requests (
+        request_id TEXT PRIMARY KEY,
+        request_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        state TEXT NOT NULL,
+        accepted_at_utc TEXT NOT NULL,
+        started_at_utc TEXT,
+        finished_at_utc TEXT,
+        managed_agent_instance_epoch INTEGER NOT NULL,
+        error_detail TEXT,
+        result_json TEXT
+    );
+
+    CREATE TABLE gateway_mail_notifier (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        enabled INTEGER NOT NULL DEFAULT 0,
+        interval_seconds INTEGER,
+        mode TEXT NOT NULL DEFAULT 'any_inbox' CHECK (mode IN ('any_inbox', 'unread_only')),
+        last_poll_at_utc TEXT,
+        last_notification_at_utc TEXT,
+        last_notified_digest TEXT,
+        last_error TEXT,
+        updated_at_utc TEXT NOT NULL
+    );
+
+    CREATE TABLE gateway_notifier_audit (
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poll_time_utc TEXT NOT NULL,
+        unread_count INTEGER,
+        unread_digest TEXT,
+        unread_summary_json TEXT NOT NULL DEFAULT '[]',
+        request_admission TEXT,
+        active_execution TEXT,
+        queue_depth INTEGER,
+        outcome TEXT NOT NULL CHECK (
+            outcome IN ('empty', 'dedup_skip', 'busy_skip', 'enqueued', 'poll_error')
+        ),
+        enqueued_request_id TEXT,
+        detail TEXT
+    );
+    """
+
+
+def _has_gateway_queue_tables(connection: sqlite3.Connection) -> bool:
+    """Return whether this database already contains gateway queue tables."""
+
+    rows = connection.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name IN ('gateway_requests', 'gateway_mail_notifier', 'gateway_notifier_audit')
+        """
+    ).fetchall()
+    return bool(rows)
+
+
+def _validate_current_gateway_queue_schema(connection: sqlite3.Connection) -> None:
+    """Reject durable gateway storage that is not on the current schema."""
+
+    required_columns = {
+        "gateway_requests": (
+            "request_id",
+            "request_kind",
+            "payload_json",
+            "state",
+            "accepted_at_utc",
+            "started_at_utc",
+            "finished_at_utc",
+            "managed_agent_instance_epoch",
+            "error_detail",
+            "result_json",
+        ),
+        "gateway_mail_notifier": (
+            "singleton",
+            "enabled",
+            "interval_seconds",
+            "mode",
+            "last_poll_at_utc",
+            "last_notification_at_utc",
+            "last_notified_digest",
+            "last_error",
+            "updated_at_utc",
+        ),
+        "gateway_notifier_audit": (
+            "audit_id",
+            "poll_time_utc",
+            "unread_count",
+            "unread_digest",
+            "unread_summary_json",
+            "request_admission",
+            "active_execution",
+            "queue_depth",
+            "outcome",
+            "enqueued_request_id",
+            "detail",
+        ),
     }
-    if "mode" in column_names:
-        return
-    connection.execute(
-        "ALTER TABLE gateway_mail_notifier ADD COLUMN mode TEXT NOT NULL DEFAULT 'any_inbox'"
+    for table_name, column_names in required_columns.items():
+        present_columns = _sqlite_table_columns(connection, table_name)
+        if not present_columns:
+            raise SessionManifestError(_gateway_queue_incompatibility_error(table_name, "missing"))
+        missing_columns = tuple(
+            column_name for column_name in column_names if column_name not in present_columns
+        )
+        if missing_columns:
+            joined = ", ".join(missing_columns)
+            raise SessionManifestError(
+                _gateway_queue_incompatibility_error(
+                    table_name,
+                    f"missing current column(s): {joined}",
+                )
+            )
+
+
+def _sqlite_table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    """Return the column names present on one SQLite table."""
+
+    return {
+        str(row[1])
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+
+def _gateway_queue_incompatibility_error(table_name: str, detail: str) -> str:
+    """Return operator guidance for incompatible gateway queue storage."""
+
+    return (
+        f"Incompatible gateway durable storage schema for `{table_name}`: {detail}. "
+        "Start with a fresh runtime session or recreate the gateway root; in-place gateway "
+        "storage migrations are not supported before 1.0."
     )
 
 

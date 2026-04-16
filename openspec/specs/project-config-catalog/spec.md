@@ -48,7 +48,7 @@ The SQLite catalog SHALL reference those file-backed payloads through explicit m
 
 ### Requirement: Project-local catalog surfaces stable advanced inspection semantics
 
-The project-local catalog SHALL expose a stable advanced inspection surface suitable for SQL-based operator inspection.
+The project-local catalog SHALL expose a stable advanced inspection surface suitable for SQL-based operator inspection for catalogs created by the current supported Houmao version.
 
 At minimum, that surface SHALL provide:
 
@@ -58,27 +58,17 @@ At minimum, that surface SHALL provide:
 
 If advanced users manipulate project-local catalog state through SQL tools, the system SHALL define that surface intentionally rather than relying on undocumented path reconstruction behavior.
 
+Schema versioning SHALL be used to reject unsupported persisted catalog formats. It SHALL NOT imply that Houmao maintains in-place upgrade paths for older pre-1.0 catalog versions.
+
 #### Scenario: Advanced operator inspects project-local semantic objects through SQL
-- **WHEN** an advanced operator opens the project-local SQLite catalog with SQL tooling
+- **WHEN** an advanced operator opens a current project-local SQLite catalog with SQL tooling
 - **THEN** they can inspect stable semantic objects such as specialists, roles, recipes, launch profiles, and content references directly from the catalog
 - **AND THEN** the inspection surface does not require reconstructing relationships from directory nesting under `.houmao/agents/`
 
-### Requirement: Legacy project-local tree-backed overlays can be imported into the catalog
-
-The system SHALL support one-way import of existing project-local overlays that currently encode semantic relationships through `.houmao/agents/` and `.houmao/easy/`.
-
-That import SHALL:
-
-- read legacy project-local specialist metadata and canonical tree content,
-- create equivalent catalog-owned semantic objects and content references,
-- establish the catalog as the authoritative project-local source of truth after successful import.
-
-The system SHALL NOT require long-term dual-authoritative sync between the imported legacy tree and the new catalog.
-
-#### Scenario: Existing project-local overlay is imported into the catalog
-- **WHEN** an operator has an existing project-local overlay whose specialist, role, preset, auth, and skill relationships are stored through `.houmao/agents/` and `.houmao/easy/`
-- **THEN** the system can import that overlay into the project-local SQLite catalog
-- **AND THEN** the imported overlay resolves future project-local semantic relationships from the catalog rather than from the legacy tree as the source of truth
+#### Scenario: Schema version mismatch fails instead of migrating
+- **WHEN** Houmao opens an existing project-local SQLite catalog whose stored schema version is not the current supported version
+- **THEN** Houmao rejects that catalog explicitly
+- **AND THEN** it does not attempt to upgrade the catalog schema in place
 
 ### Requirement: Project-local auth profiles use catalog-owned opaque storage identity
 Project-local auth profiles SHALL be stored as catalog-owned semantic objects with distinct operator-facing display names and stable opaque storage identity.
@@ -123,3 +113,26 @@ User-facing inspection surfaces MAY render the current auth display name, but th
 - **AND WHEN** that auth profile has display name `reviewer-creds`
 - **THEN** specialist inspection renders `reviewer-creds` as the selected auth name
 - **AND THEN** that rendered name comes from the referenced auth profile instead of a second authoritative stored name field
+
+### Requirement: Project-local catalog incompatibilities are hard-reset only before 1.0
+Project-local catalog initialization SHALL create the current catalog schema when the project overlay has no catalog yet.
+
+When a project overlay already contains a catalog, initialization SHALL validate that the catalog uses the current supported schema version and required current-format invariants before continuing.
+
+When an existing catalog is missing required current-format metadata, reports an unsupported schema version, or exposes an obsolete current-table shape, Houmao SHALL fail explicitly and direct the operator to recreate or reinitialize the project overlay. Houmao SHALL NOT mutate that existing catalog through an in-place compatibility migration.
+
+#### Scenario: Fresh project creates the current catalog schema
+- **WHEN** an operator creates a Houmao project from scratch
+- **THEN** Houmao initializes the project-local catalog with the current schema
+- **AND THEN** the project can create mailbox configuration, specialists, launch profiles, and managed agents without running old-format migration code
+
+#### Scenario: Unsupported existing catalog fails with recreate guidance
+- **WHEN** Houmao opens a project overlay whose existing catalog reports an unsupported schema version
+- **THEN** catalog initialization fails before mutating the catalog
+- **AND THEN** the diagnostic directs the operator to recreate or reinitialize the project overlay instead of promising an in-place migration
+
+#### Scenario: Obsolete table shape is not repaired in place
+- **WHEN** an existing project catalog reports the current schema version but still has an obsolete table constraint or removed column
+- **THEN** Houmao treats the catalog as incompatible current-version state
+- **AND THEN** Houmao fails explicitly instead of rebuilding catalog tables in place
+

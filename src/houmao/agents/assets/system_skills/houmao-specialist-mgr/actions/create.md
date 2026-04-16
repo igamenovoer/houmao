@@ -158,7 +158,6 @@ Common optional inputs:
 - `--memo-seed-text`
 - `--memo-seed-file`
 - `--memo-seed-dir`
-- `--memo-seed-policy initialize|replace|fail-if-nonempty`
 
 Common clear inputs for `profile set`:
 
@@ -186,10 +185,10 @@ Profile authoring rules:
 - do not mix `--prompt-overlay-text` and `--prompt-overlay-file`
 - prompt-overlay text requires `--prompt-overlay-mode append|replace`
 - do not mix `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`; use at most one source
-- memo seed policies apply only to components represented by the seed source. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present
-- `--memo-seed-policy` on `profile set` requires one new memo-seed source or an existing stored memo seed
-- `--clear-memo-seed` cannot be combined with one new memo-seed source or `--memo-seed-policy`
-- use `--memo-seed-text '' --memo-seed-policy replace` for an intentional empty memo seed. Use `--clear-memo-seed` only when removing stored seed configuration
+- memo seeds replace only components represented by the seed source. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present
+- supplying a new memo-seed source on `profile set` replaces the stored seed
+- `--clear-memo-seed` cannot be combined with one new memo-seed source
+- use `--memo-seed-text ''` for an intentional empty memo seed. Use `--clear-memo-seed` only when removing stored seed configuration
 - `--mail-transport` is required when any declarative mailbox fields are present
 - `filesystem` mailbox defaults accept `--mail-root` and reject the Stalwart URL flags
 - `stalwart` mailbox defaults accept the Stalwart URL flags and reject `--mail-root`

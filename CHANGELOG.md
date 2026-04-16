@@ -4,6 +4,23 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc4] - 2026-04-16
+
+### Added
+
+- **Multi-tool system skill installs**: `houmao-mgr system-skills install` now accepts comma-separated `--tool` values (e.g. `--tool claude,codex,gemini`) to install Houmao system skills into multiple tool homes in a single command.
+
+### Changed
+
+- **Simplified launch profile memo seeds**: memo seed policies reduced to unconditional replace semantics; removed `initialize` and `fail-if-nonempty` policies and the represented-targets content check.
+- **Removed source migration paths**: in-memory manifest upgrade logic for schema versions 1–3 removed; the runtime now requires `schema_version=4` exclusively. Legacy brain homes must be rebuilt with the current builder.
+- **Removed GitHub skill mirrors**: the mirrored GitHub skill files that duplicated packaged system skills are removed; the canonical source is the packaged skill tree.
+
+### Fixed
+
+- **Memo seed content refs migrated**: memo seed `content_ref` paths updated to match the simplified seed structure.
+- **Stale schema version references in docs**: `agents-and-runtime.md` and `brain-launch-runtime` spec updated from schema v2/v3 references to v4.
+
 ## [0.7.0rc3] - 2026-04-15
 
 ### Added

@@ -9,12 +9,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def test_managed_memory_docs_describe_free_form_memo_and_resolve() -> None:
     """Guard the managed-memory docs against stale generated-index wording."""
 
-    guide = (REPO_ROOT / "docs/getting-started/managed-memory-dirs.md").read_text(
+    guide = (REPO_ROOT / "docs/getting-started/managed-memory-dirs.md").read_text(encoding="utf-8")
+    system_files = (REPO_ROOT / "docs/reference/system-files/agents-and-runtime.md").read_text(
         encoding="utf-8"
     )
-    system_files = (
-        REPO_ROOT / "docs/reference/system-files/agents-and-runtime.md"
-    ).read_text(encoding="utf-8")
 
     assert "free-form Markdown" in guide
     assert "memory resolve --path <page>" in guide
@@ -37,9 +35,7 @@ def test_managed_header_and_system_skill_docs_describe_memory_cue_and_skill() ->
     system_skills = (REPO_ROOT / "docs/getting-started/system-skills-overview.md").read_text(
         encoding="utf-8"
     )
-    cli_reference = (REPO_ROOT / "docs/reference/cli/system-skills.md").read_text(
-        encoding="utf-8"
-    )
+    cli_reference = (REPO_ROOT / "docs/reference/cli/system-skills.md").read_text(encoding="utf-8")
 
     assert "`memo-cue`" in header
     assert "<memo_cue>" in header
@@ -59,39 +55,34 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     easy_specialists = (REPO_ROOT / "docs/getting-started/easy-specialists.md").read_text(
         encoding="utf-8"
     )
-    quickstart = (REPO_ROOT / "docs/getting-started/quickstart.md").read_text(
-        encoding="utf-8"
-    )
-    cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(
-        encoding="utf-8"
-    )
+    quickstart = (REPO_ROOT / "docs/getting-started/quickstart.md").read_text(encoding="utf-8")
+    cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(encoding="utf-8")
     project_launch_profiles_skill = (
         REPO_ROOT
         / "src/houmao/agents/assets/system_skills/houmao-project-mgr/actions/launch-profiles.md"
     ).read_text(encoding="utf-8")
     easy_profile_create_skill = (
-        REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/houmao-specialist-mgr/actions/create.md"
+        REPO_ROOT / "src/houmao/agents/assets/system_skills/houmao-specialist-mgr/actions/create.md"
     ).read_text(encoding="utf-8")
     easy_launch_skill = (
-        REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/houmao-specialist-mgr/actions/launch.md"
+        REPO_ROOT / "src/houmao/agents/assets/system_skills/houmao-specialist-mgr/actions/launch.md"
     ).read_text(encoding="utf-8")
 
     assert "## Memo Seeds" in launch_profiles
-    assert "`initialize`" in launch_profiles
-    assert "`replace`" in launch_profiles
-    assert "`fail-if-nonempty`" in launch_profiles
+    assert "source-scoped replacement semantics" in launch_profiles
+    assert "`initialize`" not in launch_profiles
+    assert "`fail-if-nonempty`" not in launch_profiles
     assert "prompt composition" in launch_profiles
     assert "provider startup" in launch_profiles
     assert "--memo-seed-text" in easy_specialists
     assert "--memo-seed-dir" in easy_specialists
     assert "--clear-memo-seed" in easy_specialists
     assert "--memo-seed-text" in quickstart
-    assert "--memo-seed-policy" in cli_reference
+    assert "--memo-seed-policy" not in cli_reference
     assert "--clear-memo-seed" in cli_reference
     assert "--memo-seed-dir" in project_launch_profiles_skill
-    assert "--memo-seed-policy" in easy_profile_create_skill
+    assert "--memo-seed-policy" not in project_launch_profiles_skill
+    assert "--memo-seed-policy" not in easy_profile_create_skill
     assert "stored memo seed" in easy_launch_skill
 
     for text in (
@@ -104,3 +95,4 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
         easy_launch_skill,
     ):
         assert "memory seed" not in text.lower()
+        assert "fail-if-nonempty" not in text

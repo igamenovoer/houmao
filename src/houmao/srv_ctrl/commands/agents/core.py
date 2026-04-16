@@ -998,7 +998,6 @@ def launch_agents_command(
                 {
                     "present": True,
                     "source_kind": resolved_profile.memo_seed.source_kind,
-                    "policy": resolved_profile.memo_seed.policy,
                     "content_ref": {
                         "content_kind": resolved_profile.memo_seed.content_ref.content_kind,
                         "storage_kind": resolved_profile.memo_seed.content_ref.storage_kind,

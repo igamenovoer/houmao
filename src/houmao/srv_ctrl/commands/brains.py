@@ -37,15 +37,12 @@ def brains_group() -> None:
 @click.option("--tool", default=None, help="Tool identifier used by the selected adapter.")
 @click.option("--skill", "skills", multiple=True, help="Skill path or name to project.")
 @click.option("--setup", default=None, help="Setup bundle to materialize.")
-@click.option("--config-profile", "setup", default=None, hidden=True)
 @click.option("--auth", default=None, help="Auth bundle to project.")
-@click.option("--cred-profile", "auth", default=None, hidden=True)
 @click.option(
     "--preset",
     default=None,
     help="Preset path or bare preset name resolved from the agent root.",
 )
-@click.option("--recipe", "preset", default=None, hidden=True)
 @click.option(
     "--runtime-root",
     default=None,

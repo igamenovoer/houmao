@@ -184,13 +184,12 @@ Key options:
 | `--prompt-overlay-text` | None | Inline prompt-overlay text. |
 | `--prompt-overlay-file` | None | Path to a prompt-overlay text file (stored as managed file-backed content). |
 | `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir` | None | Optional managed-memory memo seed. Use text or file for one memo file, or a directory containing `houmao-memo.md` and/or `pages/`. |
-| `--memo-seed-policy` | `initialize` when a seed is supplied | Optional memo-seed apply policy: `initialize`, `replace`, or `fail-if-nonempty`; policy effects are scoped to the memo/pages components represented by the seed source. |
 
 Easy profiles are stored as the same kind of catalog object that backs explicit recipe-backed launch profiles, but the easy lane keeps the authoring surface smaller and intentionally specialist-backed. The persisted profile lives in the catalog with `profile_lane=easy_profile` and `source_kind=specialist`, and projects into `.houmao/agents/launch-profiles/<name>.yaml` for low-level inspection.
 
 Easy profile creation may also store managed prompt-header policy. `--managed-header` stores whole-header `enabled`, `--no-managed-header` stores whole-header `disabled`, and omitting both stores `inherit`, which falls back to Houmao's default enabled managed-header behavior later at launch time. Repeatable `--managed-header-section SECTION=enabled|disabled` stores sparse section policy; omitted sections use their section defaults.
 
-Easy profiles may also store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacement, `--memo-seed-policy` for policy-only updates when a seed already exists, and `--clear-memo-seed` to remove the stored seed. Memo seed policies apply only to components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and touch pages only when `pages/` is present. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
+Easy profiles may also store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacing the stored seed and `--clear-memo-seed` to remove the stored seed. Memo seeds always replace only the components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and touch pages only when `pages/` is present. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
 
 Manage existing easy profiles with:
 

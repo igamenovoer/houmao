@@ -19,8 +19,6 @@ from .boundary_models import (
     LaunchPlanPayloadV1,
     RegistryLaunchAuthorityV1,
     SessionManifestAgentLaunchAuthorityV1,
-    SessionManifestPayloadV2,
-    SessionManifestPayloadV3,
     SessionManifestPayloadV4,
     format_pydantic_error,
 )
@@ -280,43 +278,20 @@ def load_session_manifest(path: Path) -> SessionManifestHandle:
 
 
 def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV4:
-    """Parse a manifest payload into a typed normalized Pydantic model."""
+    """Parse a current session manifest payload into a typed Pydantic model."""
 
     schema_version = _schema_version_from_payload(payload)
-    if schema_version == SESSION_MANIFEST_SCHEMA_VERSION:
-        return _validate_session_manifest_payload(
-            payload,
-            context=f"session_manifest.v4 validation failed for {source}",
+    if schema_version != SESSION_MANIFEST_SCHEMA_VERSION:
+        raise SessionManifestError(
+            "Session manifest schema-version mismatch: "
+            f"expected schema_version={SESSION_MANIFEST_SCHEMA_VERSION}, "
+            f"got {schema_version!r} in `{source}`. "
+            "Start a fresh runtime session; in-memory upgrades from older manifests are "
+            "not supported before 1.0."
         )
-    if schema_version == 3:
-        legacy_v3_payload = _validate_session_manifest_payload_v3(
-            payload,
-            context=f"session_manifest.v3 validation failed for {source}",
-        )
-        upgraded_payload = _upgrade_v3_manifest_payload(payload=legacy_v3_payload)
-        return _validate_session_manifest_payload(
-            upgraded_payload,
-            context=f"session_manifest.v4 validation failed for upgraded {source}",
-        )
-    if schema_version == 2:
-        legacy_payload = _validate_session_manifest_payload_v2(
-            payload,
-            context=f"session_manifest.v2 validation failed for {source}",
-        )
-        upgraded_payload = _upgrade_legacy_manifest_payload(
-            payload=legacy_payload,
-            source=source,
-        )
-        return _validate_session_manifest_payload(
-            upgraded_payload,
-            context=f"session_manifest.v4 validation failed for upgraded {source}",
-        )
-
-    raise SessionManifestError(
-        "Session manifest schema-version mismatch: "
-        f"expected schema_version in {{2, 3, {SESSION_MANIFEST_SCHEMA_VERSION}}}, "
-        f"got {schema_version!r} in `{source}`. "
-        "Legacy CAO manifests are not supported; start a new session."
+    return _validate_session_manifest_payload(
+        payload,
+        context=f"session_manifest.v4 validation failed for {source}",
     )
 
 
@@ -355,28 +330,11 @@ def _validate_session_manifest_payload(
     try:
         return SessionManifestPayloadV4.model_validate(payload)
     except ValidationError as exc:
-        raise SessionManifestError(format_pydantic_error(context, exc)) from exc
-
-
-def _validate_session_manifest_payload_v3(
-    payload: object, *, context: str
-) -> SessionManifestPayloadV3:
-    """Validate one legacy ``session_manifest.v3`` payload."""
-
-    try:
-        return SessionManifestPayloadV3.model_validate(payload)
-    except ValidationError as exc:
-        raise SessionManifestError(format_pydantic_error(context, exc)) from exc
-
-
-def _validate_session_manifest_payload_v2(
-    payload: object, *, context: str
-) -> SessionManifestPayloadV2:
-    """Validate one legacy ``session_manifest.v2`` payload."""
-
-    try:
-        return SessionManifestPayloadV2.model_validate(payload)
-    except ValidationError as exc:
+        if "gateway_authority is required" in str(exc):
+            raise SessionManifestError(
+                f"{format_pydantic_error(context, exc)}. Start a fresh runtime session; "
+                "legacy backend-specific authority synthesis is not supported before 1.0."
+            ) from exc
         raise SessionManifestError(format_pydantic_error(context, exc)) from exc
 
 
@@ -588,205 +546,6 @@ def _schema_version_from_payload(payload: object) -> int | None:
         return None
     schema_version = payload.get("schema_version")
     return schema_version if isinstance(schema_version, int) else None
-
-
-def _upgrade_legacy_manifest_payload(
-    *, payload: SessionManifestPayloadV2, source: str
-) -> dict[str, Any]:
-    """Upgrade one in-memory v2 manifest payload to the v4 shape."""
-
-    upgraded = payload.model_dump(mode="json")
-    upgraded["schema_version"] = 3
-    upgraded["agent_name"] = None
-    upgraded["agent_id"] = None
-    upgraded["tmux_session_name"] = None
-    upgraded["job_dir"] = _legacy_job_dir(payload=payload, source=source)
-    upgraded["registry_launch_authority"] = "runtime"
-
-    if payload.backend in {
-        "local_interactive",
-        "codex_headless",
-        "claude_headless",
-        "gemini_headless",
-    }:
-        tmux_session_name = _require_legacy_tmux_session_name(
-            payload.backend_state,
-            source=source,
-        )
-        upgraded["agent_name"] = tmux_session_name
-        upgraded["agent_id"] = derive_agent_id_from_name(tmux_session_name)
-        upgraded["tmux_session_name"] = tmux_session_name
-        validated = _validate_session_manifest_payload_v3(
-            upgraded,
-            context=f"session_manifest.v3 validation failed for upgraded {source}",
-        )
-        return _upgrade_v3_manifest_payload(payload=validated)
-
-    if payload.backend == "cao_rest":
-        if payload.cao is None:
-            raise SessionManifestError(f"Legacy CAO manifest is missing `cao` state in `{source}`.")
-        tmux_session_name = payload.cao.session_name
-        upgraded["agent_name"] = tmux_session_name
-        upgraded["agent_id"] = derive_agent_id_from_name(tmux_session_name)
-        upgraded["tmux_session_name"] = tmux_session_name
-        validated = _validate_session_manifest_payload_v3(
-            upgraded,
-            context=f"session_manifest.v3 validation failed for upgraded {source}",
-        )
-        return _upgrade_v3_manifest_payload(payload=validated)
-
-    validated = _validate_session_manifest_payload_v3(
-        upgraded,
-        context=f"session_manifest.v3 validation failed for upgraded {source}",
-    )
-    return _upgrade_v3_manifest_payload(payload=validated)
-
-
-def _upgrade_v3_manifest_payload(*, payload: SessionManifestPayloadV3) -> dict[str, Any]:
-    """Upgrade one in-memory v3 manifest payload to the v4 shape."""
-
-    upgraded = payload.model_dump(mode="json")
-    upgraded["schema_version"] = SESSION_MANIFEST_SCHEMA_VERSION
-    upgraded.pop("job_dir", None)
-    session_id = (
-        _optional_non_empty_str(payload.backend_state.get("session_id"))
-        or _optional_non_empty_str(payload.backend_state.get("session_name"))
-        or payload.tmux_session_name
-        or payload.agent_id
-        or payload.agent_name
-    )
-    memory_root, memo_file, pages_dir = _legacy_memory_fields(payload=payload)
-    upgraded["runtime"] = {
-        "session_id": session_id,
-        "memory_root": memory_root,
-        "memo_file": memo_file,
-        "pages_dir": pages_dir,
-        "agent_def_dir": None,
-        "agent_pid": payload.codex.pid if payload.codex is not None else None,
-        "registry_generation_id": payload.registry_generation_id,
-        "registry_launch_authority": payload.registry_launch_authority,
-    }
-    upgraded["tmux"] = (
-        {
-            "session_name": payload.tmux_session_name,
-            "primary_window_index": "0",
-            "primary_window_role": "managed_agent_surface",
-            "primary_window_name": _optional_non_empty_str(
-                payload.backend_state.get("tmux_window_name")
-            ),
-        }
-        if payload.tmux_session_name is not None
-        else None
-    )
-    upgraded["interactive"] = {
-        "turn_index": _coerce_legacy_manifest_int(
-            payload.backend_state.get("turn_index"), default=0
-        ),
-        "working_directory": str(
-            payload.backend_state.get("working_directory", payload.working_directory)
-        ),
-        "role_bootstrap_applied": (
-            bool(payload.backend_state.get("role_bootstrap_applied", False))
-            if payload.backend
-            in {"local_interactive", "codex_headless", "claude_headless", "gemini_headless"}
-            else None
-        ),
-        "terminal_id": _optional_non_empty_str(payload.backend_state.get("terminal_id")),
-        "parsing_mode": _optional_non_empty_str(payload.backend_state.get("parsing_mode")),
-        "tmux_window_name": _optional_non_empty_str(payload.backend_state.get("tmux_window_name")),
-    }
-    upgraded["agent_launch_authority"] = (
-        {
-            "backend": payload.backend,
-            "tool": payload.tool,
-            "tmux_session_name": payload.tmux_session_name,
-            "primary_window_index": "0",
-            "working_directory": payload.working_directory,
-            "session_id": session_id,
-            "profile_name": _optional_non_empty_str(payload.backend_state.get("profile_name")),
-            "profile_path": _optional_non_empty_str(payload.backend_state.get("profile_path")),
-        }
-        if payload.tmux_session_name is not None
-        else None
-    )
-    attach = {
-        "api_base_url": _optional_non_empty_str(payload.backend_state.get("api_base_url")),
-        "managed_agent_ref": (
-            _optional_non_empty_str(payload.backend_state.get("session_name"))
-            if payload.backend == "houmao_server_rest"
-            else None
-        ),
-        "terminal_id": _optional_non_empty_str(payload.backend_state.get("terminal_id")),
-        "profile_name": _optional_non_empty_str(payload.backend_state.get("profile_name")),
-        "profile_path": _optional_non_empty_str(payload.backend_state.get("profile_path")),
-        "parsing_mode": _optional_non_empty_str(payload.backend_state.get("parsing_mode")),
-        "tmux_window_name": _optional_non_empty_str(payload.backend_state.get("tmux_window_name")),
-    }
-    upgraded["gateway_authority"] = (
-        {"attach": dict(attach), "control": dict(attach)}
-        if payload.tmux_session_name is not None
-        else None
-    )
-    return upgraded
-
-
-def _require_legacy_tmux_session_name(backend_state: dict[str, Any], *, source: str) -> str:
-    """Return the legacy persisted tmux session name from backend state."""
-
-    tmux_session_name = backend_state.get("tmux_session_name")
-    if not isinstance(tmux_session_name, str) or not tmux_session_name.strip():
-        raise SessionManifestError(
-            f"Legacy manifest `{source}` is missing non-empty `backend_state.tmux_session_name`."
-        )
-    return tmux_session_name.strip()
-
-
-def _coerce_legacy_manifest_int(value: object, *, default: int) -> int:
-    """Coerce one legacy manifest scalar integer value."""
-
-    if value is None:
-        return default
-    if isinstance(value, str | int | float):
-        return int(value)
-    return default
-
-
-def _legacy_job_dir(*, payload: SessionManifestPayloadV2, source: str) -> str | None:
-    """Best-effort job-dir derivation for addressed legacy manifests."""
-
-    source_path = Path(source)
-    if source_path.name != "manifest.json":
-        return None
-
-    session_root = runtime_owned_session_root_from_manifest_path(source_path)
-    if session_root is None:
-        return None
-
-    session_id = session_root.name
-    working_directory = Path(payload.working_directory).resolve()
-    return str((working_directory / ".houmao" / "jobs" / session_id).resolve())
-
-
-def _legacy_memory_fields(
-    *,
-    payload: SessionManifestPayloadV3,
-) -> tuple[str | None, str | None, str | None]:
-    """Best-effort memory path derivation for older manifest payloads."""
-
-    if payload.agent_id is None:
-        return None, None, None
-    memory_root = (
-        Path(payload.working_directory).resolve()
-        / ".houmao"
-        / "memory"
-        / "agents"
-        / payload.agent_id
-    ).resolve()
-    return (
-        str(memory_root),
-        str((memory_root / "houmao-memo.md").resolve()),
-        str((memory_root / "pages").resolve()),
-    )
 
 
 def _optional_non_empty_str(value: object) -> str | None:

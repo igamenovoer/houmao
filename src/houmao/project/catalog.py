@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
-import tomllib
 from typing import TYPE_CHECKING, Any, Iterator, Literal, cast
 from uuid import uuid4
 
@@ -28,7 +27,7 @@ from houmao.agents.managed_prompt_header import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 10
+CATALOG_SCHEMA_VERSION = 12
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -58,14 +57,6 @@ _SOURCE_KIND_VALUES = (_SOURCE_KIND_SPECIALIST, _SOURCE_KIND_RECIPE)
 _MEMO_SEED_SOURCE_KIND_MEMO = "memo"
 _MEMO_SEED_SOURCE_KIND_TREE = "tree"
 _MEMO_SEED_SOURCE_KIND_VALUES = (_MEMO_SEED_SOURCE_KIND_MEMO, _MEMO_SEED_SOURCE_KIND_TREE)
-_MEMO_SEED_POLICY_INITIALIZE = "initialize"
-_MEMO_SEED_POLICY_REPLACE = "replace"
-_MEMO_SEED_POLICY_FAIL_IF_NONEMPTY = "fail-if-nonempty"
-_MEMO_SEED_POLICY_VALUES = (
-    _MEMO_SEED_POLICY_INITIALIZE,
-    _MEMO_SEED_POLICY_REPLACE,
-    _MEMO_SEED_POLICY_FAIL_IF_NONEMPTY,
-)
 _MEMO_SEED_TOP_LEVEL_MEMO_FILE = "houmao-memo.md"
 _MEMO_SEED_TOP_LEVEL_PAGES_DIR = "pages"
 
@@ -139,7 +130,6 @@ class LaunchProfileMemoSeed:
     """Managed memo-seed metadata stored on one launch profile."""
 
     source_kind: Literal["memo", "tree"]
-    policy: Literal["initialize", "replace", "fail-if-nonempty"]
     content_ref: ManagedContentRef
 
 
@@ -215,113 +205,41 @@ class ProjectCatalog:
     def __init__(
         self,
         *,
-        overlay_root: Path,
         catalog_path: Path,
         content_root: Path,
         projection_root: Path,
-        legacy_specialists_root: Path,
-        legacy_easy_root: Path,
     ) -> None:
         """Initialize one repository bound to a project overlay."""
 
-        self.m_overlay_root = overlay_root.resolve()
         self.m_catalog_path = catalog_path.resolve()
         self.m_content_root = content_root.resolve()
         self.m_projection_root = projection_root.resolve()
-        self.m_legacy_specialists_root = legacy_specialists_root.resolve()
-        self.m_legacy_easy_root = legacy_easy_root.resolve()
 
     @classmethod
     def from_overlay(cls, overlay: HoumaoProjectOverlay) -> ProjectCatalog:
         """Build one project catalog repository from a resolved overlay."""
 
         return cls(
-            overlay_root=overlay.overlay_root,
             catalog_path=overlay.catalog_path,
             content_root=overlay.content_root,
             projection_root=overlay.agents_root,
-            legacy_specialists_root=overlay.specialists_root,
-            legacy_easy_root=overlay.easy_root,
         )
 
     def initialize(self) -> None:
         """Create the catalog schema and managed content roots when missing."""
 
-        self._ensure_content_roots()
+        catalog_existed = self.m_catalog_path.exists()
+        if not catalog_existed:
+            self._ensure_content_roots()
         with self._connect() as connection:
-            connection.executescript(_table_schema_sql())
-            self._migrate_schema(connection)
-            self._ensure_catalog_metadata(connection)
+            if catalog_existed:
+                _validate_current_catalog_schema(connection)
+                self._ensure_content_roots()
+            else:
+                connection.executescript(_table_schema_sql())
+                self._ensure_catalog_metadata(connection)
             self._seed_setup_profiles(connection)
             connection.executescript(_view_sql())
-
-    def ensure_legacy_import(self) -> None:
-        """Import legacy easy specialists into the catalog when needed."""
-
-        self.initialize()
-        if self._specialist_count() > 0:
-            return
-        if not self.m_legacy_specialists_root.is_dir():
-            return
-
-        candidates = sorted(self.m_legacy_specialists_root.glob("*.toml"))
-        if not candidates:
-            return
-
-        for metadata_path in candidates:
-            payload = _load_legacy_specialist_payload(metadata_path)
-            prompt_path = (self.m_overlay_root / payload["system_prompt_path"]).resolve()
-            preset_path = (self.m_overlay_root / payload["preset_path"]).resolve()
-            auth_path = (self.m_overlay_root / payload["auth_path"]).resolve()
-            skill_paths = tuple(
-                (self.m_projection_root / "skills" / skill_name).resolve()
-                for skill_name in payload["skills"]
-            )
-
-            if not prompt_path.is_file():
-                raise ValueError(
-                    f"{metadata_path}: referenced system prompt does not exist: {prompt_path}"
-                )
-            if not preset_path.is_file():
-                raise ValueError(
-                    f"{metadata_path}: referenced preset does not exist: {preset_path}"
-                )
-            if not auth_path.is_dir():
-                raise ValueError(
-                    f"{metadata_path}: referenced auth bundle does not exist: {auth_path}"
-                )
-            for skill_name, skill_path in zip(payload["skills"], skill_paths, strict=True):
-                if not skill_path.is_dir():
-                    raise ValueError(
-                        f"{metadata_path}: referenced skill `{skill_name}` does not exist: {skill_path}"
-                    )
-
-            auth_profile = self.ensure_auth_profile_from_source(
-                tool=payload["tool"],
-                display_name=payload["credential_name"],
-                source_path=auth_path,
-            )
-            self.store_specialist_from_sources(
-                name=payload["name"],
-                preset_name=preset_path.stem,
-                tool=payload["tool"],
-                provider=payload["provider"],
-                auth_profile=auth_profile,
-                role_name=payload["role_name"],
-                setup_name=_load_legacy_preset_setup_name(preset_path),
-                prompt_path=prompt_path,
-                skill_paths=skill_paths,
-                setup_path=(
-                    self.m_projection_root
-                    / "tools"
-                    / payload["tool"]
-                    / "setups"
-                    / _load_legacy_preset_setup_name(preset_path)
-                ),
-                launch_mapping=_load_preset_top_level_mapping(preset_path, "launch"),
-                mailbox_mapping=_load_preset_top_level_mapping(preset_path, "mailbox"),
-                extra_mapping=_load_preset_top_level_mapping(preset_path, "extra"),
-            )
 
     def list_auth_profiles(self, *, tool: str | None = None) -> list[AuthProfileCatalogEntry]:
         """Return persisted auth profiles, optionally filtered by tool."""
@@ -482,7 +400,7 @@ class ProjectCatalog:
         if resolved_name == resolved_new_name:
             return self.load_auth_profile(tool=tool, name=resolved_name)
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             row = self._find_auth_profile_row(
                 connection=connection,
@@ -555,7 +473,7 @@ class ProjectCatalog:
     def specialist_exists(self, name: str) -> bool:
         """Return whether one specialist already exists in the catalog."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT 1 FROM specialists WHERE name = ? LIMIT 1",
@@ -566,7 +484,7 @@ class ProjectCatalog:
     def list_specialists(self) -> list[SpecialistCatalogEntry]:
         """Return every persisted specialist definition."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -606,7 +524,7 @@ class ProjectCatalog:
     def load_specialist(self, name: str) -> SpecialistCatalogEntry:
         """Load one specialist from the catalog."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -813,9 +731,6 @@ class ProjectCatalog:
         role_root = self.m_projection_root / "roles" / specialist.role_name
         if delete_role_projection and role_root.is_dir():
             shutil.rmtree(role_root)
-        metadata_path = (self.m_legacy_specialists_root / f"{name}.toml").resolve()
-        if metadata_path.exists():
-            metadata_path.unlink()
         return self.m_catalog_path
 
     def list_launch_profiles(self) -> list[LaunchProfileCatalogEntry]:
@@ -845,7 +760,6 @@ class ProjectCatalog:
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
-                    launch_profiles.memo_seed_policy,
                     launch_profiles.memo_seed_source_kind,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
@@ -891,7 +805,6 @@ class ProjectCatalog:
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
-                    launch_profiles.memo_seed_policy,
                     launch_profiles.memo_seed_source_kind,
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
@@ -935,7 +848,6 @@ class ProjectCatalog:
         prompt_overlay_mode: str | None,
         prompt_overlay_text: str | None,
         memo_seed_source_kind: str | None = None,
-        memo_seed_policy: str | None = None,
         memo_seed_text: str | None = None,
         memo_seed_source_path: Path | None = None,
         model_name: str | None = None,
@@ -960,24 +872,17 @@ class ProjectCatalog:
             raise ValueError("Prompt-overlay mode must be `append` or `replace` when provided.")
         if prompt_overlay_mode is not None and prompt_overlay_text is None:
             raise ValueError("Prompt-overlay mode requires prompt-overlay text.")
-        if memo_seed_source_kind is not None and memo_seed_source_kind not in _MEMO_SEED_SOURCE_KIND_VALUES:
+        if (
+            memo_seed_source_kind is not None
+            and memo_seed_source_kind not in _MEMO_SEED_SOURCE_KIND_VALUES
+        ):
             raise ValueError(
                 f"Memo-seed source kind must be one of {sorted(_MEMO_SEED_SOURCE_KIND_VALUES)}."
             )
-        resolved_memo_seed_policy: str | None = None
         if memo_seed_source_kind is None:
-            if (
-                memo_seed_policy is not None
-                or memo_seed_text is not None
-                or memo_seed_source_path is not None
-            ):
-                raise ValueError("Memo-seed policy or content requires a memo-seed source kind.")
+            if memo_seed_text is not None or memo_seed_source_path is not None:
+                raise ValueError("Memo-seed content requires a memo-seed source kind.")
         else:
-            resolved_memo_seed_policy = memo_seed_policy or _MEMO_SEED_POLICY_INITIALIZE
-            if resolved_memo_seed_policy not in _MEMO_SEED_POLICY_VALUES:
-                raise ValueError(
-                    f"Memo-seed policy must be one of {sorted(_MEMO_SEED_POLICY_VALUES)}."
-                )
             if (memo_seed_text is None) == (memo_seed_source_path is None):
                 raise ValueError(
                     "Provide exactly one memo-seed text payload or memo-seed source path."
@@ -1059,12 +964,11 @@ class ProjectCatalog:
                     managed_header_section_policy,
                     prompt_overlay_mode,
                     prompt_overlay_content_ref_id,
-                    memo_seed_policy,
                     memo_seed_source_kind,
                     memo_seed_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -1085,7 +989,6 @@ class ProjectCatalog:
                     managed_header_section_policy = excluded.managed_header_section_policy,
                     prompt_overlay_mode = excluded.prompt_overlay_mode,
                     prompt_overlay_content_ref_id = excluded.prompt_overlay_content_ref_id,
-                    memo_seed_policy = excluded.memo_seed_policy,
                     memo_seed_source_kind = excluded.memo_seed_source_kind,
                     memo_seed_content_ref_id = excluded.memo_seed_content_ref_id,
                     updated_at = excluded.updated_at
@@ -1111,7 +1014,6 @@ class ProjectCatalog:
                     json.dumps(resolved_managed_header_section_policy, sort_keys=True),
                     prompt_overlay_mode,
                     prompt_overlay_ref_id,
-                    resolved_memo_seed_policy,
                     memo_seed_source_kind,
                     memo_seed_ref_id,
                     timestamp,
@@ -1142,7 +1044,7 @@ class ProjectCatalog:
     def materialize_projection(self) -> Path:
         """Materialize the non-authoritative agent tree projection from the catalog."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         self._ensure_projection_starter_tree()
         entries = self.list_specialists()
         launch_profiles = self.list_launch_profiles()
@@ -1209,7 +1111,7 @@ class ProjectCatalog:
     def validate_integrity(self) -> CatalogIntegrityReport:
         """Validate managed content references and detect orphaned content rows."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         missing_content: list[str] = []
         orphaned_content: list[str] = []
         with self._connect() as connection:
@@ -1276,14 +1178,6 @@ class ProjectCatalog:
         finally:
             connection.close()
 
-    def _specialist_count(self) -> int:
-        """Return the number of persisted specialists."""
-
-        with self._connect() as connection:
-            row = connection.execute("SELECT COUNT(*) FROM specialists").fetchone()
-            assert row is not None
-            return int(row[0])
-
     def _ensure_catalog_metadata(self, connection: sqlite3.Connection) -> None:
         """Seed the schema metadata rows."""
 
@@ -1337,106 +1231,6 @@ class ProjectCatalog:
                     """,
                     (tool_dir.name, setup_dir.name, content_ref_id),
                 )
-
-    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
-        """Apply in-place catalog migrations required by the current schema."""
-
-        current_version = _catalog_schema_version(connection)
-        if current_version == CATALOG_SCHEMA_VERSION:
-            return
-        required_columns = (
-            ("auth_profiles", "display_name"),
-            ("auth_profiles", "bundle_ref"),
-            ("launch_profiles", "auth_profile_id"),
-        )
-        if current_version in {0, 7, 8} and all(
-            _table_has_column(connection, table_name=table_name, column_name=column_name)
-            for table_name, column_name in required_columns
-        ):
-            if not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="managed_header_section_policy",
-            ):
-                connection.execute(
-                    """
-                    ALTER TABLE launch_profiles
-                    ADD COLUMN managed_header_section_policy TEXT NOT NULL DEFAULT '{}'
-                    """
-                )
-            if _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memory_dir",
-            ) and not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="persist_dir",
-            ):
-                connection.execute(
-                    "ALTER TABLE launch_profiles RENAME COLUMN memory_dir TO persist_dir"
-                )
-            if _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memory_disabled",
-            ) and not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="persist_disabled",
-            ):
-                connection.execute(
-                    "ALTER TABLE launch_profiles RENAME COLUMN memory_disabled TO persist_disabled"
-                )
-            current_version = 9
-        if current_version == 9:
-            if not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memo_seed_policy",
-            ):
-                memo_seed_policy_check = ", ".join(
-                    f"'{value}'" for value in _MEMO_SEED_POLICY_VALUES
-                )
-                connection.execute(
-                    f"""
-                    ALTER TABLE launch_profiles
-                    ADD COLUMN memo_seed_policy TEXT
-                    CHECK(memo_seed_policy IN ({memo_seed_policy_check}))
-                    """
-                )
-            if not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memo_seed_source_kind",
-            ):
-                memo_seed_source_kind_check = ", ".join(
-                    f"'{value}'" for value in _MEMO_SEED_SOURCE_KIND_VALUES
-                )
-                connection.execute(
-                    f"""
-                    ALTER TABLE launch_profiles
-                    ADD COLUMN memo_seed_source_kind TEXT
-                    CHECK(memo_seed_source_kind IN ({memo_seed_source_kind_check}))
-                    """
-                )
-            if not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memo_seed_content_ref_id",
-            ):
-                connection.execute(
-                    """
-                    ALTER TABLE launch_profiles
-                    ADD COLUMN memo_seed_content_ref_id INTEGER
-                    REFERENCES content_refs(id) ON DELETE SET NULL
-                    """
-                )
-            return
-        raise ValueError(
-            "Unsupported project catalog schema. Reinitialize the project overlay to adopt the "
-            "current catalog format."
-        )
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -1578,7 +1372,9 @@ class ProjectCatalog:
             relative_path=relative_path,
         )
 
-    def _snapshot_memo_seed_file(self, *, source_path: Path, relative_path: str) -> ManagedContentRef:
+    def _snapshot_memo_seed_file(
+        self, *, source_path: Path, relative_path: str
+    ) -> ManagedContentRef:
         """Copy one memo-seed Markdown file into managed content storage."""
 
         text = _read_memo_seed_text_file(source_path, source=str(source_path))
@@ -1590,7 +1386,9 @@ class ProjectCatalog:
             relative_path=relative_path,
         )
 
-    def _snapshot_memo_seed_tree(self, *, source_path: Path, relative_path: str) -> ManagedContentRef:
+    def _snapshot_memo_seed_tree(
+        self, *, source_path: Path, relative_path: str
+    ) -> ManagedContentRef:
         """Copy one validated memo-seed directory into managed content storage."""
 
         _validate_memo_seed_tree(source_path)
@@ -2011,17 +1809,12 @@ class ProjectCatalog:
         memo_relative_path = row["memo_relative_path"]
         if memo_relative_path is not None:
             memo_source_kind = row["memo_seed_source_kind"]
-            memo_policy = row["memo_seed_policy"]
-            if memo_source_kind is None or memo_policy is None:
+            if memo_source_kind is None:
                 raise ValueError(
                     f"Launch profile `{row['name']}` stores incomplete memo-seed metadata."
                 )
             memo_seed = LaunchProfileMemoSeed(
                 source_kind=cast(Literal["memo", "tree"], str(memo_source_kind)),
-                policy=cast(
-                    Literal["initialize", "replace", "fail-if-nonempty"],
-                    str(memo_policy),
-                ),
                 content_ref=ManagedContentRef(
                     content_kind=str(row["memo_kind"]),
                     storage_kind=str(row["memo_storage_kind"]),
@@ -2106,10 +1899,7 @@ def _table_schema_sql() -> str:
 
     content_kind_check = ", ".join(f"'{value}'" for value in _CONTENT_KIND_VALUES)
     storage_kind_check = ", ".join(f"'{value}'" for value in _STORAGE_KIND_VALUES)
-    memo_seed_policy_check = ", ".join(f"'{value}'" for value in _MEMO_SEED_POLICY_VALUES)
-    memo_seed_source_kind_check = ", ".join(
-        f"'{value}'" for value in _MEMO_SEED_SOURCE_KIND_VALUES
-    )
+    memo_seed_source_kind_check = ", ".join(f"'{value}'" for value in _MEMO_SEED_SOURCE_KIND_VALUES)
     return f"""
     CREATE TABLE IF NOT EXISTS catalog_meta (
         key TEXT PRIMARY KEY,
@@ -2217,7 +2007,6 @@ def _table_schema_sql() -> str:
         managed_header_section_policy TEXT NOT NULL DEFAULT '{{}}',
         prompt_overlay_mode TEXT,
         prompt_overlay_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
-        memo_seed_policy TEXT CHECK(memo_seed_policy IN ({memo_seed_policy_check})),
         memo_seed_source_kind TEXT CHECK(
             memo_seed_source_kind IN ({memo_seed_source_kind_check})
         ),
@@ -2309,7 +2098,6 @@ def _view_sql() -> str:
         launch_profiles.managed_header_section_policy AS managed_header_section_policy,
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
         prompt_refs.relative_path AS prompt_overlay_relative_path,
-        launch_profiles.memo_seed_policy AS memo_seed_policy,
         launch_profiles.memo_seed_source_kind AS memo_seed_source_kind,
         memo_refs.relative_path AS memo_seed_relative_path
     FROM launch_profiles
@@ -2324,20 +2112,201 @@ def _view_sql() -> str:
 def _catalog_schema_version(connection: sqlite3.Connection) -> int:
     """Return the stored catalog schema version when present."""
 
-    row = connection.execute(
-        """
-        SELECT value
-        FROM catalog_meta
-        WHERE key = 'schema_version'
-        LIMIT 1
-        """
-    ).fetchone()
+    try:
+        row = connection.execute(
+            """
+            SELECT value
+            FROM catalog_meta
+            WHERE key = 'schema_version'
+            LIMIT 1
+            """
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0
     if row is None:
         return 0
     try:
         return int(row[0])
     except (TypeError, ValueError):
         return 0
+
+
+def _catalog_meta_value(connection: sqlite3.Connection, key: str) -> str | None:
+    """Return one catalog metadata value when present."""
+
+    try:
+        row = connection.execute(
+            """
+            SELECT value
+            FROM catalog_meta
+            WHERE key = ?
+            LIMIT 1
+            """,
+            (key,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    return str(row[0])
+
+
+def _validate_current_catalog_schema(connection: sqlite3.Connection) -> None:
+    """Reject persisted catalogs that do not match the current schema exactly."""
+
+    current_version = _catalog_schema_version(connection)
+    if current_version != CATALOG_SCHEMA_VERSION:
+        raise ValueError(
+            _catalog_incompatibility_error(
+                f"expected schema_version={CATALOG_SCHEMA_VERSION}, got {current_version!r}"
+            )
+        )
+    storage_model = _catalog_meta_value(connection, "storage_model")
+    if storage_model != "hybrid_sqlite_catalog":
+        raise ValueError(
+            _catalog_incompatibility_error("missing current storage_model metadata")
+        )
+    for table_name, column_names in _required_current_catalog_columns().items():
+        missing_columns = tuple(
+            column_name
+            for column_name in column_names
+            if not _table_has_column(
+                connection,
+                table_name=table_name,
+                column_name=column_name,
+            )
+        )
+        if missing_columns:
+            joined = ", ".join(missing_columns)
+            raise ValueError(
+                _catalog_incompatibility_error(
+                    f"table `{table_name}` is missing current column(s): {joined}"
+                )
+            )
+    for table_name, column_names in _obsolete_current_catalog_columns().items():
+        obsolete_columns = tuple(
+            column_name
+            for column_name in column_names
+            if _table_has_column(
+                connection,
+                table_name=table_name,
+                column_name=column_name,
+            )
+        )
+        if obsolete_columns:
+            joined = ", ".join(obsolete_columns)
+            raise ValueError(
+                _catalog_incompatibility_error(
+                    f"table `{table_name}` still has obsolete column(s): {joined}"
+                )
+            )
+    if not _content_refs_accepts_memo_seed(connection):
+        raise ValueError(
+            _catalog_incompatibility_error(
+                "table `content_refs` does not allow current memo_seed content references"
+            )
+        )
+
+
+def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
+    """Return the minimal current catalog table shape validated on open."""
+
+    return {
+        "catalog_meta": ("key", "value"),
+        "content_refs": (
+            "id",
+            "content_kind",
+            "storage_kind",
+            "relative_path",
+            "sha256",
+            "created_at",
+        ),
+        "roles": ("id", "name", "prompt_content_ref_id"),
+        "setup_profiles": ("id", "tool", "name", "content_ref_id"),
+        "auth_profiles": (
+            "id",
+            "tool",
+            "display_name",
+            "bundle_ref",
+            "content_ref_id",
+            "created_at",
+            "updated_at",
+        ),
+        "skill_packages": ("id", "name", "content_ref_id"),
+        "mailbox_policies": ("id", "name", "transport", "policy_payload"),
+        "presets": (
+            "id",
+            "name",
+            "role_id",
+            "tool",
+            "setup_profile_id",
+            "auth_profile_id",
+            "mailbox_policy_id",
+            "launch_payload",
+            "mailbox_payload",
+            "extra_payload",
+        ),
+        "preset_skill_packages": ("preset_id", "skill_package_id", "ordinal"),
+        "specialists": (
+            "id",
+            "name",
+            "tool",
+            "provider",
+            "role_id",
+            "preset_id",
+            "created_at",
+            "updated_at",
+        ),
+        "launch_profiles": (
+            "id",
+            "name",
+            "profile_lane",
+            "source_kind",
+            "source_name",
+            "managed_agent_name",
+            "managed_agent_id",
+            "workdir",
+            "auth_profile_id",
+            "persist_dir",
+            "persist_disabled",
+            "model_name",
+            "reasoning_level",
+            "operator_prompt_mode",
+            "env_payload",
+            "mailbox_payload",
+            "posture_payload",
+            "managed_header_policy",
+            "managed_header_section_policy",
+            "prompt_overlay_mode",
+            "prompt_overlay_content_ref_id",
+            "memo_seed_source_kind",
+            "memo_seed_content_ref_id",
+            "created_at",
+            "updated_at",
+        ),
+    }
+
+
+def _obsolete_current_catalog_columns() -> dict[str, tuple[str, ...]]:
+    """Return obsolete columns that indicate a stale current-version catalog."""
+
+    return {
+        "launch_profiles": (
+            "memory_dir",
+            "memory_disabled",
+            "memo_seed_policy",
+        ),
+    }
+
+
+def _catalog_incompatibility_error(detail: str) -> str:
+    """Return operator guidance for an incompatible project catalog."""
+
+    return (
+        f"Unsupported project catalog schema: {detail}. Recreate or reinitialize the project "
+        "overlay to adopt the current catalog format; in-place project catalog migrations are "
+        "not supported before 1.0."
+    )
 
 
 def _table_has_column(
@@ -2352,55 +2321,20 @@ def _table_has_column(
     return any(str(row[1]) == column_name for row in rows)
 
 
-def _load_legacy_specialist_payload(path: Path) -> dict[str, Any]:
-    """Load one legacy easy specialist TOML payload."""
+def _content_refs_accepts_memo_seed(connection: sqlite3.Connection) -> bool:
+    """Return whether content_refs permits memo-seed content rows."""
 
-    with path.open("rb") as handle:
-        payload = tomllib.load(handle)
-    if not isinstance(payload, dict):
-        raise ValueError(f"{path}: expected a top-level TOML table.")
-    schema_version = payload.get("schema_version")
-    if schema_version != 1:
-        raise ValueError(f"{path}: only schema_version=1 is supported.")
-    required_keys = (
-        "name",
-        "tool",
-        "provider",
-        "credential_name",
-        "role_name",
-        "system_prompt_path",
-        "preset_path",
-        "auth_path",
-    )
-    result: dict[str, Any] = {}
-    for key in required_keys:
-        value = payload.get(key)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{path}: missing string `{key}`.")
-        result[key] = value.strip()
-    raw_skills = payload.get("skills")
-    if raw_skills is None:
-        result["skills"] = []
-    elif isinstance(raw_skills, list) and all(
-        isinstance(item, str) and item.strip() for item in raw_skills
-    ):
-        result["skills"] = [item.strip() for item in raw_skills]
-    else:
-        raise ValueError(f"{path}: expected `skills` to be a list of non-empty strings.")
-    return result
-
-
-def _load_legacy_preset_setup_name(path: Path) -> str:
-    """Return the `setup` field from one legacy YAML-like preset file."""
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or not line.startswith("setup:"):
-            continue
-        value = line.partition(":")[2].strip().strip('"').strip("'")
-        if value:
-            return value
-    raise ValueError(f"{path}: missing `setup` field.")
+    row = connection.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'content_refs'
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None or row[0] is None:
+        return False
+    return f"'{_CONTENT_KIND_MEMO_SEED}'" in str(row[0])
 
 
 def _render_preset_yaml(entry: SpecialistCatalogEntry) -> str:
@@ -2482,7 +2416,6 @@ def _render_launch_profile_yaml(
         memo_seed_path = entry.memo_seed.content_ref.resolve_under_content_root(content_root)
         defaults["memo_seed"] = {
             "source_kind": entry.memo_seed.source_kind,
-            "policy": entry.memo_seed.policy,
             "content_ref": {
                 "content_kind": entry.memo_seed.content_ref.content_kind,
                 "storage_kind": entry.memo_seed.content_ref.storage_kind,
@@ -2600,9 +2533,7 @@ def _validate_memo_seed_tree(source_path: Path) -> None:
         raise ValueError(f"Memo-seed directory does not exist: {resolved_source}")
     entries = sorted(resolved_source.iterdir(), key=lambda item: item.name)
     if not entries:
-        raise ValueError(
-            "Memo-seed directories must contain `houmao-memo.md`, `pages/`, or both."
-        )
+        raise ValueError("Memo-seed directories must contain `houmao-memo.md`, `pages/`, or both.")
     supported_entries = {_MEMO_SEED_TOP_LEVEL_MEMO_FILE, _MEMO_SEED_TOP_LEVEL_PAGES_DIR}
     has_supported_entry = False
     for entry in entries:
@@ -2622,9 +2553,7 @@ def _validate_memo_seed_tree(source_path: Path) -> None:
         _validate_memo_seed_pages_tree(entry)
         has_supported_entry = True
     if not has_supported_entry:
-        raise ValueError(
-            "Memo-seed directories must contain `houmao-memo.md`, `pages/`, or both."
-        )
+        raise ValueError("Memo-seed directories must contain `houmao-memo.md`, `pages/`, or both.")
 
 
 def _validate_memo_seed_pages_tree(pages_root: Path) -> None:

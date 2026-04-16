@@ -9,6 +9,7 @@ The `README.md` usage section SHALL include a subsection introducing the system-
 The subsection SHALL explain that Houmao installs packaged skills into agent tool homes so that agents can drive management tasks through their native skill interface without requiring the operator to invoke `houmao-mgr` manually.
 
 The subsection SHALL list the seven non-mailbox packaged skill families:
+
 - `houmao-project-mgr` — project overlay lifecycle, project layout, and project-scoped launch-profile and easy-instance inspection routing
 - `houmao-specialist-mgr` — specialist authoring plus specialist-scoped launch and stop entry
 - `houmao-credential-mgr` — project-local credential management
@@ -19,7 +20,11 @@ The subsection SHALL list the seven non-mailbox packaged skill families:
 
 The subsection SHALL explain that `agents join` and `agents launch` auto-install the packaged user-control, agent-messaging, and agent-gateway skills into managed homes by default, which means the managed `user-control` install now includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, and `houmao-agent-definition`, while explicit `houmao-mgr system-skills install` into an external tool home can add the broader CLI-default skill selection that also includes `houmao-agent-instance`.
 
-The subsection SHALL show a brief current `houmao-mgr system-skills install` example for explicit external tool homes that relies on the CLI-default selection by omitting both `--set` and `--skill`.
+The subsection SHALL show a brief current `houmao-mgr system-skills install` example that relies on the CLI-default selection by omitting both `--skill-set` and `--skill`.
+
+The subsection SHALL show the comma-separated multi-tool install form without `--home` and SHALL explain that `--home` can be used only with a single selected tool when the operator needs an explicit home override.
+
+When the subsection shows named system-skill set selection, it SHALL use `--skill-set <name>` and SHALL NOT present `--set <name>` as the current public flag.
 
 The subsection SHALL link to `docs/reference/cli/system-skills.md` for the full reference.
 
@@ -37,10 +42,13 @@ The subsection SHALL link to `docs/reference/cli/system-skills.md` for the full 
 - **AND THEN** it explains that the managed `user-control` set now includes `houmao-project-mgr`
 - **AND THEN** it explains that external `system-skills install` can add the broader CLI-default selection that also includes `houmao-agent-instance`
 
-#### Scenario: Reader can install system skills into an external tool home with current CLI syntax
+#### Scenario: Reader can install system skills into resolved tool homes with current CLI syntax
 
-- **WHEN** a reader wants to prepare an external tool home with Houmao skills
-- **THEN** the README shows a `houmao-mgr system-skills install` example with `--tool` and `--home` flags and no stale `--default` flag
+- **WHEN** a reader wants to prepare one or more tool homes with Houmao skills
+- **THEN** the README shows a `houmao-mgr system-skills install` example with a single `--tool` value or comma-separated `--tool` value and no stale `--default` flag
+- **AND THEN** the README explains that omitted `--home` resolves each selected tool through its own env/default home rules
+- **AND THEN** the README explains that explicit `--home` is valid only for one selected tool
+- **AND THEN** any named system-skill set examples use `--skill-set` rather than `--set`
 - **AND THEN** the example links to the full reference for additional options
 
 ### Requirement: README accuracy pass for recent refactors

@@ -7,6 +7,7 @@ import pytest
 from houmao.agents.definition_parser import (
     load_agent_catalog,
     parse_agent_preset,
+    parse_tool_adapter,
     resolve_agent_preset,
 )
 
@@ -118,6 +119,42 @@ config_profile: default
 
     with pytest.raises(ValueError, match="unsupported top-level field"):
         parse_agent_preset(preset_path)
+
+
+def test_parse_tool_adapter_rejects_legacy_projection_aliases(tmp_path: Path) -> None:
+    adapter_path = tmp_path / "tools/claude/adapter.yaml"
+    _write(
+        adapter_path,
+        """
+schema_version: 1
+tool: claude
+home_selector:
+  env_var: CLAUDE_CONFIG_DIR
+launch:
+  executable: claude
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+config_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: symlink
+credential_projection:
+  files_dir: files
+  file_mappings: []
+  env:
+    source: env/vars.env
+    allowlist: []
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match="missing mapping `setup_projection`"):
+        parse_tool_adapter(adapter_path)
 
 
 def test_parse_agent_preset_accepts_gateway_defaults_under_extra(tmp_path: Path) -> None:

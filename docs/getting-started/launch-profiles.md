@@ -125,15 +125,11 @@ Supported seed source forms are:
 
 Directory seeds are intentionally narrow. The top level may contain only `houmao-memo.md` and/or `pages/`. `houmao-memo.md` seeds the fixed memo file. `pages/` seeds contained memory pages. All files must be UTF-8 text without NUL bytes, and symlinks are rejected.
 
-The seed source controls which managed-memory components the policy touches. Text and file seeds touch only `houmao-memo.md`. Directory seeds touch `houmao-memo.md` only when the seed directory contains `houmao-memo.md`, and touch pages only when the seed directory contains `pages/`. Omitted components are left unchanged for every policy.
+The seed source controls which managed-memory components are replaced. Text and file seeds touch only `houmao-memo.md`. Directory seeds touch `houmao-memo.md` only when the seed directory contains `houmao-memo.md`, and touch pages only when the seed directory contains `pages/`. Omitted components are left unchanged.
 
-The stored apply policy controls what happens when represented target components already contain authored state:
+Memo seeds always use source-scoped replacement semantics. A memo-only seed replaces only `houmao-memo.md` and preserves pages. A pages-only directory seed clears then rewrites only `pages/` and preserves `houmao-memo.md`. A directory seed containing both `houmao-memo.md` and `pages/` replaces both represented components.
 
-- `initialize` — apply only when every represented target component is empty. This is the default.
-- `replace` — replace only represented target components from the stored seed. A memo-only seed replaces only `houmao-memo.md`; a pages-only directory seed clears then rewrites only `pages/`.
-- `fail-if-nonempty` — abort the launch when any represented target component is non-empty.
-
-This means `--memo-seed-text '' --memo-seed-policy replace` stores an intentional empty memo seed for future profile-backed launches without clearing pages. `--clear-memo-seed` is different: it removes the stored profile seed configuration, so future launches do not apply a memo seed at all. To replace pages only, use `--memo-seed-dir` with a directory that contains `pages/` and omits `houmao-memo.md`; an empty `pages/` directory is an explicit request to clear pages under `replace`.
+This means `--memo-seed-text ''` stores an intentional empty memo seed for future profile-backed launches without clearing pages. `--clear-memo-seed` is different: it removes the stored profile seed configuration, so future launches do not apply a memo seed at all. To replace pages only, use `--memo-seed-dir` with a directory that contains `pages/` and omits `houmao-memo.md`; an empty `pages/` directory is an explicit request to clear pages.
 
 Memo seeds and prompt overlays are complementary. Use a prompt overlay when you want to change the launch prompt seen by the provider. Use a memo seed when you want durable managed-memory state available inside the agent workspace from the first turn onward.
 
@@ -191,7 +187,7 @@ Use the explicit lane (`project agents recipes` plus `project agents launch-prof
 - you want birth-time defaults that are intentionally low-level and visible,
 - the team checks recipes into the project so the easy lane's specialist convenience layer is not the right authoring surface.
 
-Both lanes can coexist in the same project overlay. The shared catalog model means a future change can tighten the relationship between them without forcing a migration today.
+Both lanes can coexist in the same project overlay. The shared catalog model keeps each lane explicit, so incompatible pre-1.0 catalog changes should be handled by recreating the affected project overlay instead of relying on an in-place migration.
 
 ## Editing Profiles
 

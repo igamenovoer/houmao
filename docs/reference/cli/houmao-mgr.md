@@ -366,7 +366,7 @@ Notes:
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, or Gemini homes.
+Install or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Copilot, or Gemini homes.
 
 #### Subcommands
 
@@ -374,19 +374,21 @@ Install or inspect the packaged current Houmao-owned `houmao-*` skill set for re
 |---|---|
 | `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
 | `status` | Show which current Houmao-owned system skills are installed in one resolved tool home by scanning the live filesystem. |
-| `install` | Install the CLI-default set list, explicit named sets, explicit skills, or any combination of those into one resolved tool home. |
+| `install` | Install the CLI-default set list, explicit named skill sets, explicit skills, or any combination of those into one or more resolved tool homes. |
 
 Operational notes:
 
-- `system-skills install` requires `--tool` and accepts optional `--home`
+- `system-skills install` requires `--tool`; the value may be one supported tool or a comma-separated list such as `claude,codex,copilot,gemini`
+- `system-skills install --home` is valid only when `--tool` names one tool; comma-separated multi-tool installs resolve each home independently
 - `system-skills status` requires `--tool` and accepts optional `--home`
-- when `--home` is omitted, the effective home resolves with precedence `--home` override, tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`), then the project-scoped default home
-- the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, and `<cwd>` for Gemini
-- omitting both `--set` and `--skill` selects the packaged CLI-default set list
+- when `--home` is omitted, the effective home resolves with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`), then the project-scoped default home
+- the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.github` for Copilot, and `<cwd>` for Gemini
+- omitting both `--skill-set` and `--skill` selects the packaged CLI-default set list
+- repeatable `--skill-set` expands named system-skill sets; `--set` is no longer a supported install flag
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
-- repeated sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves flat visible Houmao-owned skill paths: Claude uses `skills/houmao-...`, Codex uses `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
-- install and status are stateless with respect to ownership bookkeeping; they use live current paths plus an explicit legacy migration map
+- repeated skill sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
+- the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
+- `status` discovers current packaged skill paths in the resolved home; `install` uses current-schema install-state records as ownership proof and rejects unsupported old install-state or path layouts instead of migrating them
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).
@@ -474,12 +476,12 @@ Low-level boundary notes:
 
 `project agents launch-profiles` notes:
 
-- `launch-profiles add` requires `--name` and `--recipe`. It accepts: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`, `--memo-seed-policy {initialize|replace|fail-if-nonempty}`).
+- `launch-profiles add` requires `--name` and `--recipe`. It accepts: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
 - `launch-profiles add` rejects an existing profile name by default. Passing `--yes` confirms same-lane replacement of an existing explicit launch profile; replacement uses create semantics, so omitted optional fields are cleared instead of preserved. `--yes` does not allow replacing an easy profile with an explicit launch profile.
 - `launch-profiles add` also accepts `--managed-header` or `--no-managed-header` to store explicit managed-header whole-header policy, plus repeatable `--managed-header-section SECTION=enabled|disabled` to store section policy. Omitting whole-header flags stores `inherit`; omitting section flags stores no section entries. For the conceptual model behind these flags, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
 - `launch-profiles set` patches without dropping unspecified advanced blocks and exposes matching `--clear-*` flags for nullable fields (`--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-mailbox`, `--clear-headless`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-memo-seed`).
-- `--memo-seed-policy` on `launch-profiles set` updates the stored policy when a memo seed already exists, or pairs with one new `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir` source. `--clear-memo-seed` cannot be combined with a new memo seed source or `--memo-seed-policy`.
-- Memo seed policies apply only to the managed-memory components represented by the seed source. `--memo-seed-text` and `--memo-seed-file` touch only `houmao-memo.md`; `--memo-seed-dir` touches `houmao-memo.md` only when that file is present and touches pages only when `pages/` is present. `--memo-seed-text '' --memo-seed-policy replace` stores an intentional empty memo seed without clearing pages. `--clear-memo-seed` removes stored seed configuration instead of writing an empty memo.
+- Supplying a new `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir` source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new memo seed source.
+- Memo seeds always replace only the managed-memory components represented by the seed source. `--memo-seed-text` and `--memo-seed-file` touch only `houmao-memo.md`; `--memo-seed-dir` touches `houmao-memo.md` only when that file is present and touches pages only when `pages/` is present. `--memo-seed-text ''` stores an intentional empty memo seed without clearing pages. `--clear-memo-seed` removes stored seed configuration instead of writing an empty memo.
 - `launch-profiles set` also accepts `--managed-header` or `--no-managed-header` and repeatable `--managed-header-section SECTION=enabled|disabled`. Whole-header flags are mutually exclusive, `--clear-managed-header` returns the stored whole-header field to `inherit`, `--clear-managed-header-section SECTION` removes one stored section entry, and `--clear-managed-header-sections` removes all stored section entries.
 - `launch-profiles list` accepts optional `--recipe` and `--tool` filters when those identities are derivable from the referenced recipe.
 - `launch-profiles remove` deletes one launch-profile resource without deleting the referenced recipe.
@@ -542,10 +544,10 @@ Low-level boundary notes:
 `project easy profile create` notes:
 
 - `--name` and `--specialist` are required. The named profile targets exactly one existing specialist.
-- Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), managed-header flags (`--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`, `--memo-seed-policy {initialize|replace|fail-if-nonempty}`).
+- Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), managed-header flags (`--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
 - `project easy profile create` rejects an existing profile name by default. Passing `--yes` confirms same-lane replacement of an existing easy profile; replacement uses create semantics, so omitted optional fields are cleared instead of preserved. `--yes` does not allow replacing an explicit launch profile with an easy profile.
 - `project easy profile set --name <profile>` patches stored defaults on an existing easy profile while preserving unspecified fields. It accepts the same stored-default field families as explicit `launch-profiles set`, including clear flags such as `--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-mailbox`, `--clear-headless`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, and `--clear-memo-seed`.
-- Easy-profile memo seed policy semantics match explicit launch profiles: policy actions are scoped to the represented memo/pages components, and `--clear-memo-seed` removes stored seed configuration rather than seeding an empty memo.
+- Easy-profile memo seed semantics match explicit launch profiles: stored seeds replace only represented memo/pages components, and `--clear-memo-seed` removes stored seed configuration rather than seeding an empty memo.
 - The persisted easy profile lives in the shared catalog launch-profile family with `profile_lane=easy_profile` and `source_kind=specialist`. It projects into the same compatibility tree (`.houmao/agents/launch-profiles/<name>.yaml`) used by explicit launch profiles.
 - `--auth <name>` is display-name-oriented at the CLI, but the stored easy-profile relationship resolves through auth-profile identity so later `project credentials <tool> rename` continues to work.
 - Omitting both managed-header flags on `project easy profile create` stores `inherit`, which falls back to the default enabled managed-header behavior later at launch time.

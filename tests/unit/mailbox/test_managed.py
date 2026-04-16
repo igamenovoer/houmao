@@ -1763,7 +1763,7 @@ def test_repair_mailbox_index_rebuilds_address_based_projections_and_state(tmp_p
     ) == (0, 0, 0, 0)
 
 
-def test_bootstrap_migrates_legacy_shared_mailbox_state_into_local_sqlite(tmp_path: Path) -> None:
+def test_bootstrap_ignores_legacy_shared_mailbox_state_for_local_sqlite(tmp_path: Path) -> None:
     sender = MailboxPrincipal(
         principal_id="HOUMAO-sender",
         address="HOUMAO-sender@agents.localhost",
@@ -1796,7 +1796,7 @@ def test_bootstrap_migrates_legacy_shared_mailbox_state_into_local_sqlite(tmp_pa
             ],
             "cc": [],
             "reply_to": [],
-            "subject": "Legacy state migration",
+            "subject": "Ignored legacy state",
             "attachments": [],
             "headers": {},
         }
@@ -1866,7 +1866,7 @@ def test_bootstrap_migrates_legacy_shared_mailbox_state_into_local_sqlite(tmp_pa
         paths.sqlite_path,
         address=recipient.address,
         message_id=request.message_id,
-    ) == (1, 1, 0, 0)
+    ) == (0, 0, 0, 0)
 
 
 def test_repair_mailbox_index_rebuilds_unreadable_local_mailbox_state(tmp_path: Path) -> None:

@@ -568,7 +568,7 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     assert "pixi run houmao-mgr agents mail resolve-live" not in stalwart_skill
 
 
-def test_load_brain_recipe_accepts_default_agent_name(tmp_path: Path) -> None:
+def test_load_brain_recipe_rejects_legacy_recipe_shape(tmp_path: Path) -> None:
     recipe_path = tmp_path / "recipe.yaml"
     _write(
         recipe_path,
@@ -585,117 +585,8 @@ credential_profile: personal-a
         + "\n",
     )
 
-    recipe = load_brain_recipe(recipe_path)
-
-    assert recipe.default_agent_name == "cao-codex-demo"
-    assert recipe.skills == ["skill-a"]
-
-
-def test_load_brain_recipe_accepts_launch_policy(tmp_path: Path) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write(
-        recipe_path,
-        """
-schema_version: 1
-name: gpu-kernel-coder-default
-tool: claude
-skills:
-  - skill-a
-config_profile: default
-credential_profile: personal-a
-launch_policy:
-  operator_prompt_mode: unattended
-""".strip()
-        + "\n",
-    )
-
-    recipe = load_brain_recipe(recipe_path)
-
-    assert recipe.operator_prompt_mode == "unattended"
-
-
-def test_load_brain_recipe_accepts_launch_overrides(tmp_path: Path) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write(
-        recipe_path,
-        """
-schema_version: 1
-name: gpu-kernel-coder-default
-tool: claude
-skills:
-  - skill-a
-config_profile: default
-credential_profile: personal-a
-launch_overrides:
-  args:
-    mode: append
-    values:
-      - --verbose
-  tool_params:
-    include_partial_messages: true
-""".strip()
-        + "\n",
-    )
-
-    recipe = load_brain_recipe(recipe_path)
-
-    assert recipe.launch_overrides is not None
-    assert recipe.launch_overrides.to_payload() == {
-        "args": {"mode": "append", "values": ["--verbose"]},
-        "tool_params": {"include_partial_messages": True},
-    }
-
-
-def test_load_brain_recipe_accepts_mailbox_config(tmp_path: Path) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write(
-        recipe_path,
-        """
-schema_version: 1
-name: gpu-kernel-coder-default
-tool: codex
-skills:
-  - skill-a
-config_profile: default
-credential_profile: personal-a
-mailbox:
-  transport: filesystem
-  principal_id: HOUMAO-research
-  address: HOUMAO-research@agents.localhost
-  filesystem_root: shared-mail
-""".strip()
-        + "\n",
-    )
-
-    recipe = load_brain_recipe(recipe_path)
-
-    assert recipe.mailbox == FilesystemMailboxDeclarativeConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-research",
-        address="HOUMAO-research@agents.localhost",
-        filesystem_root="shared-mail",
-    )
-
-
-def test_load_brain_recipe_allows_missing_default_agent_name(tmp_path: Path) -> None:
-    recipe_path = tmp_path / "recipe.yaml"
-    _write(
-        recipe_path,
-        """
-schema_version: 1
-name: gpu-kernel-coder-default
-tool: claude
-skills:
-  - skill-a
-config_profile: default
-credential_profile: personal-a
-""".strip()
-        + "\n",
-    )
-
-    recipe = load_brain_recipe(recipe_path)
-
-    assert recipe.default_agent_name is None
+    with pytest.raises(BuildError, match="Rewrite this file using the current preset fields"):
+        load_brain_recipe(recipe_path)
 
 
 def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_path: Path) -> None:
@@ -922,7 +813,9 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
     assert manifest["runtime"]["launch_contract"]["env_records"] == {"GOOGLE_GENAI_USE_GCA": "true"}
 
 
-def test_build_brain_home_reuse_removes_legacy_gemini_agents_skill_root(tmp_path: Path) -> None:
+def test_build_brain_home_reuse_leaves_legacy_gemini_agents_skill_root_unmanaged(
+    tmp_path: Path,
+) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_gemini_repo(agent_def_dir)
@@ -960,7 +853,8 @@ def test_build_brain_home_reuse_removes_legacy_gemini_agents_skill_root(tmp_path
         )
     )
 
-    assert not (home_path / ".agents/skills").exists()
+    assert (home_path / ".agents/skills").is_dir()
+    assert legacy_skill.read_text(encoding="utf-8") == "legacy skill\n"
     assert (home_path / ".agents/README.md").is_file()
     assert (home_path / ".gemini/skills/skill-a").is_symlink()
 

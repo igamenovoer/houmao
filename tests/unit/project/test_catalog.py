@@ -99,7 +99,7 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
     assert degraded.missing_content == ("prompts/researcher.md",)
 
 
-def test_project_catalog_imports_legacy_specialist_metadata(
+def test_project_catalog_does_not_import_legacy_specialist_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -161,15 +161,9 @@ def test_project_catalog_imports_legacy_specialist_metadata(
     )
 
     catalog = ProjectCatalog.from_overlay(overlay)
-    specialist = catalog.load_specialist("researcher")
-
-    assert specialist.name == "researcher"
-    assert specialist.tool == "codex"
-    assert specialist.preset_name == "researcher-codex-default"
-    assert specialist.credential_name == "legacy-creds"
-    assert specialist.skills == ("notes",)
-    assert specialist.prompt_ref.resolve(overlay).is_file()
-    assert specialist.auth_ref.resolve(overlay).is_dir()
+    assert catalog.list_specialists() == []
+    with pytest.raises(FileNotFoundError, match="Specialist `researcher` was not found"):
+        catalog.load_specialist("researcher")
 
 
 def test_project_catalog_persists_and_projects_launch_profiles(
@@ -234,7 +228,6 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
         memo_seed_source_kind="tree",
-        memo_seed_policy="initialize",
         memo_seed_source_path=memo_seed_dir,
     )
 
@@ -279,13 +272,20 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             },
             "memo_seed": {
                 "source_kind": "tree",
-                "policy": "initialize",
                 "content_ref": {
                     "content_kind": "memo_seed",
                     "storage_kind": "tree",
                     "relative_path": "memo-seeds/launch-profiles/alice/seed",
                     "path": str(
-                        (repo_root / ".houmao" / "content" / "memo-seeds" / "launch-profiles" / "alice" / "seed").resolve()
+                        (
+                            repo_root
+                            / ".houmao"
+                            / "content"
+                            / "memo-seeds"
+                            / "launch-profiles"
+                            / "alice"
+                            / "seed"
+                        ).resolve()
                     ),
                 },
             },
@@ -308,7 +308,6 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 managed_header_policy,
                 managed_header_section_policy,
                 prompt_overlay_mode,
-                memo_seed_policy,
                 memo_seed_source_kind,
                 memo_seed_relative_path
             FROM v_launch_profiles
@@ -326,7 +325,6 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "inherit",
             '{"automation-notice": "disabled", "task-reminder": "enabled"}',
             "append",
-            "initialize",
             "tree",
             "memo-seeds/launch-profiles/alice/seed",
         )
@@ -355,13 +353,17 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "may contain only",
         ),
         (
-            lambda root: (root / "pages").mkdir(parents=True, exist_ok=True)
-            or (root / "pages" / "bad.md").write_bytes(b"bad\x00content"),
+            lambda root: (
+                (root / "pages").mkdir(parents=True, exist_ok=True)
+                or (root / "pages" / "bad.md").write_bytes(b"bad\x00content")
+            ),
             "must not contain NUL bytes",
         ),
         (
-            lambda root: (root / "pages").mkdir(parents=True, exist_ok=True)
-            or (root / "pages" / "bad.md").write_bytes(b"\xff\xfe"),
+            lambda root: (
+                (root / "pages").mkdir(parents=True, exist_ok=True)
+                or (root / "pages" / "bad.md").write_bytes(b"\xff\xfe")
+            ),
             "must be valid UTF-8 text",
         ),
     ],
@@ -405,6 +407,115 @@ def test_project_catalog_rejects_invalid_memo_seed_directories(
             prompt_overlay_mode=None,
             prompt_overlay_text=None,
             memo_seed_source_kind="tree",
-            memo_seed_policy="initialize",
             memo_seed_source_path=seed_dir,
         )
+
+
+def test_project_catalog_rejects_unsupported_schema_version(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    catalog.initialize()
+
+    connection = sqlite3.connect(overlay.catalog_path)
+    try:
+        connection.execute("UPDATE catalog_meta SET value = '10' WHERE key = 'schema_version'")
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(ValueError, match="Recreate or reinitialize the project overlay"):
+        catalog.initialize()
+
+
+def test_project_catalog_rejects_obsolete_current_table_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    catalog.initialize()
+
+    connection = sqlite3.connect(overlay.catalog_path)
+    try:
+        connection.execute("ALTER TABLE launch_profiles ADD COLUMN memo_seed_policy TEXT")
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(ValueError, match="obsolete column"):
+        catalog.initialize()
+
+
+def test_project_catalog_rejects_obsolete_content_refs_check(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    catalog.initialize()
+
+    connection = sqlite3.connect(overlay.catalog_path)
+    try:
+        connection.executescript(
+            """
+            DROP VIEW IF EXISTS v_content_refs;
+            DROP VIEW IF EXISTS v_roles;
+            DROP VIEW IF EXISTS v_presets;
+            DROP VIEW IF EXISTS v_specialists;
+            DROP VIEW IF EXISTS v_launch_profiles;
+            PRAGMA foreign_keys = OFF;
+            CREATE TABLE content_refs_legacy_check (
+                id INTEGER PRIMARY KEY,
+                content_kind TEXT NOT NULL CHECK(
+                    content_kind IN ('prompt_blob', 'auth_tree', 'skill_tree', 'setup_tree')
+                ),
+                storage_kind TEXT NOT NULL CHECK(storage_kind IN ('file', 'tree')),
+                relative_path TEXT NOT NULL UNIQUE,
+                sha256 TEXT,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO content_refs_legacy_check (
+                id,
+                content_kind,
+                storage_kind,
+                relative_path,
+                sha256,
+                created_at
+            )
+            SELECT
+                id,
+                content_kind,
+                storage_kind,
+                relative_path,
+                sha256,
+                created_at
+            FROM content_refs;
+            DROP TABLE content_refs;
+            ALTER TABLE content_refs_legacy_check RENAME TO content_refs;
+            PRAGMA foreign_keys = ON;
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(ValueError, match="memo_seed content references"):
+        catalog.initialize()

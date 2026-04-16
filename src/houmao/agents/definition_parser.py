@@ -229,19 +229,9 @@ def parse_tool_adapter(path: Path) -> ToolAdapter:
 
     home_selector = _require_mapping(payload, "home_selector", where=str(path))
     launch = _require_mapping(payload, "launch", where=str(path))
-    setup_projection = _require_mapping(
-        payload,
-        "setup_projection",
-        where=str(path),
-        legacy_key="config_projection",
-    )
+    setup_projection = _require_mapping(payload, "setup_projection", where=str(path))
     skills_projection = _require_mapping(payload, "skills_projection", where=str(path))
-    auth_projection = _require_mapping(
-        payload,
-        "auth_projection",
-        where=str(path),
-        legacy_key="credential_projection",
-    )
+    auth_projection = _require_mapping(payload, "auth_projection", where=str(path))
     auth_env = _require_mapping(auth_projection, "env", where=str(path))
 
     raw_launch_metadata = launch.get("metadata", {})
@@ -436,13 +426,10 @@ def _require_mapping(
     key: str,
     *,
     where: str,
-    legacy_key: str | None = None,
 ) -> dict[str, Any]:
-    """Require one mapping field, optionally supporting a legacy alias."""
+    """Require one mapping field."""
 
     value = payload.get(key)
-    if value is None and legacy_key is not None:
-        value = payload.get(legacy_key)
     if not isinstance(value, dict):
         raise ValueError(f"{where}: missing mapping `{key}`")
     return value

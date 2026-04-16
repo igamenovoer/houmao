@@ -50,6 +50,30 @@ from houmao.version import get_version
 _HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
 
 
+def _manifest_gateway_authority(
+    *,
+    api_base_url: str | None = None,
+    managed_agent_ref: str | None = None,
+    terminal_id: str | None = None,
+    profile_name: str | None = None,
+    profile_path: str | None = None,
+    parsing_mode: str | None = None,
+    tmux_window_name: str | None = None,
+) -> SimpleNamespace:
+    """Build a current v4 gateway-authority test double."""
+
+    endpoint = SimpleNamespace(
+        api_base_url=api_base_url,
+        managed_agent_ref=managed_agent_ref,
+        terminal_id=terminal_id,
+        profile_name=profile_name,
+        profile_path=profile_path,
+        parsing_mode=parsing_mode,
+        tmux_window_name=tmux_window_name,
+    )
+    return SimpleNamespace(attach=endpoint, control=endpoint)
+
+
 class _FakeSession:
     def __init__(self, session_id: str) -> None:
         self.id = session_id
@@ -807,8 +831,16 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
             backend="houmao_server_rest",
             tool="codex",
             tmux_session_name="pair-session",
+            tmux=SimpleNamespace(session_name="pair-session"),
             agent_name="HOUMAO-pair",
             agent_id="agent-123",
+            gateway_authority=_manifest_gateway_authority(
+                api_base_url="http://127.0.0.1:9889",
+                managed_agent_ref="pair-session",
+                terminal_id="term-123",
+                parsing_mode="shadow_only",
+                tmux_window_name="agent",
+            ),
             houmao_server=SimpleNamespace(
                 api_base_url="http://127.0.0.1:9889",
                 session_name="pair-session",
@@ -892,8 +924,11 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
             backend="claude_headless",
             tool="claude",
             tmux_session_name="headless-session",
+            tmux=SimpleNamespace(session_name="headless-session"),
             agent_name="HOUMAO-headless",
             agent_id="published-alpha",
+            gateway_authority=_manifest_gateway_authority(),
+            houmao_server=None,
         ),
     )
 
@@ -1008,8 +1043,11 @@ def test_agents_gateway_attach_target_tmux_session_falls_back_to_registry_termin
             backend="claude_headless",
             tool="claude",
             tmux_session_name="external-session",
+            tmux=SimpleNamespace(session_name="external-session"),
             agent_name="HOUMAO-headless",
             agent_id="published-alpha",
+            gateway_authority=_manifest_gateway_authority(),
+            houmao_server=None,
         ),
     )
 

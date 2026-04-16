@@ -2,23 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from houmao.agents.agent_workspace import resolve_agent_memory
-from houmao.agents.launch_profile_memo_seeds import (
-    LaunchProfileMemoSeedError,
-    apply_launch_profile_memo_seed,
-)
+from houmao.agents.launch_profile_memo_seeds import apply_launch_profile_memo_seed
 from houmao.project.catalog import ManagedContentRef
 from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed
 
 
-def _resolved_memo_seed(
-    *, source_kind: str, policy: str, source_path: Path
-) -> ResolvedLaunchProfileMemoSeed:
+def _resolved_memo_seed(*, source_kind: str, source_path: Path) -> ResolvedLaunchProfileMemoSeed:
     return ResolvedLaunchProfileMemoSeed(
         source_kind=source_kind,
-        policy=policy,
         content_ref=ManagedContentRef(
             content_kind="memo_seed",
             storage_kind="tree" if source_kind == "tree" else "file",
@@ -28,7 +20,7 @@ def _resolved_memo_seed(
     )
 
 
-def test_apply_launch_profile_memo_seed_initializes_empty_memory_tree(tmp_path: Path) -> None:
+def test_apply_launch_profile_memo_seed_materializes_empty_memory_tree(tmp_path: Path) -> None:
     paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
     seed_root = (tmp_path / "seed").resolve()
     (seed_root / "pages" / "checklists").mkdir(parents=True, exist_ok=True)
@@ -43,7 +35,6 @@ def test_apply_launch_profile_memo_seed_initializes_empty_memory_tree(tmp_path: 
         paths=paths,
         memo_seed=_resolved_memo_seed(
             source_kind="tree",
-            policy="initialize",
             source_path=seed_root,
         ),
     )
@@ -51,7 +42,6 @@ def test_apply_launch_profile_memo_seed_initializes_empty_memory_tree(tmp_path: 
     assert result.to_payload() == {
         "status": "applied",
         "source_kind": "tree",
-        "policy": "initialize",
         "memo_written": True,
         "page_file_count": 1,
         "page_directory_count": 2,
@@ -63,37 +53,7 @@ def test_apply_launch_profile_memo_seed_initializes_empty_memory_tree(tmp_path: 
     assert (paths.pages_dir / "empty").is_dir()
 
 
-def test_apply_launch_profile_memo_seed_initialize_skips_when_memory_is_nonempty(
-    tmp_path: Path,
-) -> None:
-    paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
-    paths.memo_file.parent.mkdir(parents=True, exist_ok=True)
-    paths.memo_file.write_text("Existing memo.\n", encoding="utf-8")
-    seed_path = (tmp_path / "seed.md").resolve()
-    seed_path.write_text("New memo.\n", encoding="utf-8")
-
-    result = apply_launch_profile_memo_seed(
-        paths=paths,
-        memo_seed=_resolved_memo_seed(
-            source_kind="memo",
-            policy="initialize",
-            source_path=seed_path,
-        ),
-    )
-
-    assert result.to_payload() == {
-        "status": "skipped",
-        "source_kind": "memo",
-        "policy": "initialize",
-        "memo_written": False,
-        "page_file_count": 0,
-        "page_directory_count": 0,
-        "reason": "existing memo state present",
-    }
-    assert paths.memo_file.read_text(encoding="utf-8") == "Existing memo.\n"
-
-
-def test_apply_launch_profile_memo_seed_memo_only_initialize_preserves_pages(
+def test_apply_launch_profile_memo_seed_memo_only_replaces_memo_and_preserves_pages(
     tmp_path: Path,
 ) -> None:
     paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
@@ -108,7 +68,6 @@ def test_apply_launch_profile_memo_seed_memo_only_initialize_preserves_pages(
         paths=paths,
         memo_seed=_resolved_memo_seed(
             source_kind="memo",
-            policy="initialize",
             source_path=seed_path,
         ),
     )
@@ -116,7 +75,6 @@ def test_apply_launch_profile_memo_seed_memo_only_initialize_preserves_pages(
     assert result.to_payload() == {
         "status": "applied",
         "source_kind": "memo",
-        "policy": "initialize",
         "memo_written": True,
         "page_file_count": 0,
         "page_directory_count": 0,
@@ -125,7 +83,7 @@ def test_apply_launch_profile_memo_seed_memo_only_initialize_preserves_pages(
     assert (paths.pages_dir / "old.md").read_text(encoding="utf-8") == "Old page.\n"
 
 
-def test_apply_launch_profile_memo_seed_memo_only_replace_preserves_pages(
+def test_apply_launch_profile_memo_seed_memo_only_replaces_existing_memo_and_preserves_pages(
     tmp_path: Path,
 ) -> None:
     paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
@@ -140,7 +98,6 @@ def test_apply_launch_profile_memo_seed_memo_only_replace_preserves_pages(
         paths=paths,
         memo_seed=_resolved_memo_seed(
             source_kind="memo",
-            policy="replace",
             source_path=seed_path,
         ),
     )
@@ -148,7 +105,6 @@ def test_apply_launch_profile_memo_seed_memo_only_replace_preserves_pages(
     assert result.to_payload() == {
         "status": "applied",
         "source_kind": "memo",
-        "policy": "replace",
         "memo_written": True,
         "page_file_count": 0,
         "page_directory_count": 0,
@@ -157,7 +113,7 @@ def test_apply_launch_profile_memo_seed_memo_only_replace_preserves_pages(
     assert (paths.pages_dir / "old.md").read_text(encoding="utf-8") == "Old page.\n"
 
 
-def test_apply_launch_profile_memo_seed_empty_memo_replace_preserves_pages(
+def test_apply_launch_profile_memo_seed_empty_memo_replaces_existing_memo_and_preserves_pages(
     tmp_path: Path,
 ) -> None:
     paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
@@ -172,7 +128,6 @@ def test_apply_launch_profile_memo_seed_empty_memo_replace_preserves_pages(
         paths=paths,
         memo_seed=_resolved_memo_seed(
             source_kind="memo",
-            policy="replace",
             source_path=seed_path,
         ),
     )
@@ -180,7 +135,6 @@ def test_apply_launch_profile_memo_seed_empty_memo_replace_preserves_pages(
     assert result.to_payload() == {
         "status": "applied",
         "source_kind": "memo",
-        "policy": "replace",
         "memo_written": True,
         "page_file_count": 0,
         "page_directory_count": 0,
@@ -189,39 +143,7 @@ def test_apply_launch_profile_memo_seed_empty_memo_replace_preserves_pages(
     assert (paths.pages_dir / "old.md").read_text(encoding="utf-8") == "Old page.\n"
 
 
-def test_apply_launch_profile_memo_seed_memo_only_fail_if_nonempty_preserves_pages(
-    tmp_path: Path,
-) -> None:
-    paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
-    paths.memo_file.parent.mkdir(parents=True, exist_ok=True)
-    paths.memo_file.write_text("", encoding="utf-8")
-    (paths.pages_dir / "existing.md").parent.mkdir(parents=True, exist_ok=True)
-    (paths.pages_dir / "existing.md").write_text("Existing page.\n", encoding="utf-8")
-    seed_path = (tmp_path / "seed.md").resolve()
-    seed_path.write_text("New memo.\n", encoding="utf-8")
-
-    result = apply_launch_profile_memo_seed(
-        paths=paths,
-        memo_seed=_resolved_memo_seed(
-            source_kind="memo",
-            policy="fail-if-nonempty",
-            source_path=seed_path,
-        ),
-    )
-
-    assert result.to_payload() == {
-        "status": "applied",
-        "source_kind": "memo",
-        "policy": "fail-if-nonempty",
-        "memo_written": True,
-        "page_file_count": 0,
-        "page_directory_count": 0,
-    }
-    assert paths.memo_file.read_text(encoding="utf-8") == "New memo.\n"
-    assert (paths.pages_dir / "existing.md").read_text(encoding="utf-8") == ("Existing page.\n")
-
-
-def test_apply_launch_profile_memo_seed_pages_only_replace_preserves_memo(
+def test_apply_launch_profile_memo_seed_pages_only_replaces_pages_and_preserves_memo(
     tmp_path: Path,
 ) -> None:
     paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
@@ -237,7 +159,6 @@ def test_apply_launch_profile_memo_seed_pages_only_replace_preserves_memo(
         paths=paths,
         memo_seed=_resolved_memo_seed(
             source_kind="tree",
-            policy="replace",
             source_path=seed_root,
         ),
     )
@@ -245,7 +166,6 @@ def test_apply_launch_profile_memo_seed_pages_only_replace_preserves_memo(
     assert result.to_payload() == {
         "status": "applied",
         "source_kind": "tree",
-        "policy": "replace",
         "memo_written": False,
         "page_file_count": 1,
         "page_directory_count": 0,
@@ -255,7 +175,7 @@ def test_apply_launch_profile_memo_seed_pages_only_replace_preserves_memo(
     assert (paths.pages_dir / "new.md").read_text(encoding="utf-8") == "New page.\n"
 
 
-def test_apply_launch_profile_memo_seed_empty_pages_replace_preserves_memo(
+def test_apply_launch_profile_memo_seed_empty_pages_clears_pages_and_preserves_memo(
     tmp_path: Path,
 ) -> None:
     paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
@@ -270,7 +190,6 @@ def test_apply_launch_profile_memo_seed_empty_pages_replace_preserves_memo(
         paths=paths,
         memo_seed=_resolved_memo_seed(
             source_kind="tree",
-            policy="replace",
             source_path=seed_root,
         ),
     )
@@ -278,7 +197,6 @@ def test_apply_launch_profile_memo_seed_empty_pages_replace_preserves_memo(
     assert result.to_payload() == {
         "status": "applied",
         "source_kind": "tree",
-        "policy": "replace",
         "memo_written": False,
         "page_file_count": 0,
         "page_directory_count": 0,
@@ -287,7 +205,7 @@ def test_apply_launch_profile_memo_seed_empty_pages_replace_preserves_memo(
     assert list(paths.pages_dir.iterdir()) == []
 
 
-def test_apply_launch_profile_memo_seed_tree_replace_rewrites_memo_and_pages(
+def test_apply_launch_profile_memo_seed_tree_rewrites_memo_and_pages(
     tmp_path: Path,
 ) -> None:
     paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
@@ -305,7 +223,6 @@ def test_apply_launch_profile_memo_seed_tree_replace_rewrites_memo_and_pages(
         paths=paths,
         memo_seed=_resolved_memo_seed(
             source_kind="tree",
-            policy="replace",
             source_path=seed_root,
         ),
     )
@@ -313,7 +230,6 @@ def test_apply_launch_profile_memo_seed_tree_replace_rewrites_memo_and_pages(
     assert result.to_payload() == {
         "status": "applied",
         "source_kind": "tree",
-        "policy": "replace",
         "memo_written": True,
         "page_file_count": 1,
         "page_directory_count": 0,
@@ -321,33 +237,3 @@ def test_apply_launch_profile_memo_seed_tree_replace_rewrites_memo_and_pages(
     assert paths.memo_file.read_text(encoding="utf-8") == "New memo.\n"
     assert not (paths.pages_dir / "old.md").exists()
     assert (paths.pages_dir / "new.md").read_text(encoding="utf-8") == "New page.\n"
-
-
-def test_apply_launch_profile_memo_seed_pages_only_fail_if_nonempty_aborts_without_mutation(
-    tmp_path: Path,
-) -> None:
-    paths = resolve_agent_memory(overlay_root=tmp_path, agent_id="agent-1")
-    paths.memo_file.parent.mkdir(parents=True, exist_ok=True)
-    paths.memo_file.write_text("Existing memo.\n", encoding="utf-8")
-    (paths.pages_dir / "existing.md").parent.mkdir(parents=True, exist_ok=True)
-    (paths.pages_dir / "existing.md").write_text("Existing page.\n", encoding="utf-8")
-    seed_root = (tmp_path / "seed").resolve()
-    (seed_root / "pages" / "new.md").parent.mkdir(parents=True, exist_ok=True)
-    (seed_root / "pages" / "new.md").write_text("New page.\n", encoding="utf-8")
-
-    with pytest.raises(
-        LaunchProfileMemoSeedError,
-        match="policy `fail-if-nonempty` aborted launch because existing memo state is present",
-    ):
-        apply_launch_profile_memo_seed(
-            paths=paths,
-            memo_seed=_resolved_memo_seed(
-                source_kind="tree",
-                policy="fail-if-nonempty",
-                source_path=seed_root,
-            ),
-        )
-
-    assert paths.memo_file.read_text(encoding="utf-8") == "Existing memo.\n"
-    assert (paths.pages_dir / "existing.md").read_text(encoding="utf-8") == "Existing page.\n"
-    assert not (paths.pages_dir / "new.md").exists()

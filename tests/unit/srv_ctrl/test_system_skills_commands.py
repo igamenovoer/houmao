@@ -134,6 +134,8 @@ def test_system_skills_install_help_omits_removed_default_flag() -> None:
 
     assert result.exit_code == 0
     assert "--default" not in result.output
+    assert "--skill-set" in result.output
+    assert "--set " not in result.output
 
 
 def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
@@ -388,7 +390,7 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
             "install",
             "--tool",
             "gemini",
-            "--set",
+            "--skill-set",
             "user-control",
         ],
     )
@@ -422,7 +424,7 @@ def test_system_skills_install_uses_project_scoped_copilot_default_home(
             "install",
             "--tool",
             "copilot",
-            "--set",
+            "--skill-set",
             "user-control",
         ],
     )
@@ -437,6 +439,160 @@ def test_system_skills_install_uses_project_scoped_copilot_default_home(
     assert (expected_home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-loop-generic/SKILL.md").is_file()
+
+
+def test_system_skills_install_supports_comma_separated_tools_with_project_defaults(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("COPILOT_HOME", raising=False)
+    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
+    monkeypatch.chdir(workspace)
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "claude, codex,copilot,gemini",
+            "--skill-set",
+            "user-control",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    payload = json.loads(install_result.output)
+    assert payload["tools"] == ["claude", "codex", "copilot", "gemini"]
+    installations = {record["tool"]: record for record in payload["installations"]}
+    assert installations["claude"]["home_path"] == str(workspace / ".claude")
+    assert installations["codex"]["home_path"] == str(workspace / ".codex")
+    assert installations["copilot"]["home_path"] == str(workspace / ".github")
+    assert installations["gemini"]["home_path"] == str(workspace)
+    for record in installations.values():
+        assert record["selected_sets"] == ["user-control"]
+        assert record["explicit_skills"] == []
+        assert record["projection_mode"] == "copy"
+        assert record["resolved_skills"] == [
+            "houmao-project-mgr",
+            "houmao-specialist-mgr",
+            "houmao-credential-mgr",
+            "houmao-agent-definition",
+            "houmao-agent-loop-pairwise",
+            "houmao-agent-loop-pairwise-v2",
+            "houmao-agent-loop-generic",
+        ]
+    assert (workspace / ".claude/skills/houmao-project-mgr/SKILL.md").is_file()
+    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
+    assert (workspace / ".github/skills/houmao-project-mgr/SKILL.md").is_file()
+    assert (workspace / ".gemini/skills/houmao-project-mgr/SKILL.md").is_file()
+
+
+def test_system_skills_install_rejects_multi_tool_home_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    explicit_home = workspace / "explicit-home"
+    monkeypatch.chdir(workspace)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "install",
+            "--tool",
+            "codex,claude",
+            "--home",
+            str(explicit_home),
+            "--skill-set",
+            "user-control",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--home can only be used when --tool names exactly one tool" in result.output
+    assert not explicit_home.exists()
+    assert not (workspace / ".codex").exists()
+    assert not (workspace / ".claude").exists()
+
+
+def test_system_skills_install_rejects_malformed_multi_tool_list_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.chdir(workspace)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "install",
+            "--tool",
+            "codex,,gemini",
+            "--skill",
+            "houmao-specialist-mgr",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "comma-separated tool lists cannot contain empty entries" in result.output
+    assert not (workspace / ".codex").exists()
+    assert not (workspace / ".gemini").exists()
+
+
+def test_system_skills_install_rejects_duplicate_multi_tool_entries_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.chdir(workspace)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "install",
+            "--tool",
+            "codex,codex",
+            "--skill",
+            "houmao-specialist-mgr",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Duplicate tool `codex`" in result.output
+    assert not (workspace / ".codex").exists()
+
+
+def test_system_skills_install_rejects_unknown_skill_set_before_multi_tool_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.chdir(workspace)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "install",
+            "--tool",
+            "codex,gemini",
+            "--skill-set",
+            "unknown-set",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Unknown system-skill set `unknown-set`" in result.output
+    assert not (workspace / ".codex").exists()
+    assert not (workspace / ".gemini").exists()
 
 
 def test_system_skills_install_uses_copilot_env_redirect_when_home_is_omitted(
@@ -692,6 +848,23 @@ def test_system_skills_install_rejects_removed_default_flag() -> None:
 
     assert result.exit_code != 0
     assert "No such option: --default" in result.output
+
+
+def test_system_skills_install_rejects_removed_set_flag() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "install",
+            "--tool",
+            "gemini",
+            "--set",
+            "user-control",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "No such option: --set" in result.output
 
 
 def test_system_skills_install_rejects_superseded_current_skill_names(tmp_path: Path) -> None:

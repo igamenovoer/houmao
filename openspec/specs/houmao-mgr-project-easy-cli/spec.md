@@ -918,22 +918,21 @@ Supplying gateway TUI timing overrides SHALL NOT rewrite the stored specialist o
 - `--memo-seed-file <path>`,
 - `--memo-seed-dir <path>`.
 
-`houmao-mgr project easy profile create` SHALL accept `--memo-seed-policy <policy>` when a memo seed source is supplied, where `<policy>` is one of `initialize`, `replace`, or `fail-if-nonempty`. If a source is supplied without a policy, the stored policy SHALL default to `initialize`.
+`houmao-mgr project easy profile create` SHALL NOT accept a memo seed apply policy option.
 
-`houmao-mgr project easy profile set` SHALL support the same source and policy options. It SHALL also accept `--clear-memo-seed` to remove the stored memo seed and policy from the easy profile.
+`houmao-mgr project easy profile set` SHALL support the same source options. It SHALL also accept `--clear-memo-seed` to remove the stored memo seed from the easy profile.
 
-`project easy profile set --memo-seed-policy <policy>` without a new source SHALL update the policy for an existing memo seed and SHALL fail clearly when the profile has no memo seed.
+`--clear-memo-seed` SHALL NOT be combined with a memo seed source.
 
-`--clear-memo-seed` SHALL NOT be combined with a memo seed source or memo seed policy.
+`project easy profile get --name <profile>` SHALL report memo seed presence, source kind, and managed content reference metadata without printing full memo or page contents by default.
 
-`project easy profile get --name <profile>` SHALL report memo seed presence, source kind, policy, and managed content reference metadata without printing full memo or page contents by default.
-
-`project easy instance launch --profile <profile>` SHALL apply the selected easy profile's memo seed during managed launch when the profile stores one, using the component-scoped memo seed policy semantics from managed launch runtime.
+`project easy instance launch --profile <profile>` SHALL apply the selected easy profile's memo seed during managed launch when the profile stores one, using source-scoped replacement semantics from managed launch runtime.
 
 #### Scenario: Easy profile create stores memo seed text
 - **WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-default --specialist reviewer --memo-seed-text "Read pages/review.md first."`
 - **THEN** the easy profile stores the supplied text as a memo seed
-- **AND THEN** later profile inspection reports memo seed policy `initialize`
+- **AND THEN** later profile inspection reports memo seed source kind `memo`
+- **AND THEN** later profile inspection does not report a memo seed policy
 
 #### Scenario: Easy profile set preserves memo seed when patching workdir
 - **WHEN** easy profile `reviewer-default` stores a memo seed
@@ -941,17 +940,22 @@ Supplying gateway TUI timing overrides SHALL NOT rewrite the stored specialist o
 - **THEN** the profile updates the stored workdir
 - **AND THEN** the stored memo seed remains unchanged
 
-#### Scenario: Easy profile launch applies memo seed
+#### Scenario: Easy profile set replaces memo seed content
 - **WHEN** easy profile `reviewer-default` stores a memo seed
-- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-default`
-- **THEN** Houmao applies the memo seed to represented managed-memory components before provider startup
+- **AND WHEN** an operator runs `houmao-mgr project easy profile set --name reviewer-default --memo-seed-file docs/reviewer-next.md`
+- **THEN** the command replaces the stored memo seed content
+- **AND THEN** the profile still records no memo seed policy
 
-#### Scenario: Easy memo-only replace preserves pages
-- **WHEN** easy profile `reviewer-default` stores memo-only seed text with policy `replace`
+#### Scenario: Easy memo-only seed preserves pages
+- **WHEN** easy profile `reviewer-default` stores memo-only seed text
 - **AND WHEN** managed agent `reviewer-default` already has pages
 - **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-default`
 - **THEN** Houmao replaces only the launched agent's `houmao-memo.md`
 - **AND THEN** it leaves the launched agent's pages unchanged
+
+#### Scenario: Memo seed policy option is unsupported
+- **WHEN** an operator supplies `--memo-seed-policy replace`
+- **THEN** `project easy profile create` or `project easy profile set` fails before mutating the stored profile
 
 #### Scenario: Easy profile set rejects clear combined with source
 - **WHEN** an operator runs `houmao-mgr project easy profile set --name reviewer-default --clear-memo-seed --memo-seed-file docs/reviewer.md`

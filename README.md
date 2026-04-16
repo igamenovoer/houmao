@@ -82,11 +82,11 @@ command -v tmux
 Houmao is designed to be driven from inside a CLI agent. Install system skills, start your agent, and let it handle everything — project setup, specialist creation, agent launching, and coordination all happen through conversation.
 
 ```bash
-houmao-mgr system-skills install --tool claude
-# Or install into user home: houmao-mgr system-skills install --tool claude --home ~/.claude
+houmao-mgr system-skills install --tool claude,codex,gemini
+# Or install into one explicit user home: houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-Skills are installed to `<cwd>/.claude/skills/` (or `.codex/`, `.gemini/` for other tools). Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
+Skills are installed to each resolved project-local tool home, such as `<cwd>/.claude/skills/`, `<cwd>/.codex/skills/`, or `<cwd>/.gemini/skills/`. Use `--home` only for a single selected tool when you need an explicit external-home override. Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
 
 > The remaining steps below show the manual CLI equivalents for reference. You don't need them if you're working through your agent.
 
@@ -160,7 +160,7 @@ Set up the project and create three specialists:
 
 ```bash
 houmao-mgr project init
-houmao-mgr system-skills install --tool claude
+houmao-mgr system-skills install --tool claude,codex
 
 # Story writer (master) — drafts and finalizes chapters
 houmao-mgr project easy specialist create \
@@ -403,8 +403,10 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 `agents join` and `agents launch` auto-install every packaged skill except the lifecycle-only `houmao-agent-instance` into managed homes by default — that is the `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway` set list defined in `src/houmao/agents/assets/system_skills/catalog.toml`. Because `user-control` includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`, managed homes gain the project-management front door plus the stable pairwise, enriched pairwise-v2, and generic loop graph-planning skills by default, `houmao-memory-mgr` is available there for memo/pages memory work, `houmao-agent-inspect` is available there as the generic read-only inspection entrypoint, and `houmao-touring` is installed there as a manual-only guided entrypoint. To prepare an *external* tool home with the broader CLI-default selection, which also adds `houmao-agent-instance`, run:
 
 ```bash
-houmao-mgr system-skills install --tool claude
+houmao-mgr system-skills install --tool claude,codex,copilot,gemini
 ```
+
+When you want a named subset rather than the CLI-default selection, use `--skill-set <name>`, for example `houmao-mgr system-skills install --tool codex --skill-set user-control`. When you need an explicit external home, run a single-tool command such as `houmao-mgr system-skills install --tool codex --home ~/.codex`.
 
 For the 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
 

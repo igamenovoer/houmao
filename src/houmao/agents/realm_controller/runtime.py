@@ -66,7 +66,6 @@ from .backends.houmao_server_rest import HoumaoServerRestSession
 from .boundary_models import (
     RegistryLaunchAuthorityV1,
     SessionManifestAgentLaunchAuthorityV1,
-    SessionManifestPayloadV3,
     SessionManifestPayloadV4,
 )
 from .backends.claude_headless import ClaudeHeadlessSession
@@ -1548,7 +1547,7 @@ def _create_backend_session(
     agent_def_dir: Path,
     api_base_url: str | None = None,
     cao_profile_store_dir: Path | None,
-    resume_state: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None = None,
+    resume_state: SessionManifestPayloadV4 | None = None,
     session_manifest_path: Path | None = None,
     agent_identity: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
@@ -1717,7 +1716,7 @@ def _create_backend_session(
 
 
 def _resume_headless_state(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
+    payload: SessionManifestPayloadV4 | None,
     *,
     launch_plan: LaunchPlan,
 ) -> HeadlessSessionState | None:
@@ -1759,7 +1758,7 @@ def _resume_headless_state(
 
 
 def _resume_local_interactive_state(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
+    payload: SessionManifestPayloadV4 | None,
     *,
     launch_plan: LaunchPlan,
 ) -> HeadlessSessionState | None:
@@ -1805,35 +1804,35 @@ def _require_session_manifest_path(
 
 
 def _manifest_tmux_session_name(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
 ) -> str | None:
     """Return the normalized tmux session name from one parsed manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:
+    if payload.tmux is not None:
         return payload.tmux.session_name
     return payload.tmux_session_name
 
 
 def _manifest_interactive_turn_index(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     *,
     fallback: int,
 ) -> int:
     """Return the normalized interactive turn index for one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+    if payload.interactive is not None:
         return payload.interactive.turn_index
     return fallback
 
 
 def _manifest_interactive_working_directory(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     *,
     fallback: str,
 ) -> str:
     """Return the normalized interactive working directory for one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+    if payload.interactive is not None:
         value = payload.interactive.working_directory
         if value is not None and value.strip():
             return value
@@ -1841,13 +1840,13 @@ def _manifest_interactive_working_directory(
 
 
 def _manifest_interactive_role_bootstrap_applied(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     *,
     fallback: bool,
 ) -> bool:
     """Return the normalized role-bootstrap flag for one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+    if payload.interactive is not None:
         value = payload.interactive.role_bootstrap_applied
         if value is not None:
             return value
@@ -1855,41 +1854,41 @@ def _manifest_interactive_role_bootstrap_applied(
 
 
 def _manifest_interactive_terminal_id(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
 ) -> str | None:
     """Return the normalized interactive terminal id for one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+    if payload.interactive is not None:
         return payload.interactive.terminal_id
     return None
 
 
 def _manifest_interactive_parsing_mode(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
 ) -> CaoParsingMode | None:
     """Return the normalized interactive parsing mode for one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+    if payload.interactive is not None:
         return payload.interactive.parsing_mode
     return None
 
 
 def _manifest_interactive_tmux_window_name(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
 ) -> str | None:
     """Return the normalized interactive tmux window name for one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.interactive is not None:
+    if payload.interactive is not None:
         return payload.interactive.tmux_window_name
     return None
 
 
 def _manifest_primary_tmux_window_name(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
 ) -> str | None:
     """Return the best persisted tmux window name from one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.tmux is not None:
+    if payload.tmux is not None:
         value = payload.tmux.primary_window_name
         if value is not None and value.strip():
             return value.strip()
@@ -1913,7 +1912,7 @@ def _joined_launch_plan_tmux_window_name(launch_plan: LaunchPlan) -> str | None:
 
 def _resolved_resumed_tmux_window_name(
     *,
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     launch_plan: LaunchPlan,
 ) -> str | None:
     """Resolve the tmux window name to keep during resume-time manifest persistence."""
@@ -1927,11 +1926,11 @@ def _resolved_resumed_tmux_window_name(
 
 
 def _manifest_pair_managed_agent_ref(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
 ) -> str | None:
     """Return the normalized pair-managed session alias for one manifest payload."""
 
-    if isinstance(payload, SessionManifestPayloadV4) and payload.gateway_authority is not None:
+    if payload.gateway_authority is not None:
         return payload.gateway_authority.attach.managed_agent_ref
     if payload.houmao_server is not None:
         return payload.houmao_server.session_name
@@ -1939,26 +1938,25 @@ def _manifest_pair_managed_agent_ref(
 
 
 def _is_joined_tmux_manifest(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
 ) -> bool:
     """Return whether one manifest payload describes a joined tmux session."""
 
     return (
-        isinstance(payload, SessionManifestPayloadV4)
-        and payload.agent_launch_authority is not None
+        payload.agent_launch_authority is not None
         and payload.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
     )
 
 
 def _build_joined_launch_plan_from_manifest_payload(
     *,
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     role_package: RolePackage,
     mailbox: MailboxResolvedConfig | None,
 ) -> LaunchPlan:
     """Rebuild a join-derived launch plan from the persisted session manifest."""
 
-    if not isinstance(payload, SessionManifestPayloadV4) or payload.agent_launch_authority is None:
+    if payload.agent_launch_authority is None:
         raise SessionManifestError("Joined-session resume requires v4 agent_launch_authority data.")
     authority = payload.agent_launch_authority
     if authority.session_origin != _JOINED_SESSION_ORIGIN:
@@ -2028,7 +2026,7 @@ def _resolve_joined_launch_env_values(
 
 
 def _optional_backend_state_str(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     key: str,
 ) -> str | None:
     """Return one normalized optional backend_state string."""
@@ -2136,7 +2134,7 @@ def _refresh_pair_launch_registration(controller: RuntimeSessionController) -> N
 
 
 def _resume_cao_state(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
+    payload: SessionManifestPayloadV4 | None,
 ) -> CaoSessionState | None:
     if payload is None:
         return None
@@ -2248,7 +2246,7 @@ def _resume_cao_state(
 
 
 def _resume_houmao_server_state(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4 | None,
+    payload: SessionManifestPayloadV4 | None,
 ) -> CaoSessionState | None:
     if payload is None:
         return None
@@ -2413,7 +2411,7 @@ def _gateway_defaults_from_brain_manifest(
 
 
 def _resolved_mailbox_from_manifest_payload(
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     *,
     session_manifest_path: Path,
 ) -> MailboxResolvedConfig | None:
@@ -3311,7 +3309,7 @@ def _validate_resolved_manifest_matches_tmux_session(
 
 def _persisted_tmux_session_name(
     *,
-    payload: SessionManifestPayloadV3 | SessionManifestPayloadV4,
+    payload: SessionManifestPayloadV4,
     manifest_path: Path,
 ) -> str:
     persisted = payload.tmux_session_name
