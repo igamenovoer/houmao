@@ -523,36 +523,75 @@ That coverage SHALL NOT present `--working-directory` as part of the current pub
 - **AND THEN** it explains that `--workdir` only changes the launched agent cwd
 
 ### Requirement: System-skills reference documents effective-home resolution and omitted-selection defaults
-The CLI reference pages `docs/reference/cli/system-skills.md` and `docs/reference/cli/houmao-mgr.md` SHALL describe `houmao-mgr system-skills install` and `houmao-mgr system-skills status` as requiring `--tool` and accepting an optional `--home`.
+The CLI reference pages `docs/reference/cli/system-skills.md` and `docs/reference/cli/houmao-mgr.md` SHALL describe `houmao-mgr system-skills install` as requiring `--tool` with either one supported tool identifier or a comma-separated list of supported tool identifiers.
 
-That coverage SHALL document effective-home resolution with this precedence:
+The CLI reference pages `docs/reference/cli/system-skills.md` and `docs/reference/cli/houmao-mgr.md` SHALL describe `houmao-mgr system-skills status` as requiring one supported `--tool` value.
 
-1. explicit `--home`
-2. tool-native home env var
-3. project-scoped default home
+That coverage SHALL describe `--home` as optional for single-tool `install` and `status` invocations.
+
+That coverage SHALL state that `--home` is invalid for `system-skills install` when `--tool` names more than one comma-separated tool.
+
+That coverage SHALL document `--skill-set <name>` as the repeatable named system-skill set selection flag for `system-skills install`.
+
+That coverage SHALL state that `--set` is no longer part of the supported public `system-skills install` surface.
+
+That coverage SHALL document effective-home resolution for omitted-home installs and status inspection with this precedence:
+
+1. tool-native home env var
+2. project-scoped default home
+
+That coverage SHALL document explicit `--home` as taking precedence over tool-native home env vars and project-scoped defaults for single-tool commands.
 
 That coverage SHALL document the tool-native home env vars:
 
 - Claude: `CLAUDE_CONFIG_DIR`
 - Codex: `CODEX_HOME`
+- Copilot: `COPILOT_HOME`
 - Gemini: `GEMINI_CLI_HOME`
 
 That coverage SHALL document the project-scoped default homes:
 
 - Claude: `<cwd>/.claude`
 - Codex: `<cwd>/.codex`
+- Copilot: `<cwd>/.github`
 - Gemini: `<cwd>`
 
-That coverage SHALL state that omitting both `--set` and `--skill` resolves the packaged CLI-default set list.
+That coverage SHALL state that omitting both `--skill-set` and `--skill` resolves the packaged CLI-default set list.
 
 That coverage SHALL NOT present `--default` as part of the current public `system-skills install` surface.
 
 That coverage SHALL explain that the default Gemini home root is `<cwd>`, which yields Houmao-owned skill projection under `<cwd>/.gemini/skills/`.
 
+That coverage SHALL show at least one comma-separated multi-tool install example and at least one single-tool explicit-home install example.
+
+That coverage SHALL show at least one named-set install example using `--skill-set`.
+
+That coverage SHALL explain that single-tool JSON output keeps the scalar install payload shape and multi-tool JSON output wraps per-tool install results under an aggregate payload.
+
 #### Scenario: Reader sees the effective-home precedence in the system-skills reference
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page documents `--home` as optional for `install` and `status`
-- **AND THEN** it explains the precedence order of explicit `--home`, tool-native env redirection, and project-scoped default home
+- **THEN** the page documents `--home` as optional for single-tool `install` and `status`
+- **AND THEN** it explains the precedence order of explicit `--home`, tool-native env redirection, and project-scoped default home for single-tool commands
+
+#### Scenario: Reader sees comma-separated multi-tool install syntax
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page documents that `system-skills install --tool` accepts comma-separated supported tools
+- **AND THEN** it shows an example such as `houmao-mgr system-skills install --tool claude,codex,copilot,gemini`
+
+#### Scenario: Reader sees explicit skill-set flag naming
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page documents `--skill-set <name>` as the named system-skill set selection flag
+- **AND THEN** the page does not present `--set` as the current named-set selection flag
+
+#### Scenario: Reader sees the multi-tool home restriction
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that `--home` cannot be combined with comma-separated multi-tool install
+- **AND THEN** it explains that operators who need explicit homes must run separate single-tool install commands
+
+#### Scenario: Reader understands single-tool and multi-tool install output
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that existing single-tool JSON output keeps scalar `tool` and `home_path` fields
+- **AND THEN** it explains that multi-tool JSON output reports `tools` plus one per-tool installation result
 
 #### Scenario: Reader sees the Gemini project-root default home clearly
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
@@ -561,8 +600,8 @@ That coverage SHALL explain that the default Gemini home root is `<cwd>`, which 
 
 #### Scenario: Reader does not see the removed default flag in current reference docs
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md` or `docs/reference/cli/houmao-mgr.md`
-- **THEN** the current command shape does not present `--default` as a supported `system-skills install` option
-- **AND THEN** the reference explains that omitting both `--set` and `--skill` is the supported way to request CLI-default selection
+- **THEN** the current command shape does not present `--set` or `--default` as a supported `system-skills install` option
+- **AND THEN** the reference explains that omitting both `--skill-set` and `--skill` is the supported way to request CLI-default selection
 
 ### Requirement: CLI reference documents tmux-session targeting for `agents gateway`
 The CLI reference pages `docs/reference/cli/agents-gateway.md` and `docs/reference/cli.md` SHALL document `--target-tmux-session <tmux-session-name>` as an explicit selector for single-target `houmao-mgr agents gateway ...` commands.
@@ -1099,19 +1138,24 @@ That page SHALL document:
 - **AND THEN** it gives examples for both `.github/skills/<houmao-skill>/` and `~/.copilot/skills/<houmao-skill>/`
 
 ### Requirement: CLI reference explains component-scoped memo seed policies
-The `houmao-mgr` CLI reference SHALL explain that `--memo-seed-policy initialize|replace|fail-if-nonempty` applies only to the managed-memory components represented by the supplied memo seed source.
+The `houmao-mgr` CLI reference SHALL explain that launch-profile memo seeds do not expose a memo seed policy option.
 
-When the reference documents `--memo-seed-text` or `--memo-seed-file`, it SHALL NOT imply that policy `replace` clears memory pages.
+The CLI reference SHALL explain that memo seed source options replace only the managed-memory components represented by the supplied source.
+
+When the reference documents `--memo-seed-text` or `--memo-seed-file`, it SHALL state that profile-backed launch replaces `houmao-memo.md` without clearing memory pages.
+
+When the reference documents `--memo-seed-dir`, it SHALL state that a directory seed replaces `houmao-memo.md` only when `houmao-memo.md` is present and replaces pages only when `pages/` is present.
 
 When the reference documents `--clear-memo-seed`, it SHALL distinguish removing stored seed configuration from storing an empty memo seed.
 
 #### Scenario: Reader distinguishes empty memo seed from clearing seed config
 - **WHEN** a reader looks up memo seed flags for launch profiles or easy profiles
 - **THEN** the CLI reference states that `--clear-memo-seed` removes stored seed configuration
-- **AND THEN** the CLI reference states that `--memo-seed-text '' --memo-seed-policy replace` stores an intentional empty memo seed
+- **AND THEN** the CLI reference states that `--memo-seed-text ''` stores an intentional empty memo seed
+- **AND THEN** the CLI reference does not document `--memo-seed-policy`
 
-#### Scenario: Reader sees memo-only replace preserves pages
-- **WHEN** a reader looks up `--memo-seed-text` with policy `replace`
+#### Scenario: Reader sees memo-only seed preserves pages
+- **WHEN** a reader looks up `--memo-seed-text`
 - **THEN** the CLI reference states that the launch replaces `houmao-memo.md`
 - **AND THEN** it does not state that pages are cleared for memo-only seeds
 

@@ -90,16 +90,17 @@ The skill SHALL warn that short-lived retry counters, dedupe databases, mailbox 
 - **AND THEN** it does not tell the agent to run or simulate a generated page reindex operation
 
 ### Requirement: `houmao-memory-mgr` explains launch-profile memo seed scope
-When the packaged `houmao-memory-mgr` skill guides launch-profile or easy-profile memo seed edits, it SHALL explain that memo seed policies apply only to the managed-memory components represented by the seed source.
+When the packaged `houmao-memory-mgr` skill guides launch-profile or easy-profile memo seed edits, it SHALL explain that memo seed sources define which managed-memory components are replaced.
 
-The skill SHALL guide memo-only seed requests through `--memo-seed-text` or `--memo-seed-file` without suggesting that policy `replace` clears pages.
+The skill SHALL guide memo-only seed requests through `--memo-seed-text` or `--memo-seed-file` without suggesting or requiring a memo seed policy.
 
 The skill SHALL distinguish `--clear-memo-seed`, which removes stored profile seed configuration, from an empty memo seed, which stores empty memo content for future profile-backed launches.
 
 #### Scenario: Skill routes empty memo seed without clearing pages
 - **WHEN** a user asks an agent to make a launch profile seed an empty memo on future launches
-- **THEN** `houmao-memory-mgr` guides the agent to use `--memo-seed-text '' --memo-seed-policy replace`
+- **THEN** `houmao-memory-mgr` guides the agent to use `--memo-seed-text ''`
 - **AND THEN** the skill states that this affects `houmao-memo.md` and leaves pages outside the memo-only seed scope
+- **AND THEN** the skill does not tell the agent to use `--memo-seed-policy`
 
 #### Scenario: Skill removes stored seed only when requested
 - **WHEN** a user asks an agent to remove a stored launch-profile memo seed

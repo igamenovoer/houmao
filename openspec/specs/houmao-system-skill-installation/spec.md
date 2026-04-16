@@ -125,7 +125,7 @@ That automatic or explicit selection SHALL NOT depend on conditional rule evalua
 - **AND THEN** Houmao does not proceed with partial set expansion
 
 ### Requirement: Shared installer records Houmao-owned install state and preserves unrelated content
-The shared installer SHALL record Houmao-owned install state under the target home and SHALL use that state to make repeated installation idempotent.
+The shared installer SHALL record Houmao-owned install state under the target home and SHALL use current-schema install state to make repeated installation idempotent.
 
 For each recorded installed skill, the install state SHALL record:
 
@@ -135,53 +135,47 @@ For each recorded installed skill, the install state SHALL record:
 - the recorded projection mode,
 - the recorded content digest.
 
-When the current projected path for one selected skill differs from a previously recorded Houmao-owned path for that same skill, reinstall SHALL remove the previously owned path before or during projection of the new path and SHALL update install state to record only the current owned path for that skill.
-
-When the current projection mode for one selected skill differs from a previously recorded Houmao-owned mode for that same skill, reinstall SHALL replace the previously owned in-home path with the newly requested projection mode and SHALL update install state to record only the current mode for that skill.
-
-When the current packaged skill name supersedes a previously recorded Houmao-owned skill name for the same maintained workflow, reinstall or auto-install SHALL remove the previously owned path for the superseded skill and SHALL update install state to keep only the current renamed skill record.
+When the current projection mode for one selected skill differs from a previously recorded current-schema Houmao-owned mode for that same skill, reinstall SHALL replace the previously owned in-home path with the newly requested projection mode and SHALL update install state to record only the current mode for that skill.
 
 The installer SHALL preserve unrelated user-authored skill content in the target home.
 
-If a required projected path collides with content that is not recorded as Houmao-owned install state, the installer SHALL fail explicitly rather than overwriting that content silently.
+If a required projected path collides with content that is not recorded as current-schema Houmao-owned install state, the installer SHALL fail explicitly rather than overwriting that content silently.
 
-If Houmao encounters a previously recorded copy-only install-state record from before projection mode was tracked explicitly, it SHALL continue to treat that owned record as a copied projection during status and reinstall.
+If Houmao encounters an old install-state record version, an old family-namespaced Houmao-owned skill path, or a previously renamed/superseded skill record, it SHALL reject that old install state or leave it outside current ownership instead of migrating it into the current install-state model.
 
 #### Scenario: Reinstalling the same current skill set keeps the flat owned result stable
 - **WHEN** Houmao installs the same selected current Houmao-owned skill set into the same target home more than once using the same projection mode
-- **THEN** the installer reuses Houmao-owned install state to keep the projected result consistent
+- **THEN** the installer reuses current-schema Houmao-owned install state to keep the projected result consistent
 - **AND THEN** the target home does not accumulate duplicate Houmao-owned skill trees or duplicate Houmao-owned symlink entries
 
 #### Scenario: Reinstall switches one selected skill from copied projection to symlink projection
-- **WHEN** a target tool home already records one selected current Houmao-owned skill as a copied projection
+- **WHEN** a target tool home already records one selected current Houmao-owned skill as a copied projection in current-schema install state
 - **AND WHEN** the operator reinstalls that same skill into the same owned tool-native path using symlink projection
 - **THEN** the installer replaces the previously owned copied path with the requested symlink entry
 - **AND THEN** the recorded Houmao-owned install state is updated to keep only the current symlink projection mode for that skill
 
-#### Scenario: Reinstall migrates a previously owned family-namespaced path
-- **WHEN** a target tool home already records a Houmao-owned path such as `skills/mailbox/<houmao-skill>/` or `skills/project/<houmao-skill>/` for one selected skill
-- **AND WHEN** the current installer now projects that same skill into the flat top-level tool-native path
-- **THEN** reinstall removes the previously owned family-namespaced path before or during projection of the new path
-- **AND THEN** the recorded Houmao-owned install state is updated to keep only the current flat owned path for that skill
-- **AND THEN** the target home does not retain stale Houmao-owned namespace directories for that migrated skill
-
-#### Scenario: Reinstall migrates the renamed specialist-management skill
-- **WHEN** a target tool home already records Houmao-owned install state for `houmao-create-specialist`
-- **AND WHEN** the current packaged catalog now selects `houmao-specialist-mgr`
-- **THEN** reinstall or auto-install removes the previously owned `houmao-create-specialist` projected directory before or during projection of `houmao-specialist-mgr`
-- **AND THEN** the recorded Houmao-owned install state is updated to keep only `houmao-specialist-mgr`
-- **AND THEN** the target home does not retain the stale owned `houmao-create-specialist` directory alongside the renamed skill
-
 #### Scenario: Non-owned collision fails closed
 - **WHEN** the shared installer needs to project a current Houmao-owned skill path into a target home
-- **AND WHEN** that projected path is already occupied by content not recorded as Houmao-owned install state
+- **AND WHEN** that projected path is already occupied by content not recorded as current-schema Houmao-owned install state
 - **THEN** the installation fails explicitly
 - **AND THEN** the installer does not silently overwrite the non-owned content
 
-#### Scenario: Upgrade reads a previously recorded copy-only install-state record
+#### Scenario: Old copy-only install-state record is unsupported
 - **WHEN** Houmao reads a previously recorded Houmao-owned install-state record that predates explicit projection-mode tracking
-- **THEN** the system treats that record as a copied projection for status and reinstall purposes
-- **AND THEN** the existing owned copied skill path remains manageable by the shared installer
+- **THEN** the installer rejects that old install-state shape explicitly
+- **AND THEN** it does not infer copied projection mode as a migration fallback
+
+#### Scenario: Old family-namespaced paths are not migrated
+- **WHEN** a target tool home contains old Houmao-owned paths such as `skills/mailbox/<houmao-skill>/` or `skills/project/<houmao-skill>/`
+- **AND WHEN** the current installer projects that skill into the current flat top-level tool-native path
+- **THEN** the installer does not treat those old paths as migration inputs for current install state
+- **AND THEN** the operator must clear old owned content or use a clean target home if those paths need removal
+
+#### Scenario: Renamed skill records are not migrated
+- **WHEN** a target tool home records old Houmao-owned install state for a superseded skill name such as `houmao-create-specialist`
+- **AND WHEN** the current packaged catalog selects the current replacement skill name
+- **THEN** the installer does not migrate the superseded record into the current skill name
+- **AND THEN** the operator must reinstall current system skills using current install state
 
 ### Requirement: Packaged system-skill catalog includes low-level agent-definition guidance in the user-control set
 The packaged current-system-skill catalog SHALL include `houmao-agent-definition` as a current installable Houmao-owned skill.

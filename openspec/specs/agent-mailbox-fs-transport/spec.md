@@ -187,6 +187,8 @@ The shared mailbox-root SQLite index SHALL NOT be the authoritative store for pe
 
 If the shared mailbox-root SQLite index retains thread-summary rows for structural query support, those rows SHALL be structural-only and SHALL NOT remain authoritative for per-mailbox `unread_count` once mailbox-local SQLite is available.
 
+If the shared mailbox-root SQLite index retains obsolete mutable mailbox-state rows from an older development format, those rows SHALL NOT be used as a migration source for mailbox-local SQLite state.
+
 #### Scenario: Marking a message read updates mailbox-local SQLite state without rewriting Markdown
 - **WHEN** a recipient marks a delivered filesystem mailbox message as read
 - **THEN** the system updates that recipient mailbox's local mailbox-state SQLite database
@@ -198,22 +200,30 @@ If the shared mailbox-root SQLite index retains thread-summary rows for structur
 - **AND THEN** the system can query thread-oriented mailbox views without reparsing every mailbox file on each request
 
 #### Scenario: Per-mailbox unread thread counts are rebuilt locally
-- **WHEN** the transport migrates or repairs mailbox-local state for one mailbox
+- **WHEN** the transport repairs or rebuilds mailbox-local state for one current-format mailbox
 - **THEN** unread thread counts are rebuilt from that mailbox's local message-state rows
 - **AND THEN** any shared-root thread-summary data is treated as structural-only rather than as authoritative unread state
+
+#### Scenario: Obsolete shared mutable state is ignored
+- **WHEN** an existing shared mailbox-root SQLite index contains old shared mutable mailbox-state rows
+- **AND WHEN** Houmao initializes or validates mailbox-local SQLite state
+- **THEN** Houmao does not copy those old shared mutable rows into mailbox-local SQLite
+- **AND THEN** mailbox-local state is created only from current-format authoritative inputs or deterministic defaults
 
 ### Requirement: Filesystem transport supports recovery from the message corpus
 The filesystem mailbox transport SHALL treat canonical Markdown message files as durable recovery artifacts and SHALL support rebuilding structural mailbox indexes from the message corpus when the SQLite index is missing or unusable.
 
 Interrupted deliveries SHALL leave only staging artifacts that can be cleaned or quarantined without treating them as committed mail.
 
+Recovery from canonical Markdown files SHALL rebuild supported current-format structural state. It SHALL NOT migrate unsupported old mutable mailbox-state schemas into current mailbox-local SQLite state.
+
 #### Scenario: Reindex rebuilds structural message catalog
 - **WHEN** the SQLite mailbox index is missing or corrupted but canonical Markdown message files remain present
 - **THEN** the system can rebuild the structural message and projection catalog from the filesystem mailbox corpus
 - **AND THEN** rebuilt entries preserve the original canonical message ids and thread ancestry recorded in those message files
 
-#### Scenario: Reindex initializes mailbox state when prior mutable state is unavailable
-- **WHEN** the system rebuilds mailbox indexes from canonical message files without prior mutable mailbox-state records
+#### Scenario: Reindex initializes mailbox state when prior current-format mutable state is unavailable
+- **WHEN** the system rebuilds mailbox indexes from canonical message files without prior current-format mailbox-local mutable state records
 - **THEN** the system recreates mailbox catalog entries for the recovered messages
 - **AND THEN** the system initializes per-recipient mailbox state using deterministic defaults rather than silently dropping the recovered messages
 
@@ -237,6 +247,8 @@ For an in-root mailbox directory, the local mailbox-state database SHALL live un
 
 Within each mailbox-local database, mutable message-view rows SHALL be keyed by `message_id`, and mailbox-local thread summary rows SHALL be keyed by `thread_id`. Because the database already scopes to one resolved mailbox, those local tables SHALL NOT require `registration_id` as part of their row identity.
 
+Mailbox-local SQLite initialization SHALL create the current schema when the local database is missing. It SHALL NOT populate that local database by migrating obsolete shared-root mutable mailbox-state rows.
+
 #### Scenario: In-root mailbox gets a local mailbox-state database
 - **WHEN** the runtime initializes or validates an in-root filesystem mailbox directory for one mailbox address
 - **THEN** that mailbox directory contains a stable local mailbox-state SQLite database
@@ -248,7 +260,7 @@ Within each mailbox-local database, mutable message-view rows SHALL be keyed by 
 - **AND THEN** recipient-local mailbox-view state follows the mailbox directory that owns that view
 
 #### Scenario: Mailbox-local SQLite uses mailbox-scoped row identities
-- **WHEN** the transport initializes or migrates one mailbox-local database
+- **WHEN** the transport initializes or validates one mailbox-local database
 - **THEN** mutable message-view rows are identified by `message_id` and mailbox-local thread summary rows are identified by `thread_id`
 - **AND THEN** the local database does not repeat shared-root `registration_id` as part of those primary identities
 
@@ -352,3 +364,19 @@ Filesystem mailbox state updates for read, answered, move, and archive operation
 - **WHEN** a caller moves a filesystem-backed message from `inbox` to `archive`
 - **THEN** the filesystem transport updates the affected mailbox projection and mailbox-local state under the mailbox write lock discipline
 - **AND THEN** readers do not observe a committed message in both open inbox work and archive as a partial move result
+
+### Requirement: Filesystem mailbox format incompatibilities are hard-reset only before 1.0
+Filesystem mailbox bootstrap SHALL create the current mailbox root protocol, shared SQLite schema, registration rows, and mailbox-local SQLite state when the mailbox root is new.
+
+When an existing mailbox root uses an unsupported protocol version or obsolete persisted format, Houmao SHALL fail explicitly and direct the operator to delete and re-bootstrap the mailbox root. Houmao SHALL NOT transform unsupported old mailbox state into the current format through an in-place migration.
+
+#### Scenario: Fresh mailbox root initializes current state
+- **WHEN** an operator bootstraps filesystem mailbox support from scratch
+- **THEN** Houmao creates the mailbox root using the current protocol and SQLite schemas
+- **AND THEN** no old-format migration path is needed for mailbox operation
+
+#### Scenario: Unsupported mailbox root fails with rebootstrap guidance
+- **WHEN** Houmao opens an existing filesystem mailbox root that uses an unsupported persisted format
+- **THEN** mailbox bootstrap fails before mutating that root
+- **AND THEN** the diagnostic directs the operator to delete and re-bootstrap the mailbox root instead of promising in-place migration
+
