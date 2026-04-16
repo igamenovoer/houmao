@@ -4,6 +4,16 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc5] - 2026-04-16
+
+### Changed
+
+- **Simplified system skill reinstall**: `houmao-mgr system-skills install` no longer requires separate overwrite flags; reinstalling over existing skills now uses straightforward replace semantics, removing previous overwrite-policy complexity.
+
+### Fixed
+
+- **Proxy env bypassed for gateway attach**: gateway HTTP client now strips proxy-related environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and lowercase variants) during attach and status calls, preventing connection failures when the runtime runs behind a corporate proxy that cannot reach the local gateway.
+
 ## [0.7.0rc4] - 2026-04-16
 
 ### Added
