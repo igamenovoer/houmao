@@ -8,7 +8,6 @@ import sys
 
 from click.testing import CliRunner
 
-from houmao.agents.system_skills import system_skill_state_path_for_home
 from houmao.srv_ctrl.commands.main import cli
 from houmao.version import get_version
 
@@ -42,6 +41,15 @@ _CATALOG_SKILLS = [
     "houmao-agent-messaging",
     "houmao-agent-gateway",
 ]
+
+
+def _obsolete_system_skill_state_path(home_path: Path) -> Path:
+    return (home_path.resolve() / ".houmao/system-skills/install-state.json").resolve()
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
@@ -322,6 +330,37 @@ def test_system_skills_install_uses_explicit_home_over_env_redirect(tmp_path: Pa
     assert install_payload["home_path"] == str(explicit_home)
     assert (explicit_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert not (env_home / "skills/houmao-specialist-mgr").exists()
+
+
+def test_system_skills_install_overwrites_selected_existing_skill_path(tmp_path: Path) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    selected_skill_dir = home_path / "skills/houmao-specialist-mgr"
+    selected_skill_path = selected_skill_dir / "SKILL.md"
+    stale_child = selected_skill_dir / "stale.txt"
+    _write(selected_skill_path, "stale selected skill\n")
+    _write(stale_child, "stale child\n")
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+            "--skill",
+            "houmao-specialist-mgr",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["resolved_skills"] == ["houmao-specialist-mgr"]
+    assert selected_skill_path.is_file()
+    assert selected_skill_path.read_text(encoding="utf-8") != "stale selected skill\n"
+    assert not stale_child.exists()
 
 
 def test_system_skills_install_uses_env_redirect_when_home_is_omitted(tmp_path: Path) -> None:
@@ -792,7 +831,7 @@ def test_system_skills_status_ignores_stale_legacy_state_without_current_paths(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
-    state_path = system_skill_state_path_for_home(home_path)
+    state_path = _obsolete_system_skill_state_path(home_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(

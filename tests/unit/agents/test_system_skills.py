@@ -16,7 +16,6 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_MAILBOX_FULL,
     SYSTEM_SKILL_SET_TOURING,
     SYSTEM_SKILL_SET_USER_CONTROL,
-    SYSTEM_SKILL_STATE_SCHEMA_VERSION,
     SystemSkillCatalogError,
     SystemSkillInstallError,
     discover_installed_system_skills,
@@ -25,7 +24,6 @@ from houmao.agents.system_skills import (
     load_system_skill_catalog_from_paths,
     resolve_auto_install_skill_selection,
     resolve_system_skill_selection,
-    system_skill_state_path_for_home,
 )
 
 
@@ -47,12 +45,12 @@ def _packaged_skill_asset_root(skill_name: str) -> Path:
     ).resolve()
 
 
-def _assert_legacy_state_removed(home_path: Path) -> None:
-    state_path = system_skill_state_path_for_home(home_path)
-    assert state_path.is_file()
-    payload = json.loads(state_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == SYSTEM_SKILL_STATE_SCHEMA_VERSION
-    assert payload["installed_skills"]
+def _obsolete_system_skill_state_path(home_path: Path) -> Path:
+    return (home_path.resolve() / ".houmao/system-skills/install-state.json").resolve()
+
+
+def _assert_no_install_state_written(home_path: Path) -> None:
+    assert not _obsolete_system_skill_state_path(home_path).exists()
 
 
 def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults() -> None:
@@ -283,7 +281,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "copy",
         "copy",
     )
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
@@ -1504,7 +1502,7 @@ def test_install_system_skills_for_home_supports_explicit_symlink_projection(
     assert (installed_skill_dir / "SKILL.md").is_file()
     assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
     assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
 def test_install_system_skills_for_home_projects_copilot_selected_skills_and_status(
@@ -1528,7 +1526,7 @@ def test_install_system_skills_for_home_projects_copilot_selected_skills_and_sta
         "skills/houmao-specialist-mgr",
     )
     assert tuple(record.projection_mode for record in installed_records) == ("copy",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
 def test_install_system_skills_for_home_supports_copilot_symlink_projection(
@@ -1557,7 +1555,7 @@ def test_install_system_skills_for_home_supports_copilot_symlink_projection(
         "skills/houmao-specialist-mgr",
     )
     assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
 def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(
@@ -1623,62 +1621,63 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
     installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
     assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
     assert tuple(record.projection_mode for record in installed_records) == ("copy",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
-def test_install_system_skills_for_home_rejects_existing_current_skill_path_without_state(
+def test_install_system_skills_for_home_overwrites_existing_current_skill_path_without_state(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
-    conflicting_skill_path = home_path / "skills/houmao-agent-email-comms/SKILL.md"
-    _write(conflicting_skill_path, "user-authored collision\n")
+    selected_skill_dir = home_path / "skills/houmao-agent-email-comms"
+    selected_skill_path = selected_skill_dir / "SKILL.md"
+    stale_child = selected_skill_dir / "stale.txt"
+    _write(selected_skill_path, "user-authored collision\n")
+    _write(stale_child, "stale child\n")
 
-    with pytest.raises(SystemSkillInstallError, match="not recorded as current-schema"):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-agent-email-comms",),
-        )
-
-    assert conflicting_skill_path.read_text(encoding="utf-8") == "user-authored collision\n"
-
-
-def test_install_system_skills_for_home_rejects_old_copy_only_state_version(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    state_path = system_skill_state_path_for_home(home_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "tool": "codex",
-                "installed_at": "2026-04-05T00:00:00Z",
-                "installed_skills": [
-                    {
-                        "name": "houmao-process-emails-via-gateway",
-                        "asset_subpath": "mailbox/houmao-process-emails-via-gateway",
-                        "projected_relative_dir": "skills/mailbox/houmao-process-emails-via-gateway",
-                        "content_digest": "old-mailbox",
-                    },
-                ],
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-agent-email-comms",),
     )
 
-    with pytest.raises(SystemSkillInstallError, match="clean target home"):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-process-emails-via-gateway",),
-        )
+    assert selected_skill_path.is_file()
+    assert selected_skill_path.read_text(encoding="utf-8") != "user-authored collision\n"
+    assert not stale_child.exists()
+    _assert_no_install_state_written(home_path)
 
 
-def test_install_system_skills_for_home_rejects_old_family_namespaced_path_record(
+def test_install_system_skills_for_home_ignores_obsolete_state_version(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    state_path = _obsolete_system_skill_state_path(home_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_payload = {
+        "schema_version": 1,
+        "tool": "codex",
+        "installed_at": "2026-04-05T00:00:00Z",
+        "installed_skills": [
+            {
+                "name": "houmao-process-emails-via-gateway",
+                "asset_subpath": "mailbox/houmao-process-emails-via-gateway",
+                "projected_relative_dir": "skills/mailbox/houmao-process-emails-via-gateway",
+                "content_digest": "old-mailbox",
+            },
+        ],
+    }
+    state_path.write_text(json.dumps(stale_payload, indent=2) + "\n", encoding="utf-8")
+
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-process-emails-via-gateway",),
+    )
+
+    assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
+    assert json.loads(state_path.read_text(encoding="utf-8")) == stale_payload
+
+
+def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_and_state(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "gemini-home").resolve()
@@ -1686,40 +1685,32 @@ def test_install_system_skills_for_home_rejects_old_family_namespaced_path_recor
         home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md",
         "old specialist path\n",
     )
-    state_path = system_skill_state_path_for_home(home_path)
+    _write(
+        home_path / ".gemini/skills/houmao-project-mgr/SKILL.md",
+        "unselected current skill\n",
+    )
+    _write(home_path / "notes/unrelated.txt", "unrelated\n")
+    state_path = _obsolete_system_skill_state_path(home_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(
-            {
-                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
-                "tool": "gemini",
-                "installed_at": "2026-04-05T00:00:00Z",
-                "installed_skills": [
-                    {
-                        "name": "houmao-specialist-mgr",
-                        "asset_subpath": "houmao-specialist-mgr",
-                        "projected_relative_dir": ".agents/skills/houmao-specialist-mgr",
-                        "projection_mode": "copy",
-                        "content_digest": "old-specialist",
-                    },
-                ],
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    stale_state = "obsolete state\n"
+    state_path.write_text(stale_state, encoding="utf-8")
+
+    install_system_skills_for_home(
+        tool="gemini",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
     )
 
-    with pytest.raises(SystemSkillInstallError, match="old family-namespaced paths"):
-        install_system_skills_for_home(
-            tool="gemini",
-            home_path=home_path,
-            skill_names=("houmao-specialist-mgr",),
-        )
+    assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (
+        home_path / ".gemini/skills/houmao-project-mgr/SKILL.md"
+    ).read_text(encoding="utf-8") == "unselected current skill\n"
+    assert (home_path / "notes/unrelated.txt").read_text(encoding="utf-8") == "unrelated\n"
+    assert state_path.read_text(encoding="utf-8") == stale_state
 
 
-def test_install_system_skills_for_home_rejects_superseded_skill_record(
+def test_install_system_skills_for_home_ignores_superseded_skill_record(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
@@ -1727,12 +1718,12 @@ def test_install_system_skills_for_home_rejects_superseded_skill_record(
         home_path / "skills/houmao-create-specialist/SKILL.md",
         "old flat project-easy path\n",
     )
-    state_path = system_skill_state_path_for_home(home_path)
+    state_path = _obsolete_system_skill_state_path(home_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(
             {
-                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "schema_version": 2,
                 "tool": "codex",
                 "installed_at": "2026-04-08T00:00:00Z",
                 "installed_skills": [
@@ -1751,10 +1742,12 @@ def test_install_system_skills_for_home_rejects_superseded_skill_record(
         encoding="utf-8",
     )
 
-    with pytest.raises(SystemSkillInstallError, match="renamed or superseded"):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-specialist-mgr",),
-        )
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
+    )
+
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-create-specialist/SKILL.md").is_file()
+    assert state_path.is_file()

@@ -388,7 +388,7 @@ Operational notes:
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
 - repeated skill sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
 - the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
-- `status` discovers current packaged skill paths in the resolved home; `install` uses current-schema install-state records as ownership proof and rejects unsupported old install-state or path layouts instead of migrating them
+- `status` discovers current packaged skill paths in the resolved home; `install` replaces selected current Houmao-owned skill destinations directly without install-state ownership checks
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).

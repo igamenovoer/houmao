@@ -142,26 +142,19 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 
 That means Houmao-owned mailbox, touring, and user-control skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
 
-## Current Install-State Ownership
+## Stateless Selected-Skill Replacement
 
-The shared installer records current Houmao-owned skill projections in `.houmao/system-skills/install-state.json`.
+The shared installer does not create or require `.houmao/system-skills/install-state.json` in target tool homes.
 
-Each current install-state record stores:
+For each selected current Houmao-owned skill, reinstall computes the exact current tool-native destination path, removes that path if it already exists as a directory, file, or symlink, and then projects the packaged skill with the requested mode.
 
-- the current skill name,
-- the packaged asset subpath,
-- the tool-home-relative projected directory,
-- the projection mode (`copy` or `symlink`),
-- the content digest.
+Replacement policy:
 
-Reinstall uses only current-schema install state as ownership proof. For a selected current skill, reinstall may remove the previously recorded owned path, project the requested copy or symlink path, and rewrite the current install-state file.
-
-Collision policy:
-
-- if the selected current skill path is already occupied but is not recorded as current-schema Houmao-owned state, install fails instead of overwriting it
-- unrelated content outside recorded current Houmao-owned paths is preserved
-- old copy-only install-state versions, old family-namespaced paths, and renamed or superseded skill records are not migrated before 1.0
-- when an old skill installation blocks current install, use a clean target home or remove stale content before reinstalling current system skills
+- selected current Houmao-owned skill paths are explicit overwrite targets
+- copied projection materializes the packaged skill tree into the selected destination
+- symlink projection replaces the selected destination with a directory symlink to the packaged asset root
+- unselected skill directories, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, and stale install-state files are not removed
+- old install-state files are ignored rather than migrated
 
 ## `list`
 
@@ -196,7 +189,7 @@ pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 - installed current Houmao-owned skill names discovered in that home
 - the inferred projection mode for each installed current skill (`copy` or `symlink`)
 
-If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. `status` discovers current packaged skill paths and does not adopt old install-state files. `install` rejects unsupported old install-state files; use a clean target home or remove stale content before reinstalling current system skills.
+If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. `status` discovers current packaged skill paths from the filesystem and ignores old install-state files.
 
 ## `install`
 
@@ -252,8 +245,8 @@ Projection rules:
 - symlink installs use the absolute filesystem path of the packaged skill asset as the symlink target
 - if the packaged skill asset is not backed by a stable real filesystem directory, `--symlink` fails explicitly instead of falling back to copied projection
 - `--symlink` is a local-machine convenience mode; if the Python environment or installed package path moves, reinstall the skills to refresh the symlink targets
-- reinstall may replace only paths recorded as current-schema Houmao-owned install state for the selected current skills
-- legacy skill aliases, old family-namespaced paths, and obsolete install-state files are not migrated or deleted automatically before 1.0
+- reinstall replaces existing destinations for selected current skills without install-state ownership checks
+- legacy skill aliases, old family-namespaced paths, and obsolete install-state files are ignored and are not deleted automatically before 1.0
 
 ## Internal Auto-Install Behavior
 
