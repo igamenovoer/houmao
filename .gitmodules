@@ -18,3 +18,7 @@
 	path = extern/tracked/houmao-test-workspace-2
 	url = https://github.com/igamenovoer/houmao-test-workspace-2.git
 	branch = main
+[submodule "extern/tracked/llm-wiki-skill"]
+	path = extern/tracked/llm-wiki-skill
+	url = https://github.com/imsight-forks/llm-wiki-skill.git
+	branch = all-in-one

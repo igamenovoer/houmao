@@ -26,6 +26,7 @@ _CATALOG_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-adv-usage-pattern",
+    "houmao-utils-llm-wiki",
     "houmao-touring",
     "houmao-mailbox-mgr",
     "houmao-memory-mgr",
@@ -50,6 +51,8 @@ def _obsolete_system_skill_state_path(home_path: Path) -> Path:
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
 _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
@@ -68,6 +71,9 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-inspect",
     "houmao-agent-messaging",
     "houmao-agent-gateway",
+]
+_DEFAULT_INSTALLED_CATALOG_ORDER = [
+    skill_name for skill_name in _CATALOG_SKILLS if skill_name in _DEFAULT_RESOLVED_SKILLS
 ]
 
 
@@ -159,6 +165,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         "mailbox-full",
         "agent-memory",
         "advanced-usage",
+        "utils",
         "touring",
         "user-control",
         "agent-instance",
@@ -210,6 +217,8 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         record for record in payload["sets"] if record["name"] == "advanced-usage"
     )
     assert advanced_usage_record["skills"] == ["houmao-adv-usage-pattern"]
+    utils_record = next(record for record in payload["sets"] if record["name"] == "utils")
+    assert utils_record["skills"] == ["houmao-utils-llm-wiki"]
     touring_record = next(record for record in payload["sets"] if record["name"] == "touring")
     assert touring_record["skills"] == ["houmao-touring"]
     user_control_record = next(
@@ -296,15 +305,86 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
     assert status_payload["home_path"] == str(home_path)
-    assert status_payload["installed_skills"] == _CATALOG_SKILLS
+    assert status_payload["installed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
     assert status_payload["installed_skill_records"] == [
         {
             "name": skill_name,
             "projected_relative_dir": f"skills/{skill_name}",
             "projection_mode": "copy",
         }
-        for skill_name in _CATALOG_SKILLS
+        for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
     ]
+    assert not (home_path / "skills/houmao-utils-llm-wiki").exists()
+
+
+def test_system_skills_install_status_and_uninstall_support_utils_set(tmp_path: Path) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+            "--skill-set",
+            "utils",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["selected_sets"] == ["utils"]
+    assert install_payload["resolved_skills"] == ["houmao-utils-llm-wiki"]
+    skill_dir = home_path / "skills/houmao-utils-llm-wiki"
+    assert (skill_dir / "SKILL.md").is_file()
+    assert (skill_dir / "viewer/web/package.json").is_file()
+
+    status_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["installed_skills"] == ["houmao-utils-llm-wiki"]
+    assert status_payload["installed_skill_records"] == [
+        {
+            "name": "houmao-utils-llm-wiki",
+            "projected_relative_dir": "skills/houmao-utils-llm-wiki",
+            "projection_mode": "copy",
+        }
+    ]
+
+    uninstall_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+
+    assert uninstall_result.exit_code == 0, uninstall_result.output
+    uninstall_payload = json.loads(uninstall_result.output)
+    assert "houmao-utils-llm-wiki" in uninstall_payload["removed_skills"]
+    assert "skills/houmao-utils-llm-wiki" in uninstall_payload["removed_projected_relative_dirs"]
+    assert not skill_dir.exists()
 
 
 def test_system_skills_install_uses_explicit_home_over_env_redirect(tmp_path: Path) -> None:
@@ -401,12 +481,14 @@ def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
     uninstall_payload = json.loads(uninstall_result.output)
     assert uninstall_payload["tool"] == "codex"
     assert uninstall_payload["home_path"] == str(home_path)
-    assert uninstall_payload["removed_skills"] == _CATALOG_SKILLS
+    assert uninstall_payload["removed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
     assert uninstall_payload["removed_projected_relative_dirs"] == [
-        f"skills/{skill_name}" for skill_name in _CATALOG_SKILLS
+        f"skills/{skill_name}" for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
     ]
-    assert uninstall_payload["absent_skills"] == []
-    assert uninstall_payload["absent_projected_relative_dirs"] == []
+    assert uninstall_payload["absent_skills"] == ["houmao-utils-llm-wiki"]
+    assert uninstall_payload["absent_projected_relative_dirs"] == [
+        "skills/houmao-utils-llm-wiki"
+    ]
     assert (home_path / "skills").is_dir()
     assert not (home_path / "skills/houmao-specialist-mgr").exists()
 

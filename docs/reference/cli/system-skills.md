@@ -14,6 +14,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-process-emails-via-gateway` for round-oriented gateway mailbox workflow
 - `houmao-agent-email-comms` for ordinary shared-mailbox operations and the no-gateway fallback path
 - `houmao-adv-usage-pattern` for supported multi-skill mailbox and gateway workflow compositions such as self-wakeup through self-mail plus notifier-driven rounds
+- `houmao-utils-llm-wiki` for explicit persistent Markdown LLM Wiki knowledge-base utilities: scaffold, ingest, compile, query, lint, audit, and local viewer workflows
 - `houmao-touring` for a manual guided tour that helps first-time or re-orienting users branch across project setup, mailbox setup, specialist/profile authoring, live-agent operations, and lifecycle follow-up
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
 - `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files
@@ -91,6 +92,7 @@ Current sets:
 - `mailbox-full`
 - `agent-memory`
 - `advanced-usage`
+- `utils`
 - `touring`
 - `user-control`
 - `agent-instance`
@@ -111,6 +113,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-process-emails-via-gateway`
 - `houmao-agent-email-comms`
 - `houmao-adv-usage-pattern`
+- `houmao-utils-llm-wiki`
 - `houmao-touring`
 - `houmao-mailbox-mgr`
 - `houmao-memory-mgr`
@@ -215,6 +218,7 @@ pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set mailbox-core
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set agent-memory
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set advanced-usage
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set utils
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set mailbox-core --skill houmao-agent-email-comms
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set user-control
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set touring
@@ -226,12 +230,14 @@ pixi run houmao-mgr system-skills install --tool copilot
 pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot
 pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --skill-set user-control
 pixi run houmao-mgr system-skills install --tool gemini --skill-set user-control
+pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-llm-wiki
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-specialist-mgr --symlink
 ```
 
 Selection rules:
 
 - omitting both `--skill-set` and `--skill` expands the catalog's CLI-default set list
+- the CLI-default set list does not include the explicit-only `utils` set
 - repeatable `--skill-set` expands named sets in the order given
 - repeatable `--skill` appends explicit skill names after the expanded sets
 - `--symlink` switches the install from copied projection to directory symlink projection
@@ -312,9 +318,12 @@ Today the packaged mailbox sets are intentionally compact:
 - `mailbox-full` installs that mailbox worker pair plus `houmao-mailbox-mgr`
 - `agent-memory` installs `houmao-memory-mgr`
 - `advanced-usage` installs `houmao-adv-usage-pattern`
+- `utils` installs `houmao-utils-llm-wiki` and is explicit-only; it is not part of managed launch, managed join, or CLI-default selections
 - `touring` installs `houmao-touring`
 
 For the `touring` set, the packaged skill is `houmao-touring`. Its top-level `SKILL.md` is a manual-only guided touring index that starts from current Houmao state, explains the next likely branches in plain language, and routes execution to the maintained Houmao-owned project, mailbox, specialist, messaging, gateway, email, and lifecycle skills instead of flattening those direct-operation surfaces into one broad guide.
+
+For the `utils` set, the packaged skill is `houmao-utils-llm-wiki`. Its top-level `SKILL.md` is a Houmao-owned utility entrypoint for persistent Markdown LLM Wiki knowledge-base workflows: scaffold, ingest, compile, query, lint, audit, and local viewer launch. It ships the adapted all-in-one payload, including references, scripts, subskills, and the bundled viewer source, and its helper examples use `python3 scripts/...` from the installed skill root. Install it explicitly with `--skill-set utils` or `--skill houmao-utils-llm-wiki`.
 
 For the `user-control` set, the packaged skills are `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`. `houmao-project-mgr` is the packaged router for `project init`, `project status`, `project agents launch-profiles ...`, and project-scoped `project easy instance list|get|stop`, plus the explanatory material for overlay resolution, `.houmao/` layout, and project-aware effects on other command families. `houmao-specialist-mgr` is the packaged router for `project easy specialist create|list|get|remove`, `project easy profile create|list|get|remove`, and easy-workflow `project easy instance launch|stop` from either source kind. After those easy-instance runtime actions, it tells the user to continue broader live-agent management through `houmao-agent-instance`. `houmao-credential-mgr` is the packaged router for `project credentials <tool> list|get|add|set|rename|remove` plus `credentials <tool> ... --agent-def-dir <path>`, and it keeps specialist CRUD, profile CRUD, instance lifecycle, mailbox cleanup, direct auth-file editing, and filesystem-path inference outside that packaged skill scope. `houmao-agent-definition` is the packaged router for `project agents roles list|get|init|set|remove` plus canonical `project agents recipes list|get|add|set|remove` while preserving `project agents presets ...` as the compatibility alias, and it keeps credential content mutation on `houmao-credential-mgr` while using `roles get --include-prompt` for explicit prompt inspection. `houmao-agent-loop-pairwise` is the restored stable pairwise choice for `start|status|stop` control. `houmao-agent-loop-pairwise-v2` is the versioned enriched choice for authoring plus `initialize|start|peek|ping|pause|resume|stop|hard-kill`. `houmao-agent-loop-generic` is the generic graph-planning choice for decomposing mixed pairwise/relay component graphs and operating accepted root-owned runs through `start|status|stop`. The stable and versioned pairwise skills are distinct packaged choices rather than aliases.
 
@@ -330,7 +339,7 @@ For the `agent-memory` set, the packaged skill is `houmao-memory-mgr`. Its top-l
 
 For the mailbox sets, the packaged mailbox-admin skill is `houmao-mailbox-mgr`. It is the Houmao-owned entrypoint for `houmao-mgr mailbox ...`, `houmao-mgr project mailbox ...`, and `houmao-mgr agents mailbox ...`, covering filesystem mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents. The packaged ordinary mailbox skill remains `houmao-agent-email-comms`, which is the unified router for shared `/v1/mail/*` work, mailbox transport-aware fallback, and mailbox binding inspection after `agents mail resolve-live`, while `houmao-process-emails-via-gateway` remains the separate notifier-round workflow skill. The dedicated `advanced-usage` set adds `houmao-adv-usage-pattern` as the supported workflow-composition layer above those direct mailbox and gateway skills.
 
-CLI-default installation now includes the full three-skill mailbox set, the `agent-memory` set, the dedicated `advanced-usage` and `touring` skills, the `user-control` set (project-mgr, specialist-mgr, credential-mgr, agent-definition, the restored stable pairwise skill, the versioned enriched pairwise-v2 skill, and the generic loop graph-planning skill), and the dedicated `agent-instance`, `agent-inspect`, `agent-messaging`, and `agent-gateway` skills. Managed launch and managed join auto-install `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway`, which means they install every packaged skill in the catalog except the lifecycle-only `houmao-agent-instance` and pick up both pairwise variants plus the generic loop planner through the shared `user-control` set.
+CLI-default installation now includes the full three-skill mailbox set, the `agent-memory` set, the dedicated `advanced-usage` and `touring` skills, the `user-control` set (project-mgr, specialist-mgr, credential-mgr, agent-definition, the restored stable pairwise skill, the versioned enriched pairwise-v2 skill, and the generic loop graph-planning skill), and the dedicated `agent-instance`, `agent-inspect`, `agent-messaging`, and `agent-gateway` skills. Managed launch and managed join auto-install `mailbox-full`, `agent-memory`, `advanced-usage`, `touring`, `user-control`, `agent-inspect`, `agent-messaging`, and `agent-gateway`, which means they install the managed-control defaults except the lifecycle-only `houmao-agent-instance` and the explicit utility `houmao-utils-llm-wiki`, and pick up both pairwise variants plus the generic loop planner through the shared `user-control` set.
 
 ## When To Use This Surface
 

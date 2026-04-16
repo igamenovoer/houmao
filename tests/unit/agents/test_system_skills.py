@@ -15,7 +15,9 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_ADVANCED_USAGE,
     SYSTEM_SKILL_SET_MAILBOX_FULL,
     SYSTEM_SKILL_SET_TOURING,
+    SYSTEM_SKILL_SET_UTILS,
     SYSTEM_SKILL_SET_USER_CONTROL,
+    SYSTEM_SKILL_UTILS_LLM_WIKI,
     SystemSkillCatalogError,
     SystemSkillInstallError,
     discover_installed_system_skills,
@@ -62,6 +64,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
+        "houmao-utils-llm-wiki",
         "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-memory-mgr",
@@ -82,6 +85,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "mailbox-full",
         "agent-memory",
         "advanced-usage",
+        "utils",
         "touring",
         "user-control",
         "agent-instance",
@@ -162,6 +166,20 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
 
+def test_resolve_system_skill_selection_includes_explicit_utils_set_only_when_requested() -> None:
+    catalog = load_system_skill_catalog()
+
+    resolved = resolve_system_skill_selection(
+        catalog,
+        set_names=(SYSTEM_SKILL_SET_UTILS,),
+    )
+
+    assert resolved == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert SYSTEM_SKILL_SET_UTILS not in catalog.auto_install.managed_launch_sets
+    assert SYSTEM_SKILL_SET_UTILS not in catalog.auto_install.managed_join_sets
+    assert SYSTEM_SKILL_SET_UTILS not in catalog.auto_install.cli_default_sets
+
+
 def test_resolve_system_skill_selection_cli_default_includes_agent_instance_messaging_and_gateway_skills() -> (
     None
 ):
@@ -188,6 +206,26 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
+    assert SYSTEM_SKILL_UTILS_LLM_WIKI not in resolved
+
+
+def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_LLM_WIKI)
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+
+    assert (skill_root / "SKILL.md").is_file()
+    assert (skill_root / "references").is_dir()
+    assert (skill_root / "scripts").is_dir()
+    assert (skill_root / "subskills").is_dir()
+    assert (skill_root / "viewer").is_dir()
+    assert (skill_root / "viewer/audit-shared/package.json").is_file()
+    assert (skill_root / "viewer/web/package.json").is_file()
+    assert not list(skill_root.rglob("node_modules"))
+    assert not list(skill_root.rglob("dist"))
+    assert "name: houmao-utils-llm-wiki" in skill_text
+    assert "python3 scripts/scaffold.py" in skill_text
+    assert "Authored by" not in skill_text
+    assert "Karpathy" not in skill_text
 
 
 def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) -> None:
@@ -772,6 +810,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_path = home_path / "skills/houmao-agent-gateway/SKILL.md"
     agent_gateway_actions = home_path / "skills/houmao-agent-gateway/actions"
     agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
+    utils_llm_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
     advanced_usage_path = home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
     advanced_usage_patterns = home_path / "skills/houmao-adv-usage-pattern/patterns"
     touring_path = home_path / "skills/houmao-touring/SKILL.md"
@@ -803,6 +842,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "agent-messaging",
         "agent-gateway",
     )
+    assert "utils" not in result.selected_set_names
     assert result.projection_mode == "copy"
     assert result.resolved_skill_names == (
         "houmao-process-emails-via-gateway",
@@ -823,6 +863,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
+    assert "houmao-utils-llm-wiki" not in result.resolved_skill_names
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
@@ -835,6 +876,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert agent_inspect_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
+    assert not utils_llm_wiki_path.exists()
     assert stable_pairwise_loop_path.is_file()
     assert pairwise_loop_path.is_file()
     assert relay_loop_path.is_file()

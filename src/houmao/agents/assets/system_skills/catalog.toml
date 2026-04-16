@@ -12,6 +12,10 @@ description = "Unified mailbox operations and fallback guidance skill."
 asset_subpath = "houmao-adv-usage-pattern"
 description = "Advanced Houmao workflow composition skill layered on top of direct-operation skills."
 
+[skills.houmao-utils-llm-wiki]
+asset_subpath = "houmao-utils-llm-wiki"
+description = "LLM Wiki utility skill for persistent Markdown knowledge bases and bundled local viewer workflows."
+
 [skills.houmao-touring]
 asset_subpath = "houmao-touring"
 description = "Manual guided touring skill for first-time or re-orienting Houmao users."
@@ -93,6 +97,12 @@ skills = [
 description = "Advanced multi-skill Houmao workflow patterns."
 skills = [
   "houmao-adv-usage-pattern",
+]
+
+[sets.utils]
+description = "General Houmao utility skills."
+skills = [
+  "houmao-utils-llm-wiki",
 ]
 
 [sets.touring]
