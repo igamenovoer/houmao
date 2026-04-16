@@ -4,6 +4,13 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc6] - 2026-04-16
+
+### Added
+
+- **System skills uninstall command**: `houmao-mgr system-skills uninstall` removes previously installed Houmao system skills from tool homes, with `--tool` filtering and `--dry-run` preview support.
+- **LLM Wiki utility system skill**: new `houmao-utils-llm-wiki` packaged system skill provides a complete wiki authoring toolkit — article scaffolding, schema validation, lint, audit review, and an interactive web viewer with graph visualization — installable via `houmao-mgr system-skills install`.
+
 ## [0.7.0rc5] - 2026-04-16
 
 ### Changed
