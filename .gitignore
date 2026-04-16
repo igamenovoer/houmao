@@ -93,4 +93,6 @@ site/
 .agent-automation/merge-backups/
 .git/
 scripts/demo/mail-ping-pong-gateway-demo-pack/outputs/
-.github/
+# Ignore .github/ except workflows
+.github/*
+!.github/workflows/
