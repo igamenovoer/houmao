@@ -107,12 +107,6 @@ def easy_profile_group() -> None:
     default=None,
     help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
 )
-@click.option(
-    "--memo-seed-policy",
-    type=click.Choice(_MEMO_SEED_POLICY_CHOICES),
-    default=None,
-    help="Optional memo-seed launch policy.",
-)
 @overwrite_confirm_option
 def create_easy_profile_command(
     name: str,
@@ -143,7 +137,6 @@ def create_easy_profile_command(
     memo_seed_text: str | None,
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
-    memo_seed_policy: str | None,
     yes: bool,
 ) -> None:
     """Create one specialist-backed easy profile."""
@@ -193,7 +186,6 @@ def create_easy_profile_command(
         memo_seed_text=memo_seed_text,
         memo_seed_file=memo_seed_file,
         memo_seed_dir=memo_seed_dir,
-        memo_seed_policy=memo_seed_policy,
         clear_memo_seed=False,
         clear_mailbox=False,
         clear_env=False,
@@ -334,12 +326,6 @@ def create_easy_profile_command(
     default=None,
     help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
 )
-@click.option(
-    "--memo-seed-policy",
-    type=click.Choice(_MEMO_SEED_POLICY_CHOICES),
-    default=None,
-    help="Optional memo-seed launch policy override.",
-)
 @click.option("--clear-memo-seed", is_flag=True, help="Clear the stored memo seed.")
 def set_easy_profile_command(
     name: str,
@@ -383,7 +369,6 @@ def set_easy_profile_command(
     memo_seed_text: str | None,
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
-    memo_seed_policy: str | None,
     clear_memo_seed: bool,
 ) -> None:
     """Update one specialist-backed easy profile."""
@@ -432,7 +417,6 @@ def set_easy_profile_command(
         memo_seed_text=memo_seed_text,
         memo_seed_file=memo_seed_file,
         memo_seed_dir=memo_seed_dir,
-        memo_seed_policy=memo_seed_policy,
         clear_memo_seed=clear_memo_seed,
         clear_mailbox=clear_mailbox,
         clear_env=clear_env,

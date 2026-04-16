@@ -30,10 +30,10 @@ Use one of:
 - Use `launch-profiles set` for ordinary patch edits to existing explicit launch profiles.
 - `launch-profiles set` accepts the same default override options as `add`, plus clear flags such as `--clear-auth`, `--clear-env`, `--clear-mailbox`, `--clear-prompt-overlay`, and `--clear-memo-seed`.
 - Managed prompt-header section policy is stored with repeatable `--managed-header-section SECTION=enabled|disabled`; patch edits can remove one entry with `--clear-managed-header-section SECTION` or all entries with `--clear-managed-header-sections`.
-- Explicit launch profiles also support stored memo seeds through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`, plus optional `--memo-seed-policy initialize|replace|fail-if-nonempty`.
-- Memo seed policies apply only to components represented by the seed source. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present.
-- `--memo-seed-policy` on `launch-profiles set` requires either one new memo-seed source or an existing stored memo seed. `--clear-memo-seed` cannot be combined with a new source or `--memo-seed-policy`.
-- Use `--memo-seed-text '' --memo-seed-policy replace` for an intentional empty memo seed. Use `--clear-memo-seed` only when removing stored seed configuration.
+- Explicit launch profiles also support stored memo seeds through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`.
+- Memo seeds replace only components represented by the seed source. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present.
+- Supplying a new memo-seed source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new source.
+- Use `--memo-seed-text ''` for an intentional empty memo seed. Use `--clear-memo-seed` only when removing stored seed configuration.
 - Use `launch-profiles add --yes` only when the user intends same-name replacement; replacement is same-lane only and clears omitted optional fields.
 - `--auth` and `--clear-auth` here change the stored launch-profile auth override, not the underlying auth bundle contents. The CLI accepts auth display names, but the stored relationship resolves through auth-profile identity so later auth rename stays valid.
 - The shared conceptual model for easy profiles versus explicit launch profiles lives in `docs/getting-started/launch-profiles.md`.

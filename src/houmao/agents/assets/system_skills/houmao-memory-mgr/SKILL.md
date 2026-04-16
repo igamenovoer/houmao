@@ -29,7 +29,7 @@ This skill covers only Houmao-managed memo surfaces:
   - easy-profile lane: `houmao-mgr project easy profile create|get|set`
   - explicit launch-profile lane: `houmao-mgr project agents launch-profiles add|get|set`
   - memo seed source options: `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`
-  - memo seed policy and clearing options: `--memo-seed-policy` and `--clear-memo-seed`
+  - clearing option: `--clear-memo-seed`
 - live-session environment variables `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`
 
 It does not cover provider-native memory, mailbox state, gateway reminders, runtime manifests, task queues, or arbitrary work artifacts.
@@ -51,7 +51,7 @@ It does not cover provider-native memory, mailbox state, gateway reminders, runt
    - `--memo-seed-text <text>` for short inline memo content
    - `--memo-seed-file <path>` for one Markdown file whose content becomes `houmao-memo.md`
    - `--memo-seed-dir <path>` for a memo-shaped directory containing `houmao-memo.md` and/or `pages/`
-5. Use `--memo-seed-policy initialize|replace|fail-if-nonempty` when the user requests launch-time application behavior. Memo seed policies apply only to the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. If the user supplies seed content without a policy, rely on the default `initialize` policy. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source or seed policy.
+5. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
 6. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
 7. For a live managed-agent edit, read before editing. Use `agents memory memo show` for the fixed memo and `agents memory read --path <page>` for a page.
 8. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions; for removals or rewrites, replace the full memo with `memo set` after preserving unrelated text.
@@ -62,7 +62,7 @@ It does not cover provider-native memory, mailbox state, gateway reminders, runt
 
 - Treat `houmao-memo.md` as free-form Markdown owned by the operator and agent.
 - Treat a launch-profile memo seed as birth-time configuration for future launches from that profile. It is not the same thing as a live session's current `houmao-memo.md`.
-- Treat `--memo-seed-text '' --memo-seed-policy replace` as an intentional empty memo seed for future launches, not as a request to clear pages. Treat `--clear-memo-seed` as removal of stored seed configuration, not as a way to write an empty memo.
+- Treat `--memo-seed-text ''` as an intentional empty memo seed for future launches, not as a request to clear pages. Treat `--clear-memo-seed` as removal of stored seed configuration, not as a way to write an empty memo.
 - If prompt or context clearly points at a launch profile or easy profile, do not run `houmao-mgr agents memory ...`; update the stored profile memo seed instead.
 - Do not generate, refresh, sort, validate, or remove page indexes inside the memo unless the user asks for that exact content edit.
 - Do not use absolute page paths or `..`; page operations must stay inside the managed `pages/` directory.

@@ -135,7 +135,7 @@ pixi run houmao-mgr project agents tools claude get
 
 Add `--include-prompt` to `project agents roles get` when you want the full role prompt text through the supported CLI surface rather than reading `system-prompt.md` directly.
 
-The specialist payload reports durable launch config, including any persisted `launch.env_records`. Shared birth-time defaults now live separately in reusable easy profiles (`project easy profile ...`) and explicit low-level launch profiles (`project agents launch-profiles ...`). Both profile lanes may also store memo seeds with `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`.
+The specialist payload reports durable launch config, including any persisted `launch.env_records`. Shared birth-time defaults now live separately in reusable easy profiles (`project easy profile ...`) and explicit low-level launch profiles (`project agents launch-profiles ...`). Both profile lanes may also store memo seeds with `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`; stored seeds use source-scoped replacement for `houmao-memo.md` and/or `pages/`.
 
 ### Step 4: Build A Brain Home
 

@@ -234,7 +234,6 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
         memo_seed_source_kind="tree",
-        memo_seed_policy="initialize",
         memo_seed_source_path=memo_seed_dir,
     )
 
@@ -279,13 +278,20 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             },
             "memo_seed": {
                 "source_kind": "tree",
-                "policy": "initialize",
                 "content_ref": {
                     "content_kind": "memo_seed",
                     "storage_kind": "tree",
                     "relative_path": "memo-seeds/launch-profiles/alice/seed",
                     "path": str(
-                        (repo_root / ".houmao" / "content" / "memo-seeds" / "launch-profiles" / "alice" / "seed").resolve()
+                        (
+                            repo_root
+                            / ".houmao"
+                            / "content"
+                            / "memo-seeds"
+                            / "launch-profiles"
+                            / "alice"
+                            / "seed"
+                        ).resolve()
                     ),
                 },
             },
@@ -308,7 +314,6 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 managed_header_policy,
                 managed_header_section_policy,
                 prompt_overlay_mode,
-                memo_seed_policy,
                 memo_seed_source_kind,
                 memo_seed_relative_path
             FROM v_launch_profiles
@@ -326,7 +331,6 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "inherit",
             '{"automation-notice": "disabled", "task-reminder": "enabled"}',
             "append",
-            "initialize",
             "tree",
             "memo-seeds/launch-profiles/alice/seed",
         )
@@ -355,13 +359,17 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "may contain only",
         ),
         (
-            lambda root: (root / "pages").mkdir(parents=True, exist_ok=True)
-            or (root / "pages" / "bad.md").write_bytes(b"bad\x00content"),
+            lambda root: (
+                (root / "pages").mkdir(parents=True, exist_ok=True)
+                or (root / "pages" / "bad.md").write_bytes(b"bad\x00content")
+            ),
             "must not contain NUL bytes",
         ),
         (
-            lambda root: (root / "pages").mkdir(parents=True, exist_ok=True)
-            or (root / "pages" / "bad.md").write_bytes(b"\xff\xfe"),
+            lambda root: (
+                (root / "pages").mkdir(parents=True, exist_ok=True)
+                or (root / "pages" / "bad.md").write_bytes(b"\xff\xfe")
+            ),
             "must be valid UTF-8 text",
         ),
     ],
@@ -405,6 +413,83 @@ def test_project_catalog_rejects_invalid_memo_seed_directories(
             prompt_overlay_mode=None,
             prompt_overlay_text=None,
             memo_seed_source_kind="tree",
-            memo_seed_policy="initialize",
             memo_seed_source_path=seed_dir,
         )
+
+
+def test_project_catalog_migrates_policy_bearing_memo_seed_to_source_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    seed_path = (tmp_path / "seed.md").resolve()
+    seed_path.write_text("Existing policy should be discarded.\n", encoding="utf-8")
+    catalog.store_launch_profile(
+        name="alice",
+        profile_lane="launch_profile",
+        source_kind="recipe",
+        source_name="researcher-codex-default",
+        managed_agent_name=None,
+        managed_agent_id=None,
+        workdir=None,
+        auth_tool=None,
+        auth_name=None,
+        model_name=None,
+        reasoning_level=None,
+        operator_prompt_mode=None,
+        env_mapping={},
+        mailbox_mapping=None,
+        posture_mapping={},
+        managed_header_policy="inherit",
+        managed_header_section_policy={},
+        prompt_overlay_mode=None,
+        prompt_overlay_text=None,
+        memo_seed_source_kind="memo",
+        memo_seed_source_path=seed_path,
+    )
+
+    connection = sqlite3.connect(overlay.catalog_path)
+    try:
+        connection.execute("ALTER TABLE launch_profiles ADD COLUMN memo_seed_policy TEXT")
+        connection.execute(
+            "UPDATE launch_profiles SET memo_seed_policy = 'fail-if-nonempty' WHERE name = 'alice'"
+        )
+        connection.execute("UPDATE catalog_meta SET value = '10' WHERE key = 'schema_version'")
+        connection.commit()
+    finally:
+        connection.close()
+
+    catalog.initialize()
+
+    migrated = catalog.load_launch_profile("alice")
+    assert migrated.memo_seed is not None
+    assert migrated.memo_seed.source_kind == "memo"
+    assert migrated.memo_seed.content_ref.relative_path == "memo-seeds/launch-profiles/alice/seed"
+
+    connection = sqlite3.connect(overlay.catalog_path)
+    try:
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(launch_profiles)").fetchall()
+        }
+        assert "memo_seed_policy" not in columns
+        schema_version = connection.execute(
+            "SELECT value FROM catalog_meta WHERE key = 'schema_version'"
+        ).fetchone()
+        assert schema_version == ("11",)
+        view_row = connection.execute(
+            """
+            SELECT memo_seed_source_kind, memo_seed_relative_path
+            FROM v_launch_profiles
+            WHERE launch_profile_name = 'alice'
+            """
+        ).fetchone()
+        assert view_row == ("memo", "memo-seeds/launch-profiles/alice/seed")
+    finally:
+        connection.close()

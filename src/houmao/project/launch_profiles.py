@@ -22,7 +22,6 @@ class ResolvedLaunchProfileMemoSeed:
     """Resolved launch-profile memo-seed metadata plus managed content path."""
 
     source_kind: str
-    policy: str
     content_ref: ManagedContentRef
     source_path: Path
 
@@ -192,7 +191,6 @@ def launch_profile_defaults_payload(
         payload["memo_seed"] = {
             "present": True,
             "source_kind": profile.memo_seed.source_kind,
-            "policy": profile.memo_seed.policy,
             "content_ref": {
                 "content_kind": profile.memo_seed.content_ref.content_kind,
                 "storage_kind": profile.memo_seed.content_ref.storage_kind,
@@ -237,7 +235,6 @@ def _resolve_launch_profile_memo_seed(
         return None
     return ResolvedLaunchProfileMemoSeed(
         source_kind=memo_seed.source_kind,
-        policy=memo_seed.policy,
         content_ref=memo_seed.content_ref,
         source_path=memo_seed.content_ref.resolve(overlay),
     )

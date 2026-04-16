@@ -489,7 +489,6 @@ def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_bu
         headless_display_detail="concise",
         launch_profile_memo_seed=ResolvedLaunchProfileMemoSeed(
             source_kind="tree",
-            policy="initialize",
             content_ref=ManagedContentRef(
                 content_kind="memo_seed",
                 storage_kind="tree",
@@ -520,7 +519,6 @@ def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_bu
     assert launch_result.memo_seed_application.to_payload() == {
         "status": "applied",
         "source_kind": "tree",
-        "policy": "initialize",
         "memo_written": True,
         "page_file_count": 1,
         "page_directory_count": 1,
@@ -611,7 +609,6 @@ def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(
         headless_display_detail="concise",
         launch_profile_memo_seed=ResolvedLaunchProfileMemoSeed(
             source_kind="memo",
-            policy="replace",
             content_ref=ManagedContentRef(
                 content_kind="memo_seed",
                 storage_kind="file",
@@ -625,7 +622,6 @@ def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(
     assert launch_result.memo_seed_application.to_payload() == {
         "status": "applied",
         "source_kind": "memo",
-        "policy": "replace",
         "memo_written": True,
         "page_file_count": 0,
         "page_directory_count": 0,
