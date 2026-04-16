@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
-import tomllib
 from typing import TYPE_CHECKING, Any, Iterator, Literal, cast
 from uuid import uuid4
 
@@ -206,113 +205,41 @@ class ProjectCatalog:
     def __init__(
         self,
         *,
-        overlay_root: Path,
         catalog_path: Path,
         content_root: Path,
         projection_root: Path,
-        legacy_specialists_root: Path,
-        legacy_easy_root: Path,
     ) -> None:
         """Initialize one repository bound to a project overlay."""
 
-        self.m_overlay_root = overlay_root.resolve()
         self.m_catalog_path = catalog_path.resolve()
         self.m_content_root = content_root.resolve()
         self.m_projection_root = projection_root.resolve()
-        self.m_legacy_specialists_root = legacy_specialists_root.resolve()
-        self.m_legacy_easy_root = legacy_easy_root.resolve()
 
     @classmethod
     def from_overlay(cls, overlay: HoumaoProjectOverlay) -> ProjectCatalog:
         """Build one project catalog repository from a resolved overlay."""
 
         return cls(
-            overlay_root=overlay.overlay_root,
             catalog_path=overlay.catalog_path,
             content_root=overlay.content_root,
             projection_root=overlay.agents_root,
-            legacy_specialists_root=overlay.specialists_root,
-            legacy_easy_root=overlay.easy_root,
         )
 
     def initialize(self) -> None:
         """Create the catalog schema and managed content roots when missing."""
 
-        self._ensure_content_roots()
+        catalog_existed = self.m_catalog_path.exists()
+        if not catalog_existed:
+            self._ensure_content_roots()
         with self._connect() as connection:
-            connection.executescript(_table_schema_sql())
-            self._migrate_schema(connection)
-            self._ensure_catalog_metadata(connection)
+            if catalog_existed:
+                _validate_current_catalog_schema(connection)
+                self._ensure_content_roots()
+            else:
+                connection.executescript(_table_schema_sql())
+                self._ensure_catalog_metadata(connection)
             self._seed_setup_profiles(connection)
             connection.executescript(_view_sql())
-
-    def ensure_legacy_import(self) -> None:
-        """Import legacy easy specialists into the catalog when needed."""
-
-        self.initialize()
-        if self._specialist_count() > 0:
-            return
-        if not self.m_legacy_specialists_root.is_dir():
-            return
-
-        candidates = sorted(self.m_legacy_specialists_root.glob("*.toml"))
-        if not candidates:
-            return
-
-        for metadata_path in candidates:
-            payload = _load_legacy_specialist_payload(metadata_path)
-            prompt_path = (self.m_overlay_root / payload["system_prompt_path"]).resolve()
-            preset_path = (self.m_overlay_root / payload["preset_path"]).resolve()
-            auth_path = (self.m_overlay_root / payload["auth_path"]).resolve()
-            skill_paths = tuple(
-                (self.m_projection_root / "skills" / skill_name).resolve()
-                for skill_name in payload["skills"]
-            )
-
-            if not prompt_path.is_file():
-                raise ValueError(
-                    f"{metadata_path}: referenced system prompt does not exist: {prompt_path}"
-                )
-            if not preset_path.is_file():
-                raise ValueError(
-                    f"{metadata_path}: referenced preset does not exist: {preset_path}"
-                )
-            if not auth_path.is_dir():
-                raise ValueError(
-                    f"{metadata_path}: referenced auth bundle does not exist: {auth_path}"
-                )
-            for skill_name, skill_path in zip(payload["skills"], skill_paths, strict=True):
-                if not skill_path.is_dir():
-                    raise ValueError(
-                        f"{metadata_path}: referenced skill `{skill_name}` does not exist: {skill_path}"
-                    )
-
-            auth_profile = self.ensure_auth_profile_from_source(
-                tool=payload["tool"],
-                display_name=payload["credential_name"],
-                source_path=auth_path,
-            )
-            self.store_specialist_from_sources(
-                name=payload["name"],
-                preset_name=preset_path.stem,
-                tool=payload["tool"],
-                provider=payload["provider"],
-                auth_profile=auth_profile,
-                role_name=payload["role_name"],
-                setup_name=_load_legacy_preset_setup_name(preset_path),
-                prompt_path=prompt_path,
-                skill_paths=skill_paths,
-                setup_path=(
-                    self.m_projection_root
-                    / "tools"
-                    / payload["tool"]
-                    / "setups"
-                    / _load_legacy_preset_setup_name(preset_path)
-                ),
-                launch_mapping=_load_preset_top_level_mapping(preset_path, "launch"),
-                mailbox_mapping=_load_preset_top_level_mapping(preset_path, "mailbox"),
-                extra_mapping=_load_preset_top_level_mapping(preset_path, "extra"),
-            )
 
     def list_auth_profiles(self, *, tool: str | None = None) -> list[AuthProfileCatalogEntry]:
         """Return persisted auth profiles, optionally filtered by tool."""
@@ -473,7 +400,7 @@ class ProjectCatalog:
         if resolved_name == resolved_new_name:
             return self.load_auth_profile(tool=tool, name=resolved_name)
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             row = self._find_auth_profile_row(
                 connection=connection,
@@ -546,7 +473,7 @@ class ProjectCatalog:
     def specialist_exists(self, name: str) -> bool:
         """Return whether one specialist already exists in the catalog."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT 1 FROM specialists WHERE name = ? LIMIT 1",
@@ -557,7 +484,7 @@ class ProjectCatalog:
     def list_specialists(self) -> list[SpecialistCatalogEntry]:
         """Return every persisted specialist definition."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -597,7 +524,7 @@ class ProjectCatalog:
     def load_specialist(self, name: str) -> SpecialistCatalogEntry:
         """Load one specialist from the catalog."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -804,9 +731,6 @@ class ProjectCatalog:
         role_root = self.m_projection_root / "roles" / specialist.role_name
         if delete_role_projection and role_root.is_dir():
             shutil.rmtree(role_root)
-        metadata_path = (self.m_legacy_specialists_root / f"{name}.toml").resolve()
-        if metadata_path.exists():
-            metadata_path.unlink()
         return self.m_catalog_path
 
     def list_launch_profiles(self) -> list[LaunchProfileCatalogEntry]:
@@ -1120,7 +1044,7 @@ class ProjectCatalog:
     def materialize_projection(self) -> Path:
         """Materialize the non-authoritative agent tree projection from the catalog."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         self._ensure_projection_starter_tree()
         entries = self.list_specialists()
         launch_profiles = self.list_launch_profiles()
@@ -1187,7 +1111,7 @@ class ProjectCatalog:
     def validate_integrity(self) -> CatalogIntegrityReport:
         """Validate managed content references and detect orphaned content rows."""
 
-        self.ensure_legacy_import()
+        self.initialize()
         missing_content: list[str] = []
         orphaned_content: list[str] = []
         with self._connect() as connection:
@@ -1254,14 +1178,6 @@ class ProjectCatalog:
         finally:
             connection.close()
 
-    def _specialist_count(self) -> int:
-        """Return the number of persisted specialists."""
-
-        with self._connect() as connection:
-            row = connection.execute("SELECT COUNT(*) FROM specialists").fetchone()
-            assert row is not None
-            return int(row[0])
-
     def _ensure_catalog_metadata(self, connection: sqlite3.Connection) -> None:
         """Seed the schema metadata rows."""
 
@@ -1315,105 +1231,6 @@ class ProjectCatalog:
                     """,
                     (tool_dir.name, setup_dir.name, content_ref_id),
                 )
-
-    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
-        """Apply in-place catalog migrations required by the current schema."""
-
-        current_version = _catalog_schema_version(connection)
-        if current_version == CATALOG_SCHEMA_VERSION:
-            if not _content_refs_accepts_memo_seed(connection):
-                _rebuild_content_refs_table(connection)
-            return
-        required_columns = (
-            ("auth_profiles", "display_name"),
-            ("auth_profiles", "bundle_ref"),
-            ("launch_profiles", "auth_profile_id"),
-        )
-        if current_version in {0, 7, 8} and all(
-            _table_has_column(connection, table_name=table_name, column_name=column_name)
-            for table_name, column_name in required_columns
-        ):
-            if not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="managed_header_section_policy",
-            ):
-                connection.execute(
-                    """
-                    ALTER TABLE launch_profiles
-                    ADD COLUMN managed_header_section_policy TEXT NOT NULL DEFAULT '{}'
-                    """
-                )
-            if _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memory_dir",
-            ) and not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="persist_dir",
-            ):
-                connection.execute(
-                    "ALTER TABLE launch_profiles RENAME COLUMN memory_dir TO persist_dir"
-                )
-            if _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memory_disabled",
-            ) and not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="persist_disabled",
-            ):
-                connection.execute(
-                    "ALTER TABLE launch_profiles RENAME COLUMN memory_disabled TO persist_disabled"
-                )
-            current_version = 9
-        if current_version == 9:
-            if not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memo_seed_source_kind",
-            ):
-                memo_seed_source_kind_check = ", ".join(
-                    f"'{value}'" for value in _MEMO_SEED_SOURCE_KIND_VALUES
-                )
-                connection.execute(
-                    f"""
-                    ALTER TABLE launch_profiles
-                    ADD COLUMN memo_seed_source_kind TEXT
-                    CHECK(memo_seed_source_kind IN ({memo_seed_source_kind_check}))
-                    """
-                )
-            if not _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memo_seed_content_ref_id",
-            ):
-                connection.execute(
-                    """
-                    ALTER TABLE launch_profiles
-                    ADD COLUMN memo_seed_content_ref_id INTEGER
-                    REFERENCES content_refs(id) ON DELETE SET NULL
-                    """
-                )
-            current_version = 10
-        if current_version == 10:
-            if _table_has_column(
-                connection,
-                table_name="launch_profiles",
-                column_name="memo_seed_policy",
-            ):
-                _drop_launch_profile_memo_seed_policy(connection)
-            current_version = 11
-        if current_version == 11:
-            if not _content_refs_accepts_memo_seed(connection):
-                _rebuild_content_refs_table(connection)
-            return
-        raise ValueError(
-            "Unsupported project catalog schema. Reinitialize the project overlay to adopt the "
-            "current catalog format."
-        )
 
     def _ensure_setup_profile(self, *, tool: str, name: str, setup_path: Path | None = None) -> int:
         """Return the existing setup profile id for one tool/setup pair."""
@@ -2295,20 +2112,201 @@ def _view_sql() -> str:
 def _catalog_schema_version(connection: sqlite3.Connection) -> int:
     """Return the stored catalog schema version when present."""
 
-    row = connection.execute(
-        """
-        SELECT value
-        FROM catalog_meta
-        WHERE key = 'schema_version'
-        LIMIT 1
-        """
-    ).fetchone()
+    try:
+        row = connection.execute(
+            """
+            SELECT value
+            FROM catalog_meta
+            WHERE key = 'schema_version'
+            LIMIT 1
+            """
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0
     if row is None:
         return 0
     try:
         return int(row[0])
     except (TypeError, ValueError):
         return 0
+
+
+def _catalog_meta_value(connection: sqlite3.Connection, key: str) -> str | None:
+    """Return one catalog metadata value when present."""
+
+    try:
+        row = connection.execute(
+            """
+            SELECT value
+            FROM catalog_meta
+            WHERE key = ?
+            LIMIT 1
+            """,
+            (key,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    return str(row[0])
+
+
+def _validate_current_catalog_schema(connection: sqlite3.Connection) -> None:
+    """Reject persisted catalogs that do not match the current schema exactly."""
+
+    current_version = _catalog_schema_version(connection)
+    if current_version != CATALOG_SCHEMA_VERSION:
+        raise ValueError(
+            _catalog_incompatibility_error(
+                f"expected schema_version={CATALOG_SCHEMA_VERSION}, got {current_version!r}"
+            )
+        )
+    storage_model = _catalog_meta_value(connection, "storage_model")
+    if storage_model != "hybrid_sqlite_catalog":
+        raise ValueError(
+            _catalog_incompatibility_error("missing current storage_model metadata")
+        )
+    for table_name, column_names in _required_current_catalog_columns().items():
+        missing_columns = tuple(
+            column_name
+            for column_name in column_names
+            if not _table_has_column(
+                connection,
+                table_name=table_name,
+                column_name=column_name,
+            )
+        )
+        if missing_columns:
+            joined = ", ".join(missing_columns)
+            raise ValueError(
+                _catalog_incompatibility_error(
+                    f"table `{table_name}` is missing current column(s): {joined}"
+                )
+            )
+    for table_name, column_names in _obsolete_current_catalog_columns().items():
+        obsolete_columns = tuple(
+            column_name
+            for column_name in column_names
+            if _table_has_column(
+                connection,
+                table_name=table_name,
+                column_name=column_name,
+            )
+        )
+        if obsolete_columns:
+            joined = ", ".join(obsolete_columns)
+            raise ValueError(
+                _catalog_incompatibility_error(
+                    f"table `{table_name}` still has obsolete column(s): {joined}"
+                )
+            )
+    if not _content_refs_accepts_memo_seed(connection):
+        raise ValueError(
+            _catalog_incompatibility_error(
+                "table `content_refs` does not allow current memo_seed content references"
+            )
+        )
+
+
+def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
+    """Return the minimal current catalog table shape validated on open."""
+
+    return {
+        "catalog_meta": ("key", "value"),
+        "content_refs": (
+            "id",
+            "content_kind",
+            "storage_kind",
+            "relative_path",
+            "sha256",
+            "created_at",
+        ),
+        "roles": ("id", "name", "prompt_content_ref_id"),
+        "setup_profiles": ("id", "tool", "name", "content_ref_id"),
+        "auth_profiles": (
+            "id",
+            "tool",
+            "display_name",
+            "bundle_ref",
+            "content_ref_id",
+            "created_at",
+            "updated_at",
+        ),
+        "skill_packages": ("id", "name", "content_ref_id"),
+        "mailbox_policies": ("id", "name", "transport", "policy_payload"),
+        "presets": (
+            "id",
+            "name",
+            "role_id",
+            "tool",
+            "setup_profile_id",
+            "auth_profile_id",
+            "mailbox_policy_id",
+            "launch_payload",
+            "mailbox_payload",
+            "extra_payload",
+        ),
+        "preset_skill_packages": ("preset_id", "skill_package_id", "ordinal"),
+        "specialists": (
+            "id",
+            "name",
+            "tool",
+            "provider",
+            "role_id",
+            "preset_id",
+            "created_at",
+            "updated_at",
+        ),
+        "launch_profiles": (
+            "id",
+            "name",
+            "profile_lane",
+            "source_kind",
+            "source_name",
+            "managed_agent_name",
+            "managed_agent_id",
+            "workdir",
+            "auth_profile_id",
+            "persist_dir",
+            "persist_disabled",
+            "model_name",
+            "reasoning_level",
+            "operator_prompt_mode",
+            "env_payload",
+            "mailbox_payload",
+            "posture_payload",
+            "managed_header_policy",
+            "managed_header_section_policy",
+            "prompt_overlay_mode",
+            "prompt_overlay_content_ref_id",
+            "memo_seed_source_kind",
+            "memo_seed_content_ref_id",
+            "created_at",
+            "updated_at",
+        ),
+    }
+
+
+def _obsolete_current_catalog_columns() -> dict[str, tuple[str, ...]]:
+    """Return obsolete columns that indicate a stale current-version catalog."""
+
+    return {
+        "launch_profiles": (
+            "memory_dir",
+            "memory_disabled",
+            "memo_seed_policy",
+        ),
+    }
+
+
+def _catalog_incompatibility_error(detail: str) -> str:
+    """Return operator guidance for an incompatible project catalog."""
+
+    return (
+        f"Unsupported project catalog schema: {detail}. Recreate or reinitialize the project "
+        "overlay to adopt the current catalog format; in-place project catalog migrations are "
+        "not supported before 1.0."
+    )
 
 
 def _table_has_column(
@@ -2337,157 +2335,6 @@ def _content_refs_accepts_memo_seed(connection: sqlite3.Connection) -> bool:
     if row is None or row[0] is None:
         return False
     return f"'{_CONTENT_KIND_MEMO_SEED}'" in str(row[0])
-
-
-def _drop_catalog_views(connection: sqlite3.Connection) -> None:
-    """Drop catalog views before rebuilding referenced tables."""
-
-    for view_name in (
-        "v_content_refs",
-        "v_roles",
-        "v_presets",
-        "v_specialists",
-        "v_launch_profiles",
-    ):
-        connection.execute(f"DROP VIEW IF EXISTS {view_name}")
-
-
-def _rebuild_content_refs_table(connection: sqlite3.Connection) -> None:
-    """Rebuild content_refs with the current content-kind CHECK constraint."""
-
-    columns = (
-        "id",
-        "content_kind",
-        "storage_kind",
-        "relative_path",
-        "sha256",
-        "created_at",
-    )
-    column_list = ", ".join(columns)
-    content_kind_check = ", ".join(f"'{value}'" for value in _CONTENT_KIND_VALUES)
-    storage_kind_check = ", ".join(f"'{value}'" for value in _STORAGE_KIND_VALUES)
-    _drop_catalog_views(connection)
-    connection.execute("PRAGMA foreign_keys = OFF")
-    connection.execute(
-        f"""
-        CREATE TABLE content_refs_rebuilt (
-            id INTEGER PRIMARY KEY,
-            content_kind TEXT NOT NULL CHECK(content_kind IN ({content_kind_check})),
-            storage_kind TEXT NOT NULL CHECK(storage_kind IN ({storage_kind_check})),
-            relative_path TEXT NOT NULL UNIQUE,
-            sha256 TEXT,
-            created_at TEXT NOT NULL
-        )
-        """
-    )
-    connection.execute(
-        f"""
-        INSERT INTO content_refs_rebuilt ({column_list})
-        SELECT {column_list}
-        FROM content_refs
-        """
-    )
-    connection.execute("DROP TABLE content_refs")
-    connection.execute("ALTER TABLE content_refs_rebuilt RENAME TO content_refs")
-    connection.execute("PRAGMA foreign_keys = ON")
-    violations = connection.execute("PRAGMA foreign_key_check").fetchall()
-    if violations:
-        raise ValueError("Project catalog migration left invalid content_refs foreign keys.")
-
-
-def _drop_launch_profile_memo_seed_policy(connection: sqlite3.Connection) -> None:
-    """Rebuild launch_profiles without the removed memo-seed policy column."""
-
-    columns = (
-        "id",
-        "name",
-        "profile_lane",
-        "source_kind",
-        "source_name",
-        "managed_agent_name",
-        "managed_agent_id",
-        "workdir",
-        "auth_profile_id",
-        "persist_dir",
-        "persist_disabled",
-        "model_name",
-        "reasoning_level",
-        "operator_prompt_mode",
-        "env_payload",
-        "mailbox_payload",
-        "posture_payload",
-        "managed_header_policy",
-        "managed_header_section_policy",
-        "prompt_overlay_mode",
-        "prompt_overlay_content_ref_id",
-        "memo_seed_source_kind",
-        "memo_seed_content_ref_id",
-        "created_at",
-        "updated_at",
-    )
-    column_list = ", ".join(columns)
-    _drop_catalog_views(connection)
-    connection.execute("ALTER TABLE launch_profiles RENAME TO launch_profiles_with_policy")
-    connection.executescript(_table_schema_sql())
-    connection.execute(
-        f"""
-        INSERT INTO launch_profiles ({column_list})
-        SELECT {column_list}
-        FROM launch_profiles_with_policy
-        """
-    )
-    connection.execute("DROP TABLE launch_profiles_with_policy")
-
-
-def _load_legacy_specialist_payload(path: Path) -> dict[str, Any]:
-    """Load one legacy easy specialist TOML payload."""
-
-    with path.open("rb") as handle:
-        payload = tomllib.load(handle)
-    if not isinstance(payload, dict):
-        raise ValueError(f"{path}: expected a top-level TOML table.")
-    schema_version = payload.get("schema_version")
-    if schema_version != 1:
-        raise ValueError(f"{path}: only schema_version=1 is supported.")
-    required_keys = (
-        "name",
-        "tool",
-        "provider",
-        "credential_name",
-        "role_name",
-        "system_prompt_path",
-        "preset_path",
-        "auth_path",
-    )
-    result: dict[str, Any] = {}
-    for key in required_keys:
-        value = payload.get(key)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{path}: missing string `{key}`.")
-        result[key] = value.strip()
-    raw_skills = payload.get("skills")
-    if raw_skills is None:
-        result["skills"] = []
-    elif isinstance(raw_skills, list) and all(
-        isinstance(item, str) and item.strip() for item in raw_skills
-    ):
-        result["skills"] = [item.strip() for item in raw_skills]
-    else:
-        raise ValueError(f"{path}: expected `skills` to be a list of non-empty strings.")
-    return result
-
-
-def _load_legacy_preset_setup_name(path: Path) -> str:
-    """Return the `setup` field from one legacy YAML-like preset file."""
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or not line.startswith("setup:"):
-            continue
-        value = line.partition(":")[2].strip().strip('"').strip("'")
-        if value:
-            return value
-    raise ValueError(f"{path}: missing `setup` field.")
 
 
 def _render_preset_yaml(entry: SpecialistCatalogEntry) -> str:

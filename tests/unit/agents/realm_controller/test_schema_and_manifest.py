@@ -197,7 +197,7 @@ def test_manifest_write_validation_fails_with_field_path(tmp_path: Path) -> None
         write_session_manifest(tmp_path / "session.json", payload)
 
 
-def test_manifest_load_validation_fails_with_field_path(tmp_path: Path) -> None:
+def test_manifest_load_rejects_v3_manifest_without_upgrade(tmp_path: Path) -> None:
     path = tmp_path / "session.json"
     agent_id = derive_agent_id_from_name("HOUMAO-r")
     path.write_text(
@@ -222,7 +222,7 @@ def test_manifest_load_validation_fails_with_field_path(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(SessionManifestError, match=r"\$\.backend_state"):
+    with pytest.raises(SessionManifestError, match="Start a fresh runtime session"):
         load_session_manifest(path)
 
 
@@ -404,3 +404,33 @@ def test_resolve_manifest_session_authority_normalizes_cao_control(tmp_path: Pat
     assert authority.control.require_terminal_id() == "term-123"
     assert authority.control.api_base_url == "http://localhost:9889"
     assert authority.control.profile_name == "runtime-profile"
+
+
+def test_resolve_manifest_session_authority_rejects_missing_gateway_authority(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "cao-session.json"
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_cao_plan(tmp_path),
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("HOUMAO-gpu"),
+            backend_state={
+                "api_base_url": "http://localhost:9889",
+                "session_name": "HOUMAO-gpu",
+                "terminal_id": "term-123",
+                "profile_name": "runtime-profile",
+                "profile_path": str(tmp_path / "runtime-profile.md"),
+                "parsing_mode": "shadow_only",
+                "turn_index": 1,
+            },
+        )
+    )
+    payload["gateway_authority"] = None
+
+    with pytest.raises(SessionManifestError, match="Start a fresh runtime session"):
+        resolve_manifest_session_authority(
+            manifest_path=manifest_path,
+            payload=parse_session_manifest_payload(payload, source=str(manifest_path)),
+        )

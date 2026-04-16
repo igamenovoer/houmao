@@ -142,23 +142,26 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 
 That means Houmao-owned mailbox, touring, and user-control skills stay grouped by reserved skill names and named sets rather than by family-specific path segments.
 
-## Stateless Ownership And Legacy Cleanup
+## Current Install-State Ownership
 
-The shared installer no longer treats `.houmao/system-skills/install-state.json` as the ownership contract.
+The shared installer records current Houmao-owned skill projections in `.houmao/system-skills/install-state.json`.
 
-Instead, Houmao treats an explicit path set as replaceable for each selected current skill:
+Each current install-state record stores:
 
-- the current tool-native target path for that skill
-- known flat legacy aliases for that current skill
-- documented retired family or Gemini alias paths for that current skill
+- the current skill name,
+- the packaged asset subpath,
+- the tool-home-relative projected directory,
+- the projection mode (`copy` or `symlink`),
+- the content digest.
 
-That keeps reinstall idempotent without reserving every `houmao-*` directory in the target home.
+Reinstall uses only current-schema install state as ownership proof. For a selected current skill, reinstall may remove the previously recorded owned path, project the requested copy or symlink path, and rewrite the current install-state file.
 
 Collision policy:
 
-- if the current or legacy Houmao-owned path is part of the selected skill's explicit replaceable set, install may remove and replace it
-- unrelated content outside that explicit current and legacy path set is preserved
-- successful reinstall removes an obsolete `.houmao/system-skills/install-state.json` file if one is still present from older versions
+- if the selected current skill path is already occupied but is not recorded as current-schema Houmao-owned state, install fails instead of overwriting it
+- unrelated content outside recorded current Houmao-owned paths is preserved
+- old copy-only install-state versions, old family-namespaced paths, and renamed or superseded skill records are not migrated before 1.0
+- when an old skill installation blocks current install, use a clean target home or remove stale content before reinstalling current system skills
 
 ## `list`
 
@@ -193,7 +196,7 @@ pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 - installed current Houmao-owned skill names discovered in that home
 - the inferred projection mode for each installed current skill (`copy` or `symlink`)
 
-If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. If a stale legacy install-state file exists but the current packaged skill paths do not, `status` ignores that file.
+If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. `status` discovers current packaged skill paths and does not adopt old install-state files. `install` rejects unsupported old install-state files; use a clean target home or remove stale content before reinstalling current system skills.
 
 ## `install`
 
@@ -249,7 +252,8 @@ Projection rules:
 - symlink installs use the absolute filesystem path of the packaged skill asset as the symlink target
 - if the packaged skill asset is not backed by a stable real filesystem directory, `--symlink` fails explicitly instead of falling back to copied projection
 - `--symlink` is a local-machine convenience mode; if the Python environment or installed package path moves, reinstall the skills to refresh the symlink targets
-- reinstall may also remove exact legacy Houmao-owned skill aliases for the selected current skills and delete an obsolete legacy install-state file
+- reinstall may replace only paths recorded as current-schema Houmao-owned install state for the selected current skills
+- legacy skill aliases, old family-namespaced paths, and obsolete install-state files are not migrated or deleted automatically before 1.0
 
 ## Internal Auto-Install Behavior
 

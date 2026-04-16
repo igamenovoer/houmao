@@ -127,14 +127,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     build.add_argument("--runtime-root", default=None, help="Runtime root")
     build.add_argument("--preset", help="Preset path or bare preset name")
-    build.add_argument("--recipe", help=argparse.SUPPRESS)
     build.add_argument("--blueprint", help=argparse.SUPPRESS)
     build.add_argument("--tool", help="Tool name")
     build.add_argument("--skill", dest="skills", action="append", default=[])
     build.add_argument("--setup", help="Tool setup bundle name")
-    build.add_argument("--config-profile", help=argparse.SUPPRESS)
     build.add_argument("--auth", help="Tool auth bundle name")
-    build.add_argument("--cred-profile", help=argparse.SUPPRESS)
     build.add_argument(
         "--launch-overrides",
         help="Path to launch-overrides YAML/JSON, or an inline JSON object",
@@ -450,7 +447,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
 
     recipe = None
     preset_path: Path | None = None
-    requested_preset = args.preset or args.recipe
+    requested_preset = args.preset
     if requested_preset:
         preset_path = resolve_explicit_or_named_preset_path(
             agent_def_dir=agent_def_dir,
@@ -474,8 +471,8 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
 
     tool = args.tool or (recipe.tool if recipe else None)
     skills = list(args.skills) if args.skills else (recipe.skills if recipe else [])
-    setup = args.setup or args.config_profile or (recipe.setup if recipe else None)
-    auth = args.auth or args.cred_profile or (recipe.auth if recipe else None)
+    setup = args.setup or (recipe.setup if recipe else None)
+    auth = args.auth or (recipe.auth if recipe else None)
 
     missing: list[str] = []
     if not tool:

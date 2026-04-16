@@ -22,7 +22,6 @@ from houmao.agents.codex_cli_config import (
 )
 from houmao.agents.definition_parser import (
     AgentPreset,
-    PresetLaunchSettings,
     ToolAdapter,
     parse_agent_preset,
     parse_tool_adapter,
@@ -48,7 +47,6 @@ from houmao.agents.launch_policy.provider_hooks import (
 )
 from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
-    parse_declarative_mailbox_config,
     serialize_declarative_mailbox_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
@@ -250,15 +248,6 @@ def _require_str(payload: dict[str, Any], key: str, *, where: str) -> str:
     return value
 
 
-def _require_str_list(payload: dict[str, Any], key: str, *, where: str) -> list[str]:
-    value = payload.get(key)
-    if value is None:
-        return []
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise BuildError(f"{where}: expected list of strings for `{key}`")
-    return value
-
-
 def _load_tool_adapter(path: Path) -> ToolAdapter:
     try:
         return parse_tool_adapter(path)
@@ -321,77 +310,10 @@ def load_brain_recipe(path: Path) -> BrainRecipe:
     try:
         return parse_agent_preset(path)
     except ValueError as exc:
-        payload = _load_mapping_file(path)
-        if payload.get("schema_version") == 1 and "tool" in payload and "config_profile" in payload:
-            return _load_legacy_brain_recipe(path, payload)
-        raise BuildError(str(exc)) from exc
-
-
-def _load_legacy_brain_recipe(path: Path, payload: dict[str, Any]) -> BrainRecipe:
-    """Load one legacy recipe file into the preset-shaped compatibility object."""
-
-    skills = _require_str_list(payload, "skills", where=str(path))
-    default_agent_name = payload.get("default_agent_name")
-    if default_agent_name is not None:
-        if not isinstance(default_agent_name, str) or not default_agent_name.strip():
-            raise BuildError(f"{path}: default_agent_name must be a non-empty string when set")
-        resolved_default_agent_name: str | None = default_agent_name.strip()
-    else:
-        resolved_default_agent_name = None
-
-    try:
-        mailbox = parse_declarative_mailbox_config(
-            payload.get("mailbox"),
-            source=str(path),
-        )
-    except ValueError as exc:
-        raise BuildError(str(exc)) from exc
-
-    launch_overrides_payload = payload.get("launch_overrides")
-    launch_overrides: LaunchOverrides | None = None
-    if launch_overrides_payload is not None:
-        try:
-            launch_overrides = parse_launch_overrides(
-                launch_overrides_payload,
-                source=f"{path}:launch_overrides",
-            )
-        except ValueError as exc:
-            raise BuildError(str(exc)) from exc
-
-    launch_policy = payload.get("launch_policy")
-    if launch_policy is not None and not isinstance(launch_policy, dict):
-        raise BuildError(f"{path}: launch_policy must be a mapping when set")
-
-    setup = _require_str(payload, "config_profile", where=str(path))
-    stem = path.stem
-    if stem.endswith(f"-{setup}"):
-        role_name = stem[: -(len(setup) + 1)] or stem
-    elif stem.endswith("-default"):
-        role_name = stem[: -len("-default")]
-    else:
-        role_name = stem
-
-    return AgentPreset(
-        path=path.resolve(),
-        name=stem,
-        role_name=role_name,
-        tool=_require_str(payload, "tool", where=str(path)),
-        setup=setup,
-        skills=skills,
-        auth=_require_str(payload, "credential_profile", where=str(path)),
-        launch=PresetLaunchSettings(
-            prompt_mode=_parse_operator_prompt_mode(
-                launch_policy.get("operator_prompt_mode")
-                if isinstance(launch_policy, dict)
-                else None,
-                source=str(path),
-            ),
-            overrides=launch_overrides,
-        ),
-        mailbox=mailbox,
-        extra={},
-        default_agent_name_value=resolved_default_agent_name,
-    )
+        raise BuildError(
+            f"{path}: unsupported brain preset source shape. Rewrite this file using the "
+            f"current preset fields before building a brain home: {exc}"
+        ) from exc
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -448,20 +370,6 @@ def _copy_directory_contents(source_dir: Path, destination_dir: Path) -> None:
     destination_dir.mkdir(parents=True, exist_ok=True)
     for child in sorted(source_dir.iterdir()):
         _project_path(child, destination_dir / child.name, mode="copy")
-
-
-def _remove_legacy_gemini_skill_root(home_path: Path) -> None:
-    """Remove the legacy Houmao-managed Gemini alias root from one managed home."""
-
-    legacy_root = (home_path.resolve() / ".agents/skills").resolve()
-    _ensure_clean_target(legacy_root)
-    parent = legacy_root.parent
-    resolved_home_path = home_path.resolve()
-    while parent != resolved_home_path and parent.exists() and parent.is_dir():
-        if any(parent.iterdir()):
-            break
-        parent.rmdir()
-        parent = parent.parent
 
 
 def _validate_skill_names(skills_root: Path, selected_skills: list[str]) -> None:
@@ -679,9 +587,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
     setup_destination = home_path / adapter.setup_destination
     _copy_directory_contents(setup_dir, setup_destination)
-
-    if request.tool == "gemini":
-        _remove_legacy_gemini_skill_root(home_path)
 
     _validate_relative_path(adapter.skills_destination, field="skills_projection.destination")
     skill_destination_dir = home_path / adapter.skills_destination
@@ -1169,7 +1074,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description="Build a fresh runtime CLI home from reusable brain components."
     )
     parser.add_argument("--preset", help="Preset path or bare preset name")
-    parser.add_argument("--recipe", dest="preset_legacy", help=argparse.SUPPRESS)
     parser.add_argument(
         "--agent-def-dir",
         default=None,
@@ -1194,9 +1098,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Skill name to install (repeatable)",
     )
     parser.add_argument("--setup", help="Tool setup bundle name")
-    parser.add_argument("--config-profile", dest="setup_legacy", help=argparse.SUPPRESS)
     parser.add_argument("--auth", help="Tool auth bundle name")
-    parser.add_argument("--cred-profile", dest="auth_legacy", help=argparse.SUPPRESS)
     parser.add_argument(
         "--launch-overrides",
         help="Path to launch-overrides YAML/JSON, or an inline JSON object",
@@ -1261,7 +1163,7 @@ def main(argv: list[str] | None = None) -> int:
 
     recipe: BrainRecipe | None = None
     preset_path: Path | None = None
-    requested_preset = namespace.preset or namespace.preset_legacy
+    requested_preset = namespace.preset
     if requested_preset:
         preset_path = resolve_explicit_or_named_preset_path(
             agent_def_dir=agent_def_dir,
@@ -1280,8 +1182,8 @@ def main(argv: list[str] | None = None) -> int:
 
     tool_raw = namespace.tool or (recipe.tool if recipe else None)
     skills_raw = namespace.skills or (recipe.skills if recipe else [])
-    setup_raw = namespace.setup or namespace.setup_legacy or (recipe.setup if recipe else None)
-    auth_raw = namespace.auth or namespace.auth_legacy or (recipe.auth if recipe else None)
+    setup_raw = namespace.setup or (recipe.setup if recipe else None)
+    auth_raw = namespace.auth or (recipe.auth if recipe else None)
     operator_prompt_mode = namespace.operator_prompt_mode or (
         recipe.operator_prompt_mode if recipe else None
     )

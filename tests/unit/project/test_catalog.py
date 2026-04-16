@@ -99,7 +99,7 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
     assert degraded.missing_content == ("prompts/researcher.md",)
 
 
-def test_project_catalog_imports_legacy_specialist_metadata(
+def test_project_catalog_does_not_import_legacy_specialist_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -161,15 +161,9 @@ def test_project_catalog_imports_legacy_specialist_metadata(
     )
 
     catalog = ProjectCatalog.from_overlay(overlay)
-    specialist = catalog.load_specialist("researcher")
-
-    assert specialist.name == "researcher"
-    assert specialist.tool == "codex"
-    assert specialist.preset_name == "researcher-codex-default"
-    assert specialist.credential_name == "legacy-creds"
-    assert specialist.skills == ("notes",)
-    assert specialist.prompt_ref.resolve(overlay).is_file()
-    assert specialist.auth_ref.resolve(overlay).is_dir()
+    assert catalog.list_specialists() == []
+    with pytest.raises(FileNotFoundError, match="Specialist `researcher` was not found"):
+        catalog.load_specialist("researcher")
 
 
 def test_project_catalog_persists_and_projects_launch_profiles(
@@ -417,7 +411,7 @@ def test_project_catalog_rejects_invalid_memo_seed_directories(
         )
 
 
-def test_project_catalog_migrates_policy_bearing_memo_seed_to_source_only(
+def test_project_catalog_rejects_unsupported_schema_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -428,74 +422,44 @@ def test_project_catalog_migrates_policy_bearing_memo_seed_to_source_only(
     bootstrap_project_overlay(repo_root)
     overlay = require_project_overlay(repo_root)
     catalog = ProjectCatalog.from_overlay(overlay)
-    seed_path = (tmp_path / "seed.md").resolve()
-    seed_path.write_text("Existing policy should be discarded.\n", encoding="utf-8")
-    catalog.store_launch_profile(
-        name="alice",
-        profile_lane="launch_profile",
-        source_kind="recipe",
-        source_name="researcher-codex-default",
-        managed_agent_name=None,
-        managed_agent_id=None,
-        workdir=None,
-        auth_tool=None,
-        auth_name=None,
-        model_name=None,
-        reasoning_level=None,
-        operator_prompt_mode=None,
-        env_mapping={},
-        mailbox_mapping=None,
-        posture_mapping={},
-        managed_header_policy="inherit",
-        managed_header_section_policy={},
-        prompt_overlay_mode=None,
-        prompt_overlay_text=None,
-        memo_seed_source_kind="memo",
-        memo_seed_source_path=seed_path,
-    )
+    catalog.initialize()
 
     connection = sqlite3.connect(overlay.catalog_path)
     try:
-        connection.execute("ALTER TABLE launch_profiles ADD COLUMN memo_seed_policy TEXT")
-        connection.execute(
-            "UPDATE launch_profiles SET memo_seed_policy = 'fail-if-nonempty' WHERE name = 'alice'"
-        )
         connection.execute("UPDATE catalog_meta SET value = '10' WHERE key = 'schema_version'")
         connection.commit()
     finally:
         connection.close()
 
-    catalog.initialize()
+    with pytest.raises(ValueError, match="Recreate or reinitialize the project overlay"):
+        catalog.initialize()
 
-    migrated = catalog.load_launch_profile("alice")
-    assert migrated.memo_seed is not None
-    assert migrated.memo_seed.source_kind == "memo"
-    assert migrated.memo_seed.content_ref.relative_path == "memo-seeds/launch-profiles/alice/seed"
+
+def test_project_catalog_rejects_obsolete_current_table_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    catalog.initialize()
 
     connection = sqlite3.connect(overlay.catalog_path)
     try:
-        columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(launch_profiles)").fetchall()
-        }
-        assert "memo_seed_policy" not in columns
-        schema_version = connection.execute(
-            "SELECT value FROM catalog_meta WHERE key = 'schema_version'"
-        ).fetchone()
-        assert schema_version == ("12",)
-        view_row = connection.execute(
-            """
-            SELECT memo_seed_source_kind, memo_seed_relative_path
-            FROM v_launch_profiles
-            WHERE launch_profile_name = 'alice'
-            """
-        ).fetchone()
-        assert view_row == ("memo", "memo-seeds/launch-profiles/alice/seed")
+        connection.execute("ALTER TABLE launch_profiles ADD COLUMN memo_seed_policy TEXT")
+        connection.commit()
     finally:
         connection.close()
 
+    with pytest.raises(ValueError, match="obsolete column"):
+        catalog.initialize()
 
-def test_project_catalog_migrates_content_refs_check_to_accept_memo_seed(
+
+def test_project_catalog_rejects_obsolete_content_refs_check(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -547,60 +511,11 @@ def test_project_catalog_migrates_content_refs_check_to_accept_memo_seed(
             DROP TABLE content_refs;
             ALTER TABLE content_refs_legacy_check RENAME TO content_refs;
             PRAGMA foreign_keys = ON;
-            UPDATE catalog_meta SET value = '11' WHERE key = 'schema_version';
             """
         )
         connection.commit()
     finally:
         connection.close()
 
-    seed_path = (tmp_path / "seed.md").resolve()
-    seed_path.write_text("Memo seed after content-kind migration.\n", encoding="utf-8")
-    profile = catalog.store_launch_profile(
-        name="alice",
-        profile_lane="launch_profile",
-        source_kind="recipe",
-        source_name="researcher-codex-default",
-        managed_agent_name=None,
-        managed_agent_id=None,
-        workdir=None,
-        auth_tool=None,
-        auth_name=None,
-        model_name=None,
-        reasoning_level=None,
-        operator_prompt_mode=None,
-        env_mapping={},
-        mailbox_mapping=None,
-        posture_mapping={},
-        managed_header_policy="inherit",
-        managed_header_section_policy={},
-        prompt_overlay_mode=None,
-        prompt_overlay_text=None,
-        memo_seed_source_kind="memo",
-        memo_seed_source_path=seed_path,
-    )
-
-    assert profile.memo_seed is not None
-    assert profile.memo_seed.content_ref.content_kind == "memo_seed"
-
-    connection = sqlite3.connect(overlay.catalog_path)
-    try:
-        schema_version = connection.execute(
-            "SELECT value FROM catalog_meta WHERE key = 'schema_version'"
-        ).fetchone()
-        assert schema_version == ("12",)
-        table_sql = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'content_refs'"
-        ).fetchone()
-        assert table_sql is not None
-        assert "'memo_seed'" in str(table_sql[0])
-        memo_seed_row = connection.execute(
-            """
-            SELECT content_kind, relative_path
-            FROM content_refs
-            WHERE relative_path = 'memo-seeds/launch-profiles/alice/seed'
-            """
-        ).fetchone()
-        assert memo_seed_row == ("memo_seed", "memo-seeds/launch-profiles/alice/seed")
-    finally:
-        connection.close()
+    with pytest.raises(ValueError, match="memo_seed content references"):
+        catalog.initialize()

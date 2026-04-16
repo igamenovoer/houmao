@@ -78,6 +78,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_gateway_current_instance,
     load_gateway_desired_config,
     load_gateway_manifest,
+    read_gateway_mail_notifier_record,
     read_gateway_notifier_audit_records,
     refresh_gateway_manifest_publication,
     write_gateway_desired_config,
@@ -484,6 +485,55 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='gateway_requests'"
         ).fetchone()
     assert row == (1,)
+
+
+def test_gateway_storage_rejects_old_notifier_schema(tmp_path: Path) -> None:
+    queue_path = tmp_path / "gateway.sqlite"
+    with sqlite3.connect(queue_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE gateway_requests (
+                request_id TEXT PRIMARY KEY,
+                request_kind TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                state TEXT NOT NULL,
+                accepted_at_utc TEXT NOT NULL,
+                started_at_utc TEXT,
+                finished_at_utc TEXT,
+                managed_agent_instance_epoch INTEGER NOT NULL,
+                error_detail TEXT,
+                result_json TEXT
+            );
+            CREATE TABLE gateway_mail_notifier (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                enabled INTEGER NOT NULL DEFAULT 0,
+                interval_seconds INTEGER,
+                last_poll_at_utc TEXT,
+                last_notification_at_utc TEXT,
+                last_notified_digest TEXT,
+                last_error TEXT,
+                updated_at_utc TEXT NOT NULL
+            );
+            CREATE TABLE gateway_notifier_audit (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                poll_time_utc TEXT NOT NULL,
+                unread_count INTEGER,
+                unread_digest TEXT,
+                unread_summary_json TEXT NOT NULL DEFAULT '[]',
+                request_admission TEXT,
+                active_execution TEXT,
+                queue_depth INTEGER,
+                outcome TEXT NOT NULL CHECK (
+                    outcome IN ('empty', 'dedup_skip', 'busy_skip', 'enqueued', 'poll_error')
+                ),
+                enqueued_request_id TEXT,
+                detail TEXT
+            );
+            """
+        )
+
+    with pytest.raises(SessionManifestError, match="recreate the gateway root"):
+        read_gateway_mail_notifier_record(queue_path)
 
 
 def test_gateway_tui_tracking_timing_config_resolves_precedence() -> None:

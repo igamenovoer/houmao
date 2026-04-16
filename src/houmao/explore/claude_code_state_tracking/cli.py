@@ -97,11 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         watch_result = start_interactive_watch(
             repo_root=_repo_root(),
             output_root=Path(args.output_root).expanduser().resolve() if args.output_root else None,
-            preset_path=(
-                Path(args.preset or args.recipe).expanduser().resolve()
-                if (args.preset or args.recipe)
-                else None
-            ),
+            preset_path=Path(args.preset).expanduser().resolve() if args.preset else None,
             sample_interval_seconds=float(args.sample_interval_seconds),
             settle_seconds=float(args.settle_seconds),
             trace_enabled=bool(args.trace),
@@ -178,7 +174,6 @@ def _build_parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser("start", help="Start one interactive Claude watch run")
     start.add_argument("--output-root")
     start.add_argument("--preset")
-    start.add_argument("--recipe", help=argparse.SUPPRESS)
     start.add_argument("--sample-interval-seconds", type=float, default=0.25)
     start.add_argument("--settle-seconds", type=float, default=1.0)
     start.add_argument("--trace", action="store_true")

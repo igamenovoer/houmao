@@ -187,7 +187,7 @@ Use the explicit lane (`project agents recipes` plus `project agents launch-prof
 - you want birth-time defaults that are intentionally low-level and visible,
 - the team checks recipes into the project so the easy lane's specialist convenience layer is not the right authoring surface.
 
-Both lanes can coexist in the same project overlay. The shared catalog model means a future change can tighten the relationship between them without forcing a migration today.
+Both lanes can coexist in the same project overlay. The shared catalog model keeps each lane explicit, so incompatible pre-1.0 catalog changes should be handled by recreating the affected project overlay instead of relying on an in-place migration.
 
 ## Editing Profiles
 
