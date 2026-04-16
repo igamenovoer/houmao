@@ -1,6 +1,6 @@
 # system-skills
 
-`houmao-mgr system-skills` is the operator-facing surface for installing the current Houmao-owned `houmao-*` skills into resolved Claude, Codex, Copilot, or Gemini homes.
+`houmao-mgr system-skills` is the operator-facing surface for installing, removing, and inspecting the current Houmao-owned `houmao-*` skills in resolved Claude, Codex, Copilot, or Gemini homes.
 
 > **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
@@ -39,17 +39,18 @@ It does not yet generalize to non-skill asset kinds.
 houmao-mgr system-skills
 ├── list
 ├── status --tool <tool> [--home <path>]
-└── install --tool <tool>[,<tool>...] [--home <path>] [--skill-set <name> ...] [--skill <name> ...] [--symlink]
+├── install --tool <tool>[,<tool>...] [--home <path>] [--skill-set <name> ...] [--skill <name> ...] [--symlink]
+└── uninstall --tool <tool>[,<tool>...] [--home <path>]
 ```
 
 ## Effective Home Resolution
 
-For single-tool `install` and `status` commands, explicit `--home` overrides all other home selection. When `--home` is omitted, the command resolves the effective tool home with this precedence:
+For single-tool `install`, `uninstall`, and `status` commands, explicit `--home` overrides all other home selection. When `--home` is omitted, the command resolves the effective tool home with this precedence:
 
 1. tool-native home env var
 2. project-scoped default home
 
-For comma-separated multi-tool `install`, omit `--home`; each selected tool resolves through its own tool-native env var and project-scoped default home. If you need explicit home overrides, run separate single-tool install commands.
+For comma-separated multi-tool `install` and `uninstall`, omit `--home`; each selected tool resolves through its own tool-native env var and project-scoped default home. If you need explicit home overrides, run separate single-tool commands.
 
 Supported tool-native home env vars:
 
@@ -156,6 +157,18 @@ Replacement policy:
 - unselected skill directories, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, and stale install-state files are not removed
 - old install-state files are ignored rather than migrated
 
+## Stateless All-Known-Skill Removal
+
+`system-skills uninstall` uses the same catalog and projection rules, but it is intentionally not selective. It targets every current Houmao-owned skill listed in the packaged catalog for the resolved tool home.
+
+Removal policy:
+
+- every current catalog-known Houmao-owned skill path is an explicit removal target
+- copied directories, symlinks, and files at those exact current paths are removed
+- missing current skill paths are reported as absent rather than errors
+- missing target homes are not created just to uninstall
+- parent skill roots, unrelated user skills, unrecognized `houmao-*` paths, legacy family-namespaced paths, and stale install-state files are not removed
+
 ## `list`
 
 Use `list` to inspect the packaged inventory, named sets, and fixed defaults:
@@ -247,6 +260,39 @@ Projection rules:
 - `--symlink` is a local-machine convenience mode; if the Python environment or installed package path moves, reinstall the skills to refresh the symlink targets
 - reinstall replaces existing destinations for selected current skills without install-state ownership checks
 - legacy skill aliases, old family-namespaced paths, and obsolete install-state files are ignored and are not deleted automatically before 1.0
+
+## `uninstall`
+
+Use `uninstall` when you want to remove the current Houmao-owned skill surface from a resolved external or project-scoped tool home:
+
+```bash
+pixi run houmao-mgr system-skills uninstall --tool codex
+pixi run houmao-mgr system-skills uninstall --tool codex --home ~/.codex
+pixi run houmao-mgr system-skills uninstall --tool claude,codex,copilot,gemini
+pixi run houmao-mgr system-skills uninstall --tool copilot --home ~/.copilot
+pixi run houmao-mgr system-skills uninstall --tool gemini
+```
+
+Uninstall rules:
+
+- `uninstall` always targets every current skill in the packaged catalog
+- selection flags such as `--skill`, `--skill-set`, `--set`, `--default`, and `--symlink` are not part of the uninstall surface
+- `--home` is optional for single-tool uninstall commands
+- `--home` cannot be combined with comma-separated multi-tool uninstall commands
+- when omitted, the command resolves the effective home using tool-native env redirection first and project-scoped defaults second
+- omitted-home Gemini uninstalls use the project root as the effective home, so Houmao-owned skills are removed from `.gemini/skills/`
+
+Structured output rules:
+
+- single-tool JSON output uses scalar `tool` and `home_path` fields and reports `removed_skills`, `removed_projected_relative_dirs`, `absent_skills`, and `absent_projected_relative_dirs`
+- multi-tool JSON output returns `tools` plus one single-tool-shaped record per selected tool under `uninstallations`
+
+Removal boundary:
+
+- exact current Houmao-owned skill paths are removed whether they are copied directories, symlinks, or files
+- missing current paths are reported as absent or skipped
+- missing homes are not created
+- parent skill roots, unrelated user skills, unrecognized `houmao-*` paths, legacy family-namespaced paths, and obsolete install-state files are preserved
 
 ## Internal Auto-Install Behavior
 

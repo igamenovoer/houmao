@@ -360,13 +360,13 @@ Notes:
 - Auth-owned model env on Claude is separate from launch-owned model selection. Use `credentials claude add|set --model <value>` only when you need to pin `ANTHROPIC_MODEL` in the credential bundle; use the launch-owned `--model` on `agents launch` / `project easy specialist create|set` / `project easy profile create|set` / `project agents launch-profiles add|set` when you are selecting a Houmao launch-time model through the provider mapping.
 - For the agent-driven workflow that wraps this surface, see the packaged [`houmao-credential-mgr`](../../getting-started/system-skills-overview.md) system skill. For the easy-lane credential notes exposed through `project easy specialist create` and `project credentials`, see the `project credentials claude add|set` notes under the [`project`](#project-repo-local-houmao-project-overlays) command group below.
 
-### `system-skills` — Packaged Houmao-owned skill installation for resolved tool homes
+### `system-skills` — Packaged Houmao-owned skill management for resolved tool homes
 
 ```
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Copilot, or Gemini homes.
+Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Copilot, or Gemini homes.
 
 #### Subcommands
 
@@ -375,19 +375,23 @@ Install or inspect the packaged current Houmao-owned `houmao-*` skill set for re
 | `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
 | `status` | Show which current Houmao-owned system skills are installed in one resolved tool home by scanning the live filesystem. |
 | `install` | Install the CLI-default set list, explicit named skill sets, explicit skills, or any combination of those into one or more resolved tool homes. |
+| `uninstall` | Remove all current catalog-known Houmao system skills from one or more resolved tool homes. |
 
 Operational notes:
 
 - `system-skills install` requires `--tool`; the value may be one supported tool or a comma-separated list such as `claude,codex,copilot,gemini`
-- `system-skills install --home` is valid only when `--tool` names one tool; comma-separated multi-tool installs resolve each home independently
+- `system-skills uninstall` also requires `--tool` and accepts the same single-tool or comma-separated tool syntax
+- `system-skills install --home` and `system-skills uninstall --home` are valid only when `--tool` names one tool; comma-separated multi-tool operations resolve each home independently
 - `system-skills status` requires `--tool` and accepts optional `--home`
 - when `--home` is omitted, the effective home resolves with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`), then the project-scoped default home
 - the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.github` for Copilot, and `<cwd>` for Gemini
 - omitting both `--skill-set` and `--skill` selects the packaged CLI-default set list
 - repeatable `--skill-set` expands named system-skill sets; `--set` is no longer a supported install flag
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
+- `system-skills uninstall` does not accept install-selection flags; it removes all current known Houmao skill paths for the resolved home
 - repeated skill sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
 - the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
+- uninstall removes exact current Houmao skill paths and preserves unrelated user skills, parent roots, legacy paths, and obsolete install-state files
 - `status` discovers current packaged skill paths in the resolved home; `install` replaces selected current Houmao-owned skill destinations directly without install-state ownership checks
 - managed brain build and `agents join` use the same packaged catalog and installer internally
 

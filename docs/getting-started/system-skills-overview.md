@@ -169,6 +169,18 @@ Copilot repository skills can be discovered by Copilot surfaces that read `.gith
 
 For named-set or explicit-skill installs, repeat `--skill-set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
 
+### How to remove installed system skills
+
+To remove Houmao-owned system skills from an external or project-scoped tool home, use `system-skills uninstall`:
+
+```bash
+houmao-mgr system-skills uninstall --tool codex
+houmao-mgr system-skills uninstall --tool codex --home ~/.codex
+houmao-mgr system-skills uninstall --tool claude,codex,copilot,gemini
+```
+
+Uninstall intentionally does **not** mirror install selection. It removes all current catalog-known Houmao system-skill paths for the resolved tool home, whether those paths are copied directories, symlinks, or files. It leaves parent skill roots, unrelated user skills, legacy family-namespaced paths, unrecognized `houmao-*` paths, and obsolete install-state files in place.
+
 For the full flag surface, see the [`system-skills` CLI reference](../reference/cli/system-skills.md).
 
 ## When to Use Which Skill

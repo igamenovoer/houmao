@@ -125,6 +125,18 @@ class SystemSkillInstallResult:
 
 
 @dataclass(frozen=True)
+class SystemSkillUninstallResult:
+    """Outcome of one system-skill removal request."""
+
+    tool: str
+    home_path: Path
+    removed_skill_names: tuple[str, ...]
+    removed_projected_relative_dirs: tuple[str, ...]
+    absent_skill_names: tuple[str, ...]
+    absent_projected_relative_dirs: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class InstalledSystemSkillStatusRecord:
     """One current packaged skill discovered in a live tool home."""
 
@@ -373,6 +385,45 @@ def install_system_skills_for_home(
         resolved_skill_names=resolved_skill_names,
         projected_relative_dirs=tuple(projected_relative_dirs),
         projection_mode=projection_mode,
+    )
+
+
+def uninstall_system_skills_for_home(
+    *,
+    tool: str,
+    home_path: Path,
+) -> SystemSkillUninstallResult:
+    """Remove all current Houmao-owned system skills from one target tool home."""
+
+    catalog = load_system_skill_catalog()
+    resolved_home_path = home_path.resolve()
+    removed_skill_names: list[str] = []
+    removed_projected_relative_dirs: list[str] = []
+    absent_skill_names: list[str] = []
+    absent_projected_relative_dirs: list[str] = []
+
+    for skill_name in catalog.skill_names:
+        projected_relative_dir = projected_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        target_path = resolved_home_path / projected_relative_dir
+        if not target_path.exists() and not target_path.is_symlink():
+            absent_skill_names.append(skill_name)
+            absent_projected_relative_dirs.append(projected_relative_dir)
+            continue
+
+        _remove_existing_path_if_present(target_path)
+        removed_skill_names.append(skill_name)
+        removed_projected_relative_dirs.append(projected_relative_dir)
+
+    return SystemSkillUninstallResult(
+        tool=tool,
+        home_path=resolved_home_path,
+        removed_skill_names=tuple(removed_skill_names),
+        removed_projected_relative_dirs=tuple(removed_projected_relative_dirs),
+        absent_skill_names=tuple(absent_skill_names),
+        absent_projected_relative_dirs=tuple(absent_projected_relative_dirs),
     )
 
 
@@ -755,4 +806,3 @@ def _require_mapping(payload: dict[str, object], key: str, *, source: str) -> di
     if not isinstance(value, dict):
         raise SystemSkillCatalogError(f"{source}: `{key}` must be a mapping")
     return value
-

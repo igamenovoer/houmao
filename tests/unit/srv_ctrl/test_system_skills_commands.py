@@ -99,6 +99,7 @@ def test_system_skills_help_lists_commands() -> None:
     assert "list" in result.output
     assert "install" in result.output
     assert "status" in result.output
+    assert "uninstall" in result.output
 
 
 def test_houmao_mgr_module_version_starts_successfully() -> None:
@@ -114,6 +115,7 @@ def test_houmao_mgr_module_system_skills_help_starts_successfully() -> None:
     assert result.returncode == 0, result.stderr
     assert "install" in result.stdout
     assert "status" in result.stdout
+    assert "uninstall" in result.stdout
 
 
 def test_houmao_mgr_module_system_skills_install_starts_successfully(tmp_path: Path) -> None:
@@ -363,6 +365,181 @@ def test_system_skills_install_overwrites_selected_existing_skill_path(tmp_path:
     assert not stale_child.exists()
 
 
+def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+    assert install_result.exit_code == 0, install_result.output
+
+    uninstall_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+
+    assert uninstall_result.exit_code == 0, uninstall_result.output
+    uninstall_payload = json.loads(uninstall_result.output)
+    assert uninstall_payload["tool"] == "codex"
+    assert uninstall_payload["home_path"] == str(home_path)
+    assert uninstall_payload["removed_skills"] == _CATALOG_SKILLS
+    assert uninstall_payload["removed_projected_relative_dirs"] == [
+        f"skills/{skill_name}" for skill_name in _CATALOG_SKILLS
+    ]
+    assert uninstall_payload["absent_skills"] == []
+    assert uninstall_payload["absent_projected_relative_dirs"] == []
+    assert (home_path / "skills").is_dir()
+    assert not (home_path / "skills/houmao-specialist-mgr").exists()
+
+    status_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["installed_skills"] == []
+    assert status_payload["installed_skill_records"] == []
+
+
+def test_system_skills_uninstall_does_not_create_missing_home(tmp_path: Path) -> None:
+    home_path = (tmp_path / "missing-codex-home").resolve()
+
+    uninstall_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+
+    assert uninstall_result.exit_code == 0, uninstall_result.output
+    uninstall_payload = json.loads(uninstall_result.output)
+    assert uninstall_payload["removed_skills"] == []
+    assert uninstall_payload["removed_projected_relative_dirs"] == []
+    assert uninstall_payload["absent_skills"] == _CATALOG_SKILLS
+    assert uninstall_payload["absent_projected_relative_dirs"] == [
+        f"skills/{skill_name}" for skill_name in _CATALOG_SKILLS
+    ]
+    assert not home_path.exists()
+
+
+def test_system_skills_uninstall_uses_explicit_home_over_env_redirect(tmp_path: Path) -> None:
+    env_home = (tmp_path / "env-codex-home").resolve()
+    explicit_home = (tmp_path / "explicit-codex-home").resolve()
+    _write(env_home / "skills/houmao-specialist-mgr/SKILL.md", "env skill\n")
+    _write(explicit_home / "skills/houmao-specialist-mgr/SKILL.md", "explicit skill\n")
+
+    uninstall_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex",
+            "--home",
+            str(explicit_home),
+        ],
+        env={"CODEX_HOME": str(env_home)},
+    )
+
+    assert uninstall_result.exit_code == 0, uninstall_result.output
+    uninstall_payload = json.loads(uninstall_result.output)
+    assert uninstall_payload["home_path"] == str(explicit_home)
+    assert uninstall_payload["removed_skills"] == ["houmao-specialist-mgr"]
+    assert not (explicit_home / "skills/houmao-specialist-mgr").exists()
+    assert (env_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+
+
+def test_system_skills_uninstall_uses_env_redirect_when_home_is_omitted(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "env-codex-home").resolve()
+    _write(home_path / "skills/houmao-specialist-mgr/SKILL.md", "env skill\n")
+
+    uninstall_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex",
+        ],
+        env={"CODEX_HOME": str(home_path)},
+    )
+
+    assert uninstall_result.exit_code == 0, uninstall_result.output
+    uninstall_payload = json.loads(uninstall_result.output)
+    assert uninstall_payload["home_path"] == str(home_path)
+    assert uninstall_payload["removed_skills"] == ["houmao-specialist-mgr"]
+    assert not (home_path / "skills/houmao-specialist-mgr").exists()
+
+
+def test_system_skills_uninstall_uses_project_root_for_gemini_default_home(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
+    monkeypatch.chdir(workspace)
+    _write(workspace / ".gemini/skills/houmao-specialist-mgr/SKILL.md", "gemini skill\n")
+    _write(workspace / ".agents/skills/houmao-specialist-mgr/SKILL.md", "alias skill\n")
+
+    uninstall_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "gemini",
+        ],
+    )
+
+    assert uninstall_result.exit_code == 0, uninstall_result.output
+    uninstall_payload = json.loads(uninstall_result.output)
+    assert uninstall_payload["home_path"] == str(workspace)
+    assert uninstall_payload["removed_skills"] == ["houmao-specialist-mgr"]
+    assert uninstall_payload["removed_projected_relative_dirs"] == [
+        ".gemini/skills/houmao-specialist-mgr"
+    ]
+    assert not (workspace / ".gemini/skills/houmao-specialist-mgr").exists()
+    assert (workspace / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
+
+
 def test_system_skills_install_uses_env_redirect_when_home_is_omitted(tmp_path: Path) -> None:
     home_path = (tmp_path / "claude-home").resolve()
 
@@ -607,6 +784,158 @@ def test_system_skills_install_rejects_duplicate_multi_tool_entries_before_mutat
     assert result.exit_code != 0
     assert "Duplicate tool `codex`" in result.output
     assert not (workspace / ".codex").exists()
+
+
+def test_system_skills_uninstall_supports_comma_separated_tools_with_project_defaults(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("COPILOT_HOME", raising=False)
+    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
+    monkeypatch.chdir(workspace)
+    _write(workspace / ".claude/skills/houmao-project-mgr/SKILL.md", "claude skill\n")
+    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
+    _write(workspace / ".github/skills/houmao-project-mgr/SKILL.md", "copilot skill\n")
+    _write(workspace / ".gemini/skills/houmao-project-mgr/SKILL.md", "gemini skill\n")
+
+    uninstall_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "claude, codex,copilot,gemini",
+        ],
+    )
+
+    assert uninstall_result.exit_code == 0, uninstall_result.output
+    payload = json.loads(uninstall_result.output)
+    assert payload["tools"] == ["claude", "codex", "copilot", "gemini"]
+    uninstallations = {record["tool"]: record for record in payload["uninstallations"]}
+    assert uninstallations["claude"]["home_path"] == str(workspace / ".claude")
+    assert uninstallations["codex"]["home_path"] == str(workspace / ".codex")
+    assert uninstallations["copilot"]["home_path"] == str(workspace / ".github")
+    assert uninstallations["gemini"]["home_path"] == str(workspace)
+    for record in uninstallations.values():
+        assert record["removed_skills"] == ["houmao-project-mgr"]
+    assert not (workspace / ".claude/skills/houmao-project-mgr").exists()
+    assert not (workspace / ".codex/skills/houmao-project-mgr").exists()
+    assert not (workspace / ".github/skills/houmao-project-mgr").exists()
+    assert not (workspace / ".gemini/skills/houmao-project-mgr").exists()
+
+
+def test_system_skills_uninstall_rejects_multi_tool_home_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    explicit_home = workspace / "explicit-home"
+    monkeypatch.chdir(workspace)
+    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex,claude",
+            "--home",
+            str(explicit_home),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--home can only be used when --tool names exactly one tool" in result.output
+    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
+    assert not explicit_home.exists()
+
+
+def test_system_skills_uninstall_rejects_malformed_multi_tool_list_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.chdir(workspace)
+    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex,,gemini",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "comma-separated tool lists cannot contain empty entries" in result.output
+    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
+
+
+def test_system_skills_uninstall_rejects_duplicate_multi_tool_entries_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path.resolve()
+    monkeypatch.chdir(workspace)
+    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "uninstall",
+            "--tool",
+            "codex,codex",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Duplicate tool `codex`" in result.output
+    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
+
+
+def test_system_skills_uninstall_rejects_install_only_selection_flags() -> None:
+    for flag, value in (
+        ("--skill", "houmao-specialist-mgr"),
+        ("--skill-set", "user-control"),
+        ("--set", "user-control"),
+    ):
+        result = CliRunner().invoke(
+            cli,
+            [
+                "system-skills",
+                "uninstall",
+                "--tool",
+                "codex",
+                flag,
+                value,
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert f"No such option: {flag}" in result.output
+
+    for flag in ("--default", "--symlink"):
+        result = CliRunner().invoke(
+            cli,
+            [
+                "system-skills",
+                "uninstall",
+                "--tool",
+                "codex",
+                flag,
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert f"No such option: {flag}" in result.output
 
 
 def test_system_skills_install_rejects_unknown_skill_set_before_multi_tool_mutation(

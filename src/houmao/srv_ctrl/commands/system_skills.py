@@ -10,10 +10,12 @@ import click
 
 from houmao.agents.system_skills import (
     SystemSkillInstallResult,
+    SystemSkillUninstallResult,
     discover_installed_system_skills,
     install_system_skills_for_home,
     load_system_skill_catalog,
     resolve_system_skill_selection,
+    uninstall_system_skills_for_home,
 )
 
 from .output import emit
@@ -174,6 +176,48 @@ def install_system_skills_command(
     emit(payload, plain_renderer=_render_system_skills_install_plain)
 
 
+@system_skills_group.command(name="uninstall")
+@click.option(
+    "--tool",
+    required=True,
+    help="Supported tool identifier (`claude`, `codex`, `copilot`, or `gemini`).",
+)
+@click.option(
+    "--home",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
+)
+def uninstall_system_skills_command(tool: str, home: Path | None) -> None:
+    """Remove all current Houmao-owned system skills from resolved tool homes."""
+
+    tools = _parse_system_skills_tools(tool)
+    _validate_home_scope_for_system_skills_tools(tools=tools, home=home)
+
+    try:
+        uninstallation_payloads: list[dict[str, object]] = []
+        for tool_name in tools:
+            resolved_home = _resolve_effective_system_skills_home(tool=tool_name, home=home)
+            result = uninstall_system_skills_for_home(
+                tool=tool_name,
+                home_path=resolved_home,
+            )
+            uninstallation_payloads.append(_build_system_skills_uninstall_payload(result))
+
+        if len(uninstallation_payloads) == 1:
+            payload: dict[str, object] = uninstallation_payloads[0]
+        else:
+            payload = {
+                "tools": list(tools),
+                "uninstallations": uninstallation_payloads,
+            }
+    except OSError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    emit(payload, plain_renderer=_render_system_skills_uninstall_plain)
+
+
 def _parse_system_skills_tools(raw_tool: str) -> tuple[str, ...]:
     """Parse the install command's single or comma-separated tool selector."""
 
@@ -240,6 +284,19 @@ def _build_system_skills_install_payload(result: SystemSkillInstallResult) -> di
         "resolved_skills": list(result.resolved_skill_names),
         "projected_relative_dirs": list(result.projected_relative_dirs),
         "projection_mode": result.projection_mode,
+    }
+
+
+def _build_system_skills_uninstall_payload(result: SystemSkillUninstallResult) -> dict[str, object]:
+    """Return the structured uninstall result payload for one tool home."""
+
+    return {
+        "tool": result.tool,
+        "home_path": str(result.home_path),
+        "removed_skills": list(result.removed_skill_names),
+        "removed_projected_relative_dirs": list(result.removed_projected_relative_dirs),
+        "absent_skills": list(result.absent_skill_names),
+        "absent_projected_relative_dirs": list(result.absent_projected_relative_dirs),
     }
 
 
@@ -354,6 +411,37 @@ def _render_system_skills_install_plain(payload: object) -> None:
         click.echo("Resolved skills:")
         for skill_name in resolved_skills:
             click.echo(f"  - {skill_name}")
+
+
+def _render_system_skills_uninstall_plain(payload: object) -> None:
+    """Render `system-skills uninstall` output in a readable plain-text form."""
+
+    if not isinstance(payload, dict):
+        click.echo(str(payload))
+        return
+    uninstallations = _coerce_mapping_list(payload.get("uninstallations"))
+    if uninstallations:
+        click.echo("Removed Houmao system skills from resolved tool homes:")
+        for uninstallation in uninstallations:
+            removed_count = len(_coerce_string_list(uninstallation.get("removed_skills")))
+            absent_count = len(_coerce_string_list(uninstallation.get("absent_skills")))
+            click.echo(
+                "  - "
+                f"{uninstallation.get('tool')}: {uninstallation.get('home_path')} "
+                f"({removed_count} removed, {absent_count} absent)"
+            )
+        return
+
+    click.echo(
+        f"Removed Houmao system skills from {payload.get('home_path')} ({payload.get('tool')})"
+    )
+    removed_skills = _coerce_string_list(payload.get("removed_skills"))
+    click.echo(f"Removed skills: {len(removed_skills)}")
+    if removed_skills:
+        for skill_name in removed_skills:
+            click.echo(f"  - {skill_name}")
+    absent_skills = _coerce_string_list(payload.get("absent_skills"))
+    click.echo(f"Absent skills: {len(absent_skills)}")
 
 
 def _coerce_mapping_list(value: object) -> list[dict[str, Any]]:

@@ -24,6 +24,7 @@ from houmao.agents.system_skills import (
     load_system_skill_catalog_from_paths,
     resolve_auto_install_skill_selection,
     resolve_system_skill_selection,
+    uninstall_system_skills_for_home,
 )
 
 
@@ -657,6 +658,91 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "oauth_creds.json" in gemini_reference
     assert "GOOGLE_APPLICATION_CREDENTIALS" in gemini_reference
     assert deprecated_fixture_root not in gemini_reference
+
+
+def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_files(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    copied_skill_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
+    symlink_source = tmp_path / "symlink-source"
+    symlink_target = home_path / "skills/houmao-agent-email-comms"
+    file_target = home_path / "skills/houmao-adv-usage-pattern"
+    user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
+    unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
+    legacy_path = home_path / "skills/mailbox/houmao-agent-email-comms/SKILL.md"
+    obsolete_state_path = _obsolete_system_skill_state_path(home_path)
+    _write(copied_skill_path, "copied skill\n")
+    symlink_source.mkdir(parents=True)
+    symlink_target.parent.mkdir(parents=True, exist_ok=True)
+    symlink_target.symlink_to(symlink_source)
+    _write(file_target, "stale file skill\n")
+    _write(user_skill_path, "custom user skill\n")
+    _write(unknown_houmao_path, "not catalog owned\n")
+    _write(legacy_path, "legacy family path\n")
+    _write(obsolete_state_path, "{}\n")
+
+    result = uninstall_system_skills_for_home(tool="codex", home_path=home_path)
+
+    assert result.tool == "codex"
+    assert result.home_path == home_path
+    assert result.removed_skill_names == (
+        "houmao-agent-email-comms",
+        "houmao-adv-usage-pattern",
+        "houmao-specialist-mgr",
+    )
+    assert result.removed_projected_relative_dirs == (
+        "skills/houmao-agent-email-comms",
+        "skills/houmao-adv-usage-pattern",
+        "skills/houmao-specialist-mgr",
+    )
+    assert "houmao-process-emails-via-gateway" in result.absent_skill_names
+    assert "skills/houmao-process-emails-via-gateway" in result.absent_projected_relative_dirs
+    assert "houmao-agent-gateway" in result.absent_skill_names
+    assert not (home_path / "skills/houmao-specialist-mgr").exists()
+    assert not symlink_target.exists()
+    assert not symlink_target.is_symlink()
+    assert symlink_source.is_dir()
+    assert not file_target.exists()
+    assert (home_path / "skills").is_dir()
+    assert user_skill_path.is_file()
+    assert unknown_houmao_path.is_file()
+    assert legacy_path.is_file()
+    assert obsolete_state_path.is_file()
+
+
+def test_uninstall_system_skills_for_home_does_not_create_missing_home(tmp_path: Path) -> None:
+    home_path = (tmp_path / "missing-codex-home").resolve()
+    catalog = load_system_skill_catalog()
+
+    result = uninstall_system_skills_for_home(tool="codex", home_path=home_path)
+
+    assert not home_path.exists()
+    assert result.removed_skill_names == ()
+    assert result.removed_projected_relative_dirs == ()
+    assert result.absent_skill_names == catalog.skill_names
+    assert result.absent_projected_relative_dirs == tuple(
+        f"skills/{skill_name}" for skill_name in catalog.skill_names
+    )
+
+
+def test_uninstall_system_skills_for_home_targets_gemini_dot_gemini_root(
+    tmp_path: Path,
+) -> None:
+    home_path = tmp_path.resolve()
+    gemini_skill_path = home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md"
+    upstream_alias_path = home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md"
+    _write(gemini_skill_path, "gemini skill\n")
+    _write(upstream_alias_path, "upstream alias\n")
+
+    result = uninstall_system_skills_for_home(tool="gemini", home_path=home_path)
+
+    assert result.removed_skill_names == ("houmao-specialist-mgr",)
+    assert result.removed_projected_relative_dirs == (
+        ".gemini/skills/houmao-specialist-mgr",
+    )
+    assert not (home_path / ".gemini/skills/houmao-specialist-mgr").exists()
+    assert upstream_alias_path.is_file()
 
 
 def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(

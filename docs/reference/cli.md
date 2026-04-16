@@ -71,7 +71,7 @@ Within that pair, `houmao-mgr` is split deliberately:
 - `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
 - `credentials` is the first-class credential-management family for the active project overlay or an explicit plain agent-definition directory
-- `system-skills` is the Houmao-owned skill installer for resolved Claude, Codex, Copilot, or Gemini homes outside managed launch or join
+- `system-skills` installs, removes, and inspects Houmao-owned skills for resolved Claude, Codex, Copilot, or Gemini homes outside managed launch or join
 - `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `easy`, and `mailbox` views
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots
 - `admin` is the local maintenance family
@@ -152,7 +152,7 @@ For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --a
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents mail status|check|send|reply ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project easy ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 
-For installation of the packaged Houmao-owned skill surface outside managed launch or join, use `houmao-mgr system-skills list|status|install ...`. `--home` is optional there: omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home. That surface is documented in [system-skills](cli/system-skills.md).
+For installation or removal of the packaged Houmao-owned skill surface outside managed launch or join, use `houmao-mgr system-skills list|status|install|uninstall ...`. `--home` is optional for single-tool install, uninstall, and status commands: omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home. `install` can select sets or explicit skills, while `uninstall` removes all current catalog-known Houmao skill paths for the resolved home. That surface is documented in [system-skills](cli/system-skills.md).
 
 All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. Plain and fancy modes print populated cleanup actions line by line, while `--print-json` preserves the machine-readable output. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus a fresh shared-registry record when needed.
 
