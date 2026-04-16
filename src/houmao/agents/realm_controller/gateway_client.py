@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
-from typing import TypeVar, cast
+from typing import Mapping, TypeVar, cast
 from urllib import error, request
 
 from pydantic import BaseModel, ValidationError
@@ -62,6 +63,14 @@ from houmao.server.models import (
 )
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+GATEWAY_RESPECT_PROXY_ENV_VAR = "HOUMAO_GATEWAY_RESPECT_PROXY_ENV"
+
+
+def gateway_client_respects_proxy_env(env: Mapping[str, str] | None = None) -> bool:
+    """Return whether gateway HTTP clients should use ambient proxy settings."""
+
+    source = os.environ if env is None else env
+    return source.get(GATEWAY_RESPECT_PROXY_ENV_VAR) == "1"
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,9 @@ class GatewayClient:
 
         self.m_endpoint = endpoint
         self.m_timeout_seconds = timeout_seconds
+        self.m_opener = _build_gateway_client_opener(
+            respect_proxy_env=gateway_client_respects_proxy_env()
+        )
 
     def health(self) -> GatewayHealthResponseV1:
         """Call `GET /health`."""
@@ -503,27 +515,11 @@ class GatewayClient:
             method=method,
             headers=headers,
         )
-        try:
-            with request.urlopen(request_obj, timeout=self.m_timeout_seconds) as response:
-                decoded = self._decode_response(
-                    method=method,
-                    url=url,
-                    response=response.read(),
-                )
-        except error.HTTPError as exc:
-            detail = self._decode_error_body(exc.read())
-            raise GatewayHttpError(
-                method=method,
-                url=url,
-                detail=detail,
-                status_code=exc.code,
-            ) from exc
-        except error.URLError as exc:
-            raise GatewayHttpError(
-                method=method,
-                url=url,
-                detail=str(exc.reason),
-            ) from exc
+        decoded = self._decode_response(
+            method=method,
+            url=url,
+            response=self._open_request(request_obj=request_obj, method=method, url=url),
+        )
 
         try:
             return model.model_validate(decoded)
@@ -556,9 +552,18 @@ class GatewayClient:
             method=method,
             headers=headers,
         )
+        return self._decode_response(
+            method=method,
+            url=url,
+            response=self._open_request(request_obj=request_obj, method=method, url=url),
+        )
+
+    def _open_request(self, *, request_obj: request.Request, method: str, url: str) -> bytes:
+        """Open one gateway request without consulting environment proxy settings."""
+
         try:
-            with request.urlopen(request_obj, timeout=self.m_timeout_seconds) as response:
-                return self._decode_response(method=method, url=url, response=response.read())
+            with self.m_opener.open(request_obj, timeout=self.m_timeout_seconds) as response:
+                return cast(bytes, response.read())
         except error.HTTPError as exc:
             detail = self._decode_error_body(exc.read())
             raise GatewayHttpError(
@@ -572,6 +577,12 @@ class GatewayClient:
                 method=method,
                 url=url,
                 detail=str(exc.reason),
+            ) from exc
+        except (TimeoutError, OSError) as exc:
+            raise GatewayHttpError(
+                method=method,
+                url=url,
+                detail=str(exc),
             ) from exc
 
     def _build_url(self, path: str) -> str:
@@ -637,3 +648,11 @@ class GatewayClient:
                 return detail
             return json.dumps(detail, sort_keys=True)
         return json.dumps(decoded, sort_keys=True)
+
+
+def _build_gateway_client_opener(*, respect_proxy_env: bool) -> request.OpenerDirector:
+    """Build a gateway HTTP opener using the resolved proxy policy."""
+
+    if respect_proxy_env:
+        return request.build_opener()
+    return request.build_opener(request.ProxyHandler({}))

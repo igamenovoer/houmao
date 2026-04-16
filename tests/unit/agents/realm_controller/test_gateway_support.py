@@ -30,10 +30,12 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
 from houmao.agents.realm_controller.errors import (
+    GatewayAttachError,
     GatewayHttpError,
     LaunchPlanError,
     SessionManifestError,
 )
+from houmao.agents.realm_controller.gateway_client import GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
     GatewayCurrentInstanceV1,
@@ -102,6 +104,7 @@ from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
     _same_session_gateway_is_alive,
     _same_session_gateway_shell_command,
+    _start_gateway_process,
 )
 
 
@@ -2499,6 +2502,92 @@ def test_runtime_owned_foreground_gateway_attach_accepts_current_instance_before
 
     assert result.status == "ok"
     assert load_gateway_current_instance(paths.current_instance_path).tmux_pane_id == "%9"
+
+
+def test_detached_gateway_attach_timeout_includes_last_health_probe_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    _seed_local_interactive_gateway_root(tmp_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    controller = RuntimeSessionController(
+        launch_plan=_sample_local_interactive_plan(tmp_path),
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        manifest_path=manifest_path,
+        agent_def_dir=(tmp_path / "agents").resolve(),
+        backend_session=_FakeInteractiveSession(),
+        agent_identity="HOUMAO-local",
+        tmux_session_name="HOUMAO-local",
+    )
+
+    class _FakeProcess:
+        pid = 4242
+
+        def __init__(self) -> None:
+            self.m_killed = False
+
+        def poll(self) -> int | None:
+            return None
+
+        def kill(self) -> None:
+            self.m_killed = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            return 0
+
+    fake_process = _FakeProcess()
+
+    class _FailingGatewayClient:
+        def __init__(self, *, endpoint, timeout_seconds: float = 5.0) -> None:
+            del endpoint, timeout_seconds
+
+        def health(self):  # type: ignore[no-untyped-def]
+            raise GatewayHttpError(
+                method="GET",
+                url="http://127.0.0.1:43123/health",
+                detail="proxy refused loopback health",
+            )
+
+    monotonic_values = [0.0, 0.0, 11.0]
+
+    def _fake_monotonic() -> float:
+        if monotonic_values:
+            return monotonic_values.pop(0)
+        return 11.0
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.subprocess.Popen",
+        lambda *args, **kwargs: fake_process,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._wait_for_gateway_endpoint",
+        lambda **kwargs: GatewayEndpoint(host="127.0.0.1", port=43123),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.GatewayClient",
+        _FailingGatewayClient,
+    )
+    monkeypatch.setattr("houmao.agents.realm_controller.runtime.time.monotonic", _fake_monotonic)
+    monkeypatch.setattr("houmao.agents.realm_controller.runtime.time.sleep", lambda seconds: None)
+
+    with pytest.raises(GatewayAttachError) as exc_info:
+        _start_gateway_process(
+            controller=controller,
+            paths=paths,
+            host="127.0.0.1",
+            port=0,
+            execution_mode="detached_process",
+            tui_tracking_timings=GatewayTuiTrackingTimingConfigV1(),
+        )
+
+    detail = str(exc_info.value)
+    assert "Timed out waiting for gateway health readiness on 127.0.0.1:43123." in detail
+    assert "Last health probe error: proxy refused loopback health" in detail
+    assert fake_process.m_killed is True
 
 
 def test_same_session_gateway_detach_refuses_reserved_window_zero(

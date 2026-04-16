@@ -611,8 +611,8 @@ packages:
   requires_python: '>=3.8'
 - pypi: ./
   name: houmao
-  version: 0.7.0rc3
-  sha256: 07f2370ed10866079f4c4fe844e31881bfe96d86a0984b1f5a4cb68a32c960cd
+  version: 0.7.0rc4
+  sha256: 26db298373132b2031123c09f147fe6a557abc398900f288b8371f8edd8bc4f7
   requires_dist:
   - click>=8.3.1,<9
   - fastapi>=0.135.1,<0.136

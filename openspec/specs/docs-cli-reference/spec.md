@@ -562,6 +562,16 @@ That coverage SHALL NOT present `--default` as part of the current public `syste
 
 That coverage SHALL explain that the default Gemini home root is `<cwd>`, which yields Houmao-owned skill projection under `<cwd>/.gemini/skills/`.
 
+That coverage SHALL describe `--symlink` as a supported projection mode that replaces the selected current skill destination with a symlink to the packaged asset root.
+
+That coverage SHALL explain that `system-skills install` does not create or require `.houmao/system-skills/install-state.json` in the target tool home.
+
+That coverage SHALL explain that reinstall replaces each selected current Houmao-owned skill destination path when it already exists, without checking install-state ownership metadata.
+
+That coverage SHALL explain that the overwrite boundary is limited to selected current Houmao-owned skill destination paths and does not remove unselected skills, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, or stale install-state files.
+
+That coverage SHALL explain that `system-skills status` discovers current packaged skill projection paths from the filesystem and reports inferred `copy` or `symlink` projection mode without reading install-state metadata.
+
 That coverage SHALL show at least one comma-separated multi-tool install example and at least one single-tool explicit-home install example.
 
 That coverage SHALL show at least one named-set install example using `--skill-set`.
@@ -587,6 +597,22 @@ That coverage SHALL explain that single-tool JSON output keeps the scalar instal
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that `--home` cannot be combined with comma-separated multi-tool install
 - **AND THEN** it explains that operators who need explicit homes must run separate single-tool install commands
+
+#### Scenario: Reader understands stateless selected-skill overwrite
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that install does not create or require `.houmao/system-skills/install-state.json`
+- **AND THEN** it explains that reinstall replaces selected current Houmao-owned skill paths when they already exist
+- **AND THEN** it explains that unselected and unrelated tool-home content remains outside the overwrite boundary
+
+#### Scenario: Reader understands symlink mode remains supported
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page documents `--symlink` as a supported install mode
+- **AND THEN** it explains that symlink reinstall uses the same selected-skill replacement boundary as copied reinstall
+
+#### Scenario: Reader understands status is filesystem discovery
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that `status` discovers current packaged skill projection paths from the filesystem
+- **AND THEN** it does not describe install-state metadata as the source of current status output
 
 #### Scenario: Reader understands single-tool and multi-tool install output
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`

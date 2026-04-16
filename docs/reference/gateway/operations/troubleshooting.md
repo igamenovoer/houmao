@@ -1,6 +1,39 @@
 # Gateway Troubleshooting
 
-This page covers the current operator-facing failure modes for pair-managed `houmao_server_rest` gateway attach and same-session gateway lifecycle.
+This page covers the current operator-facing failure modes for gateway attach, live readiness, and same-session gateway lifecycle.
+
+## Attach Times Out Waiting For Health Readiness
+
+If attach reports `Timed out waiting for gateway health readiness on 127.0.0.1:<port>.`, the runtime started a gateway surface and discovered the intended listener, but repeated `GET /health` probes did not return a valid gateway health payload before the readiness deadline.
+
+Current attach errors include `Last health probe error: ...` when the readiness loop observed a gateway HTTP client failure. Use that suffix first because it points at the client-side reason the health check could not complete.
+
+Common readings:
+
+- `Connection refused`, timeout text, or socket errors usually mean the sidecar did not keep serving on the discovered listener; inspect `<session-root>/gateway/logs/gateway.log` and `<session-root>/gateway/run/current-instance.json`.
+- `gateway returned invalid JSON` usually means the port answered, but not with the Houmao gateway health contract; check for a listener collision or stale desired-port reuse.
+- proxy-related wording, proxy refusal, or a non-loopback proxy endpoint usually means ambient proxy variables captured loopback readiness traffic.
+
+Gateway client calls are local control-plane calls. By default, Houmao bypasses ambient proxy variables such as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and lowercase variants for live gateway calls, and it does not mutate process-wide `NO_PROXY` or `no_proxy`. Set `HOUMAO_GATEWAY_RESPECT_PROXY_ENV=1` only when you intentionally want `GatewayClient` to use normal Python environment proxy handling for live gateway HTTP.
+
+Useful first checks:
+
+```bash
+houmao-mgr agents gateway status --agent-name <friendly-name>
+```
+
+```bash
+env | grep -Ei '^(http_proxy|https_proxy|all_proxy|no_proxy)='
+```
+
+If you are debugging an older build that still routes gateway readiness through proxy envs, temporarily remove proxy variables or set loopback bypass while attaching:
+
+```bash
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+    -u http_proxy -u https_proxy -u all_proxy \
+    NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+    houmao-mgr agents gateway attach --agent-name <friendly-name>
+```
 
 ## `houmao-mgr agents gateway attach` Reports Missing Manifest Tmux Metadata
 

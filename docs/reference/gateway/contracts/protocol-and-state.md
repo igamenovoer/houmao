@@ -114,6 +114,14 @@ Important rules:
 - A dead gateway can leave stale env behind temporarily; validation plus health probing is what cleans that up.
 - These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run houmao-mgr agents mail resolve-live`.
 
+## Gateway Client Proxy Policy
+
+Gateway client calls are local control-plane HTTP requests to the live per-agent gateway listener. By default, `GatewayClient` connects directly to the resolved gateway listener and bypasses ambient proxy variables such as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and their lowercase variants. This applies to health checks, status, request submission, prompt and TUI control, reminders, mail, mail-notifier, and memory calls made through the shared gateway client.
+
+Set `HOUMAO_GATEWAY_RESPECT_PROXY_ENV=1` in the process that constructs `GatewayClient` only when you intentionally want those live gateway calls to use normal Python environment proxy handling. In that mode, caller-provided proxy variables and `NO_PROXY` or `no_proxy` values are respected by the underlying HTTP client.
+
+This gateway-specific switch is separate from the CAO loopback behavior that injects or preserves `NO_PROXY` entries. Gateway proxy bypass does not mutate process-wide `NO_PROXY` or `no_proxy`; it selects the gateway HTTP opener policy at client construction time.
+
 ## HTTP Surface
 
 Current v1 routes:
