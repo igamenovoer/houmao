@@ -482,7 +482,7 @@ def test_project_catalog_migrates_policy_bearing_memo_seed_to_source_only(
         schema_version = connection.execute(
             "SELECT value FROM catalog_meta WHERE key = 'schema_version'"
         ).fetchone()
-        assert schema_version == ("11",)
+        assert schema_version == ("12",)
         view_row = connection.execute(
             """
             SELECT memo_seed_source_kind, memo_seed_relative_path
@@ -491,5 +491,116 @@ def test_project_catalog_migrates_policy_bearing_memo_seed_to_source_only(
             """
         ).fetchone()
         assert view_row == ("memo", "memo-seeds/launch-profiles/alice/seed")
+    finally:
+        connection.close()
+
+
+def test_project_catalog_migrates_content_refs_check_to_accept_memo_seed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    catalog.initialize()
+
+    connection = sqlite3.connect(overlay.catalog_path)
+    try:
+        connection.executescript(
+            """
+            DROP VIEW IF EXISTS v_content_refs;
+            DROP VIEW IF EXISTS v_roles;
+            DROP VIEW IF EXISTS v_presets;
+            DROP VIEW IF EXISTS v_specialists;
+            DROP VIEW IF EXISTS v_launch_profiles;
+            PRAGMA foreign_keys = OFF;
+            CREATE TABLE content_refs_legacy_check (
+                id INTEGER PRIMARY KEY,
+                content_kind TEXT NOT NULL CHECK(
+                    content_kind IN ('prompt_blob', 'auth_tree', 'skill_tree', 'setup_tree')
+                ),
+                storage_kind TEXT NOT NULL CHECK(storage_kind IN ('file', 'tree')),
+                relative_path TEXT NOT NULL UNIQUE,
+                sha256 TEXT,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO content_refs_legacy_check (
+                id,
+                content_kind,
+                storage_kind,
+                relative_path,
+                sha256,
+                created_at
+            )
+            SELECT
+                id,
+                content_kind,
+                storage_kind,
+                relative_path,
+                sha256,
+                created_at
+            FROM content_refs;
+            DROP TABLE content_refs;
+            ALTER TABLE content_refs_legacy_check RENAME TO content_refs;
+            PRAGMA foreign_keys = ON;
+            UPDATE catalog_meta SET value = '11' WHERE key = 'schema_version';
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    seed_path = (tmp_path / "seed.md").resolve()
+    seed_path.write_text("Memo seed after content-kind migration.\n", encoding="utf-8")
+    profile = catalog.store_launch_profile(
+        name="alice",
+        profile_lane="launch_profile",
+        source_kind="recipe",
+        source_name="researcher-codex-default",
+        managed_agent_name=None,
+        managed_agent_id=None,
+        workdir=None,
+        auth_tool=None,
+        auth_name=None,
+        model_name=None,
+        reasoning_level=None,
+        operator_prompt_mode=None,
+        env_mapping={},
+        mailbox_mapping=None,
+        posture_mapping={},
+        managed_header_policy="inherit",
+        managed_header_section_policy={},
+        prompt_overlay_mode=None,
+        prompt_overlay_text=None,
+        memo_seed_source_kind="memo",
+        memo_seed_source_path=seed_path,
+    )
+
+    assert profile.memo_seed is not None
+    assert profile.memo_seed.content_ref.content_kind == "memo_seed"
+
+    connection = sqlite3.connect(overlay.catalog_path)
+    try:
+        schema_version = connection.execute(
+            "SELECT value FROM catalog_meta WHERE key = 'schema_version'"
+        ).fetchone()
+        assert schema_version == ("12",)
+        table_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'content_refs'"
+        ).fetchone()
+        assert table_sql is not None
+        assert "'memo_seed'" in str(table_sql[0])
+        memo_seed_row = connection.execute(
+            """
+            SELECT content_kind, relative_path
+            FROM content_refs
+            WHERE relative_path = 'memo-seeds/launch-profiles/alice/seed'
+            """
+        ).fetchone()
+        assert memo_seed_row == ("memo_seed", "memo-seeds/launch-profiles/alice/seed")
     finally:
         connection.close()

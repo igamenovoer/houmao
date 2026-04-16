@@ -28,7 +28,7 @@ from houmao.agents.managed_prompt_header import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 11
+CATALOG_SCHEMA_VERSION = 12
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -1321,6 +1321,8 @@ class ProjectCatalog:
 
         current_version = _catalog_schema_version(connection)
         if current_version == CATALOG_SCHEMA_VERSION:
+            if not _content_refs_accepts_memo_seed(connection):
+                _rebuild_content_refs_table(connection)
             return
         required_columns = (
             ("auth_profiles", "display_name"),
@@ -1403,6 +1405,10 @@ class ProjectCatalog:
                 column_name="memo_seed_policy",
             ):
                 _drop_launch_profile_memo_seed_policy(connection)
+            current_version = 11
+        if current_version == 11:
+            if not _content_refs_accepts_memo_seed(connection):
+                _rebuild_content_refs_table(connection)
             return
         raise ValueError(
             "Unsupported project catalog schema. Reinitialize the project overlay to adopt the "
@@ -2317,6 +2323,78 @@ def _table_has_column(
     return any(str(row[1]) == column_name for row in rows)
 
 
+def _content_refs_accepts_memo_seed(connection: sqlite3.Connection) -> bool:
+    """Return whether content_refs permits memo-seed content rows."""
+
+    row = connection.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'content_refs'
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None or row[0] is None:
+        return False
+    return f"'{_CONTENT_KIND_MEMO_SEED}'" in str(row[0])
+
+
+def _drop_catalog_views(connection: sqlite3.Connection) -> None:
+    """Drop catalog views before rebuilding referenced tables."""
+
+    for view_name in (
+        "v_content_refs",
+        "v_roles",
+        "v_presets",
+        "v_specialists",
+        "v_launch_profiles",
+    ):
+        connection.execute(f"DROP VIEW IF EXISTS {view_name}")
+
+
+def _rebuild_content_refs_table(connection: sqlite3.Connection) -> None:
+    """Rebuild content_refs with the current content-kind CHECK constraint."""
+
+    columns = (
+        "id",
+        "content_kind",
+        "storage_kind",
+        "relative_path",
+        "sha256",
+        "created_at",
+    )
+    column_list = ", ".join(columns)
+    content_kind_check = ", ".join(f"'{value}'" for value in _CONTENT_KIND_VALUES)
+    storage_kind_check = ", ".join(f"'{value}'" for value in _STORAGE_KIND_VALUES)
+    _drop_catalog_views(connection)
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        f"""
+        CREATE TABLE content_refs_rebuilt (
+            id INTEGER PRIMARY KEY,
+            content_kind TEXT NOT NULL CHECK(content_kind IN ({content_kind_check})),
+            storage_kind TEXT NOT NULL CHECK(storage_kind IN ({storage_kind_check})),
+            relative_path TEXT NOT NULL UNIQUE,
+            sha256 TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        f"""
+        INSERT INTO content_refs_rebuilt ({column_list})
+        SELECT {column_list}
+        FROM content_refs
+        """
+    )
+    connection.execute("DROP TABLE content_refs")
+    connection.execute("ALTER TABLE content_refs_rebuilt RENAME TO content_refs")
+    connection.execute("PRAGMA foreign_keys = ON")
+    violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+    if violations:
+        raise ValueError("Project catalog migration left invalid content_refs foreign keys.")
+
+
 def _drop_launch_profile_memo_seed_policy(connection: sqlite3.Connection) -> None:
     """Rebuild launch_profiles without the removed memo-seed policy column."""
 
@@ -2348,7 +2426,7 @@ def _drop_launch_profile_memo_seed_policy(connection: sqlite3.Connection) -> Non
         "updated_at",
     )
     column_list = ", ".join(columns)
-    connection.execute("DROP VIEW IF EXISTS v_launch_profiles")
+    _drop_catalog_views(connection)
     connection.execute("ALTER TABLE launch_profiles RENAME TO launch_profiles_with_policy")
     connection.executescript(_table_schema_sql())
     connection.execute(
