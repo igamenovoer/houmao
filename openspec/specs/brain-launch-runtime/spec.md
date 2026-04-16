@@ -803,7 +803,7 @@ The system SHALL keep JSON Schema files for runtime-generated structured artifac
 
 #### Scenario: Session manifest schema is versioned and discoverable
 - **WHEN** developers inspect the runtime package source
-- **THEN** they can find versioned JSON Schema files (for example `session_manifest.v3.schema.json`) under the runtime package `schemas/` directory
+- **THEN** they can find versioned JSON Schema files (for example `session_manifest.v4.schema.json`) under the runtime package `schemas/` directory
 - **AND THEN** generated artifacts include schema version information that selects the matching schema for validation
 
 ### Requirement: CAO parsing mode is explicit and constrained
