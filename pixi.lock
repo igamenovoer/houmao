@@ -108,8 +108,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/67/ee/21d4e8536afd1a328f01b359b4d3997b291ffd35a237c877b331c1c3b71c/pillow-12.2.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/75/a6/a0a304dc33b49145b21f4808d763822111e67d1c3a32b524a1baf947b6e1/platformdirs-4.9.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/81/5a/2225f4c176dbfed0d809e848b50ef08f70e61daa667b7fa14b0d311ae44d/pydantic-2.13.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/0c/40/6fc24c3766a19c222a0d60d652b78f0283339d4cd4c173fab06b7ee76571/pydantic_core-2.46.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/77/ca/b45c378e6e8d0b90577288b533e04e95b7afd61bb1d51b6c263176435489/pydantic-2.13.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/36/90/93a5d21990b152da7b7507b7fddb0b935f6a0984d57ac3ec45a6e17777a2/pydantic_core-2.46.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/f7/27/a2fc51a4a122dfd1015e921ae9d22fee3d20b0b8080d9a704578bf9deece/pymdown_extensions-10.21.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bd/24/12818598c362d7f300f18e74db45963dbcb85150324092410c8b49405e42/pyproject_hooks-1.2.0-py3-none-any.whl
@@ -611,8 +611,8 @@ packages:
   requires_python: '>=3.8'
 - pypi: ./
   name: houmao
-  version: 0.7.0rc7
-  sha256: 3b38448fa13fc8afe03dac32b911e50faa009644bc921a1c8f4a9cf007af8fb3
+  version: 0.7.0
+  sha256: 6d4e85b394ed7912a1794e23d0b8cee7976029f0084a53fd55510194e69b91b5
   requires_dist:
   - click>=8.3.1,<9
   - fastapi>=0.135.1,<0.136
@@ -1791,22 +1791,22 @@ packages:
   version: '3.0'
   sha256: b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/81/5a/2225f4c176dbfed0d809e848b50ef08f70e61daa667b7fa14b0d311ae44d/pydantic-2.13.1-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/77/ca/b45c378e6e8d0b90577288b533e04e95b7afd61bb1d51b6c263176435489/pydantic-2.13.2-py3-none-any.whl
   name: pydantic
-  version: 2.13.1
-  sha256: 9557ecc2806faaf6037f85b1fbd963d01e30511c48085f0d573650fdeaad378a
+  version: 2.13.2
+  sha256: a525087f4c03d7e7456a3de89b64cd693d2229933bb1068b9af6befd5563694e
   requires_dist:
   - annotated-types>=0.6.0
-  - pydantic-core==2.46.1
+  - pydantic-core==2.46.2
   - typing-extensions>=4.14.1
   - typing-inspection>=0.4.2
   - email-validator>=2.0.0 ; extra == 'email'
   - tzdata ; python_full_version >= '3.9' and sys_platform == 'win32' and extra == 'timezone'
   requires_python: '>=3.9'
-- pypi: https://files.pythonhosted.org/packages/0c/40/6fc24c3766a19c222a0d60d652b78f0283339d4cd4c173fab06b7ee76571/pydantic_core-2.46.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+- pypi: https://files.pythonhosted.org/packages/36/90/93a5d21990b152da7b7507b7fddb0b935f6a0984d57ac3ec45a6e17777a2/pydantic_core-2.46.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
   name: pydantic-core
-  version: 2.46.1
-  sha256: f79292435fff1d4f0c18d9cfaf214025cc88e4f5104bfaed53f173621da1c743
+  version: 2.46.2
+  sha256: ac204542736aa295fa25f713b7fad6fc50b46ab7764d16087575c85f085174f3
   requires_dist:
   - typing-extensions>=4.14.1
   requires_python: '>=3.9'

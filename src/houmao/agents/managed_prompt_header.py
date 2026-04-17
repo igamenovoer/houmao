@@ -435,11 +435,16 @@ def _memo_cue_section(*, memo_file: str) -> ManagedLaunchPromptSection:
     return ManagedLaunchPromptSection(
         tag="memo_cue",
         text=(
-            "At the start of each prompt turn, read this Houmao-managed agent memo before "
-            "planning or acting:\n"
+            "Mandatory: before planning or acting, read this Houmao-managed agent memo at "
+            "every prompt turn, new dialog, topic change, after compaction, or cleared "
+            "context:\n"
             f"{normalized_memo_file}\n\n"
-            "Treat the memo as durable operator/agent context for this managed agent. If it "
-            "links to relevant files under `pages/`, read those pages when needed."
+            "Use it only for concise working rules, standing constraints, and current "
+            "facts; never as a log, journal, transcript, or scratchpad. Put long details "
+            "in `pages/`, keeping only a short memo note with a memo-relative link such as "
+            "`pages/notes/todo.md`. Update it only when explicitly asked (`add to memo`, "
+            "`update the houmao memo`) or when changed facts make existing content "
+            "obviously stale."
         ),
     )
 
