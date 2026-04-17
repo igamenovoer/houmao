@@ -940,14 +940,20 @@ class HoumaoServerService:
                 ),
             )
             try:
+                manifest_path = (
+                    Path(identity.manifest_path).expanduser().resolve()
+                    if identity.manifest_path is not None
+                    else None
+                )
+                session_root = (
+                    Path(identity.session_root).expanduser().resolve()
+                    if identity.session_root is not None
+                    else None
+                )
                 self._clear_shared_registry_record_for_terminated_agent(
                     agent_name=identity.agent_name,
                     agent_id=identity.agent_id,
-                    manifest_path=(
-                        Path(identity.manifest_path).expanduser().resolve()
-                        if identity.manifest_path is not None
-                        else None
-                    ),
+                    manifest_path=manifest_path,
                     session_name=session_name,
                 )
             except OSError as exc:
@@ -965,11 +971,19 @@ class HoumaoServerService:
                     fallback=f"Managed TUI agent `{session_name}` stopped.",
                 ),
                 turn_id=None,
+                manifest_path=str(manifest_path) if manifest_path is not None else None,
+                session_root=str(session_root) if session_root is not None else None,
             )
 
         tracked_agent_id = resolved["tracked_agent_id"]
         self._reconcile_headless_active_turn(tracked_agent_id=tracked_agent_id)
         handle = self._require_headless_handle(tracked_agent_id)
+        manifest_path = Path(handle.authority.manifest_path).expanduser().resolve()
+        session_root = (
+            Path(handle.authority.session_root).expanduser().resolve()
+            if handle.authority.session_root is not None
+            else manifest_path.parent
+        )
         active_turn = self.m_managed_headless_store.read_active_turn(
             tracked_agent_id=tracked_agent_id
         )
@@ -993,7 +1007,7 @@ class HoumaoServerService:
             self._clear_shared_registry_record_for_terminated_agent(
                 agent_name=handle.authority.agent_name,
                 agent_id=handle.authority.agent_id,
-                manifest_path=Path(handle.authority.manifest_path).expanduser().resolve(),
+                manifest_path=manifest_path,
                 session_name=handle.authority.tmux_session_name,
             )
         except OSError as exc:
@@ -1011,6 +1025,8 @@ class HoumaoServerService:
             tracked_agent_id=tracked_agent_id,
             detail=detail,
             turn_id=active_turn.turn_id if active_turn is not None else None,
+            manifest_path=str(manifest_path),
+            session_root=str(session_root),
         )
 
     def submit_headless_turn(

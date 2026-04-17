@@ -1075,6 +1075,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Do not reinterpret a relaunch request as `agents launch`" in relaunch_action
     assert "agents cleanup session" in cleanup_action
     assert "agents cleanup logs" in cleanup_action
+    assert "Prefer `--manifest-path` or `--session-root` from recent stop output" in cleanup_action
+    assert "bounded runtime-root fallback" in cleanup_action
+    assert "stopped-session tombstones" in cleanup_action
     assert "admin cleanup runtime" in cleanup_action
     assert "actions/discover.md" in agent_inspect_skill
     assert "actions/screen.md" in agent_inspect_skill

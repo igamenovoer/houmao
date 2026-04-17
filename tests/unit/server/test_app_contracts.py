@@ -1209,6 +1209,32 @@ def test_houmao_extension_routes_omit_child_metadata_when_service_returns_none()
     }
 
 
+def test_managed_agent_action_response_omits_missing_cleanup_locators() -> None:
+    without_locators = HoumaoManagedAgentActionResponse(
+        success=True,
+        tracked_agent_id="tracked-1",
+        detail="interrupted",
+        turn_id=None,
+    ).model_dump(mode="json")
+    with_locators = HoumaoManagedAgentActionResponse(
+        success=True,
+        tracked_agent_id="tracked-1",
+        detail="stopped",
+        turn_id=None,
+        manifest_path="/tmp/runtime/session/manifest.json",
+        session_root="/tmp/runtime/session",
+    ).model_dump(mode="json")
+
+    assert without_locators == {
+        "success": True,
+        "tracked_agent_id": "tracked-1",
+        "detail": "interrupted",
+        "turn_id": None,
+    }
+    assert with_locators["manifest_path"] == "/tmp/runtime/session/manifest.json"
+    assert with_locators["session_root"] == "/tmp/runtime/session"
+
+
 def test_root_cao_routes_are_removed_from_public_inventory() -> None:
     app = create_app(service=_AppServiceDouble())
 

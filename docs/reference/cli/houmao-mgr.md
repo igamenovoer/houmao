@@ -122,6 +122,8 @@ Cleanup targeting rules:
 
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
 - Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus fresh shared-registry metadata second.
+- Successful managed-agent stop responses include `manifest_path` and `session_root` when the resolved target exposes local manifest authority; prefer those path locators for explicit post-stop cleanup because the live shared-registry record may be gone.
+- When `--agent-id` or `--agent-name` cleanup finds no fresh shared-registry record, it scans the effective local runtime root for exactly one stopped session manifest with the matching identity and fails explicitly on ambiguity or no match.
 - Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
 
 `agents launch` source-selector and launch-profile rules:

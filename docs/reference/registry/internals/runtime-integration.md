@@ -105,6 +105,8 @@ Current warning-style cases include:
 - registry cleanup after a successful `agents stop` teardown,
 - pre-stop gateway-detach paths when registry-side refresh work fails during cleanup handling.
 
+Managed-agent stop responses carry `manifest_path` and `session_root` when those locators are known before teardown. Those fields are the supported bridge from live registry discovery to later stopped-session cleanup after the live record has been removed.
+
 Representative flow:
 
 ```mermaid

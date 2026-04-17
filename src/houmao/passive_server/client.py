@@ -230,6 +230,8 @@ class PassiveServerClient(HoumaoServerClient):
             success=True,
             tracked_agent_id=identity.tracked_agent_id,
             detail=response.detail,
+            manifest_path=identity.manifest_path,
+            session_root=identity.session_root,
         )
 
     def interrupt_managed_agent(self, agent_ref: str) -> HoumaoManagedAgentActionResponse:

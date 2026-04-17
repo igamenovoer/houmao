@@ -6400,6 +6400,8 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
                 success=True,
                 tracked_agent_id=resolved_target.identity.tracked_agent_id,
                 detail=f"Stopped {resolved_target.identity.agent_name}",
+                manifest_path=resolved_target.identity.manifest_path,
+                session_root=resolved_target.identity.session_root,
             )
         ),
     )
@@ -6414,6 +6416,8 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
     assert payload["success"] is True
     assert payload["tracked_agent_id"] == "tracked-researcher"
     assert payload["detail"] == "Stopped repo-research-1"
+    assert payload["manifest_path"] == str(manifest_path)
+    assert payload["session_root"] == str((tmp_path / "runtime").resolve())
     assert payload["selected_overlay_root"] == str((repo_root / ".houmao").resolve())
     assert (
         payload["selected_overlay_detail"]

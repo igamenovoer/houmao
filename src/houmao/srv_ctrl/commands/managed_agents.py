@@ -666,11 +666,15 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
         return pair_request(target.client.stop_managed_agent, target.agent_ref)
 
     assert target.controller is not None
+    manifest_path = str(target.controller.manifest_path)
+    session_root = str(target.controller.manifest_path.parent)
     result = target.controller.stop(force_cleanup=True)
     return HoumaoManagedAgentActionResponse(
         success=result.status == "ok",
         tracked_agent_id=target.identity.tracked_agent_id,
         detail=result.detail,
+        manifest_path=manifest_path,
+        session_root=session_root,
     )
 
 

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -39,6 +40,7 @@ from houmao.agents.realm_controller.registry_storage import (
     publish_live_agent_record,
     resolve_live_agent_record,
 )
+from houmao.agents.realm_controller.models import SessionControlResult
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
@@ -645,10 +647,60 @@ def test_stop_managed_agent_deletes_pair_managed_tui_session(
     assert response.success is True
     assert response.tracked_agent_id == "cao-gpu"
     assert response.detail == "session deleted"
+    assert response.manifest_path == str((session_root / "manifest.json").resolve())
+    assert response.session_root == str(session_root.resolve())
     assert transport.m_calls == [("DELETE", "/sessions/cao-gpu", ())]
     assert resolve_live_agent_record("agent-1234") is None
     with pytest.raises(HTTPException, match="Unknown terminal"):
         service.terminal_state("abcd1234")
+
+
+def test_stop_managed_agent_headless_returns_cleanup_locators(tmp_path: Path) -> None:
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
+            startup_child=False,
+        ),
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    manifest_path = (
+        tmp_path / "runtime" / "sessions" / "claude_headless" / "headless-1" / "manifest.json"
+    ).resolve()
+    session_root = manifest_path.parent
+    authority = ManagedHeadlessAuthorityRecord(
+        tracked_agent_id="headless-1",
+        tool="claude",
+        backend="claude_headless",
+        session_root=str(session_root),
+        manifest_path=str(manifest_path),
+        tmux_session_name="HOUMAO-headless-1",
+        agent_def_dir=str((tmp_path / "agent-def").resolve()),
+        agent_name="HOUMAO-headless",
+        agent_id="agent-headless-1",
+        created_at_utc="2026-04-09T00:00:00Z",
+        updated_at_utc="2026-04-09T00:00:00Z",
+    )
+    service.m_managed_headless_store.write_authority(authority)
+    service.m_headless_agents["headless-1"] = service_module._ManagedHeadlessAgentHandle(
+        authority=authority,
+        controller=SimpleNamespace(
+            stop=lambda *, force_cleanup: SessionControlResult(
+                status="ok",
+                action="stop",
+                detail="headless stopped",
+            )
+        ),
+    )
+
+    response = service.stop_managed_agent("headless-1")
+
+    assert response.success is True
+    assert response.tracked_agent_id == "headless-1"
+    assert response.detail == "headless stopped"
+    assert response.manifest_path == str(manifest_path)
+    assert response.session_root == str(session_root)
 
 
 def test_managed_agent_gateway_request_rejects_missing_live_gateway(tmp_path: Path) -> None:
