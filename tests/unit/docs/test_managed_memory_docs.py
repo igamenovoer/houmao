@@ -39,7 +39,11 @@ def test_managed_header_and_system_skill_docs_describe_memory_cue_and_skill() ->
 
     assert "`memo-cue`" in header
     assert "<memo_cue>" in header
-    assert "resolved absolute `houmao-memo.md` path" in header
+    assert "absolute `houmao-memo.md` path" in header
+    assert "compaction, or cleared-context boundary" in header
+    assert "do not use it as a log or scratchpad" in header
+    assert "put long details in `pages/`" in header
+    assert "memo-relative page links such as `pages/notes/todo.md`" in header
     assert "`houmao-memory-mgr`" in system_skills
     assert "`core`" in system_skills
     assert "`houmao-memory-mgr`" in cli_reference

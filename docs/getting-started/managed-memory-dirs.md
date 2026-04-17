@@ -25,7 +25,7 @@ For example, managed agent `researcher` in `/repo` gets:
 
 Houmao creates the memory root, memo file, and `pages/` directory for every managed agent. The runtime manifest stores `memory_root`, `memo_file`, and `pages_dir`.
 
-Managed launches also render a default `memo-cue` section in the managed prompt header. That cue contains the resolved absolute `houmao-memo.md` path and tells the agent to read the memo at the start of each prompt turn before planning or acting. Disable only that cue with `--managed-header-section memo-cue=disabled`, or disable the whole managed header with `--no-managed-header`.
+Managed launches also render a default `memo-cue` section in the managed prompt header. That cue contains the resolved absolute `houmao-memo.md` path and makes memo reading mandatory before planning or acting at every prompt turn, new dialog, topic change, compaction, or cleared-context boundary. It tells agents to keep the memo limited to concise working rules, standing constraints, and current facts; never use it as a log, journal, transcript, or scratchpad; move long details into `pages/` with a short memo note and relative link; and update it only on explicit memo prompts or obviously stale facts. Disable only that cue with `--managed-header-section memo-cue=disabled`, or disable the whole managed header with `--no-managed-header`.
 
 ## Environment Variables
 
@@ -73,7 +73,7 @@ Managed homes also install the `houmao-memory-mgr` system skill by default throu
 
 Houmao owns path resolution, directory creation, fixed memo creation without overwriting existing content, manifest persistence, environment publication, inspection output, and page-scoped memory commands.
 
-Houmao does not generate, refresh, inspect, or remove page links inside `houmao-memo.md`. The memo is free-form Markdown owned by the operator and agent. Houmao also does not define arbitrary file taxonomies under `pages/`. Agents and operators may create readable pages there, but mutable retry counters, dedupe databases, mailbox receipts, and live supervision state should use the mailbox, gateway, reminder, runtime, or a pattern-specific mechanism instead.
+Houmao does not generate, refresh, inspect, or remove page links inside `houmao-memo.md`. The memo is free-form Markdown owned by the operator and agent, and links to contained pages should use memo-relative paths such as `pages/notes/todo.md`. Houmao also does not define arbitrary file taxonomies under `pages/`. Agents and operators may create readable pages there, but mutable retry counters, dedupe databases, mailbox receipts, and live supervision state should use the mailbox, gateway, reminder, runtime, or a pattern-specific mechanism instead.
 
 Stop and session cleanup flows remove runtime session envelopes; they do not delete the managed agent memory directory just because a session stopped.
 

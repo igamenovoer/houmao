@@ -1,6 +1,6 @@
 # Managed Launch Prompt Header
 
-The **managed launch prompt header** is a deterministic Houmao-owned prompt region that is rendered into every managed launch's effective prompt by default. For launches that use the current structured prompt contract, the effective prompt is rooted at `<houmao_system_prompt>` and the header lives inside a top-level `<managed_header>` section with individually controlled child sections. By default it identifies the agent as Houmao-managed, points it at its fixed `houmao-memo.md` file for each prompt turn, names `houmao-mgr` as the canonical interface, tells the model to prefer Houmao-supported workflows when the task touches managed runtime, gateway, mailbox, or lifecycle behavior, and records that the launch is running in automated mode.
+The **managed launch prompt header** is a deterministic Houmao-owned prompt region that is rendered into every managed launch's effective prompt by default. For launches that use the current structured prompt contract, the effective prompt is rooted at `<houmao_system_prompt>` and the header lives inside a top-level `<managed_header>` section with individually controlled child sections. By default it identifies the agent as Houmao-managed, points it at its fixed `houmao-memo.md` file, states that reading that memo before planning or acting is mandatory at every prompt turn and context boundary, names `houmao-mgr` as the canonical interface, tells the model to prefer Houmao-supported workflows when the task touches managed runtime, gateway, mailbox, or lifecycle behavior, and records that the launch is running in automated mode.
 
 This page documents what the header is, when it is added, how it composes with the rest of the launch prompt, and how to opt out per launch or via stored launch profiles.
 
@@ -35,7 +35,7 @@ The header has six stable policy sections. CLI and stored-profile policy use the
 | Policy section | Rendered tag | Default | Content |
 |---|---|---|---|
 | `identity` | `<identity>` | enabled | States that the agent is Houmao-managed and includes the resolved managed-agent name and id. |
-| `memo-cue` | `<memo_cue>` | enabled | Tells the agent to read the resolved absolute `houmao-memo.md` path at the start of each prompt turn and to follow authored links to relevant `pages/` files when needed. |
+| `memo-cue` | `<memo_cue>` | enabled | Makes memo reading mandatory before planning or acting at every prompt turn, new dialog, topic change, compaction, or cleared-context boundary; limits the memo to concise working rules and current facts; sends long details to `pages/` with short memo links; allows updates only on explicit memo prompts or obviously stale facts; and requires memo-relative `pages/...` links. |
 | `houmao-runtime-guidance` | `<houmao_runtime_guidance>` | enabled | Tells the agent to prefer bundled Houmao workflows, `houmao-mgr`, Houmao-owned manifests, runtime metadata, and supported service interfaces for Houmao-managed work. |
 | `automation-notice` | `<automation_notice>` | enabled | States that the agent is in fully automated mode, prohibits interactive user-question tools, and directs mailbox-driven clarification to reply-enabled mailbox threads when available. |
 | `task-reminder` | `<task_reminder>` | disabled | Instructs long-running mailbox-style work to create a short gateway reminder and clear it when the final action is complete. |
@@ -88,7 +88,7 @@ Managed-header sections have their own policy resolution through `resolve_manage
 2. **Stored launch-profile section policy** — the selected launch profile's `managed_header_section_policy` mapping.
 3. **Section default** — `identity`, `memo-cue`, `houmao-runtime-guidance`, and `automation-notice` default enabled; `task-reminder` and `mail-ack` default disabled.
 
-The `memo-cue` section is rendered from the resolved managed-agent memory path for the launch. It includes the absolute `houmao-memo.md` path, for example `/repo/.houmao/memory/agents/<agent-id>/houmao-memo.md`, so the underlying agent can read the exact memo file at the start of each prompt turn. Disable it with `--managed-header-section memo-cue=disabled` only when that per-turn durable context should not be injected.
+The `memo-cue` section is rendered from the resolved managed-agent memory path for the launch. It includes the absolute `houmao-memo.md` path, for example `/repo/.houmao/memory/agents/<agent-id>/houmao-memo.md`, and a compact rule set: read it before planning or acting at every prompt turn and context boundary, keep it concise, do not use it as a log or scratchpad, put long details in `pages/`, update only on explicit memo prompts or obviously stale facts, and use memo-relative page links such as `pages/notes/todo.md`. Disable it with `--managed-header-section memo-cue=disabled` only when that durable context should not be injected.
 
 The whole-header decision remains the outer render gate. If `--no-managed-header` disables the whole header, enabled section policy is still recorded in metadata but none of those sections render into the prompt for that launch.
 

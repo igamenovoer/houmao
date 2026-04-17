@@ -4,6 +4,12 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.1] - 2026-04-17
+
+### Fixed
+
+- **Memo-cue prompt strengthened**: the managed prompt header memo-cue section now explicitly instructs agents to read the memo before planning or acting at every prompt turn, after compaction, and after context clears. Added clear usage rules: memo is for concise working rules and standing constraints only — not a log, journal, or scratchpad — with long details delegated to `pages/` and updates gated on explicit operator instruction.
+
 ## [0.7.0] - 2026-04-17
 
 ### Added
