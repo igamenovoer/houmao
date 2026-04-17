@@ -4319,6 +4319,7 @@ def _start_gateway_process(
                 deadline=deadline,
             )
             client = GatewayClient(endpoint=endpoint)
+            same_session_last_health_error: GatewayHttpError | None = None
             while time.monotonic() < deadline:
                 pane = _find_tmux_pane(session_name=session_name, pane_id=handle.pane_id)
                 if pane is None:
@@ -4342,7 +4343,8 @@ def _start_gateway_process(
                     observed_pane = True
                 try:
                     health = client.health()
-                except GatewayHttpError:
+                except GatewayHttpError as exc:
+                    same_session_last_health_error = exc
                     time.sleep(0.1)
                     continue
                 if health.protocol_version != GATEWAY_PROTOCOL_VERSION:
@@ -4371,7 +4373,11 @@ def _start_gateway_process(
                 )
                 return endpoint.port
             raise GatewayAttachError(
-                f"Timed out waiting for gateway health readiness on {host}:{endpoint.port}."
+                _gateway_health_readiness_timeout_detail(
+                    host=host,
+                    port=endpoint.port,
+                    last_error=same_session_last_health_error,
+                )
             )
         except Exception:
             try:
@@ -4415,6 +4421,7 @@ def _start_gateway_process(
             deadline=deadline,
         )
         client = GatewayClient(endpoint=endpoint)
+        detached_last_health_error: GatewayHttpError | None = None
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise GatewayAttachError(
@@ -4426,7 +4433,8 @@ def _start_gateway_process(
                 )
             try:
                 health = client.health()
-            except GatewayHttpError:
+            except GatewayHttpError as exc:
+                detached_last_health_error = exc
                 time.sleep(0.1)
                 continue
             if health.protocol_version != GATEWAY_PROTOCOL_VERSION:
@@ -4455,7 +4463,11 @@ def _start_gateway_process(
             )
             return endpoint.port
         raise GatewayAttachError(
-            f"Timed out waiting for gateway health readiness on {host}:{endpoint.port}."
+            _gateway_health_readiness_timeout_detail(
+                host=host,
+                port=endpoint.port,
+                last_error=detached_last_health_error,
+            )
         )
     except Exception:
         if process.poll() is None:
@@ -4628,6 +4640,20 @@ def _gateway_process_start_failure_detail(*, log_path: Path, host: GatewayHost, 
     if "address already in use" in lowered or "errno 98" in lowered:
         return f"Gateway attach failed because listener {host}:{port} is already in use."
     return f"Gateway attach failed before health readiness; see `{log_path}`."
+
+
+def _gateway_health_readiness_timeout_detail(
+    *,
+    host: GatewayHost,
+    port: int,
+    last_error: GatewayHttpError | None,
+) -> str:
+    """Return an attach-timeout detail with the last observed health probe error."""
+
+    detail = f"Timed out waiting for gateway health readiness on {host}:{port}."
+    if last_error is not None:
+        detail = f"{detail} Last health probe error: {last_error.detail}"
+    return detail
 
 
 def _live_gateway_listener_from_status(paths: GatewayPaths) -> tuple[GatewayHost, int] | None:

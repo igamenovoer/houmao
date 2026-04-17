@@ -395,6 +395,148 @@ def test_managed_session_cleanup_uses_registry_session_root_when_manifest_pointe
     assert target.parse_error is not None
 
 
+def test_managed_session_cleanup_recovers_stopped_session_by_agent_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    manifest_path = _write_runtime_manifest(tmp_path, runtime_root=runtime_root)
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_managed_agent_record",
+        lambda *, agent_id, agent_name: None,
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_effective_runtime_root",
+        lambda runtime_root: (tmp_path / "runtime").resolve(),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=True,
+    )
+
+    assert payload["resolution"] == {"authority": "agent_id", "value": "agent-joined"}
+    assert payload["scope"]["manifest_path"] == str(manifest_path)
+    assert payload["scope"]["session_root"] == str(manifest_path.parent)
+    assert {action["artifact_kind"] for action in payload["planned_actions"]} == {"session_root"}
+
+
+def test_managed_session_cleanup_recovers_stopped_session_by_agent_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    manifest_path = _write_runtime_manifest(tmp_path, runtime_root=runtime_root)
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_managed_agent_record",
+        lambda *, agent_id, agent_name: None,
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_effective_runtime_root",
+        lambda runtime_root: (tmp_path / "runtime").resolve(),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id=None,
+        agent_name="joined-agent",
+        manifest_path=None,
+        session_root=None,
+        dry_run=True,
+    )
+
+    assert payload["resolution"] == {"authority": "agent_name", "value": "joined-agent"}
+    assert payload["scope"]["manifest_path"] == str(manifest_path)
+    assert payload["scope"]["session_root"] == str(manifest_path.parent)
+
+
+def test_managed_session_cleanup_stopped_selector_ambiguity_lists_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    first_manifest = _write_runtime_manifest(
+        tmp_path,
+        runtime_root=runtime_root,
+        session_id="session-1",
+    )
+    second_manifest = _write_runtime_manifest(
+        tmp_path,
+        runtime_root=runtime_root,
+        session_id="session-2",
+        tmux_session_name="join-sess-2",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_managed_agent_record",
+        lambda *, agent_id, agent_name: None,
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_effective_runtime_root",
+        lambda runtime_root: (tmp_path / "runtime").resolve(),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+
+    with pytest.raises(runtime_cleanup.CleanupResolutionError) as exc_info:
+        runtime_cleanup.resolve_managed_session_cleanup_target(
+            agent_id=None,
+            agent_name="joined-agent",
+            manifest_path=None,
+            session_root=None,
+        )
+
+    message = str(exc_info.value)
+    assert "ambiguous" in message
+    assert str(first_manifest) in message
+    assert str(second_manifest) in message
+    assert "session_root" in message
+
+
+def test_managed_session_cleanup_stopped_selector_no_match_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    _write_runtime_manifest(tmp_path, runtime_root=runtime_root)
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_managed_agent_record",
+        lambda *, agent_id, agent_name: None,
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_effective_runtime_root",
+        lambda runtime_root: (tmp_path / "runtime").resolve(),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+
+    with pytest.raises(runtime_cleanup.CleanupResolutionError) as exc_info:
+        runtime_cleanup.resolve_managed_session_cleanup_target(
+            agent_id="missing-agent",
+            agent_name=None,
+            manifest_path=None,
+            session_root=None,
+        )
+
+    message = str(exc_info.value)
+    assert "no matching stopped session" in message
+    assert "--manifest-path" in message
+    assert "--session-root" in message
+
+
 def test_managed_session_cleanup_dry_run_supports_explicit_manifest_path_without_job_dir(
     tmp_path: Path,
 ) -> None:

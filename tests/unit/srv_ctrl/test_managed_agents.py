@@ -88,6 +88,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     relaunch_managed_agent,
     resolve_managed_agent_mail_target,
     resolve_managed_agent_target,
+    stop_managed_agent,
     submit_headless_turn,
     unregister_mailbox_binding,
 )
@@ -646,6 +647,34 @@ def test_register_mailbox_binding_converts_runtime_errors_to_click() -> None:
             address=None,
             mode="safe",
         )
+
+
+def test_stop_managed_agent_returns_cleanup_locators(tmp_path: Path) -> None:
+    manifest_path = (
+        tmp_path / "runtime" / "sessions" / "codex_headless" / "session-1" / "manifest.json"
+    ).resolve()
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    stop_calls: list[bool] = []
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(
+            manifest_path=manifest_path,
+            stop=lambda *, force_cleanup: (
+                stop_calls.append(force_cleanup),
+                SessionControlResult(status="ok", action="stop", detail="stopped"),
+            )[1],
+        ),
+    )
+
+    response = stop_managed_agent(target)
+
+    assert stop_calls == [True]
+    assert response.success is True
+    assert response.tracked_agent_id == "tracked-alpha"
+    assert response.manifest_path == str(manifest_path)
+    assert response.session_root == str(manifest_path.parent)
 
 
 def test_register_mailbox_binding_converts_mailbox_operation_errors_to_click() -> None:

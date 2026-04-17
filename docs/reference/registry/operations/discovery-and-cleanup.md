@@ -12,14 +12,14 @@ For live gateway recovery, the registry remains only a locator layer: it helps t
 
 ## Name-Based Discovery Order
 
-For name-addressed tmux-backed control such as `houmao-mgr agents prompt`, `houmao-mgr agents gateway send-keys`, `houmao-mgr agents mail`, and `houmao-mgr agents stop`, the current order is:
+For name-addressed tmux-backed live control such as `houmao-mgr agents prompt`, `houmao-mgr agents gateway send-keys`, `houmao-mgr agents mail`, and `houmao-mgr agents stop`, the current order is:
 
 1. normalize the input to canonical `HOUMAO-...` form,
 2. try tmux-local discovery first,
 3. fall back to the shared registry when tmux-local discovery is unavailable,
 4. validate the resolved manifest and agent-definition pointers before resuming control.
 
-Path-like manifest identities do not use the shared registry. They go straight to the addressed `manifest.json`.
+Path-like manifest identities do not use the shared registry. They go straight to the addressed `manifest.json`. Cleanup is the exception that can intentionally address stopped sessions: after live-registry lookup misses for `houmao-mgr agents cleanup --agent-id` or `--agent-name`, cleanup scans the effective runtime root for exactly one stopped manifest with the matching identity. Other live-control commands do not use stopped manifests as targets.
 
 ## What Counts As Fallback-Eligible
 

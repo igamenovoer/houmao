@@ -8,9 +8,17 @@ runtime bridge.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    field_validator,
+    model_serializer,
+)
 
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.gateway_models import (
@@ -1011,8 +1019,10 @@ class HoumaoManagedAgentActionResponse(CaoSuccessResponse):
     tracked_agent_id: str
     detail: str
     turn_id: str | None = None
+    manifest_path: str | None = None
+    session_root: str | None = None
 
-    @field_validator("tracked_agent_id", "detail", "turn_id")
+    @field_validator("tracked_agent_id", "detail", "turn_id", "manifest_path", "session_root")
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
         """Require optional string fields to be non-empty when present."""
@@ -1023,6 +1033,21 @@ class HoumaoManagedAgentActionResponse(CaoSuccessResponse):
         if not stripped:
             raise ValueError("must not be empty")
         return stripped
+
+    @model_serializer(mode="wrap")
+    def _serialize_action_response(
+        self,
+        handler: SerializerFunctionWrapHandler,
+    ) -> dict[str, Any]:
+        """Omit absent cleanup locators while preserving existing optional fields."""
+
+        payload = handler(self)
+        assert isinstance(payload, dict)
+        if self.manifest_path is None:
+            payload.pop("manifest_path", None)
+        if self.session_root is None:
+            payload.pop("session_root", None)
+        return payload
 
 
 class HoumaoHeadlessTurnRequest(_HoumaoModel):

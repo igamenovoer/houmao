@@ -9,217 +9,57 @@ At minimum, that command family SHALL include:
 - `list`
 - `install`
 - `status`
+- `uninstall`
 
 #### Scenario: Help shows the system-skill command family
 - **WHEN** an operator runs `houmao-mgr system-skills --help`
-- **THEN** the help output lists `list`, `install`, and `status`
+- **THEN** the help output lists `list`, `install`, `status`, and `uninstall`
 - **AND THEN** the command family is presented as the Houmao-owned system-skill installation surface for the current skill set
 
 ### Requirement: `houmao-mgr system-skills list` reports the current installable Houmao-owned skill inventory and named sets
 `houmao-mgr system-skills list` SHALL report the current installable Houmao-owned skill inventory and the current named skill sets from the packaged catalog.
 
+The reported current named skill sets SHALL be `core` and `all`.
+
 That output SHALL identify the configured CLI default set list and the fixed internal auto-install set lists.
 
-#### Scenario: List reports named sets and default set markers
+#### Scenario: List reports core and all with default set markers
 - **WHEN** an operator runs `houmao-mgr system-skills list`
 - **THEN** the command reports the current installable Houmao-owned skill names
-- **AND THEN** it reports the current named skill sets
-- **AND THEN** it identifies the configured CLI default set list and internal auto-install set lists
+- **AND THEN** it reports `core` and `all` as the current named skill sets
+- **AND THEN** it identifies `managed_launch_sets = ["core"]`, `managed_join_sets = ["core"]`, and `cli_default_sets = ["all"]`
 
 ### Requirement: `houmao-mgr system-skills install` targets an explicit tool home and set-based selection
 `houmao-mgr system-skills install` SHALL require a supported tool identifier or a comma-separated list of supported tool identifiers through `--tool`.
 
-The supported tool identifiers SHALL include:
-
-- `claude`
-- `codex`
-- `copilot`
-- `gemini`
-
-When `--tool` contains commas, the command SHALL parse the value as an ordered tool list, trimming whitespace around each entry.
-
-The command SHALL reject an empty parsed tool entry, an unsupported tool entry, or a duplicate parsed tool entry before mutating any target home.
-
-The command SHALL accept an optional target home override only when the parsed tool list contains exactly one tool. When the parsed tool list contains more than one tool, the command SHALL reject `--home` before mutating any target home.
-
-When `--home` is omitted, the command SHALL resolve the effective target home for each selected tool with this precedence:
-
-1. tool-native home env var
-2. project-scoped default home
-
-For single-tool installs with `--home`, explicit `--home` SHALL take precedence over the tool-native home env var and project-scoped default home.
-
-The tool-native home env vars SHALL be:
-
-- Claude: `CLAUDE_CONFIG_DIR`
-- Codex: `CODEX_HOME`
-- Copilot: `COPILOT_HOME`
-- Gemini: `GEMINI_CLI_HOME`
-
-The project-scoped default homes SHALL be:
-
-- Claude: `<cwd>/.claude`
-- Codex: `<cwd>/.codex`
-- Copilot: `<cwd>/.github`
-- Gemini: `<cwd>`
-
-For Gemini, the resolved effective home SHALL remain the home root itself, and Houmao-owned installed skills SHALL project under `<effective-home>/.gemini/skills/`.
-
 The command SHALL support these selection inputs:
 
-- repeatable `--skill-set <name>` for named system-skill set selection,
+- repeatable `--skill-set <name>` for current named system-skill set selection,
 - repeatable `--skill <name>` for explicit current-skill selection.
 
-When neither `--skill-set` nor `--skill` is provided, the command SHALL use the CLI default set list from the packaged catalog.
+The current named system-skill sets accepted by `--skill-set` SHALL be `core` and `all`.
 
-For multi-tool installs, the command SHALL apply the same selected sets, explicit skills, and resolved projection mode to every selected tool.
+When neither `--skill-set` nor `--skill` is provided, the command SHALL use the CLI default set list from the packaged catalog, which resolves `all` in this change.
 
 The command SHALL NOT expose `--set` or `--default` as part of the supported public install surface.
 
-The command SHALL also support `--symlink` to request symlink projection mode for that explicit install.
+For multi-tool installs, the command SHALL apply the same selected sets, explicit skills, and resolved projection mode to every selected tool.
 
-If `--symlink` is omitted, the command SHALL use copied projection mode.
+#### Scenario: Omitted-selection install uses all
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home`
+- **AND WHEN** no `--skill-set` or `--skill` is supplied
+- **THEN** the command installs the current Houmao-owned skill list resolved from `cli_default_sets = ["all"]`
+- **AND THEN** the resolved list includes current utility skills
 
-If `--symlink` is provided, the command SHALL use the shared Houmao system-skill installer in symlink projection mode and SHALL NOT silently fall back to copied projection.
+#### Scenario: Explicit core install is accepted
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool gemini --home /tmp/gemini-home --skill-set core`
+- **THEN** the command installs the current Houmao-owned skill list resolved from `core`
+- **AND THEN** the resolved list excludes utility skills that are only in `all`
 
-The command SHALL use the shared Houmao system-skill installer for projection and ownership tracking.
-
-For single-tool installs, the structured result SHALL preserve the existing single-install payload shape with scalar `tool` and `home_path` fields.
-
-For multi-tool installs, the structured result SHALL contain the parsed `tools` list and one single-install-shaped result entry per selected tool.
-
-#### Scenario: Explicit home override wins over tool-native env redirection
-- **WHEN** `CODEX_HOME=/tmp/codex-from-env`
-- **AND WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-explicit --skill houmao-specialist-mgr`
-- **THEN** the command installs the selected skill into `/tmp/codex-explicit`
-- **AND THEN** it does not redirect that install to `/tmp/codex-from-env`
-- **AND THEN** the structured result uses the existing single-tool payload shape
-
-#### Scenario: Omitted home uses the tool-native env redirect first
-- **WHEN** `CLAUDE_CONFIG_DIR=/tmp/claude-home`
-- **AND WHEN** an operator runs `houmao-mgr system-skills install --tool claude`
-- **THEN** the command installs the current Houmao-owned skill list resolved from the CLI default set list into `/tmp/claude-home`
-- **AND THEN** it uses copied projection mode unless `--symlink` is supplied
-
-#### Scenario: Omitted home falls back to the project-scoped Codex default
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex` from `/workspace/repo`
-- **AND WHEN** no `CODEX_HOME` is set
-- **AND WHEN** no `--home`, `--skill-set`, or `--skill` is supplied
-- **THEN** the command installs the current Houmao-owned skill list resolved from the CLI default set list into `/workspace/repo/.codex`
-- **AND THEN** overlapping set members are deduplicated by first occurrence
-
-#### Scenario: Omitted home uses the project root as the Gemini default home
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool gemini --skill-set user-control` from `/workspace/repo`
-- **AND WHEN** no `GEMINI_CLI_HOME` is set
-- **AND WHEN** no `--home` is supplied
-- **THEN** the command uses `/workspace/repo` as the effective Gemini home
-- **AND THEN** the selected skills are installed under `/workspace/repo/.gemini/skills/`
-
-#### Scenario: Install combines named sets and explicit skills
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --skill-set user-control --skill houmao-agent-email-comms`
-- **THEN** the command installs the resolved current Houmao-owned skill list from the named set plus the explicit skill into the explicit target home
-- **AND THEN** it does not silently replace that explicit selection with another internal default selection
-
-#### Scenario: Install applies one selected skill in symlink mode
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --skill houmao-specialist-mgr --symlink`
-- **THEN** the command installs that selected Houmao-owned skill into the explicit target home using symlink projection mode
-- **AND THEN** it does not silently replace that symlink request with copied projection
-
-#### Scenario: Multi-tool install resolves each home independently
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool claude,codex,copilot,gemini --skill-set user-control` from `/workspace/repo`
-- **AND WHEN** no tool-native home env vars are set
-- **AND WHEN** no `--home` is supplied
-- **THEN** the command installs the resolved `user-control` skill list into `/workspace/repo/.claude`, `/workspace/repo/.codex`, `/workspace/repo/.github`, and `/workspace/repo`
-- **AND THEN** the Gemini selected skills are installed under `/workspace/repo/.gemini/skills/`
-- **AND THEN** the structured result contains `tools` and an `installations` entry for each selected tool
-
-#### Scenario: Multi-tool install rejects explicit home override
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex,claude --home /tmp/tool-home`
+#### Scenario: Removed granular set names are rejected
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --skill-set user-control`
 - **THEN** the command fails explicitly before installing any selected skill
-- **AND THEN** the error explains that `--home` is only valid when `--tool` names exactly one tool
-
-#### Scenario: Multi-tool install rejects malformed tool lists before mutation
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex,,gemini`
-- **THEN** the command fails explicitly before installing any selected skill
-- **AND THEN** it does not guess a missing tool name or continue with partial selection
-
-#### Scenario: Multi-tool install rejects duplicate tool entries before mutation
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex,codex`
-- **THEN** the command fails explicitly before installing any selected skill
-- **AND THEN** it does not install into the same resolved Codex home twice
-
-#### Scenario: Install fails when a selected set is unknown
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool gemini --home /tmp/gemini-home --skill-set unknown-set`
-- **THEN** the command fails explicitly
-- **AND THEN** it does not guess another named set or continue with partial selection
-
-#### Scenario: Install rejects the removed set flag
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool gemini --set user-control`
-- **THEN** the command exits non-zero because `--set` is not part of the current command surface
-- **AND THEN** the operator must use `--skill-set user-control` for named system-skill set selection
-
-#### Scenario: Install rejects the removed default flag
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool gemini --default`
-- **THEN** the command exits non-zero because `--default` is not part of the current command surface
-- **AND THEN** the operator must omit both `--skill-set` and `--skill` to request CLI-default selection
-
-### Requirement: `houmao-mgr system-skills status` reports Houmao-owned install state for one target home
-`houmao-mgr system-skills status` SHALL report the Houmao-owned current-skill installation state for one effective target tool home.
-
-The command SHALL require a supported tool identifier and SHALL accept an optional target home override.
-
-When `--home` is omitted, the command SHALL resolve the effective target home with this precedence:
-
-1. explicit `--home`
-2. tool-native home env var
-3. project-scoped default home
-
-The project-scoped default homes SHALL be:
-
-- Claude: `<cwd>/.claude`
-- Codex: `<cwd>/.codex`
-- Gemini: `<cwd>`
-
-At minimum, the reported state SHALL identify:
-
-- the target tool,
-- the effective resolved home path,
-- whether Houmao-owned install state exists,
-- which current Houmao-owned skills are recorded as installed in that home,
-- the recorded projection mode for each installed current Houmao-owned skill.
-
-#### Scenario: Status uses tool-native env redirection when home is omitted
-- **WHEN** `CLAUDE_CONFIG_DIR=/tmp/claude-home`
-- **AND WHEN** an operator runs `houmao-mgr system-skills status --tool claude`
-- **THEN** the command inspects `/tmp/claude-home` as the effective target home
-- **AND THEN** it reports the resolved home path in the result
-
-#### Scenario: Status falls back to the project-scoped Gemini default home
-- **WHEN** an operator runs `houmao-mgr system-skills status --tool gemini` from `/workspace/repo`
-- **AND WHEN** no `GEMINI_CLI_HOME` is set
-- **AND WHEN** no `--home` is supplied
-- **THEN** the command inspects `/workspace/repo` as the effective Gemini home
-- **AND THEN** it reports install state for that effective home rather than for `/workspace/repo/.gemini`
-
-#### Scenario: Status reports an untouched target home
-- **WHEN** an operator runs `houmao-mgr system-skills status --tool codex` from `/workspace/repo`
-- **AND WHEN** no `CODEX_HOME` is set
-- **AND WHEN** `/workspace/repo/.codex` has no Houmao-owned current-skill install state
-- **THEN** the command reports that no Houmao-owned install state is present
-- **AND THEN** it does not claim that any current Houmao-owned skills are installed in that home
-
-#### Scenario: Status reports installed current Houmao-owned skills with copied projection
-- **WHEN** an operator runs `houmao-mgr system-skills status --tool gemini --home /tmp/gemini-home`
-- **AND WHEN** Houmao has already installed current Houmao-owned skills into that home using copied projection
-- **THEN** the command reports the recorded installed current skill names for that home
-- **AND THEN** it reports that Houmao-owned install state exists for the target home
-- **AND THEN** it reports `copy` as the recorded projection mode for those installed skills
-
-#### Scenario: Status reports installed current Houmao-owned skills with symlink projection
-- **WHEN** an operator runs `houmao-mgr system-skills status --tool codex --home /tmp/codex-home`
-- **AND WHEN** Houmao has already installed current Houmao-owned skills into that home using symlink projection
-- **THEN** the command reports the recorded installed current skill names for that home
-- **AND THEN** it reports `symlink` as the recorded projection mode for those installed skills
+- **AND THEN** the error treats `user-control` as an unknown set rather than mapping it to `core`
 
 ### Requirement: `houmao-mgr system-skills` surfaces the renamed specialist-management skill in current inventory
 `houmao-mgr system-skills` SHALL use the current packaged system-skill inventory when reporting, installing, and inspecting Houmao-owned skills.
@@ -523,3 +363,286 @@ The command SHALL NOT add or require a Copilot-specific `--scope` flag.
 - **THEN** the command inspects `/workspace/repo/.github` as the effective Copilot home
 - **AND THEN** it reports install state for skills under `/workspace/repo/.github/skills/`
 
+### Requirement: `houmao-mgr system-skills status` discovers current projected skills from the filesystem
+`houmao-mgr system-skills status` SHALL report current packaged Houmao-owned skill projections discovered in one effective target tool home.
+
+The command SHALL require a supported tool identifier and SHALL accept an optional target home override.
+
+When `--home` is omitted, the command SHALL resolve the effective target home with this precedence:
+
+1. tool-native home env var
+2. project-scoped default home
+
+For status invocations with `--home`, explicit `--home` SHALL take precedence over tool-native home env vars and project-scoped defaults.
+
+The project-scoped default homes SHALL be:
+
+- Claude: `<cwd>/.claude`
+- Codex: `<cwd>/.codex`
+- Copilot: `<cwd>/.github`
+- Gemini: `<cwd>`
+
+At minimum, the reported state SHALL identify:
+
+- the target tool,
+- the effective resolved home path,
+- which current Houmao-owned skill projection paths are present in that home,
+- the inferred projection mode for each discovered current Houmao-owned skill.
+
+The command SHALL infer `copy` for a discovered current skill directory and `symlink` for a discovered current skill symlink.
+
+The command SHALL NOT require, parse, validate, or report Houmao install-state metadata inside the target home.
+
+#### Scenario: Status uses tool-native env redirection when home is omitted
+- **WHEN** `CLAUDE_CONFIG_DIR=/tmp/claude-home`
+- **AND WHEN** an operator runs `houmao-mgr system-skills status --tool claude`
+- **THEN** the command inspects `/tmp/claude-home` as the effective target home
+- **AND THEN** it reports the resolved home path in the result
+
+#### Scenario: Status falls back to the project-scoped Gemini default home
+- **WHEN** an operator runs `houmao-mgr system-skills status --tool gemini` from `/workspace/repo`
+- **AND WHEN** no `GEMINI_CLI_HOME` is set
+- **AND WHEN** no `--home` is supplied
+- **THEN** the command inspects `/workspace/repo` as the effective Gemini home
+- **AND THEN** it reports discovered current skill projections under `/workspace/repo/.gemini/skills/`
+
+#### Scenario: Status reports an untouched target home
+- **WHEN** an operator runs `houmao-mgr system-skills status --tool codex` from `/workspace/repo`
+- **AND WHEN** no `CODEX_HOME` is set
+- **AND WHEN** `/workspace/repo/.codex` has no current packaged Houmao-owned skill projection paths
+- **THEN** the command reports no installed current Houmao-owned skills for that home
+- **AND THEN** it does not require or mention install-state metadata
+
+#### Scenario: Status reports discovered copied projections
+- **WHEN** an operator runs `houmao-mgr system-skills status --tool gemini --home /tmp/gemini-home`
+- **AND WHEN** current Houmao-owned skills exist in that home as copied directories
+- **THEN** the command reports the discovered current skill names for that home
+- **AND THEN** it reports `copy` as the inferred projection mode for those discovered skills
+
+#### Scenario: Status reports discovered symlink projections
+- **WHEN** an operator runs `houmao-mgr system-skills status --tool codex --home /tmp/codex-home`
+- **AND WHEN** current Houmao-owned skills exist in that home as symlinks
+- **THEN** the command reports the discovered current skill names for that home
+- **AND THEN** it reports `symlink` as the inferred projection mode for those discovered skills
+
+#### Scenario: Status ignores obsolete install-state files
+- **WHEN** a target home contains an obsolete `.houmao/system-skills/install-state.json`
+- **AND WHEN** an operator runs `houmao-mgr system-skills status` for that home
+- **THEN** the command reports discovered current skill projection paths from the filesystem
+- **AND THEN** it does not fail because of the obsolete install-state file
+
+### Requirement: `houmao-mgr system-skills uninstall` removes all known Houmao-owned skills from resolved homes
+`houmao-mgr system-skills uninstall` SHALL require a supported tool identifier or a comma-separated list of supported tool identifiers through `--tool`.
+
+The supported tool identifiers SHALL include:
+
+- `claude`
+- `codex`
+- `copilot`
+- `gemini`
+
+When `--tool` contains commas, the command SHALL parse the value as an ordered tool list, trimming whitespace around each entry.
+
+The command SHALL reject an empty parsed tool entry, an unsupported tool entry, or a duplicate parsed tool entry before mutating any target home.
+
+The command SHALL accept an optional target home override only when the parsed tool list contains exactly one tool. When the parsed tool list contains more than one tool, the command SHALL reject `--home` before mutating any target home.
+
+When `--home` is omitted, the command SHALL resolve the effective target home for each selected tool with this precedence:
+
+1. tool-native home env var
+2. project-scoped default home
+
+For single-tool uninstalls with `--home`, explicit `--home` SHALL take precedence over the tool-native home env var and project-scoped default home.
+
+The tool-native home env vars SHALL be:
+
+- Claude: `CLAUDE_CONFIG_DIR`
+- Codex: `CODEX_HOME`
+- Copilot: `COPILOT_HOME`
+- Gemini: `GEMINI_CLI_HOME`
+
+The project-scoped default homes SHALL be:
+
+- Claude: `<cwd>/.claude`
+- Codex: `<cwd>/.codex`
+- Copilot: `<cwd>/.github`
+- Gemini: `<cwd>`
+
+For Gemini, the resolved effective home SHALL remain the home root itself, and Houmao-owned skills SHALL be removed from `<effective-home>/.gemini/skills/`.
+
+The command SHALL NOT accept `--skill`, `--skill-set`, `--set`, `--default`, `--symlink`, or another selection flag. Uninstall SHALL always target every current Houmao-owned skill name in the packaged catalog.
+
+For each current catalog-known Houmao-owned skill, the command SHALL compute the exact current tool-native destination path and remove that path when it exists as a directory, file, or symlink.
+
+The command SHALL NOT remove parent skill roots, unrelated tool-home content, unrecognized `houmao-*` paths, legacy family-namespaced paths, or obsolete install-state files.
+
+The command SHALL be idempotent. Missing current Houmao-owned skill paths SHALL be reported as absent or skipped rather than treated as failures.
+
+The command SHALL NOT create a missing resolved target home, parent skill root, or skill directory just to perform uninstall.
+
+For single-tool uninstalls, the structured result SHALL use a single-uninstall payload with scalar `tool` and `home_path` fields.
+
+For multi-tool uninstalls, the structured result SHALL contain the parsed `tools` list and one single-uninstall-shaped result entry per selected tool.
+
+At minimum, each single-tool uninstall result SHALL report removed skill names, removed projected relative dirs, absent skill names, and absent projected relative dirs.
+
+#### Scenario: Single-tool uninstall removes current copied and symlinked skill paths
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex --home /tmp/codex-home`
+- **AND WHEN** `/tmp/codex-home` contains current Houmao-owned skill paths as copied directories, symlinks, or files under `skills/`
+- **THEN** the command removes those current catalog-known Houmao skill paths
+- **AND THEN** the structured result reports the removed skill names and projected relative dirs
+
+#### Scenario: Uninstall leaves unrelated content in place
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex --home /tmp/codex-home`
+- **AND WHEN** `/tmp/codex-home` contains `skills/custom-user-skill/`, legacy family-namespaced paths, parent skill roots, or obsolete `.houmao/system-skills/install-state.json`
+- **THEN** the command leaves those paths in place
+- **AND THEN** it removes only exact current catalog-known Houmao system-skill projection paths
+
+#### Scenario: Uninstall is idempotent for missing skill paths
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool claude --home /tmp/claude-home`
+- **AND WHEN** some current Houmao-owned skill projection paths are missing
+- **THEN** the command succeeds
+- **AND THEN** the structured result reports the missing current skill paths as absent or skipped
+
+#### Scenario: Uninstall does not create a missing home
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex --home /tmp/missing-codex-home`
+- **AND WHEN** `/tmp/missing-codex-home` does not exist
+- **THEN** the command succeeds without creating `/tmp/missing-codex-home`
+- **AND THEN** the structured result reports current catalog-known Houmao skills as absent
+
+#### Scenario: Uninstall uses tool-native env redirection when home is omitted
+- **WHEN** `CODEX_HOME=/tmp/codex-from-env`
+- **AND WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex`
+- **THEN** the command uses `/tmp/codex-from-env` as the effective target home
+- **AND THEN** it removes current catalog-known Houmao system-skill projection paths from that home
+
+#### Scenario: Uninstall supports comma-separated multi-tool homes
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool claude,codex,copilot,gemini` from `/workspace/repo`
+- **AND WHEN** no tool-native home env vars are set
+- **AND WHEN** no `--home` is supplied
+- **THEN** the command resolves `/workspace/repo/.claude`, `/workspace/repo/.codex`, `/workspace/repo/.github`, and `/workspace/repo` as the target homes
+- **AND THEN** the Gemini current skill paths are removed from `/workspace/repo/.gemini/skills/`
+- **AND THEN** the structured result contains `tools` and an `uninstallations` entry for each selected tool
+
+#### Scenario: Multi-tool uninstall rejects explicit home override
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex,claude --home /tmp/tool-home`
+- **THEN** the command fails explicitly before removing any skill path
+- **AND THEN** the error explains that `--home` is only valid when `--tool` names exactly one tool
+
+#### Scenario: Uninstall rejects install-only selection flags
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex --skill houmao-specialist-mgr`
+- **THEN** the command exits non-zero because selection flags are not part of the uninstall surface
+- **AND THEN** the operator must omit selection flags to remove all current known Houmao system skills for that home
+
+#### Scenario: Status after uninstall reports no current installed Houmao-owned skills
+- **WHEN** an operator uninstalls Houmao system skills from a Codex home
+- **AND WHEN** the operator later runs `houmao-mgr system-skills status --tool codex --home <that-home>`
+- **THEN** status reports no installed current Houmao-owned skills for that home
+
+### Requirement: `houmao-mgr system-skills` surfaces the LLM Wiki utility skill and utils set
+`houmao-mgr system-skills` SHALL use the packaged catalog inventory and named sets when reporting, installing, inspecting, and removing `houmao-utils-llm-wiki`.
+
+When `system-skills install` resolves an explicit `utils` set selection, the reported installed skill names and later `system-skills status` output SHALL include `houmao-utils-llm-wiki` whenever that install completed successfully.
+
+When `system-skills install` resolves the packaged CLI-default selection, the resolved installed skill names SHALL NOT include `houmao-utils-llm-wiki`.
+
+`system-skills uninstall` SHALL remove `houmao-utils-llm-wiki` when that current catalog-known skill path exists in the resolved home.
+
+#### Scenario: Operator lists the utility skill and named set
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the output includes `houmao-utils-llm-wiki` in the current skill inventory
+- **AND THEN** the output includes the `utils` named set
+- **AND THEN** the managed-launch, managed-join, and CLI-default set lists do not include `utils`
+
+#### Scenario: Operator installs the utility set explicitly
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --skill-set utils`
+- **THEN** the resolved skill list includes `houmao-utils-llm-wiki`
+- **AND THEN** the skill is projected into the Codex home under `skills/houmao-utils-llm-wiki/`
+
+#### Scenario: Operator installs the utility skill explicitly
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --skill houmao-utils-llm-wiki`
+- **THEN** the resolved skill list includes `houmao-utils-llm-wiki`
+- **AND THEN** the skill is projected into the Codex home under `skills/houmao-utils-llm-wiki/`
+
+#### Scenario: CLI-default install omits the utility skill
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex`
+- **THEN** the resolved CLI-default skill list does not include `houmao-utils-llm-wiki`
+
+#### Scenario: Uninstall removes an installed utility skill path
+- **WHEN** a Codex home contains `skills/houmao-utils-llm-wiki/`
+- **AND WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex --home <home>`
+- **THEN** the command removes `skills/houmao-utils-llm-wiki/`
+
+### Requirement: `houmao-mgr system-skills` surfaces utility skills through all
+`houmao-mgr system-skills` SHALL use the packaged catalog inventory and fixed set lists when reporting, installing, and inspecting Houmao-owned utility skills.
+
+That current inventory SHALL surface `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` as installable packaged skills.
+
+The reported named sets SHALL include `all` as the set that contains the utility skills and SHALL NOT report `utils` as a current installable set.
+
+When `system-skills install` resolves the packaged CLI-default set list, the resolved installed skill names and later `system-skills status` output SHALL include `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`.
+
+#### Scenario: List reports utility skills and all
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the command reports `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` in the current Houmao-owned skill inventory
+- **AND THEN** it reports `all` as the named set that includes those utility skills
+- **AND THEN** it does not report `utils` as a current named set
+
+#### Scenario: Omitted-selection install and status report utility skills
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home`
+- **AND WHEN** no `--skill-set` or `--skill` is supplied
+- **THEN** the install result reports `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` in the resolved current skill list
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports those utility skills as installed when the CLI-default install completed successfully
+
+### Requirement: `houmao-mgr system-skills install` plain output reports projected skill locations
+`houmao-mgr system-skills install` SHALL make the human-readable install result distinguish each selected tool's effective home from the tool-native location where Houmao-owned skills were projected.
+
+For each successful single-tool or multi-tool install, the plain output SHALL report enough projection information for an operator to locate the installed skill files without consulting JSON output or documentation. That projection information SHALL be derived from the installer result for the selected tool, such as the common projection root or the projected relative skill directories.
+
+For Gemini, the plain output SHALL NOT imply that skills were installed directly into the effective home root. When the effective Gemini home is `/workspace/repo`, the plain output SHALL identify `/workspace/repo/.gemini/skills` or home-relative `.gemini/skills/...` paths as the Houmao-owned skill projection location.
+
+The structured install payload SHALL continue to include `home_path`, `projected_relative_dirs`, `resolved_skills`, and `projection_mode` with their existing meanings. Any additional structured fields added for projection roots SHALL be additive.
+
+#### Scenario: Multi-tool install shows Gemini projection root
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex,claude,gemini --symlink` from `/workspace/repo`
+- **AND WHEN** no `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, or `GEMINI_CLI_HOME` is set
+- **THEN** the plain output reports Codex with effective home `/workspace/repo/.codex` and a skill projection location under `/workspace/repo/.codex/skills`
+- **AND THEN** the plain output reports Claude with effective home `/workspace/repo/.claude` and a skill projection location under `/workspace/repo/.claude/skills`
+- **AND THEN** the plain output reports Gemini with effective home `/workspace/repo` and a skill projection location under `/workspace/repo/.gemini/skills`
+- **AND THEN** the plain output does not present `/workspace/repo` alone as the Gemini installed skill location
+
+#### Scenario: Single-tool Gemini install shows projected paths
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool gemini --skill houmao-specialist-mgr` from `/workspace/repo`
+- **AND WHEN** no `GEMINI_CLI_HOME` is set
+- **THEN** the plain output reports the effective home as `/workspace/repo`
+- **AND THEN** the plain output reports `.gemini/skills/houmao-specialist-mgr` or `/workspace/repo/.gemini/skills/houmao-specialist-mgr` as the installed skill path
+
+#### Scenario: JSON install output keeps existing fields
+- **WHEN** an operator runs `houmao-mgr --print-json system-skills install --tool gemini --skill houmao-specialist-mgr` from `/workspace/repo`
+- **THEN** the structured output reports `home_path` as `/workspace/repo`
+- **AND THEN** the structured output reports `projected_relative_dirs` containing `.gemini/skills/houmao-specialist-mgr`
+- **AND THEN** existing structured fields retain their current meanings
+
+### Requirement: `houmao-mgr system-skills status` plain output reports projected skill paths
+`houmao-mgr system-skills status` SHALL make human-readable status output identify the projection path for each discovered Houmao-owned skill, not only the skill name and projection mode.
+
+The command SHALL continue to report the effective home path. For each discovered skill, it SHALL also report the home-relative projected directory or an equivalent absolute projected path.
+
+#### Scenario: Gemini status shows discovered `.gemini/skills` path
+- **WHEN** an operator runs `houmao-mgr system-skills status --tool gemini` from `/workspace/repo`
+- **AND WHEN** `/workspace/repo/.gemini/skills/houmao-specialist-mgr/SKILL.md` exists
+- **THEN** the plain output reports the effective home as `/workspace/repo`
+- **AND THEN** the plain output reports `.gemini/skills/houmao-specialist-mgr` or `/workspace/repo/.gemini/skills/houmao-specialist-mgr` for the discovered skill
+- **AND THEN** the plain output continues to report the inferred projection mode
+
+### Requirement: `houmao-mgr system-skills uninstall` plain output reports removed projected paths
+`houmao-mgr system-skills uninstall` SHALL make human-readable uninstall output identify the projected skill paths it removed or considered absent for each selected tool.
+
+For multi-tool uninstall output, each tool entry SHALL distinguish the effective home from the removed and absent projected skill locations, at least by reporting counts plus the projection root or representative projected relative directories. Gemini output SHALL identify `.gemini/skills` paths rather than implying that current Houmao-owned skills were removed directly from the effective home root.
+
+#### Scenario: Multi-tool uninstall shows Gemini removed projection location
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex,gemini` from `/workspace/repo`
+- **AND WHEN** `/workspace/repo/.gemini/skills/houmao-specialist-mgr/SKILL.md` exists before uninstall
+- **THEN** the plain output reports Gemini's effective home as `/workspace/repo`
+- **AND THEN** the plain output reports `.gemini/skills` or `.gemini/skills/houmao-specialist-mgr` as the removed projection location
+- **AND THEN** the plain output does not present `/workspace/repo` alone as the removed Gemini skill location

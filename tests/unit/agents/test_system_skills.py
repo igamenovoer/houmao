@@ -1,22 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
-    SYSTEM_SKILL_SET_AGENT_MEMORY,
-    SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    SYSTEM_SKILL_SET_AGENT_INSPECT,
-    SYSTEM_SKILL_SET_AGENT_MESSAGING,
-    SYSTEM_SKILL_SET_AGENT_INSTANCE,
-    SYSTEM_SKILL_SET_ADVANCED_USAGE,
-    SYSTEM_SKILL_SET_MAILBOX_FULL,
-    SYSTEM_SKILL_SET_TOURING,
-    SYSTEM_SKILL_SET_USER_CONTROL,
-    SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+    SYSTEM_SKILL_SET_ALL,
+    SYSTEM_SKILL_SET_CORE,
+    SYSTEM_SKILL_UTILS_LLM_WIKI,
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     SystemSkillCatalogError,
     SystemSkillInstallError,
     discover_installed_system_skills,
@@ -25,7 +20,32 @@ from houmao.agents.system_skills import (
     load_system_skill_catalog_from_paths,
     resolve_auto_install_skill_selection,
     resolve_system_skill_selection,
-    system_skill_state_path_for_home,
+    uninstall_system_skills_for_home,
+)
+
+CORE_SYSTEM_SKILLS = (
+    "houmao-process-emails-via-gateway",
+    "houmao-agent-email-comms",
+    "houmao-mailbox-mgr",
+    "houmao-memory-mgr",
+    "houmao-adv-usage-pattern",
+    "houmao-touring",
+    "houmao-project-mgr",
+    "houmao-specialist-mgr",
+    "houmao-credential-mgr",
+    "houmao-agent-definition",
+    "houmao-agent-loop-pairwise",
+    "houmao-agent-loop-pairwise-v2",
+    "houmao-agent-loop-generic",
+    "houmao-agent-instance",
+    "houmao-agent-inspect",
+    "houmao-agent-messaging",
+    "houmao-agent-gateway",
+)
+ALL_SYSTEM_SKILLS = (
+    *CORE_SYSTEM_SKILLS,
+    SYSTEM_SKILL_UTILS_LLM_WIKI,
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
 )
 
 
@@ -47,12 +67,12 @@ def _packaged_skill_asset_root(skill_name: str) -> Path:
     ).resolve()
 
 
-def _assert_legacy_state_removed(home_path: Path) -> None:
-    state_path = system_skill_state_path_for_home(home_path)
-    assert state_path.is_file()
-    payload = json.loads(state_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == SYSTEM_SKILL_STATE_SCHEMA_VERSION
-    assert payload["installed_skills"]
+def _obsolete_system_skill_state_path(home_path: Path) -> Path:
+    return (home_path.resolve() / ".houmao/system-skills/install-state.json").resolve()
+
+
+def _assert_no_install_state_written(home_path: Path) -> None:
+    assert not _obsolete_system_skill_state_path(home_path).exists()
 
 
 def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults() -> None:
@@ -63,6 +83,8 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
+        "houmao-utils-llm-wiki",
+        "houmao-utils-workspace-mgr",
         "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-memory-mgr",
@@ -79,48 +101,14 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-gateway",
     )
     assert tuple(catalog.sets.keys()) == (
-        "mailbox-core",
-        "mailbox-full",
-        "agent-memory",
-        "advanced-usage",
-        "touring",
-        "user-control",
-        "agent-instance",
-        "agent-inspect",
-        "agent-messaging",
-        "agent-gateway",
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_ALL,
     )
-    assert catalog.auto_install.managed_launch_sets == (
-        SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_AGENT_MEMORY,
-        SYSTEM_SKILL_SET_ADVANCED_USAGE,
-        SYSTEM_SKILL_SET_TOURING,
-        SYSTEM_SKILL_SET_USER_CONTROL,
-        SYSTEM_SKILL_SET_AGENT_INSPECT,
-        SYSTEM_SKILL_SET_AGENT_MESSAGING,
-        SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    )
-    assert catalog.auto_install.managed_join_sets == (
-        SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_AGENT_MEMORY,
-        SYSTEM_SKILL_SET_ADVANCED_USAGE,
-        SYSTEM_SKILL_SET_TOURING,
-        SYSTEM_SKILL_SET_USER_CONTROL,
-        SYSTEM_SKILL_SET_AGENT_INSPECT,
-        SYSTEM_SKILL_SET_AGENT_MESSAGING,
-        SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    )
-    assert catalog.auto_install.cli_default_sets == (
-        SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_AGENT_MEMORY,
-        SYSTEM_SKILL_SET_ADVANCED_USAGE,
-        SYSTEM_SKILL_SET_TOURING,
-        SYSTEM_SKILL_SET_USER_CONTROL,
-        SYSTEM_SKILL_SET_AGENT_INSTANCE,
-        SYSTEM_SKILL_SET_AGENT_INSPECT,
-        SYSTEM_SKILL_SET_AGENT_MESSAGING,
-        SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    )
+    assert catalog.sets[SYSTEM_SKILL_SET_CORE].skill_names == CORE_SYSTEM_SKILLS
+    assert catalog.sets[SYSTEM_SKILL_SET_ALL].skill_names == ALL_SYSTEM_SKILLS
+    assert catalog.auto_install.managed_launch_sets == (SYSTEM_SKILL_SET_CORE,)
+    assert catalog.auto_install.managed_join_sets == (SYSTEM_SKILL_SET_CORE,)
+    assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
 
 
 def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> None:
@@ -128,39 +116,26 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
 
     resolved = resolve_system_skill_selection(
         catalog,
-        set_names=(
-            "mailbox-core",
-            "mailbox-full",
-            "agent-memory",
-            "advanced-usage",
-            "touring",
-            "user-control",
-            "agent-inspect",
-            "agent-messaging",
-            "agent-gateway",
-        ),
+        set_names=(SYSTEM_SKILL_SET_CORE,),
         skill_names=("houmao-agent-email-comms", "houmao-specialist-mgr"),
     )
 
-    assert resolved == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-adv-usage-pattern",
-        "houmao-touring",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-        "houmao-agent-inspect",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
-    )
+    assert resolved == CORE_SYSTEM_SKILLS
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
+
+
+def test_resolve_system_skill_selection_all_adds_utilities_to_core() -> None:
+    catalog = load_system_skill_catalog()
+
+    resolved = resolve_system_skill_selection(
+        catalog,
+        set_names=(SYSTEM_SKILL_SET_ALL,),
+    )
+
+    assert resolved == ALL_SYSTEM_SKILLS
+    assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_launch_sets
+    assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_join_sets
+    assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
 
 
 def test_resolve_system_skill_selection_cli_default_includes_agent_instance_messaging_and_gateway_skills() -> (
@@ -170,25 +145,72 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
 
     resolved = resolve_auto_install_skill_selection(catalog, kind="cli_default")
 
-    assert resolved == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-adv-usage-pattern",
-        "houmao-touring",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-        "houmao-agent-instance",
-        "houmao-agent-inspect",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
+    assert resolved == ALL_SYSTEM_SKILLS
+
+
+def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> None:
+    catalog = load_system_skill_catalog()
+    skill_name_pattern = re.compile(
+        r"(?<![A-Za-z0-9_])("
+        + "|".join(re.escape(name) for name in sorted(catalog.skills, key=len, reverse=True))
+        + r")(?![A-Za-z0-9_])"
     )
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+
+    for set_name, set_record in catalog.sets.items():
+        installed = set(set_record.skill_names)
+        for skill_name in set_record.skill_names:
+            skill_root = asset_root / catalog.skills[skill_name].asset_subpath
+            for markdown_path in skill_root.rglob("*.md"):
+                refs = set(skill_name_pattern.findall(markdown_path.read_text(encoding="utf-8")))
+                refs.discard(skill_name)
+                missing = refs - installed
+                assert not missing, (
+                    f"set `{set_name}` installs `{skill_name}` but "
+                    f"{markdown_path.relative_to(skill_root)} references missing skills "
+                    f"{sorted(missing)}"
+                )
+
+
+def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_LLM_WIKI)
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+
+    assert (skill_root / "SKILL.md").is_file()
+    assert (skill_root / "references").is_dir()
+    assert (skill_root / "scripts").is_dir()
+    assert (skill_root / "subskills").is_dir()
+    assert (skill_root / "viewer").is_dir()
+    assert (skill_root / "viewer/audit-shared/package.json").is_file()
+    assert (skill_root / "viewer/web/package.json").is_file()
+    assert not list(skill_root.rglob("node_modules"))
+    assert not list(skill_root.rglob("dist"))
+    assert "name: houmao-utils-llm-wiki" in skill_text
+    assert "python3 scripts/scaffold.py" in skill_text
+    assert "Authored by" not in skill_text
+    assert "Karpathy" not in skill_text
+
+
+def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR)
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    in_repo_text = (skill_root / "subskills/in-repo-workspace.md").read_text(encoding="utf-8")
+
+    assert (skill_root / "SKILL.md").is_file()
+    assert (skill_root / "subskills/in-repo-workspace.md").is_file()
+    assert (skill_root / "subskills/out-of-repo-workspace.md").is_file()
+    assert "name: houmao-utils-workspace-mgr" in skill_text
+    assert "seeded-worktree" in skill_text
+    assert "Plan Mode" in skill_text
+    assert "Execute Mode" in skill_text
+    assert "For `in-repo`, the default planned launch cwd is `<repo-root>`" in skill_text
+    assert "For `in-repo` memo seeds" in skill_text
+    assert "The repo root is the shared visibility surface." in in_repo_text
+    assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
+    assert "| `<repo-root>/houmao-ws/<agent-name>/kb/**` | yes | yes | yes | no |" in (
+        in_repo_text
+    )
+    assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
 
 
 def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) -> None:
@@ -201,13 +223,13 @@ schema_version = 1
 [skills.houmao-agent-email-comms]
 asset_subpath = "houmao-agent-email-comms"
 
-[sets.mailbox-core]
+[sets.core]
 skills = ["houmao-agent-email-comms", "houmao-missing"]
 
 [auto_install]
-managed_launch_sets = ["mailbox-core"]
-managed_join_sets = ["mailbox-core"]
-cli_default_sets = ["mailbox-core"]
+managed_launch_sets = ["core"]
+managed_join_sets = ["core"]
+cli_default_sets = ["core"]
 """.strip()
         + "\n",
     )
@@ -232,7 +254,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     result = install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        set_names=("mailbox-core", "user-control"),
+        set_names=(SYSTEM_SKILL_SET_CORE,),
         skill_names=("houmao-agent-email-comms",),
     )
 
@@ -260,30 +282,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
 
-    assert result.resolved_skill_names == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
+    assert result.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert result.resolved_skill_names == CORE_SYSTEM_SKILLS
+    assert set(record.name for record in installed_records) == set(result.resolved_skill_names)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",) * len(
+        CORE_SYSTEM_SKILLS
     )
-    assert tuple(record.name for record in installed_records) == result.resolved_skill_names
-    assert tuple(record.projection_mode for record in installed_records) == (
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-    )
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
     assert user_skill_path.is_file()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
@@ -661,6 +666,89 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert deprecated_fixture_root not in gemini_reference
 
 
+def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_files(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    copied_skill_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
+    symlink_source = tmp_path / "symlink-source"
+    symlink_target = home_path / "skills/houmao-agent-email-comms"
+    file_target = home_path / "skills/houmao-adv-usage-pattern"
+    user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
+    unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
+    legacy_path = home_path / "skills/mailbox/houmao-agent-email-comms/SKILL.md"
+    obsolete_state_path = _obsolete_system_skill_state_path(home_path)
+    _write(copied_skill_path, "copied skill\n")
+    symlink_source.mkdir(parents=True)
+    symlink_target.parent.mkdir(parents=True, exist_ok=True)
+    symlink_target.symlink_to(symlink_source)
+    _write(file_target, "stale file skill\n")
+    _write(user_skill_path, "custom user skill\n")
+    _write(unknown_houmao_path, "not catalog owned\n")
+    _write(legacy_path, "legacy family path\n")
+    _write(obsolete_state_path, "{}\n")
+
+    result = uninstall_system_skills_for_home(tool="codex", home_path=home_path)
+
+    assert result.tool == "codex"
+    assert result.home_path == home_path
+    assert result.removed_skill_names == (
+        "houmao-agent-email-comms",
+        "houmao-adv-usage-pattern",
+        "houmao-specialist-mgr",
+    )
+    assert result.removed_projected_relative_dirs == (
+        "skills/houmao-agent-email-comms",
+        "skills/houmao-adv-usage-pattern",
+        "skills/houmao-specialist-mgr",
+    )
+    assert "houmao-process-emails-via-gateway" in result.absent_skill_names
+    assert "skills/houmao-process-emails-via-gateway" in result.absent_projected_relative_dirs
+    assert "houmao-agent-gateway" in result.absent_skill_names
+    assert not (home_path / "skills/houmao-specialist-mgr").exists()
+    assert not symlink_target.exists()
+    assert not symlink_target.is_symlink()
+    assert symlink_source.is_dir()
+    assert not file_target.exists()
+    assert (home_path / "skills").is_dir()
+    assert user_skill_path.is_file()
+    assert unknown_houmao_path.is_file()
+    assert legacy_path.is_file()
+    assert obsolete_state_path.is_file()
+
+
+def test_uninstall_system_skills_for_home_does_not_create_missing_home(tmp_path: Path) -> None:
+    home_path = (tmp_path / "missing-codex-home").resolve()
+    catalog = load_system_skill_catalog()
+
+    result = uninstall_system_skills_for_home(tool="codex", home_path=home_path)
+
+    assert not home_path.exists()
+    assert result.removed_skill_names == ()
+    assert result.removed_projected_relative_dirs == ()
+    assert result.absent_skill_names == catalog.skill_names
+    assert result.absent_projected_relative_dirs == tuple(
+        f"skills/{skill_name}" for skill_name in catalog.skill_names
+    )
+
+
+def test_uninstall_system_skills_for_home_targets_gemini_dot_gemini_root(
+    tmp_path: Path,
+) -> None:
+    home_path = tmp_path.resolve()
+    gemini_skill_path = home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md"
+    upstream_alias_path = home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md"
+    _write(gemini_skill_path, "gemini skill\n")
+    _write(upstream_alias_path, "upstream alias\n")
+
+    result = uninstall_system_skills_for_home(tool="gemini", home_path=home_path)
+
+    assert result.removed_skill_names == ("houmao-specialist-mgr",)
+    assert result.removed_projected_relative_dirs == (".gemini/skills/houmao-specialist-mgr",)
+    assert not (home_path / ".gemini/skills/houmao-specialist-mgr").exists()
+    assert upstream_alias_path.is_file()
+
+
 def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(
     tmp_path: Path,
 ) -> None:
@@ -688,6 +776,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_path = home_path / "skills/houmao-agent-gateway/SKILL.md"
     agent_gateway_actions = home_path / "skills/houmao-agent-gateway/actions"
     agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
+    utils_llm_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
+    utils_workspace_mgr_path = home_path / "skills/houmao-utils-workspace-mgr/SKILL.md"
     advanced_usage_path = home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
     advanced_usage_patterns = home_path / "skills/houmao-adv-usage-pattern/patterns"
     touring_path = home_path / "skills/houmao-touring/SKILL.md"
@@ -708,37 +798,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     relay_loop_references = home_path / "skills/houmao-agent-loop-generic/references"
     relay_loop_templates = home_path / "skills/houmao-agent-loop-generic/templates"
 
-    assert result.selected_set_names == (
-        "mailbox-full",
-        "agent-memory",
-        "advanced-usage",
-        "touring",
-        "user-control",
-        "agent-instance",
-        "agent-inspect",
-        "agent-messaging",
-        "agent-gateway",
-    )
+    assert result.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
     assert result.projection_mode == "copy"
-    assert result.resolved_skill_names == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-adv-usage-pattern",
-        "houmao-touring",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-        "houmao-agent-instance",
-        "houmao-agent-inspect",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
-    )
+    assert result.resolved_skill_names == ALL_SYSTEM_SKILLS
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
@@ -751,6 +813,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert agent_inspect_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
+    assert utils_llm_wiki_path.is_file()
+    assert utils_workspace_mgr_path.is_file()
     assert stable_pairwise_loop_path.is_file()
     assert pairwise_loop_path.is_file()
     assert relay_loop_path.is_file()
@@ -1011,6 +1075,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Do not reinterpret a relaunch request as `agents launch`" in relaunch_action
     assert "agents cleanup session" in cleanup_action
     assert "agents cleanup logs" in cleanup_action
+    assert "Prefer `--manifest-path` or `--session-root` from recent stop output" in cleanup_action
+    assert "bounded runtime-root fallback" in cleanup_action
+    assert "stopped-session tombstones" in cleanup_action
     assert "admin cleanup runtime" in cleanup_action
     assert "actions/discover.md" in agent_inspect_skill
     assert "actions/screen.md" in agent_inspect_skill
@@ -1504,7 +1571,7 @@ def test_install_system_skills_for_home_supports_explicit_symlink_projection(
     assert (installed_skill_dir / "SKILL.md").is_file()
     assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
     assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
 def test_install_system_skills_for_home_projects_copilot_selected_skills_and_status(
@@ -1528,7 +1595,7 @@ def test_install_system_skills_for_home_projects_copilot_selected_skills_and_sta
         "skills/houmao-specialist-mgr",
     )
     assert tuple(record.projection_mode for record in installed_records) == ("copy",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
 def test_install_system_skills_for_home_supports_copilot_symlink_projection(
@@ -1557,7 +1624,7 @@ def test_install_system_skills_for_home_supports_copilot_symlink_projection(
         "skills/houmao-specialist-mgr",
     )
     assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
 def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(
@@ -1623,62 +1690,63 @@ def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_mode
     installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
     assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
     assert tuple(record.projection_mode for record in installed_records) == ("copy",)
-    _assert_legacy_state_removed(home_path)
+    _assert_no_install_state_written(home_path)
 
 
-def test_install_system_skills_for_home_rejects_existing_current_skill_path_without_state(
+def test_install_system_skills_for_home_overwrites_existing_current_skill_path_without_state(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
-    conflicting_skill_path = home_path / "skills/houmao-agent-email-comms/SKILL.md"
-    _write(conflicting_skill_path, "user-authored collision\n")
+    selected_skill_dir = home_path / "skills/houmao-agent-email-comms"
+    selected_skill_path = selected_skill_dir / "SKILL.md"
+    stale_child = selected_skill_dir / "stale.txt"
+    _write(selected_skill_path, "user-authored collision\n")
+    _write(stale_child, "stale child\n")
 
-    with pytest.raises(SystemSkillInstallError, match="not recorded as current-schema"):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-agent-email-comms",),
-        )
-
-    assert conflicting_skill_path.read_text(encoding="utf-8") == "user-authored collision\n"
-
-
-def test_install_system_skills_for_home_rejects_old_copy_only_state_version(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    state_path = system_skill_state_path_for_home(home_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "tool": "codex",
-                "installed_at": "2026-04-05T00:00:00Z",
-                "installed_skills": [
-                    {
-                        "name": "houmao-process-emails-via-gateway",
-                        "asset_subpath": "mailbox/houmao-process-emails-via-gateway",
-                        "projected_relative_dir": "skills/mailbox/houmao-process-emails-via-gateway",
-                        "content_digest": "old-mailbox",
-                    },
-                ],
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-agent-email-comms",),
     )
 
-    with pytest.raises(SystemSkillInstallError, match="clean target home"):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-process-emails-via-gateway",),
-        )
+    assert selected_skill_path.is_file()
+    assert selected_skill_path.read_text(encoding="utf-8") != "user-authored collision\n"
+    assert not stale_child.exists()
+    _assert_no_install_state_written(home_path)
 
 
-def test_install_system_skills_for_home_rejects_old_family_namespaced_path_record(
+def test_install_system_skills_for_home_ignores_obsolete_state_version(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    state_path = _obsolete_system_skill_state_path(home_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_payload = {
+        "schema_version": 1,
+        "tool": "codex",
+        "installed_at": "2026-04-05T00:00:00Z",
+        "installed_skills": [
+            {
+                "name": "houmao-process-emails-via-gateway",
+                "asset_subpath": "mailbox/houmao-process-emails-via-gateway",
+                "projected_relative_dir": "skills/mailbox/houmao-process-emails-via-gateway",
+                "content_digest": "old-mailbox",
+            },
+        ],
+    }
+    state_path.write_text(json.dumps(stale_payload, indent=2) + "\n", encoding="utf-8")
+
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-process-emails-via-gateway",),
+    )
+
+    assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
+    assert json.loads(state_path.read_text(encoding="utf-8")) == stale_payload
+
+
+def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_and_state(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "gemini-home").resolve()
@@ -1686,40 +1754,32 @@ def test_install_system_skills_for_home_rejects_old_family_namespaced_path_recor
         home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md",
         "old specialist path\n",
     )
-    state_path = system_skill_state_path_for_home(home_path)
+    _write(
+        home_path / ".gemini/skills/houmao-project-mgr/SKILL.md",
+        "unselected current skill\n",
+    )
+    _write(home_path / "notes/unrelated.txt", "unrelated\n")
+    state_path = _obsolete_system_skill_state_path(home_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(
-            {
-                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
-                "tool": "gemini",
-                "installed_at": "2026-04-05T00:00:00Z",
-                "installed_skills": [
-                    {
-                        "name": "houmao-specialist-mgr",
-                        "asset_subpath": "houmao-specialist-mgr",
-                        "projected_relative_dir": ".agents/skills/houmao-specialist-mgr",
-                        "projection_mode": "copy",
-                        "content_digest": "old-specialist",
-                    },
-                ],
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    stale_state = "obsolete state\n"
+    state_path.write_text(stale_state, encoding="utf-8")
+
+    install_system_skills_for_home(
+        tool="gemini",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
     )
 
-    with pytest.raises(SystemSkillInstallError, match="old family-namespaced paths"):
-        install_system_skills_for_home(
-            tool="gemini",
-            home_path=home_path,
-            skill_names=("houmao-specialist-mgr",),
-        )
+    assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (home_path / ".gemini/skills/houmao-project-mgr/SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "unselected current skill\n"
+    assert (home_path / "notes/unrelated.txt").read_text(encoding="utf-8") == "unrelated\n"
+    assert state_path.read_text(encoding="utf-8") == stale_state
 
 
-def test_install_system_skills_for_home_rejects_superseded_skill_record(
+def test_install_system_skills_for_home_ignores_superseded_skill_record(
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
@@ -1727,12 +1787,12 @@ def test_install_system_skills_for_home_rejects_superseded_skill_record(
         home_path / "skills/houmao-create-specialist/SKILL.md",
         "old flat project-easy path\n",
     )
-    state_path = system_skill_state_path_for_home(home_path)
+    state_path = _obsolete_system_skill_state_path(home_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(
             {
-                "schema_version": SYSTEM_SKILL_STATE_SCHEMA_VERSION,
+                "schema_version": 2,
                 "tool": "codex",
                 "installed_at": "2026-04-08T00:00:00Z",
                 "installed_skills": [
@@ -1751,10 +1811,12 @@ def test_install_system_skills_for_home_rejects_superseded_skill_record(
         encoding="utf-8",
     )
 
-    with pytest.raises(SystemSkillInstallError, match="renamed or superseded"):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-specialist-mgr",),
-        )
+    install_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
+    )
+
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-create-specialist/SKILL.md").is_file()
+    assert state_path.is_file()

@@ -1,0 +1,41 @@
+{
+  "name": "llm-wiki-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local wiki preview + audit feedback server for the llm-wiki skill.",
+  "scripts": {
+    "build": "node build-client.mjs",
+    "prestart": "npm run build",
+    "start": "tsx server/index.ts",
+    "dev": "tsx watch server/index.ts"
+  },
+  "dependencies": {
+    "audit-shared": "file:../audit-shared",
+    "d3-drag": "^3.0.0",
+    "d3-force": "^3.0.0",
+    "d3-selection": "^3.0.0",
+    "d3-zoom": "^3.0.0",
+    "express": "^4.19.2",
+    "js-yaml": "^4.1.0",
+    "katex": "^0.16.10",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.0.1",
+    "markdown-it-attrs": "^4.2.0",
+    "markdown-it-texmath": "^1.0.0",
+    "mermaid": "^10.9.0"
+  },
+  "devDependencies": {
+    "@types/d3-drag": "^3.0.7",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-selection": "^3.0.11",
+    "@types/d3-zoom": "^3.0.8",
+    "@types/express": "^4.17.21",
+    "@types/js-yaml": "^4.0.9",
+    "@types/markdown-it": "^14.1.1",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.20.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

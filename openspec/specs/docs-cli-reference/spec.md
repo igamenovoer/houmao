@@ -562,6 +562,16 @@ That coverage SHALL NOT present `--default` as part of the current public `syste
 
 That coverage SHALL explain that the default Gemini home root is `<cwd>`, which yields Houmao-owned skill projection under `<cwd>/.gemini/skills/`.
 
+That coverage SHALL describe `--symlink` as a supported projection mode that replaces the selected current skill destination with a symlink to the packaged asset root.
+
+That coverage SHALL explain that `system-skills install` does not create or require `.houmao/system-skills/install-state.json` in the target tool home.
+
+That coverage SHALL explain that reinstall replaces each selected current Houmao-owned skill destination path when it already exists, without checking install-state ownership metadata.
+
+That coverage SHALL explain that the overwrite boundary is limited to selected current Houmao-owned skill destination paths and does not remove unselected skills, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, or stale install-state files.
+
+That coverage SHALL explain that `system-skills status` discovers current packaged skill projection paths from the filesystem and reports inferred `copy` or `symlink` projection mode without reading install-state metadata.
+
 That coverage SHALL show at least one comma-separated multi-tool install example and at least one single-tool explicit-home install example.
 
 That coverage SHALL show at least one named-set install example using `--skill-set`.
@@ -587,6 +597,22 @@ That coverage SHALL explain that single-tool JSON output keeps the scalar instal
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that `--home` cannot be combined with comma-separated multi-tool install
 - **AND THEN** it explains that operators who need explicit homes must run separate single-tool install commands
+
+#### Scenario: Reader understands stateless selected-skill overwrite
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that install does not create or require `.houmao/system-skills/install-state.json`
+- **AND THEN** it explains that reinstall replaces selected current Houmao-owned skill paths when they already exist
+- **AND THEN** it explains that unselected and unrelated tool-home content remains outside the overwrite boundary
+
+#### Scenario: Reader understands symlink mode remains supported
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page documents `--symlink` as a supported install mode
+- **AND THEN** it explains that symlink reinstall uses the same selected-skill replacement boundary as copied reinstall
+
+#### Scenario: Reader understands status is filesystem discovery
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that `status` discovers current packaged skill projection paths from the filesystem
+- **AND THEN** it does not describe install-state metadata as the source of current status output
 
 #### Scenario: Reader understands single-tool and multi-tool install output
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
@@ -1159,3 +1185,82 @@ When the reference documents `--clear-memo-seed`, it SHALL distinguish removing 
 - **THEN** the CLI reference states that the launch replaces `houmao-memo.md`
 - **AND THEN** it does not state that pages are cleared for memo-only seeds
 
+### Requirement: CLI reference documents system-skills uninstall
+The CLI reference pages `docs/reference/cli/system-skills.md`, `docs/reference/cli/houmao-mgr.md`, and `docs/reference/cli.md` SHALL document `houmao-mgr system-skills uninstall` as the supported command for removing current Houmao-owned system skills from resolved Claude, Codex, Copilot, and Gemini homes.
+
+That coverage SHALL state that `system-skills uninstall` requires `--tool` with either one supported tool identifier or a comma-separated list of supported tool identifiers.
+
+That coverage SHALL describe `--home` as optional for single-tool `uninstall` invocations and invalid when `--tool` names more than one comma-separated tool.
+
+That coverage SHALL document effective-home resolution for omitted-home uninstall with this precedence:
+
+1. tool-native home env var
+2. project-scoped default home
+
+That coverage SHALL explain that uninstall removes all current catalog-known Houmao system-skill projection paths for the resolved tool home and does not accept install-selection flags such as `--skill`, `--skill-set`, `--set`, `--default`, or `--symlink`.
+
+That coverage SHALL distinguish install and uninstall semantics: install can select sets or explicit skills, while uninstall always targets all current known Houmao system skills for the resolved home.
+
+That coverage SHALL explain that uninstall removes exact current Houmao skill paths whether they are copied directories, symlinks, or files.
+
+That coverage SHALL explain that uninstall is idempotent, reports missing current skill paths as absent or skipped, and does not create missing homes or parent skill roots.
+
+That coverage SHALL explain that uninstall preserves parent skill roots, unrelated user skills, unrecognized `houmao-*` paths, legacy family-namespaced paths, and obsolete install-state files.
+
+That coverage SHALL show at least one single-tool explicit-home uninstall example and at least one comma-separated multi-tool uninstall example.
+
+#### Scenario: Reader finds system-skills uninstall in the command shape
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md` or `docs/reference/cli/houmao-mgr.md`
+- **THEN** the command shape includes `system-skills uninstall`
+- **AND THEN** the page explains that uninstall removes all current known Houmao system skills for the resolved home
+
+#### Scenario: Reader sees uninstall home-resolution rules
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page documents `--home` as optional for single-tool uninstall
+- **AND THEN** it explains that comma-separated multi-tool uninstall cannot use `--home`
+- **AND THEN** it explains omitted-home uninstall resolution through tool-native env vars and project-scoped defaults
+
+#### Scenario: Reader understands uninstall is not selective
+- **WHEN** a reader checks uninstall options in the CLI reference
+- **THEN** the page explains that uninstall does not accept `--skill`, `--skill-set`, or `--symlink`
+- **AND THEN** the page contrasts that all-known-skill uninstall behavior with selective install behavior
+
+#### Scenario: Reader understands uninstall preserves unrelated content
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page explains that uninstall removes exact current Houmao skill paths only
+- **AND THEN** it explains that unrelated user skills, parent roots, legacy paths, and stale install-state files are not removed
+
+### Requirement: CLI reference documents the LLM Wiki utility system skill
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-utils-llm-wiki` as a packaged Houmao-owned system skill.
+
+The reference SHALL document the `utils` named set and SHALL show explicit installation examples for both `--skill-set utils` and `--skill houmao-utils-llm-wiki`.
+
+The reference SHALL state that `utils` is not included in managed launch, managed join, or CLI-default selections.
+
+The reference SHALL include `houmao-utils-llm-wiki` anywhere it enumerates the current skill inventory.
+
+#### Scenario: Reader sees the utility skill in system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page identifies `houmao-utils-llm-wiki` as a packaged Houmao-owned skill
+- **AND THEN** the page lists `utils` as a named set
+
+#### Scenario: Reader can install the utility skill from documented examples
+- **WHEN** a reader checks the install examples in `docs/reference/cli/system-skills.md`
+- **THEN** the examples include `--skill-set utils` or `--skill houmao-utils-llm-wiki`
+- **AND THEN** the surrounding text states that the utility skill is explicit-only
+
+#### Scenario: CLI default documentation excludes the utility set
+- **WHEN** a reader checks managed-launch, managed-join, or CLI-default selection lists in CLI reference docs
+- **THEN** those default-selection lists do not include `utils`
+- **AND THEN** they do not imply `houmao-utils-llm-wiki` is installed by default
+
+### Requirement: CLI reference explains system-skills home and projection output
+The CLI reference SHALL document that `houmao-mgr system-skills` plain output distinguishes effective tool homes from tool-native skill projection locations.
+
+The `system-skills` reference SHALL explain that Gemini's effective home may be the project root while Houmao-owned Gemini skills are projected under `<effective-home>/.gemini/skills/`. It SHALL also state that install/status/uninstall output reports enough projection information to locate installed, discovered, removed, or absent skill paths.
+
+#### Scenario: Reader understands Gemini install output
+- **WHEN** a reader opens the `system-skills` CLI reference
+- **THEN** the page explains that a Gemini home line such as `/workspace/repo` is the effective home
+- **AND THEN** the page explains that the corresponding Houmao-owned skill files live under `/workspace/repo/.gemini/skills/`
+- **AND THEN** the page describes the projection location information reported by plain install/status/uninstall output

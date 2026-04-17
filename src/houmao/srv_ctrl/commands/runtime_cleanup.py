@@ -124,13 +124,20 @@ def resolve_managed_session_cleanup_target(
             agent_name=agent_name,
         )
         if record is None:
+            stopped_target = _resolve_stopped_cleanup_target_from_runtime_root(
+                agent_id=agent_id,
+                agent_name=agent_name,
+            )
+            if stopped_target is not None:
+                return stopped_target
             if agent_id is not None:
                 selector = f"`--agent-id {agent_id}`"
             else:
                 selector = f"`--agent-name {agent_name}`"
             raise CleanupResolutionError(
                 "Local cleanup target resolution found no fresh shared-registry record for "
-                f"{selector}. Use `--manifest-path` or `--session-root` for stopped sessions."
+                f"{selector} and no matching stopped session under the effective runtime root. "
+                "Use `--manifest-path` or `--session-root` for stopped sessions outside that root."
             )
         return _load_cleanup_target_from_registry_record(
             record=record,
@@ -958,6 +965,74 @@ def _load_cleanup_target_from_registry_record(
         registry_record=record,
         parse_error=manifest_target_error,
     )
+
+
+def _resolve_stopped_cleanup_target_from_runtime_root(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> ResolvedManagedSessionCleanupTarget | None:
+    """Resolve one stopped cleanup target by scanning the effective runtime root."""
+
+    assert agent_id is not None or agent_name is not None
+    authority = "agent_id" if agent_id is not None else "agent_name"
+    authority_value = agent_id if agent_id is not None else agent_name
+    assert authority_value is not None
+    runtime_root = _resolve_effective_runtime_root(None)
+    matches = [
+        envelope
+        for envelope in discover_runtime_session_envelopes(runtime_root)
+        if _stopped_envelope_matches_selector(
+            envelope=envelope,
+            agent_id=agent_id,
+            agent_name=agent_name,
+        )
+    ]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        candidates = ", ".join(_format_stopped_cleanup_candidate(match) for match in matches)
+        raise CleanupResolutionError(
+            "Stopped-session cleanup selector is ambiguous under the effective runtime root "
+            f"`{runtime_root}` for `--{authority.replace('_', '-')} {authority_value}`. "
+            f"Use `--manifest-path` or `--session-root` with one candidate: {candidates}"
+        )
+    match = matches[0]
+    return _load_cleanup_target_from_session_root(
+        session_root=match.session_root,
+        authority=authority,
+        authority_value=authority_value,
+        parse_error=None,
+    )
+
+
+def _stopped_envelope_matches_selector(
+    *,
+    envelope: RuntimeSessionEnvelope,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> bool:
+    """Return whether one stopped parsed envelope matches a cleanup selector."""
+
+    if envelope.live or envelope.payload is None:
+        return False
+    if agent_id is not None:
+        return envelope.payload.agent_id == agent_id
+    assert agent_name is not None
+    return envelope.payload.agent_name == agent_name
+
+
+def _format_stopped_cleanup_candidate(envelope: RuntimeSessionEnvelope) -> str:
+    """Return compact candidate metadata for an ambiguous stopped cleanup selector."""
+
+    details = _session_envelope_details(envelope)
+    ordered_keys = ("agent_id", "agent_name", "manifest_path", "session_root", "tmux_session_name")
+    parts = [
+        f"{key}={details[key]!r}"
+        for key in ordered_keys
+        if key in details and details[key] is not None
+    ]
+    return "{" + ", ".join(parts) + "}"
 
 
 def _cleanup_session_logs(

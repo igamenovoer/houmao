@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from functools import lru_cache
-import hashlib
 from importlib import import_module, resources
 from importlib.resources.abc import Traversable
 import json
@@ -18,18 +16,9 @@ from typing import Any, Literal
 SYSTEM_SKILLS_PACKAGE = "houmao.agents.assets.system_skills"
 SYSTEM_SKILL_CATALOG_FILENAME = "catalog.toml"
 SYSTEM_SKILL_SCHEMA_FILENAME = "catalog.schema.json"
-SYSTEM_SKILL_STATE_SCHEMA_VERSION = 2
 
-SYSTEM_SKILL_SET_MAILBOX_CORE = "mailbox-core"
-SYSTEM_SKILL_SET_MAILBOX_FULL = "mailbox-full"
-SYSTEM_SKILL_SET_AGENT_MEMORY = "agent-memory"
-SYSTEM_SKILL_SET_ADVANCED_USAGE = "advanced-usage"
-SYSTEM_SKILL_SET_TOURING = "touring"
-SYSTEM_SKILL_SET_USER_CONTROL = "user-control"
-SYSTEM_SKILL_SET_AGENT_INSTANCE = "agent-instance"
-SYSTEM_SKILL_SET_AGENT_INSPECT = "agent-inspect"
-SYSTEM_SKILL_SET_AGENT_MESSAGING = "agent-messaging"
-SYSTEM_SKILL_SET_AGENT_GATEWAY = "agent-gateway"
+SYSTEM_SKILL_SET_CORE = "core"
+SYSTEM_SKILL_SET_ALL = "all"
 SYSTEM_SKILL_TOURING = "houmao-touring"
 SYSTEM_SKILL_SPECIALIST_MGR = "houmao-specialist-mgr"
 SYSTEM_SKILL_CREDENTIAL_MGR = "houmao-credential-mgr"
@@ -39,6 +28,8 @@ SYSTEM_SKILL_AGENT_INSPECT = "houmao-agent-inspect"
 SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
 SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
 SYSTEM_SKILL_MEMORY_MGR = "houmao-memory-mgr"
+SYSTEM_SKILL_UTILS_LLM_WIKI = "houmao-utils-llm-wiki"
+SYSTEM_SKILL_UTILS_WORKSPACE_MGR = "houmao-utils-workspace-mgr"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",
@@ -46,7 +37,6 @@ _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "copilot": "skills",
     "gemini": ".gemini/skills",
 }
-_SYSTEM_SKILL_STATE_RELATIVE_PATH = Path(".houmao/system-skills/install-state.json")
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
 SystemSkillProjectionMode = Literal["copy", "symlink"]
 
@@ -116,58 +106,6 @@ class SystemSkillCatalog:
 
 
 @dataclass(frozen=True)
-class InstalledSystemSkillRecord:
-    """One recorded installed skill inside a target tool home."""
-
-    name: str
-    asset_subpath: str
-    projected_relative_dir: str
-    content_digest: str
-    projection_mode: SystemSkillProjectionMode = "copy"
-
-    def to_payload(self) -> dict[str, str]:
-        """Serialize one installed skill record to a JSON-safe payload."""
-
-        return {
-            "name": self.name,
-            "asset_subpath": self.asset_subpath,
-            "projected_relative_dir": self.projected_relative_dir,
-            "projection_mode": self.projection_mode,
-            "content_digest": self.content_digest,
-        }
-
-
-@dataclass(frozen=True)
-class SystemSkillInstallState:
-    """Recorded Houmao-owned install state for one concrete tool home."""
-
-    schema_version: int
-    tool: str
-    installed_at: str
-    installed_skills: tuple[InstalledSystemSkillRecord, ...]
-
-    def records_by_name(self) -> dict[str, InstalledSystemSkillRecord]:
-        """Return installed skill records keyed by skill name."""
-
-        return {record.name: record for record in self.installed_skills}
-
-    def projected_relative_dirs(self) -> set[str]:
-        """Return the owned projected relative directories for this home."""
-
-        return {record.projected_relative_dir for record in self.installed_skills}
-
-    def to_payload(self) -> dict[str, Any]:
-        """Serialize the install state to a JSON-safe payload."""
-
-        return {
-            "schema_version": self.schema_version,
-            "tool": self.tool,
-            "installed_at": self.installed_at,
-            "installed_skills": [record.to_payload() for record in self.installed_skills],
-        }
-
-
-@dataclass(frozen=True)
 class SystemSkillInstallResult:
     """Outcome of one system-skill installation request."""
 
@@ -178,6 +116,18 @@ class SystemSkillInstallResult:
     resolved_skill_names: tuple[str, ...]
     projected_relative_dirs: tuple[str, ...]
     projection_mode: SystemSkillProjectionMode
+
+
+@dataclass(frozen=True)
+class SystemSkillUninstallResult:
+    """Outcome of one system-skill removal request."""
+
+    tool: str
+    home_path: Path
+    removed_skill_names: tuple[str, ...]
+    removed_projected_relative_dirs: tuple[str, ...]
+    absent_skill_names: tuple[str, ...]
+    absent_projected_relative_dirs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -227,12 +177,6 @@ def projected_system_skill_directory(
     return home_path.resolve() / projected_system_skill_relative_dir(
         tool=tool, skill_name=skill_name
     )
-
-
-def system_skill_state_path_for_home(home_path: Path) -> Path:
-    """Return the Houmao-owned install-state path for one tool home."""
-
-    return (home_path.resolve() / _SYSTEM_SKILL_STATE_RELATIVE_PATH).resolve()
 
 
 @lru_cache(maxsize=1)
@@ -374,94 +318,6 @@ def discover_installed_system_skills(
     return tuple(discovered)
 
 
-def load_system_skill_install_state(
-    *,
-    tool: str,
-    home_path: Path,
-) -> SystemSkillInstallState | None:
-    """Load the recorded Houmao-owned install state for one tool home."""
-
-    state_path = system_skill_state_path_for_home(home_path)
-    if not state_path.exists():
-        return None
-
-    try:
-        payload = json.loads(state_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise SystemSkillInstallError(f"Invalid install-state JSON at {state_path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SystemSkillInstallError(
-            f"Invalid install-state payload at {state_path}: expected object"
-        )
-
-    schema_version = payload.get("schema_version")
-    if schema_version != SYSTEM_SKILL_STATE_SCHEMA_VERSION:
-        raise SystemSkillInstallError(
-            f"Unsupported system-skill install-state schema version at {state_path}: "
-            f"{schema_version!r}. Reinstall current system skills into a clean target home; "
-            "old install-state migrations are not supported before 1.0."
-        )
-    recorded_tool = payload.get("tool")
-    if recorded_tool != tool:
-        raise SystemSkillInstallError(
-            f"Install-state tool mismatch at {state_path}: expected {tool!r}, got {recorded_tool!r}"
-        )
-    installed_at = payload.get("installed_at")
-    if not isinstance(installed_at, str) or not installed_at.strip():
-        raise SystemSkillInstallError(f"Invalid install-state timestamp at {state_path}")
-
-    raw_records = payload.get("installed_skills")
-    if not isinstance(raw_records, list):
-        raise SystemSkillInstallError(f"Invalid install-state skill list at {state_path}")
-
-    records: list[InstalledSystemSkillRecord] = []
-    for index, raw_record in enumerate(raw_records):
-        if not isinstance(raw_record, dict):
-            raise SystemSkillInstallError(
-                f"Invalid install-state record at {state_path}: installed_skills[{index}] must be an object"
-            )
-        name = _require_payload_string(
-            raw_record, "name", context=f"{state_path}:installed_skills[{index}]"
-        )
-        asset_subpath = _require_payload_string(
-            raw_record,
-            "asset_subpath",
-            context=f"{state_path}:installed_skills[{index}]",
-        )
-        projected_relative_dir = _require_payload_string(
-            raw_record,
-            "projected_relative_dir",
-            context=f"{state_path}:installed_skills[{index}]",
-        )
-        projection_mode = _require_payload_projection_mode(
-            raw_record,
-            context=f"{state_path}:installed_skills[{index}]",
-        )
-        content_digest = _require_payload_string(
-            raw_record,
-            "content_digest",
-            context=f"{state_path}:installed_skills[{index}]",
-        )
-        records.append(
-            InstalledSystemSkillRecord(
-                name=name,
-                asset_subpath=asset_subpath,
-                projected_relative_dir=projected_relative_dir,
-                content_digest=content_digest,
-                projection_mode=projection_mode,
-            )
-        )
-
-    state = SystemSkillInstallState(
-        schema_version=schema_version,
-        tool=tool,
-        installed_at=installed_at,
-        installed_skills=tuple(records),
-    )
-    _validate_current_install_state_contract(state=state, state_path=state_path)
-    return state
-
-
 def install_system_skills_for_home(
     *,
     tool: str,
@@ -499,9 +355,6 @@ def install_system_skills_for_home(
 
     resolved_home_path = home_path.resolve()
     resolved_home_path.mkdir(parents=True, exist_ok=True)
-    existing_state = load_system_skill_install_state(tool=tool, home_path=resolved_home_path)
-    existing_records = {} if existing_state is None else existing_state.records_by_name()
-    updated_records = dict(existing_records)
     projected_relative_dirs: list[str] = []
     for skill_name in resolved_skill_names:
         skill_record = catalog.skills[skill_name]
@@ -511,45 +364,12 @@ def install_system_skills_for_home(
         )
         projected_relative_dirs.append(projected_relative_dir)
         target_path = resolved_home_path / projected_relative_dir
-        existing_record = existing_records.get(skill_name)
-        if (target_path.exists() or target_path.is_symlink()) and existing_record is None:
-            raise SystemSkillInstallError(
-                f"System-skill target `{target_path}` already exists but is not recorded as "
-                "current-schema Houmao-owned install state. Use a clean target home or remove "
-                "the conflicting content before reinstalling current system skills."
-            )
-        if existing_record is not None:
-            _remove_previous_owned_path(
-                previous_relative_dir=existing_record.projected_relative_dir,
-                home_path=resolved_home_path,
-            )
+        _remove_existing_path_if_present(target_path)
         _project_packaged_skill(
             asset_subpath=skill_record.asset_subpath,
             destination_root=target_path,
             projection_mode=projection_mode,
         )
-        updated_records[skill_name] = InstalledSystemSkillRecord(
-            name=skill_name,
-            asset_subpath=skill_record.asset_subpath,
-            projected_relative_dir=projected_relative_dir,
-            content_digest=_packaged_skill_digest(skill_record.asset_subpath),
-            projection_mode=projection_mode,
-        )
-
-    install_state = SystemSkillInstallState(
-        schema_version=SYSTEM_SKILL_STATE_SCHEMA_VERSION,
-        tool=tool,
-        installed_at=_utc_timestamp_now(),
-        installed_skills=_merge_install_records(
-            existing_state=existing_state,
-            updated_records=updated_records,
-            newly_selected_skill_names=resolved_skill_names,
-        ),
-    )
-    _write_system_skill_install_state(
-        path=system_skill_state_path_for_home(resolved_home_path),
-        state=install_state,
-    )
 
     return SystemSkillInstallResult(
         tool=tool,
@@ -559,6 +379,45 @@ def install_system_skills_for_home(
         resolved_skill_names=resolved_skill_names,
         projected_relative_dirs=tuple(projected_relative_dirs),
         projection_mode=projection_mode,
+    )
+
+
+def uninstall_system_skills_for_home(
+    *,
+    tool: str,
+    home_path: Path,
+) -> SystemSkillUninstallResult:
+    """Remove all current Houmao-owned system skills from one target tool home."""
+
+    catalog = load_system_skill_catalog()
+    resolved_home_path = home_path.resolve()
+    removed_skill_names: list[str] = []
+    removed_projected_relative_dirs: list[str] = []
+    absent_skill_names: list[str] = []
+    absent_projected_relative_dirs: list[str] = []
+
+    for skill_name in catalog.skill_names:
+        projected_relative_dir = projected_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        target_path = resolved_home_path / projected_relative_dir
+        if not target_path.exists() and not target_path.is_symlink():
+            absent_skill_names.append(skill_name)
+            absent_projected_relative_dirs.append(projected_relative_dir)
+            continue
+
+        _remove_existing_path_if_present(target_path)
+        removed_skill_names.append(skill_name)
+        removed_projected_relative_dirs.append(projected_relative_dir)
+
+    return SystemSkillUninstallResult(
+        tool=tool,
+        home_path=resolved_home_path,
+        removed_skill_names=tuple(removed_skill_names),
+        removed_projected_relative_dirs=tuple(removed_projected_relative_dirs),
+        absent_skill_names=tuple(absent_skill_names),
+        absent_projected_relative_dirs=tuple(absent_projected_relative_dirs),
     )
 
 
@@ -811,40 +670,6 @@ def _system_skill_record_for_name(skill_name: str) -> SystemSkillRecord:
     return record
 
 
-def _validate_current_install_state_contract(
-    *,
-    state: SystemSkillInstallState,
-    state_path: Path,
-) -> None:
-    """Reject install-state records that do not match current skill names and paths."""
-
-    catalog = load_system_skill_catalog()
-    for record in state.installed_skills:
-        catalog_record = catalog.skills.get(record.name)
-        if catalog_record is None:
-            raise SystemSkillInstallError(
-                f"Unsupported system-skill install-state record `{record.name}` at "
-                f"{state_path}. Reinstall current system skills into a clean target home; "
-                "renamed or superseded skill records are not migrated before 1.0."
-            )
-        expected_relative_dir = projected_system_skill_relative_dir(
-            tool=state.tool,
-            skill_name=record.name,
-        )
-        if record.projected_relative_dir != expected_relative_dir:
-            raise SystemSkillInstallError(
-                f"Unsupported system-skill install-state path for `{record.name}` at "
-                f"{state_path}: expected `{expected_relative_dir}`, got "
-                f"`{record.projected_relative_dir}`. Use a clean target home or reinstall "
-                "current system skills; old family-namespaced paths are not migrated before 1.0."
-            )
-        if record.asset_subpath != catalog_record.asset_subpath:
-            raise SystemSkillInstallError(
-                f"Unsupported system-skill install-state asset for `{record.name}` at "
-                f"{state_path}. Reinstall current system skills into a clean target home."
-            )
-
-
 def _resolve_requested_set_names(
     catalog: SystemSkillCatalog,
     *,
@@ -872,52 +697,6 @@ def replaceable_system_skill_relative_dirs(
 
     _system_skill_record_for_name(skill_name)
     return (projected_system_skill_relative_dir(tool=tool, skill_name=skill_name),)
-
-
-def _merge_install_records(
-    *,
-    existing_state: SystemSkillInstallState | None,
-    updated_records: dict[str, InstalledSystemSkillRecord],
-    newly_selected_skill_names: tuple[str, ...],
-) -> tuple[InstalledSystemSkillRecord, ...]:
-    """Merge updated install records while preserving prior record order."""
-
-    ordered_names: list[str] = []
-    if existing_state is not None:
-        for record in existing_state.installed_skills:
-            ordered_names.append(record.name)
-    for skill_name in newly_selected_skill_names:
-        if skill_name not in ordered_names:
-            ordered_names.append(skill_name)
-    return tuple(updated_records[name] for name in ordered_names if name in updated_records)
-
-
-def _write_system_skill_install_state(*, path: Path, state: SystemSkillInstallState) -> None:
-    """Persist one Houmao-owned install-state record."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state.to_payload(), indent=2, sort_keys=True), encoding="utf-8")
-
-
-def _remove_previous_owned_path(*, previous_relative_dir: str, home_path: Path) -> None:
-    """Remove one previously recorded Houmao-owned path and empty namespace parents."""
-
-    previous_dir = home_path.resolve() / previous_relative_dir
-    try:
-        previous_dir.relative_to(home_path.resolve())
-    except ValueError as exc:
-        raise SystemSkillInstallError(
-            f"Recorded owned system-skill path `{previous_dir}` escapes tool home `{home_path}`."
-        ) from exc
-
-    _remove_existing_path_if_present(previous_dir)
-    parent = previous_dir.parent
-    resolved_home_path = home_path.resolve()
-    while parent != resolved_home_path and parent.exists() and parent.is_dir():
-        if any(parent.iterdir()):
-            break
-        parent.rmdir()
-        parent = parent.parent
 
 
 def _packaged_skill_root(asset_subpath: str) -> Traversable:
@@ -961,33 +740,6 @@ def _packaged_skill_filesystem_root(asset_subpath: str) -> Path:
             f"Packaged system-skill asset path `{asset_subpath}` is missing or not a directory."
         )
     return skill_root
-
-
-@lru_cache(maxsize=None)
-def _packaged_skill_digest(asset_subpath: str) -> str:
-    """Return one deterministic content digest for one packaged skill tree."""
-
-    digest = hashlib.sha256()
-    _update_digest_from_tree(_packaged_skill_root(asset_subpath), digest=digest, prefix=Path())
-    return digest.hexdigest()
-
-
-def _update_digest_from_tree(
-    source_root: Traversable,
-    *,
-    digest: hashlib._Hash,
-    prefix: Path,
-) -> None:
-    """Update one digest with a deterministic representation of one resource tree."""
-
-    for child in sorted(source_root.iterdir(), key=lambda item: item.name):
-        child_prefix = prefix / child.name
-        digest.update(str(child_prefix).encode("utf-8"))
-        if child.is_dir():
-            _update_digest_from_tree(child, digest=digest, prefix=child_prefix)
-            continue
-        with child.open("rb") as handle:
-            digest.update(handle.read())
 
 
 def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> None:
@@ -1048,31 +800,3 @@ def _require_mapping(payload: dict[str, object], key: str, *, source: str) -> di
     if not isinstance(value, dict):
         raise SystemSkillCatalogError(f"{source}: `{key}` must be a mapping")
     return value
-
-
-def _require_payload_string(payload: dict[str, object], key: str, *, context: str) -> str:
-    """Return one required non-blank string field from a JSON payload object."""
-
-    value = payload.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise SystemSkillInstallError(f"{context}: `{key}` must be a non-empty string")
-    return value.strip()
-
-
-def _require_payload_projection_mode(
-    payload: dict[str, object], *, context: str
-) -> SystemSkillProjectionMode:
-    """Return one required projection-mode field from a JSON payload object."""
-
-    value = payload.get("projection_mode")
-    if value == "copy":
-        return "copy"
-    if value == "symlink":
-        return "symlink"
-    raise SystemSkillInstallError(f"{context}: `projection_mode` must be `copy` or `symlink`")
-
-
-def _utc_timestamp_now() -> str:
-    """Return the current UTC timestamp in RFC 3339-style `Z` form."""
-
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")

@@ -29,6 +29,8 @@ Attach or reuse a live gateway for one managed agent, including serverless local
 houmao-mgr agents gateway attach [OPTIONS]
 ```
 
+If attach times out waiting for gateway health readiness, the command now reports the last observed health probe error when one exists. Use [Gateway Troubleshooting](../gateway/operations/troubleshooting.md) for the readiness timeout checklist and [Protocol And State Contracts](../gateway/contracts/protocol-and-state.md#gateway-client-proxy-policy) for the live gateway proxy policy.
+
 | Option | Description |
 |---|---|
 | `--background` | Run the gateway as a detached background process instead of the default same-session auxiliary tmux window. |
