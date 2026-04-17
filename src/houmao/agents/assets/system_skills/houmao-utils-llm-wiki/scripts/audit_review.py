@@ -18,7 +18,6 @@ Exit codes:
   0 — done (always, regardless of audit count)
 """
 
-import os
 import re
 import sys
 from collections import defaultdict
@@ -144,4 +143,3 @@ if __name__ == "__main__":
             print(f"Unknown flag: {arg}", file=sys.stderr)
             sys.exit(1)
     sys.exit(main(root, mode))
-

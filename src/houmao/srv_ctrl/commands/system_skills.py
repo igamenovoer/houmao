@@ -377,7 +377,9 @@ def _render_system_skills_status_plain(payload: object) -> None:
         skill_name = str(record.get("name", ""))
         projection_mode = str(record.get("projection_mode", "")).strip()
         projection_suffix = f" ({projection_mode})" if projection_mode else ""
-        click.echo(f"  - {skill_name}{projection_suffix}")
+        projected_relative_dir = str(record.get("projected_relative_dir", "")).strip()
+        projected_path = f": {projected_relative_dir}" if projected_relative_dir else ""
+        click.echo(f"  - {skill_name}{projection_suffix}{projected_path}")
 
 
 def _render_system_skills_install_plain(payload: object) -> None:
@@ -390,7 +392,15 @@ def _render_system_skills_install_plain(payload: object) -> None:
     if installations:
         click.echo("Installed Houmao system skills into resolved tool homes:")
         for installation in installations:
-            click.echo(f"  - {installation.get('tool')}: {installation.get('home_path')}")
+            click.echo(f"  - {installation.get('tool')}:")
+            click.echo(f"      home: {installation.get('home_path')}")
+            _render_projection_location_lines(
+                installation,
+                projected_dirs_key="projected_relative_dirs",
+                root_label="skill root",
+                path_label="projected paths",
+                indent="      ",
+            )
         projection_modes = {
             str(installation.get("projection_mode"))
             for installation in installations
@@ -400,8 +410,15 @@ def _render_system_skills_install_plain(payload: object) -> None:
             click.echo(f"Projection mode: {next(iter(projection_modes))}")
         return
 
-    click.echo(
-        f"Installed Houmao system skills into {payload.get('home_path')} ({payload.get('tool')})"
+    click.echo(f"Installed Houmao system skills into {payload.get('tool')}")
+    click.echo(f"Home: {payload.get('home_path')}")
+    _render_projection_location_lines(
+        payload,
+        projected_dirs_key="projected_relative_dirs",
+        root_label="Skill root",
+        path_label="Projected path",
+        indent="",
+        prefer_single_path=True,
     )
     projection_mode = payload.get("projection_mode")
     if projection_mode is not None:
@@ -425,23 +442,141 @@ def _render_system_skills_uninstall_plain(payload: object) -> None:
         for uninstallation in uninstallations:
             removed_count = len(_coerce_string_list(uninstallation.get("removed_skills")))
             absent_count = len(_coerce_string_list(uninstallation.get("absent_skills")))
-            click.echo(
-                "  - "
-                f"{uninstallation.get('tool')}: {uninstallation.get('home_path')} "
-                f"({removed_count} removed, {absent_count} absent)"
+            click.echo(f"  - {uninstallation.get('tool')}:")
+            click.echo(f"      home: {uninstallation.get('home_path')}")
+            click.echo(f"      result: {removed_count} removed, {absent_count} absent")
+            _render_projection_location_lines(
+                uninstallation,
+                projected_dirs_key="removed_projected_relative_dirs",
+                root_label="removed root",
+                path_label="removed paths",
+                indent="      ",
+            )
+            _render_projection_location_lines(
+                uninstallation,
+                projected_dirs_key="absent_projected_relative_dirs",
+                root_label="absent root",
+                path_label="absent paths",
+                indent="      ",
             )
         return
 
-    click.echo(
-        f"Removed Houmao system skills from {payload.get('home_path')} ({payload.get('tool')})"
-    )
+    click.echo(f"Removed Houmao system skills from {payload.get('tool')}")
+    click.echo(f"Home: {payload.get('home_path')}")
     removed_skills = _coerce_string_list(payload.get("removed_skills"))
     click.echo(f"Removed skills: {len(removed_skills)}")
     if removed_skills:
+        _render_projection_location_lines(
+            payload,
+            projected_dirs_key="removed_projected_relative_dirs",
+            root_label="Removed root",
+            path_label="Removed paths",
+            indent="",
+        )
         for skill_name in removed_skills:
             click.echo(f"  - {skill_name}")
     absent_skills = _coerce_string_list(payload.get("absent_skills"))
     click.echo(f"Absent skills: {len(absent_skills)}")
+    if absent_skills:
+        _render_projection_location_lines(
+            payload,
+            projected_dirs_key="absent_projected_relative_dirs",
+            root_label="Absent root",
+            path_label="Absent paths",
+            indent="",
+        )
+
+
+def _render_projection_location_lines(
+    payload: dict[str, object],
+    *,
+    projected_dirs_key: str,
+    root_label: str,
+    path_label: str,
+    indent: str,
+    prefer_single_path: bool = False,
+) -> None:
+    """Render concise effective-home-relative projection path information."""
+
+    projected_relative_dirs = _coerce_string_list(payload.get(projected_dirs_key))
+    if not projected_relative_dirs:
+        return
+
+    if prefer_single_path and len(projected_relative_dirs) == 1:
+        projected_paths = _absolute_projected_paths(
+            home_path=payload.get("home_path"),
+            projected_relative_dirs=projected_relative_dirs,
+        )
+        if projected_paths:
+            click.echo(f"{indent}{path_label}: {projected_paths[0]}")
+            return
+
+    projection_root = _common_absolute_projection_root(
+        home_path=payload.get("home_path"),
+        projected_relative_dirs=projected_relative_dirs,
+    )
+    if projection_root is not None:
+        click.echo(f"{indent}{root_label}: {projection_root}")
+        return
+
+    projected_paths = _absolute_projected_paths(
+        home_path=payload.get("home_path"),
+        projected_relative_dirs=projected_relative_dirs,
+    )
+    if projected_paths:
+        click.echo(f"{indent}{path_label}:")
+        for projected_path in projected_paths:
+            click.echo(f"{indent}  - {projected_path}")
+
+
+def _common_absolute_projection_root(
+    *,
+    home_path: object,
+    projected_relative_dirs: list[str],
+) -> str | None:
+    """Return one absolute projection root when all projected dirs share one parent."""
+
+    home_text = _non_empty_text(home_path)
+    if home_text is None:
+        return None
+
+    parent_dirs = {
+        str(Path(projected_relative_dir).parent)
+        for projected_relative_dir in projected_relative_dirs
+        if projected_relative_dir.strip()
+    }
+    if len(parent_dirs) != 1:
+        return None
+
+    parent_dir = next(iter(parent_dirs))
+    if parent_dir in {"", "."}:
+        return home_text
+    return str(Path(home_text) / parent_dir)
+
+
+def _absolute_projected_paths(
+    *,
+    home_path: object,
+    projected_relative_dirs: list[str],
+) -> list[str]:
+    """Return absolute projection paths for home-relative projection dirs."""
+
+    home_text = _non_empty_text(home_path)
+    if home_text is None:
+        return projected_relative_dirs
+    return [
+        str(Path(home_text) / projected_relative_dir)
+        for projected_relative_dir in projected_relative_dirs
+    ]
+
+
+def _non_empty_text(value: object) -> str | None:
+    """Return a stripped string value when present."""
+
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return None
+    return text
 
 
 def _coerce_mapping_list(value: object) -> list[dict[str, Any]]:

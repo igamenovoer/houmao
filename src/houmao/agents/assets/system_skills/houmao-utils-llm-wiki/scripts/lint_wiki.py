@@ -23,7 +23,6 @@ Exit codes:
   1 — issues found (printed to stdout)
 """
 
-import os
 import re
 import sys
 from collections import defaultdict

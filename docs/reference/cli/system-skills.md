@@ -139,6 +139,14 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 
 That means Houmao-owned skills stay grouped by reserved skill names and closed named sets rather than by family-specific path segments.
 
+## Human-Readable Projection Output
+
+Plain `install`, `status`, and `uninstall` output distinguishes the effective tool home from the skill projection location. The effective home is the root used for tool-home resolution and later status/uninstall targeting. The projection location is where Houmao-owned skill directories actually appear under that home.
+
+For Claude, Codex, and Copilot, the projection root is usually `<effective-home>/skills/`. For Gemini, the effective home may be the project root while the projection root is `<effective-home>/.gemini/skills/`. For example, if omitted-home Gemini resolution chooses `/workspace/repo`, the installed Houmao-owned Gemini skill files live under `/workspace/repo/.gemini/skills/`.
+
+The plain output reports projection roots or projected paths so an operator can locate installed, discovered, removed, or absent skill paths without switching to JSON output.
+
 ## Stateless Selected-Skill Replacement
 
 The shared installer does not create or require `.houmao/system-skills/install-state.json` in target tool homes.
@@ -196,6 +204,7 @@ pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 - target tool
 - resolved target home
 - installed current Houmao-owned skill names discovered in that home
+- the projected relative path for each discovered current skill
 - the inferred projection mode for each installed current skill (`copy` or `symlink`)
 
 If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. `status` discovers current packaged skill paths from the filesystem and ignores old install-state files.
@@ -242,6 +251,12 @@ Structured output rules:
 - single-tool JSON output keeps the existing scalar payload shape with `tool`, `home_path`, `selected_sets`, `explicit_skills`, `resolved_skills`, `projected_relative_dirs`, and `projection_mode`
 - multi-tool JSON output returns `tools` plus one single-tool-shaped record per selected tool under `installations`
 
+Plain output rules:
+
+- single-tool output reports the effective home plus the installed projected skill path or projection root
+- multi-tool output reports each selected tool's effective home plus skill projection root
+- Gemini output reports `.gemini/skills` paths rather than implying that skills were installed directly into the effective home root
+
 Projection rules:
 
 - without `--symlink`, Houmao copies the packaged skill tree into the target home
@@ -277,6 +292,12 @@ Structured output rules:
 
 - single-tool JSON output uses scalar `tool` and `home_path` fields and reports `removed_skills`, `removed_projected_relative_dirs`, `absent_skills`, and `absent_projected_relative_dirs`
 - multi-tool JSON output returns `tools` plus one single-tool-shaped record per selected tool under `uninstallations`
+
+Plain output rules:
+
+- single-tool output reports the effective home plus removed or absent projected paths
+- multi-tool output reports each selected tool's effective home plus removed or absent projection roots when paths share a root
+- Gemini output reports `.gemini/skills` removal or absence paths rather than implying that current Houmao-owned skills were removed directly from the effective home root
 
 Removal boundary:
 
