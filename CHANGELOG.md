@@ -4,6 +4,17 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc8] - 2026-04-17
+
+### Changed
+
+- **Clarified system skill projection output**: `houmao-mgr system-skills install` and `uninstall` now emit structured, human-readable projection summaries showing exactly which skills were installed, skipped, or removed per tool home.
+- **Revised in-repo workspace mutation model**: the `houmao-utils-workspace-mgr` in-repo workspace subskill gains clearer mutation-scope guidance and expanded safety rules for managed-agent file operations.
+
+### Fixed
+
+- **Stopped agent cleanup targets recovered**: `houmao-mgr cleanup` and `houmao-server` agent API now correctly resolve and clean up agents that reached stopped state, fixing cases where stopped agents were missed during discovery and cleanup sweeps.
+
 ## [0.7.0rc7] - 2026-04-17
 
 ### Added
