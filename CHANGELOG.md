@@ -4,6 +4,16 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.0rc7] - 2026-04-17
+
+### Added
+
+- **Workspace manager utility system skill**: new `houmao-utils-workspace-mgr` packaged system skill provides in-repo and out-of-repo workspace management subskills for managed agents.
+
+### Changed
+
+- **Consolidated system skill install sets**: system skill catalog reorganized into simplified install sets, streamlining `houmao-mgr system-skills install` and reducing per-tool skill fragmentation. Overview docs and CLI reference updated accordingly.
+
 ## [0.7.0rc6] - 2026-04-16
 
 ### Added
