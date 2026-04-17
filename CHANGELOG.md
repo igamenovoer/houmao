@@ -4,104 +4,41 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
-## [0.7.0rc8] - 2026-04-17
-
-### Changed
-
-- **Clarified system skill projection output**: `houmao-mgr system-skills install` and `uninstall` now emit structured, human-readable projection summaries showing exactly which skills were installed, skipped, or removed per tool home.
-- **Revised in-repo workspace mutation model**: the `houmao-utils-workspace-mgr` in-repo workspace subskill gains clearer mutation-scope guidance and expanded safety rules for managed-agent file operations.
-
-### Fixed
-
-- **Stopped agent cleanup targets recovered**: `houmao-mgr cleanup` and `houmao-server` agent API now correctly resolve and clean up agents that reached stopped state, fixing cases where stopped agents were missed during discovery and cleanup sweeps.
-
-## [0.7.0rc7] - 2026-04-17
+## [0.7.0] - 2026-04-17
 
 ### Added
 
-- **Workspace manager utility system skill**: new `houmao-utils-workspace-mgr` packaged system skill provides in-repo and out-of-repo workspace management subskills for managed agents.
-
-### Changed
-
-- **Consolidated system skill install sets**: system skill catalog reorganized into simplified install sets, streamlining `houmao-mgr system-skills install` and reducing per-tool skill fragmentation. Overview docs and CLI reference updated accordingly.
-
-## [0.7.0rc6] - 2026-04-16
-
-### Added
-
-- **System skills uninstall command**: `houmao-mgr system-skills uninstall` removes previously installed Houmao system skills from tool homes, with `--tool` filtering and `--dry-run` preview support.
-- **LLM Wiki utility system skill**: new `houmao-utils-llm-wiki` packaged system skill provides a complete wiki authoring toolkit — article scaffolding, schema validation, lint, audit review, and an interactive web viewer with graph visualization — installable via `houmao-mgr system-skills install`.
-
-## [0.7.0rc5] - 2026-04-16
-
-### Changed
-
-- **Simplified system skill reinstall**: `houmao-mgr system-skills install` no longer requires separate overwrite flags; reinstalling over existing skills now uses straightforward replace semantics, removing previous overwrite-policy complexity.
-
-### Fixed
-
-- **Proxy env bypassed for gateway attach**: gateway HTTP client now strips proxy-related environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and lowercase variants) during attach and status calls, preventing connection failures when the runtime runs behind a corporate proxy that cannot reach the local gateway.
-
-## [0.7.0rc4] - 2026-04-16
-
-### Added
-
-- **Multi-tool system skill installs**: `houmao-mgr system-skills install` now accepts comma-separated `--tool` values (e.g. `--tool claude,codex,gemini`) to install Houmao system skills into multiple tool homes in a single command.
-
-### Changed
-
-- **Simplified launch profile memo seeds**: memo seed policies reduced to unconditional replace semantics; removed `initialize` and `fail-if-nonempty` policies and the represented-targets content check.
-- **Removed source migration paths**: in-memory manifest upgrade logic for schema versions 1–3 removed; the runtime now requires `schema_version=4` exclusively. Legacy brain homes must be rebuilt with the current builder.
-- **Removed GitHub skill mirrors**: the mirrored GitHub skill files that duplicated packaged system skills are removed; the canonical source is the packaged skill tree.
-
-### Fixed
-
-- **Memo seed content refs migrated**: memo seed `content_ref` paths updated to match the simplified seed structure.
-- **Stale schema version references in docs**: `agents-and-runtime.md` and `brain-launch-runtime` spec updated from schema v2/v3 references to v4.
-
-## [0.7.0rc3] - 2026-04-15
-
-### Added
-
+- **Agent memory commands**: `houmao-mgr agents memory` command family gives every managed agent an operator-addressable memory root with `path`, `memo show/set`, `tree`, `read`, `write`, `append`, `delete`, and `clear` sub-commands. Per-agent memory resolves to `<project-root>/.houmao/memory/agents/<agent-id>/` by default with a flat free-form layout centered on `houmao-memo.md` and an optional `pages/` directory.
+- **`houmao-memory-mgr` system skill**: packaged skill gives managed agents a first-class interface for reading and writing their own memory root — free-form memo file, page files, and page link resolution — without operator intervention.
+- **Memo-cue section in managed prompt header**: the Houmao-owned prompt header gains a sixth independently controllable section, `memo-cue`, enabled by default. It points the agent at the resolved absolute `houmao-memo.md` path at the start of every prompt turn.
+- **Launch profile memo seeds**: launch profiles can carry `memo_seeds` — policy-driven memo-file seed entries materialized into the agent's memory root at launch time. Policies use unconditional replace semantics.
+- **Mail-notifier notification mode**: gateway mail-notifier gains a `notification_mode` setting — `any_inbox` (default) and `unread_only` (wake only for unread unarchived inbox mail).
+- **Mailbox answered-archive lifecycle**: answered messages are moved to an `answered/` archive lane in the filesystem mailbox.
 - **Copilot system skill installs**: GitHub Copilot CLI is now a supported system-skill install target alongside Claude, Codex, and Gemini.
-- **Per-tool credential kinds reference pages**: `houmao-specialist-mgr` and `houmao-credential-mgr` system skills gain dedicated credential-kinds reference pages for Claude, Codex, and Gemini with cross-linked discovery shortcuts.
-- **Launch profile memo seeds**: launch profiles can now carry `memo_seeds` — a list of policy-driven memo-file seed entries that are materialized into the agent's memory root at launch time.
+- **Multi-tool system skill installs**: `houmao-mgr system-skills install` accepts comma-separated `--tool` values (e.g. `--tool claude,codex,gemini`) to install into multiple tool homes in a single command.
+- **System skills uninstall command**: `houmao-mgr system-skills uninstall` removes previously installed skills from tool homes, with `--tool` filtering and `--dry-run` preview.
+- **LLM Wiki utility system skill**: new `houmao-utils-llm-wiki` packaged system skill provides a complete wiki authoring toolkit — article scaffolding, schema validation, lint, audit review, and an interactive web viewer.
+- **Workspace manager utility system skill**: new `houmao-utils-workspace-mgr` packaged system skill provides in-repo and out-of-repo workspace management subskills for managed agents.
+- **Per-tool credential kinds reference pages**: `houmao-specialist-mgr` and `houmao-credential-mgr` system skills gain dedicated credential-kinds reference pages for Claude, Codex, and Gemini.
 - **Writer team example and touring welcome**: new `examples/writer-team/` multi-agent example and an updated `houmao-touring` skill welcome branch.
 
 ### Changed
 
+- **Unified memory directory layout**: `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE` and related env vars replace the retired `HOUMAO_JOB_DIR` and `HOUMAO_MEMORY_DIR`. The `memory/` subdirectory now appears in the `.houmao/` project overlay layout.
+- **Simplified system skill reinstall**: reinstalling over existing skills uses straightforward replace semantics; no separate overwrite flags needed.
+- **Consolidated system skill install sets**: system skill catalog reorganized into simplified install sets, reducing per-tool skill fragmentation.
+- **Clarified system skill projection output**: install and uninstall commands emit structured, human-readable projection summaries.
+- **Revised in-repo workspace mutation model**: the `houmao-utils-workspace-mgr` in-repo workspace subskill gains clearer mutation-scope guidance and expanded safety rules.
+- **Removed source migration paths**: in-memory manifest upgrade logic for schema versions 1–3 removed; the runtime now requires `schema_version=4` exclusively. Legacy brain homes must be rebuilt.
+- **Removed GitHub skill mirrors**: the mirrored GitHub skill files that duplicated packaged system skills are removed; the canonical source is the packaged skill tree.
 - **Compatibility profile bootstrap hidden**: the legacy compatibility profile bootstrap path is no longer surfaced in default flows.
-- **Docs synced with rc1/rc2 changes**: architecture overview diagram updated to schema_version 4, mailbox answered state documented, writer-team cross-referenced from loop authoring guide and README.
+- **Docs and README updated**: architecture overview diagram updated to schema_version 4, mailbox answered state documented, writer-team cross-referenced from loop authoring guide and README.
 
 ### Fixed
 
-- **Memo seed policies scoped to represented components**: memo seed policies now apply only to the components the launch profile actually represents, preventing unintended seed injection across unrelated agents.
-
-## [0.7.0rc2] - 2026-04-15
-
-### Added
-
-- **`houmao-memory-mgr` system skill**: new packaged skill gives managed agents a first-class interface for reading and writing their own memory root — free-form memo file, page files, and page link resolution — without operator intervention.
-- **Memo-cue section in managed prompt header**: the Houmao-owned prompt header gains a sixth independently controllable section, `memo-cue`, enabled by default. It points the agent at the resolved absolute `houmao-memo.md` path at the start of every prompt turn, ensuring the agent sees its persistent memo without being explicitly instructed to read it. Control with `--managed-header-section memo-cue=disabled` or store the setting in a launch profile.
-
-### Changed
-
-- **`agents workspace` renamed to `agents memory`**: the per-agent workspace command family is now `houmao-mgr agents memory` to reflect the broader memory model (free-form memo, pages, and directory tree). All sub-commands (`path`, `memo show/set`, `tree`, `read`, `write`, `append`, `delete`, `clear`) are preserved under the new name. **BREAKING for rc1 users**: update any scripts using `agents workspace` to `agents memory`.
-- **Simplified memory model**: the `scratch/` and `persist/` lane distinction is removed in favor of a flat free-form memory root. The `houmao-memo.md` file and an optional `pages/` directory are the canonical memory surfaces. Environment variables updated accordingly.
-- **rc1 changelog corrected**: the `agents workspace` and unified workspace layout entries from rc1 describe the API that is now renamed/simplified in rc2.
-
-## [0.7.0rc1] - 2026-04-14
-
-### Added
-
-- **Agent workspace commands**: `houmao-mgr agents workspace` command family gives every managed agent an operator-addressable workspace root with `path`, `memo show/set`, `tree`, `read`, `write`, `append`, `delete`, and `clear` sub-commands. Per-agent workspaces resolve to `<project-root>/.houmao/memory/agents/<agent-id>/` by default and expose `scratch/` and `persist/` lanes. The same workspace controls are available on `agents join`, `agents launch`, `project easy instance launch`, and stored launch profiles.
-- **Mail-notifier notification mode**: gateway mail-notifier gains a `notification_mode` setting — `any_inbox` (default, existing behavior: wake while any unarchived inbox mail remains) and `unread_only` (wake only for unread unarchived inbox mail). Configurable at attach time and stored in gateway state.
-- **Mailbox answered-archive lifecycle**: answered messages are now moved to an `answered/` archive lane in the filesystem mailbox, keeping the active inbox clean without deleting processed messages.
-
-### Changed
-
-- **Unified workspace directory layout**: `HOUMAO_AGENT_STATE_DIR`, `HOUMAO_AGENT_MEMO_FILE`, `HOUMAO_AGENT_SCRATCH_DIR`, and `HOUMAO_AGENT_PERSIST_DIR` replace the retired `HOUMAO_JOB_DIR` and `HOUMAO_MEMORY_DIR` env vars. The `memory/` subdirectory now appears in the `.houmao/` project overlay layout.
-- **Docs and README updated**: `docs/index.md` gains a brief intro and audience-oriented "where to start" table; `docs/getting-started/quickstart.md` notes that it targets from-source checkouts; `README.md` reflects the workspace layout and `agents workspace` capabilities; `DEVELOPMENT-SETUP.md` filename typo fixed.
+- **Stopped agent cleanup targets recovered**: `houmao-mgr cleanup` and `houmao-server` agent API now correctly resolve and clean up agents in stopped state.
+- **Proxy env bypassed for gateway attach**: gateway HTTP client strips proxy-related environment variables during attach and status calls, preventing connection failures behind corporate proxies.
+- **Memo seed policies scoped to represented components**: memo seed policies apply only to the components the launch profile actually represents.
 
 ## [0.6.6] - 2026-04-14
 
