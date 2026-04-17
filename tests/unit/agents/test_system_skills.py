@@ -194,6 +194,7 @@ def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
 def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR)
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    in_repo_text = (skill_root / "subskills/in-repo-workspace.md").read_text(encoding="utf-8")
 
     assert (skill_root / "SKILL.md").is_file()
     assert (skill_root / "subskills/in-repo-workspace.md").is_file()
@@ -202,6 +203,14 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     assert "seeded-worktree" in skill_text
     assert "Plan Mode" in skill_text
     assert "Execute Mode" in skill_text
+    assert "For `in-repo`, the default planned launch cwd is `<repo-root>`" in skill_text
+    assert "For `in-repo` memo seeds" in skill_text
+    assert "The repo root is the shared visibility surface." in in_repo_text
+    assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
+    assert "| `<repo-root>/houmao-ws/<agent-name>/kb/**` | yes | yes | yes | no |" in (
+        in_repo_text
+    )
+    assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
 
 
 def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) -> None:

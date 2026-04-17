@@ -63,7 +63,7 @@ Execute in this order:
 5. Materialize tracked submodules.
 6. Create per-agent KB and shared KB paths.
 7. Update or create `workspace.md`.
-8. Adjust launch profiles to point at the prepared cwd values.
+8. Adjust launch profiles to point at the prepared flavor-specific cwd values.
 9. Optionally create memo-seed Markdown files and seed them into launch profiles.
 10. Inspect final Git/filesystem status and report commands run plus remaining manual work.
 
@@ -177,10 +177,12 @@ During `execute`, adjust launch profiles only after the workspaces exist.
 
 For each profile:
 
-- set or update launch cwd to the planned agent cwd
+- set or update launch cwd to the planned flavor-specific agent cwd
 - preserve unrelated launch settings
 - record the old cwd and new cwd in the execution report
 - do not rewrite credentials or provider setup except for optional memo-seed changes
+
+For `in-repo`, the default planned launch cwd is `<repo-root>`, not the per-agent worktree. The per-agent worktree remains the source and shared-KB mutation target.
 
 If profile format is unclear, inspect existing profile files and follow local patterns. If still unclear, write the intended profile changes in the report and stop before editing them.
 
@@ -194,9 +196,12 @@ Memo seed content should include:
 - branch names for superproject and submodules
 - writable KB paths
 - shared KB paths and ownership
+- source and shared-KB write targets
 - local-state symlink policy
 - submodule commit and push rules
 - integration rule: avoid submodule structure changes; expect cherry-pick/path-limited merge
+
+For `in-repo` memo seeds, state that the agent launches from `<repo-root>` for shared visibility, writes source changes inside `<repo-root>/houmao-ws/<agent-name>/repo`, writes shared-KB changes intended for Git merge inside that worktree's `houmao-ws/shared-kb`, may write its own parent-checkout `houmao-ws/<agent-name>/kb`, and treats sibling KB directories, sibling worktrees, parent-checkout source, parent-checkout shared KB, and `workspace.md` as read-only by default.
 
 Preserve original memo seed text verbatim in a clearly labeled section, then append workspace rules. Update the launch profile to use the generated memo seed file only after writing it.
 
@@ -209,12 +214,15 @@ Maintain `<ws-root>/workspace.md` as the human-readable map and operating contra
 - workspace flavor and root
 - agents, source profiles, cwd values, and branches
 - repo bindings and materialization modes
+- visibility surfaces and safe write targets
 - local-state symlink decisions
 - submodule materialization decisions and status
 - shared local repos
 - ignored paths
 - memo-seed files created
 - integration and ownership rules
+
+For `in-repo`, record `<repo-root>` as the shared visibility surface and record read/write ownership for parent-checkout source paths, each agent's private worktree, each worktree copy of `houmao-ws/shared-kb`, parent-checkout `houmao-ws/shared-kb`, each agent's parent-checkout `kb`, sibling KB directories, sibling worktrees, and `workspace.md`.
 
 Treat `workspace.md` as documentation, not as the only source of truth. Inspect Git and the filesystem for status.
 
