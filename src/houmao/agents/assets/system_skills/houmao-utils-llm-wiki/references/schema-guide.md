@@ -62,6 +62,7 @@ tags: [relevant tags]
 ### Raw file policy
 - Small text sources → copy into `raw/<subfolder>/`.
 - Large binaries → create a pointer file at `raw/refs/<slug>.md` with `kind: ref` frontmatter and an `external_path` field. Do not copy the binary.
+- Do not create a `## Raw references` section by default. Only if the user explicitly says they want raw material references, each touched wiki page gets a `## Raw references` section with wikilinks to the related raw materials, such as `[[raw/articles/<slug>|Raw article]]`, `[[raw/papers/<slug>|Raw paper]]`, or `[[raw/refs/<slug>|Raw reference]]`.
 
 ## Current articles
 

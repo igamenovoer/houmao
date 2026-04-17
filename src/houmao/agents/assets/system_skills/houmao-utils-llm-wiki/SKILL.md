@@ -19,7 +19,7 @@ license: MIT
 
 > **Experimental skill — iterating.**
 
-This is a Houmao-packaged utility system skill for creating and maintaining persistent Markdown knowledge bases. Install it explicitly with `houmao-mgr system-skills install --tool <tool> --skill-set utils` or `houmao-mgr system-skills install --tool <tool> --skill houmao-utils-llm-wiki`.
+This is a Houmao-packaged utility system skill for creating and maintaining persistent Markdown knowledge bases. Install it with `houmao-mgr system-skills install --tool <tool> --skill-set all` or `houmao-mgr system-skills install --tool <tool> --skill houmao-utils-llm-wiki`.
 
 ## Core idea
 
@@ -165,8 +165,9 @@ Add a new source. **One source typically touches 5–15 wiki pages.**
 3. Create `wiki/summaries/<slug>.md` (200–400 words — key takeaways, not a rewrite; see `references/article-guide.md`).
 4. Create or update relevant concept pages in `wiki/concepts/`. Respect divide-and-conquer: if a concept page would exceed 1200 words, split instead of cramming.
 5. Create or update entity pages in `wiki/entities/` for any new people / tools / papers / organizations referenced.
-6. Update `wiki/index.md` so the new pages appear under the right category.
-7. Log: `## [HH:MM] ingest | <slug> — <one-line description> (touched N pages)`
+6. Do not create a `## Raw references` section by default. Only if the user explicitly says they want raw material references, add or update a `## Raw references` section on every touched wiki page with wikilinks to the related `raw/` materials, e.g. `[[raw/articles/<slug>|Raw article]]`, `[[raw/papers/<slug>|Raw paper]]`, or `[[raw/refs/<slug>|Raw reference]]`.
+7. Update `wiki/index.md` so the new pages appear under the right category.
+8. Log: `## [HH:MM] ingest | <slug> — <one-line description> (touched N pages)`
 
 ### 3. `query`
 

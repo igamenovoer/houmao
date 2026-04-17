@@ -171,6 +171,18 @@ tags: [tag1]
 - [[wiki/entities/entity-b|Entity B]]
 ```
 
+## Optional raw references section
+
+Do not include a `## Raw references` section by default. Only add it when the user explicitly asks for raw material references. When requested, place it near the end of each touched wiki page and link the related immutable raw materials directly:
+
+```markdown
+## Raw references
+
+- [[raw/articles/source-slug|Raw article]]
+- [[raw/papers/source-slug|Raw paper]]
+- [[raw/refs/source-slug|Raw reference]]
+```
+
 ## Diagrams — always mermaid
 
 ASCII art is banned. Any flow, sequence, hierarchy, or state diagram is mermaid. Examples:

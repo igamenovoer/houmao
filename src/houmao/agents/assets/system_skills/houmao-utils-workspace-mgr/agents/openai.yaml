@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Workspace Manager"
+  short_description: "Plan and execute multi-agent workspace layouts."
+  default_prompt: "Plan a Houmao multi-agent workspace for these launch profiles."

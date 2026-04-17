@@ -11,22 +11,14 @@ from click.testing import CliRunner
 from houmao.srv_ctrl.commands.main import cli
 from houmao.version import get_version
 
-_DEFAULT_SET_NAMES = [
-    "mailbox-full",
-    "agent-memory",
-    "advanced-usage",
-    "touring",
-    "user-control",
-    "agent-instance",
-    "agent-inspect",
-    "agent-messaging",
-    "agent-gateway",
-]
+_CORE_SET_NAMES = ["core"]
+_DEFAULT_SET_NAMES = ["all"]
 _CATALOG_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-adv-usage-pattern",
     "houmao-utils-llm-wiki",
+    "houmao-utils-workspace-mgr",
     "houmao-touring",
     "houmao-mailbox-mgr",
     "houmao-memory-mgr",
@@ -71,6 +63,8 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-inspect",
     "houmao-agent-messaging",
     "houmao-agent-gateway",
+    "houmao-utils-llm-wiki",
+    "houmao-utils-workspace-mgr",
 ]
 _DEFAULT_INSTALLED_CATALOG_ORDER = [
     skill_name for skill_name in _CATALOG_SKILLS if skill_name in _DEFAULT_RESOLVED_SKILLS
@@ -160,91 +154,14 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert [record["name"] for record in payload["skills"]] == _CATALOG_SKILLS
-    assert [record["name"] for record in payload["sets"]] == [
-        "mailbox-core",
-        "mailbox-full",
-        "agent-memory",
-        "advanced-usage",
-        "utils",
-        "touring",
-        "user-control",
-        "agent-instance",
-        "agent-inspect",
-        "agent-messaging",
-        "agent-gateway",
-    ]
+    assert [record["name"] for record in payload["sets"]] == ["core", "all"]
     assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
-    assert payload["auto_install"]["managed_launch_sets"] == [
-        "mailbox-full",
-        "agent-memory",
-        "advanced-usage",
-        "touring",
-        "user-control",
-        "agent-inspect",
-        "agent-messaging",
-        "agent-gateway",
-    ]
-    assert payload["auto_install"]["managed_join_sets"] == [
-        "mailbox-full",
-        "agent-memory",
-        "advanced-usage",
-        "touring",
-        "user-control",
-        "agent-inspect",
-        "agent-messaging",
-        "agent-gateway",
-    ]
-    mailbox_core_record = next(
-        record for record in payload["sets"] if record["name"] == "mailbox-core"
-    )
-    assert mailbox_core_record["skills"] == [
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-    ]
-    mailbox_full_record = next(
-        record for record in payload["sets"] if record["name"] == "mailbox-full"
-    )
-    assert mailbox_full_record["skills"] == [
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-    ]
-    agent_memory_record = next(
-        record for record in payload["sets"] if record["name"] == "agent-memory"
-    )
-    assert agent_memory_record["skills"] == ["houmao-memory-mgr"]
-    advanced_usage_record = next(
-        record for record in payload["sets"] if record["name"] == "advanced-usage"
-    )
-    assert advanced_usage_record["skills"] == ["houmao-adv-usage-pattern"]
-    utils_record = next(record for record in payload["sets"] if record["name"] == "utils")
-    assert utils_record["skills"] == ["houmao-utils-llm-wiki"]
-    touring_record = next(record for record in payload["sets"] if record["name"] == "touring")
-    assert touring_record["skills"] == ["houmao-touring"]
-    user_control_record = next(
-        record for record in payload["sets"] if record["name"] == "user-control"
-    )
-    assert user_control_record["skills"] == [
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-    ]
-    agent_inspect_record = next(
-        record for record in payload["sets"] if record["name"] == "agent-inspect"
-    )
-    assert agent_inspect_record["skills"] == ["houmao-agent-inspect"]
-    agent_messaging_record = next(
-        record for record in payload["sets"] if record["name"] == "agent-messaging"
-    )
-    assert agent_messaging_record["skills"] == ["houmao-agent-messaging"]
-    agent_gateway_record = next(
-        record for record in payload["sets"] if record["name"] == "agent-gateway"
-    )
-    assert agent_gateway_record["skills"] == ["houmao-agent-gateway"]
+    assert payload["auto_install"]["managed_launch_sets"] == _CORE_SET_NAMES
+    assert payload["auto_install"]["managed_join_sets"] == _CORE_SET_NAMES
+    core_record = next(record for record in payload["sets"] if record["name"] == "core")
+    assert core_record["skills"] == _DEFAULT_RESOLVED_SKILLS[:-2]
+    all_record = next(record for record in payload["sets"] if record["name"] == "all")
+    assert all_record["skills"] == _DEFAULT_RESOLVED_SKILLS
 
 
 def test_system_skills_install_uses_cli_default_selection_when_selection_is_omitted(
@@ -288,6 +205,8 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
 
     status_result = CliRunner().invoke(
         cli,
@@ -314,10 +233,11 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
         }
         for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
     ]
-    assert not (home_path / "skills/houmao-utils-llm-wiki").exists()
+    assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
 
 
-def test_system_skills_install_status_and_uninstall_support_utils_set(tmp_path: Path) -> None:
+def test_system_skills_install_status_and_uninstall_support_all_set(tmp_path: Path) -> None:
     home_path = (tmp_path / "codex-home").resolve()
 
     install_result = CliRunner().invoke(
@@ -331,17 +251,19 @@ def test_system_skills_install_status_and_uninstall_support_utils_set(tmp_path: 
             "--home",
             str(home_path),
             "--skill-set",
-            "utils",
+            "all",
         ],
     )
 
     assert install_result.exit_code == 0, install_result.output
     install_payload = json.loads(install_result.output)
-    assert install_payload["selected_sets"] == ["utils"]
-    assert install_payload["resolved_skills"] == ["houmao-utils-llm-wiki"]
-    skill_dir = home_path / "skills/houmao-utils-llm-wiki"
-    assert (skill_dir / "SKILL.md").is_file()
-    assert (skill_dir / "viewer/web/package.json").is_file()
+    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
+    assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
+    wiki_skill_dir = home_path / "skills/houmao-utils-llm-wiki"
+    workspace_skill_dir = home_path / "skills/houmao-utils-workspace-mgr"
+    assert (wiki_skill_dir / "SKILL.md").is_file()
+    assert (wiki_skill_dir / "viewer/web/package.json").is_file()
+    assert (workspace_skill_dir / "SKILL.md").is_file()
 
     status_result = CliRunner().invoke(
         cli,
@@ -358,13 +280,14 @@ def test_system_skills_install_status_and_uninstall_support_utils_set(tmp_path: 
 
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
-    assert status_payload["installed_skills"] == ["houmao-utils-llm-wiki"]
+    assert status_payload["installed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
     assert status_payload["installed_skill_records"] == [
         {
-            "name": "houmao-utils-llm-wiki",
-            "projected_relative_dir": "skills/houmao-utils-llm-wiki",
+            "name": skill_name,
+            "projected_relative_dir": f"skills/{skill_name}",
             "projection_mode": "copy",
         }
+        for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
     ]
 
     uninstall_result = CliRunner().invoke(
@@ -383,8 +306,13 @@ def test_system_skills_install_status_and_uninstall_support_utils_set(tmp_path: 
     assert uninstall_result.exit_code == 0, uninstall_result.output
     uninstall_payload = json.loads(uninstall_result.output)
     assert "houmao-utils-llm-wiki" in uninstall_payload["removed_skills"]
+    assert "houmao-utils-workspace-mgr" in uninstall_payload["removed_skills"]
     assert "skills/houmao-utils-llm-wiki" in uninstall_payload["removed_projected_relative_dirs"]
-    assert not skill_dir.exists()
+    assert (
+        "skills/houmao-utils-workspace-mgr" in uninstall_payload["removed_projected_relative_dirs"]
+    )
+    assert not wiki_skill_dir.exists()
+    assert not workspace_skill_dir.exists()
 
 
 def test_system_skills_install_uses_explicit_home_over_env_redirect(tmp_path: Path) -> None:
@@ -485,10 +413,8 @@ def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
     assert uninstall_payload["removed_projected_relative_dirs"] == [
         f"skills/{skill_name}" for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
     ]
-    assert uninstall_payload["absent_skills"] == ["houmao-utils-llm-wiki"]
-    assert uninstall_payload["absent_projected_relative_dirs"] == [
-        "skills/houmao-utils-llm-wiki"
-    ]
+    assert uninstall_payload["absent_skills"] == []
+    assert uninstall_payload["absent_projected_relative_dirs"] == []
     assert (home_path / "skills").is_dir()
     assert not (home_path / "skills/houmao-specialist-mgr").exists()
 
@@ -689,7 +615,7 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
             "--tool",
             "gemini",
             "--skill-set",
-            "user-control",
+            "core",
         ],
     )
 
@@ -723,7 +649,7 @@ def test_system_skills_install_uses_project_scoped_copilot_default_home(
             "--tool",
             "copilot",
             "--skill-set",
-            "user-control",
+            "core",
         ],
     )
 
@@ -759,7 +685,7 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
             "--tool",
             "claude, codex,copilot,gemini",
             "--skill-set",
-            "user-control",
+            "core",
         ],
     )
 
@@ -772,18 +698,10 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
     assert installations["copilot"]["home_path"] == str(workspace / ".github")
     assert installations["gemini"]["home_path"] == str(workspace)
     for record in installations.values():
-        assert record["selected_sets"] == ["user-control"]
+        assert record["selected_sets"] == ["core"]
         assert record["explicit_skills"] == []
         assert record["projection_mode"] == "copy"
-        assert record["resolved_skills"] == [
-            "houmao-project-mgr",
-            "houmao-specialist-mgr",
-            "houmao-credential-mgr",
-            "houmao-agent-definition",
-            "houmao-agent-loop-pairwise",
-            "houmao-agent-loop-pairwise-v2",
-            "houmao-agent-loop-generic",
-        ]
+        assert record["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS[:-2]
     assert (workspace / ".claude/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".github/skills/houmao-project-mgr/SKILL.md").is_file()
@@ -808,7 +726,7 @@ def test_system_skills_install_rejects_multi_tool_home_before_mutation(
             "--home",
             str(explicit_home),
             "--skill-set",
-            "user-control",
+            "core",
         ],
     )
 
@@ -986,8 +904,8 @@ def test_system_skills_uninstall_rejects_duplicate_multi_tool_entries_before_mut
 def test_system_skills_uninstall_rejects_install_only_selection_flags() -> None:
     for flag, value in (
         ("--skill", "houmao-specialist-mgr"),
-        ("--skill-set", "user-control"),
-        ("--set", "user-control"),
+        ("--skill-set", "core"),
+        ("--set", "core"),
     ):
         result = CliRunner().invoke(
             cli,
@@ -1309,7 +1227,7 @@ def test_system_skills_install_rejects_removed_set_flag() -> None:
             "--tool",
             "gemini",
             "--set",
-            "user-control",
+            "core",
         ],
     )
 

@@ -16,6 +16,10 @@ description = "Advanced Houmao workflow composition skill layered on top of dire
 asset_subpath = "houmao-utils-llm-wiki"
 description = "LLM Wiki utility skill for persistent Markdown knowledge bases and bundled local viewer workflows."
 
+[skills.houmao-utils-workspace-mgr]
+asset_subpath = "houmao-utils-workspace-mgr"
+description = "Utility skill for planning and executing multi-agent workspace layouts."
+
 [skills.houmao-touring]
 asset_subpath = "houmao-touring"
 description = "Manual guided touring skill for first-time or re-orienting Houmao users."
@@ -72,48 +76,15 @@ description = "Managed agent communication and control skill."
 asset_subpath = "houmao-agent-gateway"
 description = "Managed agent gateway lifecycle and gateway-only control skill."
 
-[sets.mailbox-core]
-description = "Core shared mailbox workflow skills."
-skills = [
-  "houmao-process-emails-via-gateway",
-  "houmao-agent-email-comms",
-]
-
-[sets.mailbox-full]
-description = "Full mailbox system-skill set."
+[sets.core]
+description = "Closed core control and automation system-skill set."
 skills = [
   "houmao-process-emails-via-gateway",
   "houmao-agent-email-comms",
   "houmao-mailbox-mgr",
-]
-
-[sets.agent-memory]
-description = "Managed-agent memo and pages memory system skills."
-skills = [
   "houmao-memory-mgr",
-]
-
-[sets.advanced-usage]
-description = "Advanced multi-skill Houmao workflow patterns."
-skills = [
   "houmao-adv-usage-pattern",
-]
-
-[sets.utils]
-description = "General Houmao utility skills."
-skills = [
-  "houmao-utils-llm-wiki",
-]
-
-[sets.touring]
-description = "Manual guided touring skill for first-time Houmao workflows."
-skills = [
   "houmao-touring",
-]
-
-[sets.user-control]
-description = "User-controlled agent-management system skills."
-skills = [
   "houmao-project-mgr",
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
@@ -121,33 +92,37 @@ skills = [
   "houmao-agent-loop-pairwise",
   "houmao-agent-loop-pairwise-v2",
   "houmao-agent-loop-generic",
-]
-
-[sets.agent-instance]
-description = "Managed agent instance lifecycle system skills."
-skills = [
   "houmao-agent-instance",
-]
-
-[sets.agent-inspect]
-description = "Managed agent read-only inspection system skills."
-skills = [
   "houmao-agent-inspect",
-]
-
-[sets.agent-messaging]
-description = "Managed agent communication and control system skills."
-skills = [
   "houmao-agent-messaging",
-]
-
-[sets.agent-gateway]
-description = "Managed agent gateway lifecycle and gateway-only system skills."
-skills = [
   "houmao-agent-gateway",
 ]
 
+[sets.all]
+description = "All packaged Houmao system skills, including utility skills."
+skills = [
+  "houmao-process-emails-via-gateway",
+  "houmao-agent-email-comms",
+  "houmao-mailbox-mgr",
+  "houmao-memory-mgr",
+  "houmao-adv-usage-pattern",
+  "houmao-touring",
+  "houmao-project-mgr",
+  "houmao-specialist-mgr",
+  "houmao-credential-mgr",
+  "houmao-agent-definition",
+  "houmao-agent-loop-pairwise",
+  "houmao-agent-loop-pairwise-v2",
+  "houmao-agent-loop-generic",
+  "houmao-agent-instance",
+  "houmao-agent-inspect",
+  "houmao-agent-messaging",
+  "houmao-agent-gateway",
+  "houmao-utils-llm-wiki",
+  "houmao-utils-workspace-mgr",
+]
+
 [auto_install]
-managed_launch_sets = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
-managed_join_sets = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-inspect", "agent-messaging", "agent-gateway"]
-cli_default_sets = ["mailbox-full", "agent-memory", "advanced-usage", "touring", "user-control", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway"]
+managed_launch_sets = ["core"]
+managed_join_sets = ["core"]
+cli_default_sets = ["all"]

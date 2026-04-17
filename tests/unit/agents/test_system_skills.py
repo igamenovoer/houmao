@@ -1,23 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
-    SYSTEM_SKILL_SET_AGENT_MEMORY,
-    SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    SYSTEM_SKILL_SET_AGENT_INSPECT,
-    SYSTEM_SKILL_SET_AGENT_MESSAGING,
-    SYSTEM_SKILL_SET_AGENT_INSTANCE,
-    SYSTEM_SKILL_SET_ADVANCED_USAGE,
-    SYSTEM_SKILL_SET_MAILBOX_FULL,
-    SYSTEM_SKILL_SET_TOURING,
-    SYSTEM_SKILL_SET_UTILS,
-    SYSTEM_SKILL_SET_USER_CONTROL,
+    SYSTEM_SKILL_SET_ALL,
+    SYSTEM_SKILL_SET_CORE,
     SYSTEM_SKILL_UTILS_LLM_WIKI,
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     SystemSkillCatalogError,
     SystemSkillInstallError,
     discover_installed_system_skills,
@@ -27,6 +21,31 @@ from houmao.agents.system_skills import (
     resolve_auto_install_skill_selection,
     resolve_system_skill_selection,
     uninstall_system_skills_for_home,
+)
+
+CORE_SYSTEM_SKILLS = (
+    "houmao-process-emails-via-gateway",
+    "houmao-agent-email-comms",
+    "houmao-mailbox-mgr",
+    "houmao-memory-mgr",
+    "houmao-adv-usage-pattern",
+    "houmao-touring",
+    "houmao-project-mgr",
+    "houmao-specialist-mgr",
+    "houmao-credential-mgr",
+    "houmao-agent-definition",
+    "houmao-agent-loop-pairwise",
+    "houmao-agent-loop-pairwise-v2",
+    "houmao-agent-loop-generic",
+    "houmao-agent-instance",
+    "houmao-agent-inspect",
+    "houmao-agent-messaging",
+    "houmao-agent-gateway",
+)
+ALL_SYSTEM_SKILLS = (
+    *CORE_SYSTEM_SKILLS,
+    SYSTEM_SKILL_UTILS_LLM_WIKI,
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
 )
 
 
@@ -65,6 +84,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
         "houmao-utils-llm-wiki",
+        "houmao-utils-workspace-mgr",
         "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-memory-mgr",
@@ -81,49 +101,14 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-gateway",
     )
     assert tuple(catalog.sets.keys()) == (
-        "mailbox-core",
-        "mailbox-full",
-        "agent-memory",
-        "advanced-usage",
-        "utils",
-        "touring",
-        "user-control",
-        "agent-instance",
-        "agent-inspect",
-        "agent-messaging",
-        "agent-gateway",
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_ALL,
     )
-    assert catalog.auto_install.managed_launch_sets == (
-        SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_AGENT_MEMORY,
-        SYSTEM_SKILL_SET_ADVANCED_USAGE,
-        SYSTEM_SKILL_SET_TOURING,
-        SYSTEM_SKILL_SET_USER_CONTROL,
-        SYSTEM_SKILL_SET_AGENT_INSPECT,
-        SYSTEM_SKILL_SET_AGENT_MESSAGING,
-        SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    )
-    assert catalog.auto_install.managed_join_sets == (
-        SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_AGENT_MEMORY,
-        SYSTEM_SKILL_SET_ADVANCED_USAGE,
-        SYSTEM_SKILL_SET_TOURING,
-        SYSTEM_SKILL_SET_USER_CONTROL,
-        SYSTEM_SKILL_SET_AGENT_INSPECT,
-        SYSTEM_SKILL_SET_AGENT_MESSAGING,
-        SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    )
-    assert catalog.auto_install.cli_default_sets == (
-        SYSTEM_SKILL_SET_MAILBOX_FULL,
-        SYSTEM_SKILL_SET_AGENT_MEMORY,
-        SYSTEM_SKILL_SET_ADVANCED_USAGE,
-        SYSTEM_SKILL_SET_TOURING,
-        SYSTEM_SKILL_SET_USER_CONTROL,
-        SYSTEM_SKILL_SET_AGENT_INSTANCE,
-        SYSTEM_SKILL_SET_AGENT_INSPECT,
-        SYSTEM_SKILL_SET_AGENT_MESSAGING,
-        SYSTEM_SKILL_SET_AGENT_GATEWAY,
-    )
+    assert catalog.sets[SYSTEM_SKILL_SET_CORE].skill_names == CORE_SYSTEM_SKILLS
+    assert catalog.sets[SYSTEM_SKILL_SET_ALL].skill_names == ALL_SYSTEM_SKILLS
+    assert catalog.auto_install.managed_launch_sets == (SYSTEM_SKILL_SET_CORE,)
+    assert catalog.auto_install.managed_join_sets == (SYSTEM_SKILL_SET_CORE,)
+    assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
 
 
 def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> None:
@@ -131,53 +116,26 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
 
     resolved = resolve_system_skill_selection(
         catalog,
-        set_names=(
-            "mailbox-core",
-            "mailbox-full",
-            "agent-memory",
-            "advanced-usage",
-            "touring",
-            "user-control",
-            "agent-inspect",
-            "agent-messaging",
-            "agent-gateway",
-        ),
+        set_names=(SYSTEM_SKILL_SET_CORE,),
         skill_names=("houmao-agent-email-comms", "houmao-specialist-mgr"),
     )
 
-    assert resolved == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-adv-usage-pattern",
-        "houmao-touring",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-        "houmao-agent-inspect",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
-    )
+    assert resolved == CORE_SYSTEM_SKILLS
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
 
-def test_resolve_system_skill_selection_includes_explicit_utils_set_only_when_requested() -> None:
+def test_resolve_system_skill_selection_all_adds_utilities_to_core() -> None:
     catalog = load_system_skill_catalog()
 
     resolved = resolve_system_skill_selection(
         catalog,
-        set_names=(SYSTEM_SKILL_SET_UTILS,),
+        set_names=(SYSTEM_SKILL_SET_ALL,),
     )
 
-    assert resolved == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
-    assert SYSTEM_SKILL_SET_UTILS not in catalog.auto_install.managed_launch_sets
-    assert SYSTEM_SKILL_SET_UTILS not in catalog.auto_install.managed_join_sets
-    assert SYSTEM_SKILL_SET_UTILS not in catalog.auto_install.cli_default_sets
+    assert resolved == ALL_SYSTEM_SKILLS
+    assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_launch_sets
+    assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_join_sets
+    assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
 
 
 def test_resolve_system_skill_selection_cli_default_includes_agent_instance_messaging_and_gateway_skills() -> (
@@ -187,26 +145,31 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
 
     resolved = resolve_auto_install_skill_selection(catalog, kind="cli_default")
 
-    assert resolved == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-adv-usage-pattern",
-        "houmao-touring",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-        "houmao-agent-instance",
-        "houmao-agent-inspect",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
+    assert resolved == ALL_SYSTEM_SKILLS
+
+
+def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> None:
+    catalog = load_system_skill_catalog()
+    skill_name_pattern = re.compile(
+        r"(?<![A-Za-z0-9_])("
+        + "|".join(re.escape(name) for name in sorted(catalog.skills, key=len, reverse=True))
+        + r")(?![A-Za-z0-9_])"
     )
-    assert SYSTEM_SKILL_UTILS_LLM_WIKI not in resolved
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+
+    for set_name, set_record in catalog.sets.items():
+        installed = set(set_record.skill_names)
+        for skill_name in set_record.skill_names:
+            skill_root = asset_root / catalog.skills[skill_name].asset_subpath
+            for markdown_path in skill_root.rglob("*.md"):
+                refs = set(skill_name_pattern.findall(markdown_path.read_text(encoding="utf-8")))
+                refs.discard(skill_name)
+                missing = refs - installed
+                assert not missing, (
+                    f"set `{set_name}` installs `{skill_name}` but "
+                    f"{markdown_path.relative_to(skill_root)} references missing skills "
+                    f"{sorted(missing)}"
+                )
 
 
 def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
@@ -228,6 +191,19 @@ def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
     assert "Karpathy" not in skill_text
 
 
+def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR)
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+
+    assert (skill_root / "SKILL.md").is_file()
+    assert (skill_root / "subskills/in-repo-workspace.md").is_file()
+    assert (skill_root / "subskills/out-of-repo-workspace.md").is_file()
+    assert "name: houmao-utils-workspace-mgr" in skill_text
+    assert "seeded-worktree" in skill_text
+    assert "Plan Mode" in skill_text
+    assert "Execute Mode" in skill_text
+
+
 def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) -> None:
     catalog_path = tmp_path / "catalog.toml"
     _write(
@@ -238,13 +214,13 @@ schema_version = 1
 [skills.houmao-agent-email-comms]
 asset_subpath = "houmao-agent-email-comms"
 
-[sets.mailbox-core]
+[sets.core]
 skills = ["houmao-agent-email-comms", "houmao-missing"]
 
 [auto_install]
-managed_launch_sets = ["mailbox-core"]
-managed_join_sets = ["mailbox-core"]
-cli_default_sets = ["mailbox-core"]
+managed_launch_sets = ["core"]
+managed_join_sets = ["core"]
+cli_default_sets = ["core"]
 """.strip()
         + "\n",
     )
@@ -269,7 +245,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     result = install_system_skills_for_home(
         tool="codex",
         home_path=home_path,
-        set_names=("mailbox-core", "user-control"),
+        set_names=(SYSTEM_SKILL_SET_CORE,),
         skill_names=("houmao-agent-email-comms",),
     )
 
@@ -297,28 +273,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
 
-    assert result.resolved_skill_names == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-    )
-    assert tuple(record.name for record in installed_records) == result.resolved_skill_names
-    assert tuple(record.projection_mode for record in installed_records) == (
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
-        "copy",
+    assert result.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert result.resolved_skill_names == CORE_SYSTEM_SKILLS
+    assert set(record.name for record in installed_records) == set(result.resolved_skill_names)
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",) * len(
+        CORE_SYSTEM_SKILLS
     )
     _assert_no_install_state_written(home_path)
     assert user_skill_path.is_file()
@@ -776,9 +735,7 @@ def test_uninstall_system_skills_for_home_targets_gemini_dot_gemini_root(
     result = uninstall_system_skills_for_home(tool="gemini", home_path=home_path)
 
     assert result.removed_skill_names == ("houmao-specialist-mgr",)
-    assert result.removed_projected_relative_dirs == (
-        ".gemini/skills/houmao-specialist-mgr",
-    )
+    assert result.removed_projected_relative_dirs == (".gemini/skills/houmao-specialist-mgr",)
     assert not (home_path / ".gemini/skills/houmao-specialist-mgr").exists()
     assert upstream_alias_path.is_file()
 
@@ -811,6 +768,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     agent_gateway_actions = home_path / "skills/houmao-agent-gateway/actions"
     agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
     utils_llm_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
+    utils_workspace_mgr_path = home_path / "skills/houmao-utils-workspace-mgr/SKILL.md"
     advanced_usage_path = home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
     advanced_usage_patterns = home_path / "skills/houmao-adv-usage-pattern/patterns"
     touring_path = home_path / "skills/houmao-touring/SKILL.md"
@@ -831,39 +789,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     relay_loop_references = home_path / "skills/houmao-agent-loop-generic/references"
     relay_loop_templates = home_path / "skills/houmao-agent-loop-generic/templates"
 
-    assert result.selected_set_names == (
-        "mailbox-full",
-        "agent-memory",
-        "advanced-usage",
-        "touring",
-        "user-control",
-        "agent-instance",
-        "agent-inspect",
-        "agent-messaging",
-        "agent-gateway",
-    )
-    assert "utils" not in result.selected_set_names
+    assert result.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
     assert result.projection_mode == "copy"
-    assert result.resolved_skill_names == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-adv-usage-pattern",
-        "houmao-touring",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-generic",
-        "houmao-agent-instance",
-        "houmao-agent-inspect",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
-    )
-    assert "houmao-utils-llm-wiki" not in result.resolved_skill_names
+    assert result.resolved_skill_names == ALL_SYSTEM_SKILLS
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert mailbox_mgr_path.is_file()
@@ -876,7 +804,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert agent_inspect_path.is_file()
     assert agent_messaging_path.is_file()
     assert agent_gateway_path.is_file()
-    assert not utils_llm_wiki_path.exists()
+    assert utils_llm_wiki_path.is_file()
+    assert utils_workspace_mgr_path.is_file()
     assert stable_pairwise_loop_path.is_file()
     assert pairwise_loop_path.is_file()
     assert relay_loop_path.is_file()
@@ -1831,9 +1760,9 @@ def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_an
 
     assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (
-        home_path / ".gemini/skills/houmao-project-mgr/SKILL.md"
-    ).read_text(encoding="utf-8") == "unselected current skill\n"
+    assert (home_path / ".gemini/skills/houmao-project-mgr/SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "unselected current skill\n"
     assert (home_path / "notes/unrelated.txt").read_text(encoding="utf-8") == "unrelated\n"
     assert state_path.read_text(encoding="utf-8") == stale_state
 

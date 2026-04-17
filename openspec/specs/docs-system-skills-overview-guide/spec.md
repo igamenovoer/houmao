@@ -79,23 +79,6 @@ The guide SHALL NOT restate the full CLI reference content; it SHALL keep the re
 - **THEN** the guide lists `houmao-adv-usage-pattern` as the packaged advanced-usage skill
 - **AND THEN** it describes that skill as the entrypoint for supported multi-skill usage patterns rather than as a replacement for the direct-operation skills
 
-### Requirement: System-skills overview guide includes the packaged mailbox-admin skill and mailbox set distinction
-The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-mailbox-mgr` as one of the currently shipped packaged Houmao-owned system skills.
-
-The guide SHALL describe `houmao-mailbox-mgr` as the mailbox-administration skill for mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late managed-agent filesystem mailbox binding.
-
-When the guide explains the named sets, it SHALL distinguish `mailbox-core` from `mailbox-full` by describing `mailbox-core` as the narrow mailbox worker pair and `mailbox-full` as the broader mailbox set that also includes `houmao-mailbox-mgr`.
-
-#### Scenario: Reader sees the packaged mailbox-admin skill in the narrative guide
-- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
-- **THEN** the guide lists `houmao-mailbox-mgr` among the shipped packaged system skills
-- **AND THEN** it describes that skill as the mailbox-administration entrypoint rather than as the ordinary mailbox-operations skill
-
-#### Scenario: Reader sees that `mailbox-full` is broader than `mailbox-core`
-- **WHEN** a reader checks the named-set explanation in the system-skills overview guide
-- **THEN** the guide explains that `mailbox-core` is the narrow mailbox worker pair
-- **AND THEN** it explains that `mailbox-full` also includes `houmao-mailbox-mgr`
-
 ### Requirement: System-skills overview guide lists the manual guided touring skill
 The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-touring` as one of the currently shipped packaged Houmao-owned system skills.
 
@@ -131,72 +114,59 @@ The guide SHALL continue to describe `houmao-credential-mgr` as the credential-m
 - **AND THEN** the guide does not present `project agents tools <tool> auth ...` as the canonical credential-management route
 
 ### Requirement: Overview guide table enumerates every catalog entry
-`docs/getting-started/system-skills-overview.md` SHALL document every system skill listed under `[skills.*]` in `src/houmao/agents/assets/system_skills/catalog.toml` inside its "Packaged Skills" table (or an equivalently titled catalog table). Each row SHALL give the skill identifier, a brief "what it enables" summary, and the canonical `houmao-mgr` command routing the skill points at.
+`docs/getting-started/system-skills-overview.md` SHALL document every system skill listed under `[skills.*]` in `src/houmao/agents/assets/system_skills/catalog.toml` inside its "Packaged Skills" table or an equivalently titled catalog table. Each row SHALL give the skill identifier, a brief "what it enables" summary, and the canonical `houmao-mgr` command routing or utility workflow the skill points at.
 
 At minimum the guide SHALL surface the following skills currently declared in the catalog:
 
+- `houmao-process-emails-via-gateway`
+- `houmao-agent-email-comms`
+- `houmao-adv-usage-pattern`
+- `houmao-utils-llm-wiki`
+- `houmao-utils-workspace-mgr`
 - `houmao-touring`
+- `houmao-mailbox-mgr`
+- `houmao-memory-mgr`
 - `houmao-project-mgr`
 - `houmao-specialist-mgr`
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
-- `houmao-agent-instance`
-- `houmao-agent-messaging`
-- `houmao-agent-gateway`
-- `houmao-mailbox-mgr`
-- `houmao-agent-email-comms`
-- `houmao-process-emails-via-gateway`
-- `houmao-adv-usage-pattern`
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
 - `houmao-agent-loop-generic`
+- `houmao-agent-instance`
+- `houmao-agent-inspect`
+- `houmao-agent-messaging`
+- `houmao-agent-gateway`
 
-The guide MAY group these skills into concern-oriented subsections (for example "guided touring", "project, specialist, and credential authoring", "agent definition and instance management", "communication, gateway, and mailbox", "loop authoring and master-run control"), provided every catalog entry appears in exactly one subsection.
+The guide MAY group these skills into concern-oriented subsections such as automation, control, and utils, provided every catalog entry appears in exactly one subsection.
 
 #### Scenario: Overview guide table tracks catalog membership
 - **WHEN** a reader compares the overview guide catalog table to `catalog.toml`
 - **THEN** every `[skills.<name>]` entry in the catalog has exactly one row in the guide
 - **AND THEN** the guide does not list a skill that is not in the catalog
 
-#### Scenario: Stable and v2 pairwise skills appear in the overview guide
+#### Scenario: Workspace manager appears in the overview guide
 - **WHEN** a reader opens the overview guide
-- **THEN** the catalog table contains distinct rows for `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2`
-- **AND THEN** the stable row describes the simpler restored pairwise run-control surface
-- **AND THEN** the v2 row describes the enriched versioned pairwise workflow and distinguishes it from the stable pairwise skill
-
-#### Scenario: Loop skills appear in the overview guide
-- **WHEN** a reader opens the overview guide
-- **THEN** the catalog table contains rows for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`
-- **AND THEN** the "canonical CLI routing" column for each loop skill points the reader at the supported operating and authoring command paths actually shipped by the packaged skill assets
-
-#### Scenario: Generic loop planner replaces relay-only row
-- **WHEN** a reader opens the overview guide after the generic replacement
-- **THEN** the catalog table contains `houmao-agent-loop-generic`
-- **AND THEN** it does not contain `houmao-agent-loop-relay` as a current shipped skill
-
-### Requirement: Overview guide auto-install description includes both pairwise variants when `user-control` includes both
-The "Auto-Install vs Explicit Install" section of `docs/getting-started/system-skills-overview.md` SHALL explain that managed launch, managed join, and CLI-default installation all include both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` whenever the current `user-control` set resolves both skills.
-
-#### Scenario: Overview auto-install wording reflects both pairwise variants
-- **WHEN** a reader inspects the overview guide's auto-install narrative or diagram
-- **THEN** the guide includes both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` wherever it expands the current `user-control` set
-- **AND THEN** it does not imply that only one pairwise variant is auto-installed when the catalog includes both
+- **THEN** the catalog table contains a row for `houmao-utils-workspace-mgr`
+- **AND THEN** the row describes workspace planning and execution before managed agents are launched
 
 ### Requirement: Overview guide narrative count matches the catalog
-The overview guide narrative SHALL NOT state a frozen skill count (for example "twelve system skills" or "eleven auto-installed skills") that does not match the current `catalog.toml` entry count and the resolved `[auto_install]` set contents.
+The overview guide narrative SHALL NOT state a frozen skill count that does not match the current `catalog.toml` entry count and the resolved `[auto_install]` set contents.
 
-Where the guide references how many skills exist, how many are auto-installed by `agents launch` or `agents join`, or how many are installed by `system-skills install` when no `--set` or `--skill` is supplied, those numbers SHALL be computed from the current catalog rather than copied as literal text.
+Where the guide references how many skills exist, how many are auto-installed by `agents launch` or `agents join`, or how many are installed by `system-skills install` when no `--skill-set` or `--skill` is supplied, those numbers SHALL be computed from the current catalog rather than copied as literal text.
+
+The guide SHALL describe managed launch and join as resolving `core`, and omitted-selection CLI installs as resolving `all`.
 
 #### Scenario: Overview narrative stays consistent with the catalog
 - **WHEN** a reader reads the overview guide paragraphs that introduce the packaged system skills
 - **THEN** those paragraphs do not assert a total skill count that contradicts `catalog.toml`
 - **AND THEN** they do not assert an auto-install skill count that contradicts the resolved `managed_launch_sets`, `managed_join_sets`, or `cli_default_sets` expansions
 
-#### Scenario: Overview auto-install diagram tracks the catalog
-- **WHEN** a reader inspects the "Auto-Install vs Explicit Install" section of the overview guide
-- **THEN** the ASCII diagram, prose, and per-set expansion table reflect the current resolved contents of `managed_launch_sets`, `managed_join_sets`, and `cli_default_sets` in `catalog.toml`
-- **AND THEN** the diagram includes `houmao-agent-loop-generic` through `user-control` when the catalog includes it
-- **AND THEN** the diagram does not leave `houmao-agent-loop-pairwise` or `houmao-agent-loop-generic` out of the managed-launch auto-install column unless the catalog removes them from the `user-control` set
+#### Scenario: Overview auto-install wording tracks core and all
+- **WHEN** a reader inspects the auto-install guidance in the overview guide
+- **THEN** the guide states that managed launch and join use `core`
+- **AND THEN** it states that omitted-selection `houmao-mgr system-skills install` uses `all`
+- **AND THEN** it does not describe removed granular set names as current installable sets
 
 ### Requirement: Overview guide routes credential management through the dedicated CLI
 
@@ -282,3 +252,27 @@ The guide SHALL explain that the `utils` set is explicit-only and not included i
 - **WHEN** a reader checks the overview guide's named-set or default-selection explanation
 - **THEN** it lists `utils` as a named set containing `houmao-utils-llm-wiki`
 - **AND THEN** it explains that default selections do not include `utils`
+
+### Requirement: System-skills overview guide explains organization groups and installable sets
+The system-skills overview guide SHALL explain that automation, control, and utils are organization groups used for documentation readability.
+
+The guide SHALL explain that the current installable named sets are only `core` and `all`.
+
+The guide SHALL state that `core` is the managed launch/join default and `all` is the omitted-selection CLI install default.
+
+#### Scenario: Reader understands groups versus sets
+- **WHEN** a reader opens the system-skills overview guide
+- **THEN** they can distinguish automation/control/utils organization groups from the installable `core` and `all` set names
+- **AND THEN** install examples use `core`, `all`, or explicit skill names
+
+### Requirement: System-skills overview guide includes the workspace manager utility skill
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-utils-workspace-mgr` as one of the currently shipped packaged Houmao-owned system skills.
+
+The guide SHALL describe `houmao-utils-workspace-mgr` as the utility skill for planning or executing multi-agent workspace layouts before agent launch, including in-repo and out-of-repo workspace flavors, worktrees, local-only shared repos, safe local-state symlink decisions, tracked-submodule materialization, launch-profile cwd updates, and optional memo seed augmentation.
+
+The guide SHALL state that the workspace manager is part of the utility group, is included by `all`, and is not included by managed launch or managed join defaults unless explicitly selected.
+
+#### Scenario: Reader sees workspace manager utility behavior
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the guide lists `houmao-utils-workspace-mgr`
+- **AND THEN** it describes the skill as workspace preparation guidance rather than an agent launch skill

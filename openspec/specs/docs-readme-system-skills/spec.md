@@ -105,21 +105,23 @@ The note SHALL state that `houmao-mgr --version` prints the packaged Houmao vers
 - **AND THEN** the mention explains what the flag prints and that it does not require a subcommand
 
 ### Requirement: README default-install paragraph matches current system_skills.py defaults
+The `README.md` paragraph that explains which skills `agents join` and `agents launch` auto-install by default into managed homes SHALL match the current set declared in `src/houmao/agents/system_skills.py` and the packaged catalog as of this change.
 
-The `README.md` paragraph that explains which skills `agents join` and `agents launch` auto-install by default into managed homes SHALL match the current set declared in `src/houmao/srv_ctrl/commands/system_skills.py` (and any companion `agents/system_skills.py` source) as of this change. The paragraph SHALL be reverified during implementation rather than reused verbatim from the prior pass.
+The README SHALL describe managed launch and managed join as resolving the `core` set.
+
+The README SHALL describe omitted-selection external `houmao-mgr system-skills install` as resolving the `all` set.
 
 When the auto-install set or the CLI-default external-install set changes during implementation discovery, the README SHALL be updated to match, and any divergence between the README paragraph and the current source SHALL be treated as a doc bug.
 
 #### Scenario: README auto-install set agrees with current source
-
-- **WHEN** a reader compares the README "auto-install" paragraph with the current `system_skills.py` defaults
-- **THEN** the listed auto-install set matches the live source
-- **AND THEN** any skill that was added to or removed from the auto-install set after the prior doc pass is reflected in the README
+- **WHEN** a reader compares the README auto-install paragraph with the current system-skill defaults
+- **THEN** the listed managed launch and managed join set is `core`
+- **AND THEN** any skill that is added to or removed from `core` is reflected in the README
 
 #### Scenario: README CLI-default install set agrees with current source
-
-- **WHEN** a reader compares the README explanation of `system-skills install` defaults with the current `system_skills.py` defaults
-- **THEN** the listed CLI-default set matches the live source
+- **WHEN** a reader compares the README explanation of `system-skills install` defaults with the current system-skill defaults
+- **THEN** the listed omitted-selection CLI default set is `all`
+- **AND THEN** the README explains that `all` includes utility skills
 
 ### Requirement: README links the system-skills overview narrative guide
 
@@ -192,21 +194,25 @@ The README "System Skills: Agent Self-Management" subsection SHALL document ever
 
 At minimum the table SHALL include one row for each of the following skills currently shipped by the catalog:
 
+- `houmao-process-emails-via-gateway`
+- `houmao-agent-email-comms`
+- `houmao-adv-usage-pattern`
+- `houmao-utils-llm-wiki`
+- `houmao-utils-workspace-mgr`
 - `houmao-touring`
+- `houmao-mailbox-mgr`
+- `houmao-memory-mgr`
 - `houmao-project-mgr`
 - `houmao-specialist-mgr`
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
-- `houmao-agent-instance`
-- `houmao-agent-messaging`
-- `houmao-agent-gateway`
-- `houmao-mailbox-mgr`
-- `houmao-agent-email-comms`
-- `houmao-process-emails-via-gateway`
-- `houmao-adv-usage-pattern`
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
 - `houmao-agent-loop-generic`
+- `houmao-agent-instance`
+- `houmao-agent-inspect`
+- `houmao-agent-messaging`
+- `houmao-agent-gateway`
 
 The "What it enables" column SHALL describe each skill in operator-facing language and SHALL avoid claiming a skill exists when it is not present in the catalog.
 
@@ -215,35 +221,10 @@ The "What it enables" column SHALL describe each skill in operator-facing langua
 - **THEN** every `[skills.<name>]` block in the catalog has exactly one corresponding row in the README table
 - **AND THEN** the README table contains no row for a skill that is not declared in the catalog
 
-#### Scenario: Pairwise v2 skill is surfaced in the README catalog
+#### Scenario: Workspace manager is surfaced in the README catalog
 - **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains a distinct row for `houmao-agent-loop-pairwise-v2`
-- **AND THEN** the row describes the skill as the versioned enriched pairwise workflow that remains manual-invocation-only
-
-#### Scenario: Loop skills are surfaced in the README catalog
-- **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains distinct rows for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`
-- **AND THEN** each row briefly explains the loop-authoring and master-run control purpose of the skill
-
-#### Scenario: Generic loop planner replaces relay-only row
-- **WHEN** a reader opens the README "System Skills" subsection after the generic replacement
-- **THEN** the table contains `houmao-agent-loop-generic`
-- **AND THEN** it does not contain `houmao-agent-loop-relay` as a current shipped skill
-
-### Requirement: README user-control set enumeration includes pairwise-v2
-The README paragraph that describes which skills the `user-control` set includes SHALL list `houmao-agent-loop-pairwise-v2` alongside the existing members (`houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-loop-pairwise`, `houmao-agent-loop-generic`).
-
-The README paragraph that describes which skills the `user-control` set includes SHALL NOT list `houmao-agent-loop-relay` after the generic replacement.
-
-#### Scenario: Reader sees pairwise-v2 in the user-control set expansion
-- **WHEN** a reader reads the README paragraph describing which skills compose the `user-control` set
-- **THEN** the paragraph lists `houmao-agent-loop-pairwise-v2` as a member of the `user-control` set
-- **AND THEN** the paragraph lists `houmao-agent-loop-generic` as the generic loop planner member of the `user-control` set
-- **AND THEN** the total count of `user-control` members matches the `[sets.user-control].skills` array in `catalog.toml`
-
-#### Scenario: Reader does not see relay loop planner in current user-control expansion
-- **WHEN** a reader reads the README paragraph describing which skills compose the `user-control` set after the generic replacement
-- **THEN** the paragraph does not list `houmao-agent-loop-relay` as a current member of the set
+- **THEN** the table contains `houmao-utils-workspace-mgr`
+- **AND THEN** the row describes the skill as a utility for planning and executing multi-agent workspace layouts before launch
 
 ### Requirement: README auto-install wording includes both pairwise variants when `user-control` includes both
 When the README describes the managed-home or CLI-default system-skill expansions, that wording SHALL include both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` whenever the current packaged `user-control` set includes both.
@@ -343,3 +324,27 @@ The README SHALL explain that `houmao-utils-llm-wiki` is not part of managed-hom
 - **WHEN** a reader scans the README system-skills install examples
 - **THEN** they can find an example using `--skill-set utils` or `--skill houmao-utils-llm-wiki`
 - **AND THEN** the README does not imply that the utility skill is installed by default
+
+### Requirement: README explains current core and all set surface
+The README system-skills subsection SHALL explain that the current installable named sets are `core` and `all`.
+
+The README SHALL explain that `core` is used for managed launch and join defaults, and `all` is used by `houmao-mgr system-skills install` when no `--skill-set` or `--skill` is supplied.
+
+The README MAY organize skills as automation, control, and utils for readability, but SHALL NOT present those organization groups as installable set names.
+
+#### Scenario: Reader sees current set names from README
+- **WHEN** a reader scans the README system-skills subsection
+- **THEN** they see `core` and `all` as the supported named set surface
+- **AND THEN** they do not see removed granular set names presented as current installable sets
+
+### Requirement: README system-skills table lists the workspace-manager utility skill
+The README system-skills subsection SHALL list `houmao-utils-workspace-mgr` as one of the current packaged Houmao-owned system skills.
+
+That catalog row or list entry SHALL describe `houmao-utils-workspace-mgr` as the utility skill for planning and executing multi-agent workspace layouts before launching agents.
+
+The README SHALL distinguish `houmao-utils-workspace-mgr` from lifecycle skills by explaining that it prepares workspaces and launch-profile cwd changes but does not launch agents.
+
+#### Scenario: Reader sees workspace manager in README
+- **WHEN** a reader scans the README system-skills catalog table or list
+- **THEN** they find `houmao-utils-workspace-mgr` with a one-line description
+- **AND THEN** the entry describes workspace preparation rather than live managed-agent lifecycle operation
